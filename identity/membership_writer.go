@@ -155,6 +155,19 @@ func (s *SQLStore) TransferAccountOwnership(ctx context.Context, scope tenancy.S
 			return nil
 		}
 
+		// owner_user_id carries no scope and no foreign key, so nothing below
+		// this refuses a new owner from another directory: the membership branch
+		// takes the id on faith and the SET stores it. An account owned by
+		// somebody its own directory cannot read is an account whose every
+		// ownership-derived permission check resolves to nobody, and the roster
+		// that does display them displays a stranger. The scoped read is the
+		// refusal, and it is here rather than only inside the membership write
+		// because a new owner who already holds a membership would skip that
+		// path entirely.
+		if _, err = s.readUser(ctx, q, scope, newOwnerUserID); err != nil {
+			return err
+		}
+
 		// The new owner gets a membership if they lack one. An owner who is not
 		// a member is an account whose roster does not include the person
 		// responsible for it, and every roster-driven permission check then

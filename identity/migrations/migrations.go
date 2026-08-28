@@ -21,6 +21,24 @@ Statements is the same DDL split into individually executable statements, for
 callers running it some other way — a different migration tool, or a test that
 just wants the tables.
 
+# Which tables this package creates
+
+Tables answers that, at your prefix, and the answer is complete: the names come
+out of the DDL rather than from a list beside it, so a table added to this schema
+is in that list the moment it is added.
+
+	names, err := migrations.Tables(identity.DefaultTablePrefix)
+
+Reach for it wherever the job is per-table but not per-query — the TRUNCATE
+between integration tests, a backup policy, a schema inventory, a data privacy
+audit. The alternative is copying seven names out of the .sql files, which is a
+list that goes stale silently: nothing reports a table left out of a maintenance
+TRUNCATE except a test failing somewhere else on rows the previous one left.
+
+The same seven names reach database/querygen's table registry when identity's
+generator runs, so a binary that generates for several schemas reads one list
+covering all of them.
+
 # What a consumer adds beside these tables
 
 Columns of their own, in a side table keyed by user or account ID. This package
@@ -127,6 +145,37 @@ func Statements(d dialect.Dialect, prefix string) ([]string, error) {
 // table and index this package creates.
 func ValidatePrefix(prefix string) error {
 	return schema.ValidatePrefix(prefix)
+}
+
+// Tables returns the seven table names this package creates, rendered against
+// prefix and sorted.
+//
+// It is the complete list — identity creates no table this omits, because the
+// names are read out of the DDL beside this file rather than from a list
+// maintained next to it, so a table added to the schema is in this list the
+// moment it is added. That is what a consumer needs it to be: the uses are the
+// per-table jobs that are not per-query — the TRUNCATE an integration suite runs
+// between tests, a backup policy, a schema audit, a data privacy inventory — and
+// every one of them is wrong in a way nothing reports if the list is short by
+// one. A missing table in a between-tests TRUNCATE is a different test failing
+// later, on rows the previous one left behind.
+//
+// The prefix is vetted exactly as [Statements] and [SQL] vet it, and for the
+// same reason: these names are interpolated into statement text rather than
+// bound, so a caller building a TRUNCATE out of them is building it out of
+// whatever this returns.
+//
+// It is not an ordering a caller can delete in. Foreign keys make deletion order
+// a fact about the schema — memberships reference both users and accounts, and
+// each role table references what it names — so a consumer clearing these tables
+// wants the dialect's own way of ignoring the constraints rather than a sequence
+// read off this slice.
+func Tables(prefix string) ([]string, error) {
+	if err := schema.ValidatePrefix(prefix); err != nil {
+		return nil, err
+	}
+
+	return schema.Tables(prefix), nil
 }
 
 // SQL renders the same DDL as Statements, joined back into one migration body.

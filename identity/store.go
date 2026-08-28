@@ -35,7 +35,7 @@ func (a Agreement) Valid() bool {
 
 // Principal is a user together with the memberships that say what they may do:
 // everything an authorization check, a session, or a request context needs
-// about who is calling, read in one round trip.
+// about who is calling, assembled by one call.
 //
 // It exists because every application builds this by hand out of three queries
 // on the hottest path it has — the one every authenticated request runs — and
@@ -176,6 +176,12 @@ type Registrar interface {
 	// land — a state that is easy to write and confusing to debug. A subsequent
 	// membership marked default moves the flag, which is what SetDefaultAccount
 	// does and what accepting an invitation into a first account relies on.
+	//
+	// Both endpoints must live in the membership's own scope, and a user or an
+	// account that does not returns an error wrapping ErrUserNotFound or
+	// ErrAccountNotFound. The foreign keys prove that the ids exist somewhere,
+	// which for a multi-directory deployment is not the question being asked —
+	// a membership across two directories puts a stranger on a roster.
 	CreateMembership(ctx context.Context, q database.Tx, membership *Membership) error
 }
 
@@ -251,7 +257,18 @@ type SignInReader interface {
 	GetUserByEmailAddress(ctx context.Context, scope tenancy.Scope, emailAddress string) (*User, error)
 
 	// GetPrincipal reads a user with their memberships and resolves which
-	// account the request is against, in one round trip.
+	// account the request is against.
+	//
+	// One call, four statements, no shared snapshot. The user, the service
+	// roles they hold outside any account, their memberships, and the roles on
+	// those memberships are four reads, each taken from the read side on its
+	// own rather than from a single transaction — so a write landing partway
+	// through shows in whichever of the four have yet to run and not in the
+	// ones already back. That is the shape to size a connection pool and a
+	// consistency expectation against, on the path every authenticated request
+	// runs. Whether it should become fewer statements is a question about this
+	// method rather than about its callers: the answer changes here and nothing
+	// above it moves.
 	//
 	// An empty activeAccountID means the user's default account. A named one
 	// must be an account the user is a live member of; otherwise the read
@@ -427,6 +444,10 @@ type MembershipWriter interface {
 	// and ejecting somebody are different acts, and doing both here would make
 	// the common case — handing over to a colleague and staying on — impossible
 	// to express.
+	//
+	// The new owner must be a live user in the account's scope; one who is not
+	// returns an error wrapping ErrUserNotFound, the same answer a read of them
+	// from here would give.
 	//
 	// A minted membership carries no roles, because ownership is the standing
 	// and this package does not know what a role of yours means. A new owner who
@@ -609,6 +630,10 @@ type InvitationStore interface {
 	// The roles come from the invitation rather than from a parameter: what
 	// somebody was invited to is what they get, and a parameter here is where an
 	// escalation goes in.
+	//
+	// The accepting user must be a live user in the invitation's scope, and one
+	// who is not returns an error wrapping ErrUserNotFound rather than a
+	// membership spanning two directories.
 	AcceptInvitation(ctx context.Context, q database.Tx, scope tenancy.Scope, invitationID, token, acceptingUserID, note string) (*Membership, error)
 
 	// SetInvitationStatus answers an invitation without producing a membership:

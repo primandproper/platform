@@ -8,6 +8,7 @@ import (
 
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	"github.com/primandproper/platform-go/v13/database/querygen"
+	"github.com/primandproper/platform-go/v13/identity/migrations"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -19,6 +20,47 @@ var everyDialect = []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQ
 
 // allTables is every table declared here, emitted or not.
 var allTables = []*Table{&Users, &Accounts, &Invitations, &Memberships}
+
+// TestRender_RegistersEveryTable is the registry half of the same guarantee the
+// canonical .sql files are the query half of.
+//
+// querygen.Generator.StandardCRUD registers what it emits for, which here is
+// three tables of seven — so a consumer reading the registry back to truncate a
+// database between integration tests would leave memberships and the three role
+// tables full, and the symptom would be a different test failing later on rows
+// the previous one left behind. Render registers the whole list, and this pins
+// that it does.
+func TestRender_RegistersEveryTable(t *testing.T) {
+	t.Parallel()
+
+	for _, d := range everyDialect {
+		_ = Render(d)
+	}
+
+	for _, table := range TableNames {
+		test.True(t, querygen.TableRegistered(table), test.Sprintf("%s is not registered", table))
+	}
+}
+
+// TestTableNames_AreTheTablesTheDDLCreates is the cross-check between the two
+// halves of "what tables does identity own": the canonical spelling here, which
+// the registry and identity's prefix rendering both read, and the list
+// migrations.Tables reads out of the DDL for a consumer.
+//
+// Neither derives from the other on purpose — one is a Go constant a statement
+// interpolates, the other is read from the schema that creates the table — so
+// this is where a table added to one and not the other stops being invisible.
+func TestTableNames_AreTheTablesTheDDLCreates(t *testing.T) {
+	t.Parallel()
+
+	created, err := migrations.Tables("")
+	must.NoError(t, err)
+
+	declared := slices.Clone(TableNames)
+	slices.Sort(declared)
+
+	test.Eq(t, created, declared)
+}
 
 // TestRender_MatchesTheCommittedFiles is the regeneration gate, run locally
 // rather than only in CI.

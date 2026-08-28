@@ -229,6 +229,41 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 		)
 	})
 
+	t.Run("refuses a new owner from another directory", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		owner := createUser(t, store, newUser("ada"))
+		account := createAccountFor(t, store, owner, "Acme")
+
+		// A neighbor whose id is perfectly real and whose directory is not this
+		// one. owner_user_id carries no foreign key at all and the membership's
+		// carries no scope, so the store's own scoped read is the only thing
+		// between this id and the account it would come to own.
+		neighbor := newUser("eve")
+		neighbor.Scope = otherScope
+		createUser(t, store, neighbor)
+
+		must.ErrorIs(t,
+			store.TransferAccountOwnership(t.Context(), testScope, account.ID, neighbor.ID),
+			ErrUserNotFound,
+		)
+
+		// Neither half of the transfer landed: the account keeps the owner it
+		// had, and the roster gains no stranger.
+		read, err := store.GetAccount(t.Context(), testScope, account.ID)
+		must.NoError(t, err)
+		test.EqOp(t, owner.ID, read.OwnerUserID)
+
+		_, err = store.GetMembership(t.Context(), testScope, neighbor.ID, account.ID)
+		must.ErrorIs(t, err, ErrMembershipNotFound)
+
+		members, err := store.ListAccountMembers(t.Context(), testScope, account.ID, nil)
+		must.NoError(t, err)
+		must.SliceLen(t, 1, members.Data)
+		test.EqOp(t, owner.ID, members.Data[0].User.ID)
+	})
+
 	t.Run("keeps an existing member's roles on transfer", func(t *testing.T) {
 		t.Parallel()
 

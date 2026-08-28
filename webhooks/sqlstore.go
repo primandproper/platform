@@ -155,6 +155,7 @@ func (s *SQLStore) SaveEndpoint(ctx context.Context, endpoint *Endpoint) error {
 	}
 
 	now := s.clock.Now().UTC()
+	events := endpoint.EventTypes()
 
 	if err = s.client.WithTransaction(ctx, func(q database.Tx) error {
 		if scopeErr := s.checkEndpointScope(ctx, q, endpoint); scopeErr != nil {
@@ -166,18 +167,38 @@ func (s *SQLStore) SaveEndpoint(ctx context.Context, endpoint *Endpoint) error {
 			return platformerrors.Wrap(err, "upserting webhook endpoint")
 		}
 
-		query, args = s.tables.buildDeleteSubscriptions(s.dialect, endpoint.ID)
-		if _, err = q.ExecContext(ctx, query, args...); err != nil {
-			return platformerrors.Wrap(err, "clearing webhook endpoint subscriptions")
+		if len(events) > 0 {
+			rows := make([]subscriptionRow, 0, len(events))
+			for _, event := range events {
+				rows = append(rows, subscriptionRow{
+					id:         identifiers.New(),
+					endpointID: endpoint.ID,
+					eventType:  event,
+				})
+			}
+
+			query, args = s.tables.buildUpsertSubscriptions(s.dialect, rows, now)
+			if _, err = q.ExecContext(ctx, query, args...); err != nil {
+				return platformerrors.Wrap(err, "upserting webhook endpoint subscriptions")
+			}
 		}
 
-		if len(endpoint.Events) == 0 {
-			return nil
+		// Archived after the upsert, not before: a subscription named by this save
+		// is revived by the statement above, and archiving first would leave a
+		// window inside the transaction in which the endpoint is subscribed to
+		// nothing. Nothing else reads it there, but the ordering is free.
+		query, args = s.tables.buildArchiveUnnamedSubscriptions(s.dialect, endpoint.ID, events, now)
+		if _, err = q.ExecContext(ctx, query, args...); err != nil {
+			return platformerrors.Wrap(err, "archiving retired webhook endpoint subscriptions")
 		}
 
-		query, args = s.tables.buildInsertSubscriptions(s.dialect, endpoint.ID, endpoint.Events)
-		if _, err = q.ExecContext(ctx, query, args...); err != nil {
-			return platformerrors.Wrap(err, "inserting webhook endpoint subscriptions")
+		// Read back inside the transaction, so the caller leaves with the IDs and
+		// timestamps of the rows that were actually written — a revived
+		// subscription keeps the ID it had, which is not the one this save
+		// generated for it, and a caller who cannot see that has no way to name it
+		// afterwards.
+		if endpoint.Subscriptions, err = s.subscriptionsFor(ctx, q, endpoint.ID); err != nil {
+			return platformerrors.Wrap(err, "reading webhook endpoint subscriptions")
 		}
 
 		return nil
@@ -208,7 +229,7 @@ func (s *SQLStore) GetEndpoint(ctx context.Context, scope tenancy.Scope, endpoin
 		return nil, op.Error(err, "reading webhook endpoint %q", endpointID)
 	}
 
-	if endpoint.Events, err = s.subscriptionsFor(ctx, s.client.Reader(), endpointID); err != nil {
+	if endpoint.Subscriptions, err = s.subscriptionsFor(ctx, s.client.Reader(), endpointID); err != nil {
 		return nil, op.Error(err, "reading webhook endpoint %q subscriptions", endpointID)
 	}
 
@@ -249,7 +270,7 @@ func (s *SQLStore) ListEndpoints(ctx context.Context, scope tenancy.Scope, filte
 	// one endpoint with thirty event types does not multiply every other row in
 	// the page by its subscription count.
 	for _, endpoint := range endpoints {
-		if endpoint.Events, err = s.subscriptionsFor(ctx, s.client.Reader(), endpoint.ID); err != nil {
+		if endpoint.Subscriptions, err = s.subscriptionsFor(ctx, s.client.Reader(), endpoint.ID); err != nil {
 			return nil, op.Error(err, "listing webhook endpoints")
 		}
 	}
@@ -287,6 +308,173 @@ func (s *SQLStore) ArchiveEndpoint(ctx context.Context, scope tenancy.Scope, end
 
 	if _, err := s.client.Writer().ExecContext(ctx, query, args...); err != nil {
 		return op.Error(err, "archiving webhook endpoint %q", endpointID)
+	}
+
+	return nil
+}
+
+// AddSubscription subscribes one of the scope's endpoints to eventType.
+//
+// It is an upsert and a read rather than an insert, because a subscription is
+// identified by the (endpoint, event type) pair: subscribing to something the
+// endpoint already subscribes to is not an error, and re-subscribing to
+// something it archived revives that row rather than minting a second one for
+// the same pair. Both cases return the row that is now live, which is why the
+// write is followed by a read — a revived row keeps the ID it already had.
+//
+// Both statements run in one transaction, so the row read back is the row
+// written and not one a concurrent archive has since retired.
+func (s *SQLStore) AddSubscription(ctx context.Context, scope tenancy.Scope, endpointID string, eventType EventType) (*Subscription, error) {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(endpointIDKey, endpointID),
+		observability.WithValue(eventTypeKey, eventType.String()),
+	)
+	defer op.End()
+
+	if err := scope.Validate(); err != nil {
+		return nil, op.Error(err, "subscribing webhook endpoint %q", endpointID)
+	}
+
+	if eventType == "" {
+		return nil, op.Error(ErrEmptyEventType, "subscribing webhook endpoint %q", endpointID)
+	}
+
+	now := s.clock.Now().UTC()
+
+	var subscription *Subscription
+
+	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
+		// The endpoint is read within the scope first, so that subscribing to an
+		// endpoint belonging to somebody else is a not-found rather than a write:
+		// the subscriptions table has no scope of its own to filter on, and the
+		// foreign key alone would happily accept the row.
+		query, args := s.tables.buildSelectEndpoint(s.dialect, scope, endpointID)
+		if _, err := scanEndpoint(q.QueryRowContext(ctx, query, args...)); err != nil {
+			return platformerrors.Wrapf(err, "reading webhook endpoint %q", endpointID)
+		}
+
+		rows := []subscriptionRow{{id: identifiers.New(), endpointID: endpointID, eventType: eventType}}
+
+		query, args = s.tables.buildUpsertSubscriptions(s.dialect, rows, now)
+		if _, err := q.ExecContext(ctx, query, args...); err != nil {
+			return platformerrors.Wrap(err, "upserting webhook subscription")
+		}
+
+		query, args = s.tables.buildSelectSubscriptionByPair(s.dialect, endpointID, eventType)
+
+		written, err := scanSubscription(q.QueryRowContext(ctx, query, args...))
+		if err != nil {
+			return platformerrors.Wrap(err, "reading webhook subscription")
+		}
+
+		subscription = &written
+
+		return nil
+	}); err != nil {
+		return nil, op.Error(err, "subscribing webhook endpoint %q to %q", endpointID, eventType)
+	}
+
+	op.Set(subscriptionIDKey, subscription.ID)
+
+	return subscription, nil
+}
+
+// GetSubscription reads one of the scope's subscriptions, archived ones
+// included. A subscription under another scope's endpoint reads as absent.
+func (s *SQLStore) GetSubscription(ctx context.Context, scope tenancy.Scope, subscriptionID string) (*Subscription, error) {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(subscriptionIDKey, subscriptionID),
+	)
+	defer op.End()
+
+	if err := scope.Validate(); err != nil {
+		return nil, op.Error(err, "reading webhook subscription %q", subscriptionID)
+	}
+
+	query, args := s.tables.buildSelectSubscription(s.dialect, scope, subscriptionID)
+
+	subscription, err := scanSubscription(s.client.Reader().QueryRowContext(ctx, query, args...))
+	if err != nil {
+		return nil, op.Error(err, "reading webhook subscription %q", subscriptionID)
+	}
+
+	return &subscription, nil
+}
+
+// ListSubscriptions pages the live subscriptions of one of the scope's
+// endpoints.
+func (s *SQLStore) ListSubscriptions(ctx context.Context, scope tenancy.Scope, endpointID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Subscription], error) {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(endpointIDKey, endpointID),
+	)
+	defer op.End()
+
+	if err := scope.Validate(); err != nil {
+		return nil, op.Error(err, "listing webhook subscriptions for endpoint %q", endpointID)
+	}
+
+	if filter == nil {
+		filter = filtering.DefaultQueryFilter()
+	}
+
+	limit := filtering.DefaultQueryFilterLimit
+	if filter.MaxResponseSize != nil && *filter.MaxResponseSize > 0 {
+		limit = int(*filter.MaxResponseSize)
+	}
+
+	var cursor string
+	if filter.Cursor != nil {
+		cursor = *filter.Cursor
+	}
+
+	query, args := s.tables.buildListSubscriptions(s.dialect, scope, endpointID, cursor, limit)
+
+	subscriptions, err := database.ScanAll(ctx, s.client.Reader(), "webhook subscription", query, args, scanSubscriptionPtr)
+	if err != nil {
+		return nil, op.Error(err, "listing webhook subscriptions for endpoint %q", endpointID)
+	}
+
+	countQuery, countArgs := s.tables.buildCountSubscriptions(s.dialect, scope, endpointID)
+
+	var total uint64
+	if err = s.client.Reader().QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
+		return nil, op.Error(err, "counting webhook subscriptions")
+	}
+
+	op.SpanOnly(subscriptionCountKey, len(subscriptions))
+
+	return filtering.NewQueryFilteredResult(
+		subscriptions, uint64(len(subscriptions)), total,
+		func(sub *Subscription) string { return sub.ID },
+		filter,
+	), nil
+}
+
+// ArchiveSubscription retires one of the scope's subscriptions. A subscription
+// under another scope's endpoint is not touched.
+//
+// Like ArchiveEndpoint it does not report whether it matched a row. An archive
+// that names nothing and an archive of something already archived are both
+// "this subscription is not live", which is the state the caller asked for; the
+// distinction between them is a read, and GetSubscription is that read.
+func (s *SQLStore) ArchiveSubscription(ctx context.Context, scope tenancy.Scope, subscriptionID string) error {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(subscriptionIDKey, subscriptionID),
+	)
+	defer op.End()
+
+	if err := scope.Validate(); err != nil {
+		return op.Error(err, "archiving webhook subscription %q", subscriptionID)
+	}
+
+	query, args := s.tables.buildArchiveSubscription(s.dialect, scope, subscriptionID, s.clock.Now().UTC())
+
+	if _, err := s.client.Writer().ExecContext(ctx, query, args...); err != nil {
+		return op.Error(err, "archiving webhook subscription %q", subscriptionID)
 	}
 
 	return nil
@@ -678,27 +866,16 @@ func (s *SQLStore) checkEndpointScope(ctx context.Context, q database.SQLQueryEx
 	}
 }
 
-// subscriptionsFor reads one endpoint's event types.
-//
-// The column is text and is scanned as text, then converted. EventType is a
-// defined string type, so most drivers would scan straight into one through
-// their reflective fallback — but that is a property of the driver rather than
-// of this package, and the conversion is one line.
-func (s *SQLStore) subscriptionsFor(ctx context.Context, q database.SQLQueryExecutor, endpointID string) ([]EventType, error) {
-	query := "SELECT event_type FROM " + s.tables.subscriptions +
-		" WHERE endpoint_id = " + s.dialect.Placeholder(1) + " ORDER BY event_type"
+// subscriptionsFor reads one endpoint's live subscription rows.
+func (s *SQLStore) subscriptionsFor(ctx context.Context, q database.SQLQueryExecutor, endpointID string) ([]Subscription, error) {
+	query, args := s.tables.buildSelectSubscriptions(s.dialect, endpointID)
 
-	stored, err := database.ScanStrings(ctx, q, "webhook subscription", query, []any{endpointID})
+	subscriptions, err := database.ScanAll(ctx, q, "webhook subscription", query, args, scanSubscription)
 	if err != nil {
 		return nil, platformerrors.Wrapf(err, "reading subscriptions for webhook endpoint %q", endpointID)
 	}
 
-	events := make([]EventType, 0, len(stored))
-	for _, eventType := range stored {
-		events = append(events, EventType(eventType))
-	}
-
-	return events, nil
+	return subscriptions, nil
 }
 
 // scanEndpoints projects endpoint rows, without their subscriptions.
@@ -706,33 +883,141 @@ func (s *SQLStore) scanEndpoints(ctx context.Context, q database.SQLQueryExecuto
 	return database.ScanAll(ctx, q, "webhook endpoint", query, args, scanEndpoint)
 }
 
+// endpointScan holds the columns of endpointColumns that need converting once
+// the Scan has run — a nullable scope, two blobs, and the three timestamps.
+//
+// It exists so that the endpoint projection has exactly one written-out column
+// order. Two queries read an endpoint, one of them out of a three-way join, and
+// a second hand-maintained list of destinations in the same order as the first
+// is the drift endpointColumns was declared once to prevent.
+type endpointScan struct {
+	createdAt any
+	updatedAt any
+	archived  any
+	previous  []byte
+	headers   []byte
+	createdBy sql.NullString
+}
+
+// dests returns the scan destinations for endpointColumns, in its order.
+func (r *endpointScan) dests(endpoint *Endpoint) []any {
+	return []any{
+		&endpoint.ID, &endpoint.Scope, &r.createdBy, &endpoint.Name, &endpoint.URL, &endpoint.ContentType,
+		&endpoint.Secret.Current, &r.previous, &r.headers, &endpoint.Disabled,
+		&r.createdAt, &r.updatedAt, &r.archived,
+	}
+}
+
+// apply writes what was scanned onto the endpoint.
+func (r *endpointScan) apply(endpoint *Endpoint) error {
+	endpoint.Secret.Previous = r.previous
+	endpoint.CreatedBy = ownerScope(r.createdBy)
+	endpoint.LastUpdatedAt = coerceTimePtr(r.updatedAt)
+	endpoint.ArchivedAt = coerceTimePtr(r.archived)
+
+	if at, ok := database.CoerceTime(r.createdAt); ok {
+		endpoint.CreatedAt = at.UTC()
+	}
+
+	// An endpoint registered before any headers were stored, or one whose
+	// headers column holds a JSON null, yields a nil map rather than an error.
+	if len(r.headers) > 0 {
+		if err := json.Unmarshal(r.headers, &endpoint.Headers); err != nil {
+			return platformerrors.Wrapf(err, "unmarshaling headers for webhook endpoint %q", endpoint.ID)
+		}
+	}
+
+	return nil
+}
+
 // scanEndpoint reads one endpoint row. The column list comes from
 // endpointColumns so the query and this scan cannot drift.
 func scanEndpoint(scanner database.Scanner) (*Endpoint, error) {
 	var (
 		endpoint Endpoint
-		previous []byte
-		headers  []byte
+		raw      endpointScan
 	)
 
-	if err := scanner.Scan(
-		&endpoint.ID, &endpoint.Scope, &endpoint.URL, &endpoint.ContentType,
-		&endpoint.Secret.Current, &previous, &headers, &endpoint.Disabled,
-	); err != nil {
+	if err := scanner.Scan(raw.dests(&endpoint)...); err != nil {
 		return nil, err
 	}
 
-	endpoint.Secret.Previous = previous
-
-	// An endpoint registered before any headers were stored, or one whose
-	// headers column holds a JSON null, yields a nil map rather than an error.
-	if len(headers) > 0 {
-		if err := json.Unmarshal(headers, &endpoint.Headers); err != nil {
-			return nil, platformerrors.Wrapf(err, "unmarshaling headers for webhook endpoint %q", endpoint.ID)
-		}
+	if err := raw.apply(&endpoint); err != nil {
+		return nil, err
 	}
 
 	return &endpoint, nil
+}
+
+// scanSubscription reads one subscription row. The column list comes from
+// subscriptionColumns so the query and this scan cannot drift.
+func scanSubscription(scanner database.Scanner) (Subscription, error) {
+	var (
+		subscription Subscription
+		eventType    string
+		createdAt    any
+		updatedAt    any
+		archived     any
+	)
+
+	if err := scanner.Scan(
+		&subscription.ID, &subscription.EndpointID, &eventType,
+		&createdAt, &updatedAt, &archived,
+	); err != nil {
+		return Subscription{}, err
+	}
+
+	subscription.EventType = EventType(eventType)
+	subscription.LastUpdatedAt = coerceTimePtr(updatedAt)
+	subscription.ArchivedAt = coerceTimePtr(archived)
+
+	if at, ok := database.CoerceTime(createdAt); ok {
+		subscription.CreatedAt = at.UTC()
+	}
+
+	return subscription, nil
+}
+
+// scanSubscriptionPtr is scanSubscription for the paged read, which pages
+// pointers because filtering.NewQueryFilteredResult keys a cursor off one.
+func scanSubscriptionPtr(scanner database.Scanner) (*Subscription, error) {
+	subscription, err := scanSubscription(scanner)
+	if err != nil {
+		return nil, err
+	}
+
+	return &subscription, nil
+}
+
+// ownerScope maps a nullable created_by column back to a Scope: NULL is the
+// unset one, and anything else — the empty identifier included — is the scope it
+// names.
+//
+// tenancy.Scope.Scan refuses a NULL outright, which is right for the NOT NULL
+// scope column it was written for and wrong here: this column is nullable
+// because the attribution is optional, so the NULL has a meaning rather than
+// being a schema mismatch.
+func ownerScope(stored sql.NullString) tenancy.Scope {
+	if !stored.Valid {
+		return tenancy.Scope{}
+	}
+
+	return tenancy.FromOwner(stored.String)
+}
+
+// coerceTimePtr reads a nullable timestamp column into the *time.Time the
+// convention triple's two optional halves are held as. A NULL, or anything no
+// driver should have produced for a timestamp, reads as nil — which is what the
+// column means when it is not set.
+func coerceTimePtr(raw any) *time.Time {
+	at, ok := database.CoerceTime(raw)
+	if !ok {
+		return nil
+	}
+
+	utc := at.UTC()
+
+	return &utc
 }
 
 // scanClaimed projects claimed dispatches joined to their delivery and
@@ -742,30 +1027,28 @@ func (s *SQLStore) scanClaimed(ctx context.Context, q database.SQLQueryExecutor,
 		var (
 			row         ClaimedDispatch
 			endpoint    Endpoint
+			raw         endpointScan
 			eventType   string
 			orderingKey sql.NullString
-			previous    []byte
-			headers     []byte
 		)
 
-		if err := scanner.Scan(
+		// The endpoint half of this projection is endpointColumns, so its
+		// destinations come from the type that owns that order rather than from a
+		// second copy of it here.
+		dests := append([]any{
 			&row.ID, &row.DeliveryID, &row.EndpointID, &orderingKey, &row.Attempts,
 			&eventType, &row.Payload, &row.Scope,
-			&endpoint.ID, &endpoint.Scope, &endpoint.URL, &endpoint.ContentType,
-			&endpoint.Secret.Current, &previous, &headers, &endpoint.Disabled,
-		); err != nil {
+		}, raw.dests(&endpoint)...)
+
+		if err := scanner.Scan(dests...); err != nil {
+			return ClaimedDispatch{}, err
+		}
+
+		if err := raw.apply(&endpoint); err != nil {
 			return ClaimedDispatch{}, err
 		}
 
 		row.EventType = EventType(eventType)
-		endpoint.Secret.Previous = previous
-
-		if len(headers) > 0 {
-			if err := json.Unmarshal(headers, &endpoint.Headers); err != nil {
-				return ClaimedDispatch{}, platformerrors.Wrapf(err, "unmarshaling headers for webhook endpoint %q", endpoint.ID)
-			}
-		}
-
 		row.OrderingKey = orderingKey.String
 		row.Endpoint = &endpoint
 

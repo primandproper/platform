@@ -118,12 +118,12 @@ func registerScopedEndpoint(t *testing.T, store Store, scope tenancy.Scope, id s
 	t.Helper()
 
 	endpoint := &Endpoint{
-		ID:          id,
-		Scope:       scope,
-		URL:         "https://93.184.216.34/hooks/" + id,
-		ContentType: DefaultContentType,
-		Secret:      Secret{Current: []byte("secret-" + id)},
-		Events:      events,
+		ID:            id,
+		Scope:         scope,
+		URL:           "https://93.184.216.34/hooks/" + id,
+		ContentType:   DefaultContentType,
+		Secret:        Secret{Current: []byte("secret-" + id)},
+		Subscriptions: SubscribeTo(events...),
 	}
 
 	must.NoError(t, store.SaveEndpoint(t.Context(), endpoint))
@@ -214,4 +214,21 @@ func ctxFor(t *testing.T) context.Context {
 	t.Helper()
 
 	return t.Context()
+}
+
+// subscriptionFor finds an endpoint's subscription to one event type, failing
+// the test when there is none. The suite reads a subscription's identity back
+// constantly, and the alternative at each site is a loop.
+func subscriptionFor(t *testing.T, endpoint *Endpoint, eventType EventType) Subscription {
+	t.Helper()
+
+	for i := range endpoint.Subscriptions {
+		if endpoint.Subscriptions[i].EventType == eventType {
+			return endpoint.Subscriptions[i]
+		}
+	}
+
+	t.Fatalf("endpoint %q has no subscription to %q", endpoint.ID, eventType)
+
+	return Subscription{}
 }

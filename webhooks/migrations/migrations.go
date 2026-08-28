@@ -42,6 +42,35 @@ backfills the empty string. Nothing in this module is in that position today,
 and the schema is written for correctness now rather than for a migration
 nobody has to perform.
 
+# Upgrading
+
+UpgradeStatements and UpgradeSQL render the one schema change this package has
+made since it shipped: webhooks_subscriptions became identified, archivable rows
+rather than a bare (endpoint_id, event_type) mapping, and webhooks_endpoints
+gained the name and created_by columns. A deployment created by Statements as it
+stands today does not need it; a deployment that already holds subscription rows
+written against the older shape does, and it is the migration for them.
+
+	up, err := migrations.UpgradeSQL(dialect.Postgres, webhooks.DefaultTablePrefix)
+	// ...
+	m, err := migrate.New(dialect.Postgres, myMigrations,
+		migrate.WithGeneratedMigration(44, "upgrade_webhooks_subscriptions", up),
+	)
+
+It is one-shot where Statements is re-runnable, and the difference is not
+stylistic. Statements is CREATE ... IF NOT EXISTS throughout, so running it
+against tables that already exist adds nothing. ALTER TABLE has no such spelling
+in MySQL or SQLite — neither has ADD COLUMN IF NOT EXISTS — so a second run
+raises a duplicate-column error rather than doing nothing. Hand it to the
+migration runner that records which migrations have run, which is what one is
+for, and do not put it on a startup path that executes the DDL every boot.
+
+The data it moves is the flat subscription list: every existing row is given an
+identifier and a creation time backfilled from the endpoint it belongs to, which
+is when it was really subscribed. Nothing is deleted and no row changes which
+endpoint or event type it names, so the fan-out query answers the same question
+before and after.
+
 The rendering and prefix vetting live in database/ddl, shared with every other
 schema-shipping package in this module.
 */
@@ -63,12 +92,32 @@ var mysqlDDL string
 //go:embed sqlite.sql
 var sqliteDDL string
 
+//go:embed upgrade_postgres.sql
+var postgresUpgradeDDL string
+
+//go:embed upgrade_mysql.sql
+var mysqlUpgradeDDL string
+
+//go:embed upgrade_sqlite.sql
+var sqliteUpgradeDDL string
+
 // schema is this package's DDL in each supported dialect.
 var schema = ddl.Schema{
 	Component: "webhooks",
 	Postgres:  postgresDDL,
 	MySQL:     mysqlDDL,
 	SQLite:    sqliteDDL,
+}
+
+// upgrade is the DDL that moves an older schema to the one schema creates. It
+// is a Schema of its own rather than more statements in that one because the two
+// have opposite preconditions: schema runs against a database that may have
+// nothing, upgrade against one that must already have the tables.
+var upgrade = ddl.Schema{
+	Component: "webhooks upgrade",
+	Postgres:  postgresUpgradeDDL,
+	MySQL:     mysqlUpgradeDDL,
+	SQLite:    sqliteUpgradeDDL,
 }
 
 // Statements renders the DDL for the dialect against the given table prefix and
@@ -80,8 +129,17 @@ func Statements(d dialect.Dialect, prefix string) ([]string, error) {
 
 // ValidatePrefix reports whether prefix yields a legal SQL identifier for every
 // table and index this package creates.
+//
+// The upgrade DDL is vetted too. It names an index the create DDL also names, so
+// today the two identifier sets agree — but a prefix that is legal for one and
+// not the other would be a prefix a deployment could create tables under and
+// then fail to migrate, which is the worse half to find out about late.
 func ValidatePrefix(prefix string) error {
-	return schema.ValidatePrefix(prefix)
+	if err := schema.ValidatePrefix(prefix); err != nil {
+		return err
+	}
+
+	return upgrade.ValidatePrefix(prefix)
 }
 
 // SQL renders the same DDL as Statements, joined back into one migration body.
@@ -90,4 +148,23 @@ func ValidatePrefix(prefix string) error {
 // copied into their repository.
 func SQL(d dialect.Dialect, prefix string) (string, error) {
 	return schema.SQL(d, prefix)
+}
+
+// UpgradeStatements renders the schema upgrade for the dialect against the given
+// table prefix, split into individually executable statements.
+//
+// It is for a deployment whose webhook tables predate subscriptions being rows.
+// A deployment created by Statements as it stands does not need it.
+//
+// Unlike Statements it is one-shot: MySQL and SQLite have no ADD COLUMN IF NOT
+// EXISTS, so a second run raises a duplicate-column error rather than doing
+// nothing. Run it through a migration runner that records what has run.
+func UpgradeStatements(d dialect.Dialect, prefix string) ([]string, error) {
+	return upgrade.Statements(d, prefix)
+}
+
+// UpgradeSQL renders the same DDL as UpgradeStatements, joined back into one
+// migration body, for database/migrate's WithGeneratedMigration.
+func UpgradeSQL(d dialect.Dialect, prefix string) (string, error) {
+	return upgrade.SQL(d, prefix)
 }
