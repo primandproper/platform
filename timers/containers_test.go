@@ -847,7 +847,9 @@ func runTimerSuite(t *testing.T, client database.Client) {
 
 		set := newSet(t, client, nil)
 
-		base := past()
+		// Micro-aligned because the assertion below is a round trip, and
+		// timestamptz keeps microseconds.
+		base := past().Truncate(time.Microsecond)
 		scheduled := []Timer[string]{
 			{Key: "a", RunAt: base, Payload: []byte("first")},
 			{Key: "b", RunAt: base.Add(time.Minute), Payload: nil},
