@@ -90,7 +90,7 @@ func (s *SQLStore) SetUserServiceRoles(ctx context.Context, scope tenancy.Scope,
 			return err
 		}
 
-		return s.replaceRoles(ctx, q, s.tables.userRoles, userIDColumn, userID, roles)
+		return s.replaceRoles(ctx, q, s.userRoleWrites(), userID, roles)
 	}); err != nil {
 		return op.Error(err, "setting identity service roles")
 	}
@@ -217,23 +217,17 @@ func (s *SQLStore) EraseUser(ctx context.Context, q database.Tx, scope tenancy.S
 		return 0, op.Error(err, "erasing identity user")
 	}
 
-	query, args := s.tables.buildEraseUser(s.dialect, scope, userID)
-
-	result, err := q.ExecContext(ctx, query, args...)
+	// The count comes from the generated :execrows statement, which reads it off
+	// the driver and reports a refusal to supply one as an error. This used to
+	// treat that refusal as a conservative zero — the erasure happened, only the
+	// number was unavailable — and there is no seam left to do so: the Exec and
+	// the RowsAffected are one call now, so a failure of either is one error.
+	// Every driver this package supports reports the count for a DELETE, and an
+	// erasure whose outcome is genuinely unknown is better rolled back by the
+	// caller's transaction than reported as nothing destroyed.
+	erased, err := s.q.EraseUser(ctx, q, identitydb.EraseUserParams{ID: userID, Scope: scope})
 	if err != nil {
 		return 0, op.Error(err, "erasing identity user")
-	}
-
-	// A driver that declines to report the affected count is reported as zero
-	// rather than as a failure. The erasure happened; what is unavailable is the
-	// number, and an eraser that aborted a whole right-to-be-forgotten
-	// transaction over a missing count would be worse than one reporting a
-	// conservative figure.
-	erased, err := result.RowsAffected()
-	if err != nil {
-		op.Acknowledge(err, "reading erased identity user row count")
-
-		return 0, nil
 	}
 
 	return erased, nil

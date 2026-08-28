@@ -142,27 +142,6 @@ func (g *Generator) GetQuery(name, table string, columns []string, extra ...Matc
 	}
 }
 
-// CreateQuery renders the insert. insertColumns is what the caller supplies —
-// ForInsert over the table's columns — and nullable names those whose value may
-// be NULL.
-//
-// StandardCRUD emits this statement too, for the tables it can emit anything
-// for. This is the form a table it cannot serve needs: an INSERT keys on
-// nothing, so it is the one statement a natural-key table wants unchanged from
-// the standard set while every other one it wants keyed on that natural key.
-// Without it such a table's corpus would have five statements sqlc checks and a
-// sixth nobody could render.
-//
-// It is annotated :exec rather than :execrows, like the standard create,
-// because a failed insert raises rather than returning zero and there is no
-// count worth reading.
-func (g *Generator) CreateQuery(name, table string, insertColumns, nullable []string) *Query {
-	return &Query{
-		Annotation: QueryAnnotation{Name: name, Type: ExecType},
-		Content:    createStatement(table, insertColumns, nullable),
-	}
-}
-
 // ReadQuery renders a keyed read that is not the standard get: one that returns
 // a narrower projection than the table, or that keys on something other than
 // the row's own id, or both.

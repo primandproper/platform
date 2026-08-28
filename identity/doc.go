@@ -175,7 +175,7 @@ querygen renders as a bound array on Postgres and a placeholder expansion on
 the other two, under one Go signature. What each still owes its caller is the
 empty batch, answered before the query rather than by it.
 
-What remains hand-written is eleven builders and the runtime binder they
+What remains hand-written is eight builders and the runtime binder they
 render through, and they are worth counting by shape rather than by name,
 because a shape is what the port still owes a generator. Three are predicates
 querygen has no form for: a guard that is an existence and an absence rather
@@ -183,15 +183,15 @@ than an equality, the two-factor secret that is present and unproven; a
 collision check whose "and not this row" clause appears only when there is a row
 to exclude; and the default-flag clear, whose predicate excludes the membership
 being set rather than matching one. One is an update whose SET list is chosen
-per call, the agreements a registration accepts in a single statement. Two are
-DELETEs rather than archivals — the erasure a subject can demand, and the role
-clear that a wholesale replacement runs before its insert. One is bound to a
-slice and is therefore not a statement until the call site knows how many: the
-multi-row insert on the other side of that role replacement. The last four are
-membership statements addressed by the (user, account) pair — an archival, a
-default set, a count of what is live — and the archive-by-side, whose column is
-chosen per call because one statement ends a user's memberships and an
-account's.
+per call, the agreements a registration accepts in a single statement. The last
+four are membership statements addressed by the (user, account) pair — an
+archival, a default set, a count of what is live — and the archive-by-side,
+whose column is chosen per call because one statement ends a user's memberships
+and an account's. The DELETEs used to be on this list and are not any more: the
+erasure and both halves of a role-set rewrite are querygen.Generator.DeleteQuery
+and InsertQuery statements now, one insert per role in place of the multi-row
+VALUES list whose shape was the caller's cardinality and which sqlc therefore
+could never check.
 */
 package identity
 

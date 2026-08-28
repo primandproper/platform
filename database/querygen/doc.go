@@ -102,7 +102,7 @@ corpus is that set plus the statements its own reads need — a get keyed on a
 natural key, a list keyed on a reference, an update guarded by the value it is
 replacing, a read that projects one column.
 
-[Generator.CreateQuery], [Generator.GetQuery], [Generator.ReadQuery],
+[Generator.InsertQuery], [Generator.GetQuery], [Generator.ReadQuery],
 [Generator.ExistsQuery], [Generator.ListQuery], [Generator.UpdateQuery] and
 [Generator.ArchiveQuery] render those, each named and annotated for a query
 file:
@@ -238,11 +238,11 @@ enforcing one live key per subject, and so the difference between a shred that
 works and one leaving half the ciphertext readable — metering_totals on
 (subject, meter, period_start), and scheduled_timers on (timer_set, timer_key).
 
-[Generator.CreateQuery] is here for the same table rather than for variety. An
+[Generator.InsertQuery] is here for the same table rather than for variety. An
 INSERT keys on nothing, so it is the one statement such a table wants unchanged
 from the standard set while wanting every other one keyed on its natural key —
 and StandardCRUD, which would otherwise have emitted it, cannot serve the table
-at all because of the list beside it. Without CreateQuery a natural-key corpus
+at all because of the list beside it. Without InsertQuery a natural-key corpus
 would be five statements sqlc checks and a sixth nobody could render.
 
 A statement that keys on nothing at all — no id in the column list and no [Match]
@@ -250,6 +250,59 @@ A statement that keys on nothing at all — no id in the column list and no [Mat
 archived predicate alone. Reading one row by reading all of them is not a
 degenerate read; it is a different query, and archiving through one empties a
 table.
+
+# The writes those tables are written with
+
+A table with no id could be read and updated long before it could be created or
+destroyed. [Generator.StandardCRUD] is where the create lived, and StandardCRUD
+refuses a table with no id outright, so a child row keyed on its parent —
+(membership_id, role), (user_id, role) — had no emitted insert at all; and
+nothing here rendered a DELETE, so the hard deletes stayed hand-written in the
+one place a consumer least wants hand-written SQL, the erasure a
+right-to-be-forgotten request runs.
+
+Three statements close that, and all three are corpus forms — named, annotated,
+rendered into a .sql — with no [Bound] counterpart:
+
+	roles := querygen.For(dialect.Postgres)
+
+	insert := roles.InsertQuery("InsertMembershipRole", "membership_roles",
+		[]string{"membership_id", "role"}, nil)
+
+	clear := roles.DeleteQuery("DeleteMembershipRoles", "membership_roles",
+		[]string{"membership_id", "role"},
+		querygen.Match{Column: "membership_id"})
+
+[Generator.InsertQuery] is the create with the id requirement lifted off it,
+which is the only thing StandardCRUD's version had that an INSERT does not need
+— the id is required there because the list pages by keyset over it, and an
+insert has no list. A set of child rows is written one statement per element
+rather than one statement with a VALUES list assembled per call: the multi-row
+form's shape is the caller's cardinality, so it has no static text for sqlc to
+check or for this package to emit, and the cardinalities are single-digit inside
+a transaction the parent's write already opened.
+
+[Generator.DeleteQuery] is the single-row machinery with a different verb. It
+keys on the column list and the matches exactly as the get, the update and the
+archive do, refuses [ErrUnaddressableRow] the same way, and is annotated
+:execrows because the count is the answer. What it does not render is the
+archived predicate, and that absence is the point: an erasure runs against a
+subject who was archived first, and a role set is cleared whether or not its
+parent has been, so a delete excluding archived rows would be the one write
+unable to reach the rows it exists for. Its key need not name a single row —
+clearing every grant a membership holds is one statement keyed on the membership
+— which is the other half of what separates it from the archive.
+
+[Generator.InsertIgnoreQuery] is the third shape, and it is not an upsert whose
+conflict branch is empty: [ErrDegenerateUpsert] refuses that, correctly, because
+an upsert that assigns nothing is an INSERT failing on its second call. This one
+neither fails nor converges. The row already there wins, unchanged, and the
+count says so — which is what a key mint wants, since the loser of a race
+between two replicas has generated a key it must throw away. The key is the
+conflict target under the upsert's rule, and the three dialects spell the shape
+three ways: Postgres appends ON CONFLICT (…) DO NOTHING, MySQL and SQLite take a
+modifier before INTO and name no target, so MySQL's skips a collision on any
+unique key rather than on the one named — the same caveat the upsert carries.
 
 # The prefix search
 
@@ -433,15 +486,19 @@ screen rather than a grep for casts. The statement shapes those land in, the
 query names, and which queries a column list justifies are the same on all
 three.
 
-The upsert is the exception, and it is the only one. An INSERT that has to
-converge rather than fail on a second call is two grammars rather than one
-grammar with a substituted expression: Postgres and SQLite name the conflict
-target and read the incoming row through the EXCLUDED alias, and MySQL names no
-target at all — its ON DUPLICATE KEY UPDATE fires on whichever unique key was
-violated — and spells the incoming value VALUES(column). Both halves are in
-generator.go with the rest, so the one-screen property survives; what a
-consumer sees is still one query name with one signature, rendered per dialect
-by [Generator.UpsertQuery].
+Two statements are the exception, and both are an INSERT that has to do
+something about a row already there — which is the one thing the three engines
+never agreed on. An upsert is two grammars rather than one grammar with a
+substituted expression: Postgres and SQLite name the conflict target and read
+the incoming row through the EXCLUDED alias, and MySQL names no target at all —
+its ON DUPLICATE KEY UPDATE fires on whichever unique key was violated — and
+spells the incoming value VALUES(column). The insert-ignore divides them
+differently again: Postgres alone has no modifier for it and takes a trailing ON
+CONFLICT … DO NOTHING, while MySQL and SQLite each spell it before INTO, as
+INSERT IGNORE and INSERT OR IGNORE. Every half of both is in generator.go with
+the rest, so the one-screen property survives; what a consumer sees is still one
+query name with one signature, rendered per dialect by
+[Generator.UpsertQuery] and [Generator.InsertIgnoreQuery].
 
 The set is closed at the type. [For] takes a dialect.Dialect and rejects one
 outside dialect.Valid rather than emitting a plausible default, and the dialect

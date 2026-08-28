@@ -43,7 +43,7 @@ func compositeQueries(d dialect.Dialect) map[string]*Query {
 	)
 
 	return map[string]*Query{
-		"create":  g.CreateQuery("CreateSprocket", compositeTable, ForInsert(columns), nil),
+		"create":  g.InsertQuery("CreateSprocket", compositeTable, ForInsert(columns), nil),
 		"get":     g.GetQuery("GetSprocket", compositeTable, columns, key...),
 		"exists":  g.ExistsQuery("CheckSprocketExistence", compositeTable, columns, key...),
 		"update":  g.UpdateQuery("UpdateSprocket", compositeTable, columns, ForUpdate(columns, "subject_type", "subject_id"), nil, key...),

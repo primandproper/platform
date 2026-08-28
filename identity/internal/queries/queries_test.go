@@ -118,6 +118,10 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 		"RecordAccountSubscription", "SetAccountBillingStatus",
 		"SetAccountPaymentProcessorCustomerID", "MarkAccountBillingSynced",
 		"AnswerInvitation",
+		"EraseUser",
+		"DeleteUserRoles", "InsertUserRole",
+		"DeleteMembershipRoles", "InsertMembershipRole",
+		"DeleteInvitationRoles", "InsertInvitationRole",
 		"UpsertMembership",
 	}
 
@@ -202,28 +206,34 @@ func TestRender_SearchesUsernamesByPrefix(T *testing.T) {
 func TestTables_ScopeIsInEveryStatement(T *testing.T) {
 	T.Parallel()
 
-	// The exceptions, in two groups.
+	// The exceptions, in two groups, and neither is a read a caller reaches.
 	//
 	// The first is the same exception three times: the read-back of the
 	// creation time a create's own INSERT just caused, by the id that create
 	// minted, inside that create's transaction. It is the component's own
-	// machinery servicing itself rather than a read a caller reaches — the row
-	// is not visible to anything else until the transaction commits — so it
-	// keys on the id alone.
+	// machinery servicing itself — the row is not visible to anything else
+	// until the transaction commits — so it keys on the id alone.
 	//
-	// The second is the three role tables, and they are an exception because
-	// they have no scope column to name: a role row carries the id of the user,
-	// membership or invitation it hangs off and nothing else, and that parent
-	// is the scoped row. The batched reads below key on that parent column with
-	// ids the store read through a scoped statement, so a scope predicate here
-	// would be a join to say what the key already says. That is a fact about
-	// the schema rather than a liberty these statements take — the hand-written
-	// reads they replaced omitted it too — and it is the reason the parent
-	// columns are declared beside the tables rather than at the store.
+	// The second is the role tables' nine statements, and their exception is
+	// the schema's rather than the statements': a role table has no scope
+	// column to name. A role row carries the id of the user, membership or
+	// invitation it hangs off and nothing else, and that parent is the scoped
+	// row. The six writes bind an owner id that came back from a scoped
+	// statement, and the three batched reads key on the parent column with ids
+	// read the same way — so a scope predicate here would be a join to say what
+	// the key already says. What keeps that safe is that no statement here
+	// answers "which owners hold this role", which is the one that would need
+	// the column. That is a fact about the schema rather than a liberty these
+	// statements take — the hand-written statements they replaced omitted it
+	// too. See identity/migrations for why the tables are shaped this way, and
+	// [RoleTable].
 	//
 	// Everything else, without exception, names the scope.
 	unscoped := []string{
 		"GetUserCreatedAt", "GetAccountCreatedAt", "GetInvitationCreatedAt",
+		"DeleteUserRoles", "InsertUserRole",
+		"DeleteMembershipRoles", "InsertMembershipRole",
+		"DeleteInvitationRoles", "InsertInvitationRole",
 		"ListUserRolesByUserIDs", "ListMembershipRolesByMembershipIDs", "ListInvitationRolesByInvitationIDs",
 	}
 
@@ -770,4 +780,84 @@ func TestFieldWrites_StampLastUpdatedAt(T *testing.T) {
 			test.SliceLen(t, len(written), seen)
 		})
 	}
+}
+
+// TestRender_EraseUserIsTheOneStatementWithNoArchivedPredicate pins the shape a
+// right-to-be-forgotten request depends on.
+//
+// Every other single-row statement over the users table requires archived_at IS
+// NULL, which is what makes an archived user invisible to the reads. An erasure
+// runs after an archival — dataprivacy hides the subject and destroys them
+// afterwards — so a delete carrying that predicate would be the one write that
+// cannot reach the rows it exists for.
+func TestRender_EraseUserIsTheOneStatementWithNoArchivedPredicate(T *testing.T) {
+	T.Parallel()
+
+	for _, d := range everyDialect {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			statement := statementNamed(t, d, "EraseUser")
+
+			must.StrContains(t, statement, "DELETE FROM "+UsersTable)
+			test.StrNotContains(t, statement, querygen.ArchivedAtColumn)
+
+			// Keyed on the row and the directory it is in, so a neighbor's
+			// erasure matches nothing rather than destroying somebody else's
+			// user.
+			test.StrContains(t, statement, querygen.IDColumn+" = sqlc.arg("+querygen.IDColumn+")")
+			test.StrContains(t, statement, ScopeColumn+" = sqlc.arg("+ScopeColumn+")")
+
+			// :execrows, because the count is what the caller reports as the
+			// number of rows the erasure destroyed.
+			test.StrContains(t, statement, ":execrows")
+		})
+	}
+}
+
+// TestRender_RoleWritesAreOneStatementPerTable pins what replaced the pair of
+// builders parameterized on the table: six statements, because a query name is
+// a Go method name and a table is not a parameter of one.
+func TestRender_RoleWritesAreOneStatementPerTable(T *testing.T) {
+	T.Parallel()
+
+	for _, d := range everyDialect {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			for _, table := range RoleTables {
+				cleared := statementNamed(t, d, "Delete"+table.Singular+"Roles")
+
+				// Keyed on the owner alone: a clear empties the whole set, so
+				// it names the parent rather than one grant.
+				must.StrContains(t, cleared, "DELETE FROM "+table.Name)
+				test.StrContains(t, cleared, table.OwnerColumn+" = sqlc.arg("+table.OwnerColumn+")")
+				test.StrNotContains(t, cleared, RoleColumn+" = sqlc.arg("+RoleColumn+")")
+
+				insert := statementNamed(t, d, "Insert"+table.Singular+"Role")
+
+				// One row, not a VALUES list assembled per call — the shape
+				// that had no static text for sqlc to check.
+				must.StrContains(t, insert, "INSERT INTO "+table.Name)
+				test.EqOp(t, 1, strings.Count(insert, "VALUES"))
+				test.StrContains(t, insert, "sqlc.arg("+table.OwnerColumn+")")
+				test.StrContains(t, insert, "sqlc.arg("+RoleColumn+")")
+			}
+		})
+	}
+}
+
+// statementNamed returns one rendered statement, annotation line included.
+func statementNamed(tb testing.TB, d dialect.Dialect, name string) string {
+	tb.Helper()
+
+	for statement := range strings.SplitSeq(Render(d), "-- name: ") {
+		if statement != "" && strings.Fields(statement)[0] == name {
+			return statement
+		}
+	}
+
+	tb.Fatalf("no statement named %q in the %s corpus", name, d)
+
+	return ""
 }

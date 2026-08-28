@@ -79,7 +79,9 @@ var ErrMissingIDColumn = platformerrors.New("column set has no id column")
 // no id column, no ownership column, and no Match. The statement it would
 // otherwise render is one whose WHERE clause is the archived predicate and
 // nothing else, which reads one row from a table by reading all of them, and
-// updates or archives every row in it.
+// updates or archives every row in it. The hard delete has not even that much —
+// it renders no archived predicate — so what it would otherwise be is a
+// truncate.
 //
 // It is a programming error rather than a caller's — nothing on a request path
 // decides which columns a statement keys on — so it panics like the rest of this
@@ -376,17 +378,12 @@ func binding(column string, nullable []string) string {
 	return fmt.Sprintf("sqlc.arg(%s)", column)
 }
 
+// createStatement renders the plain insert: the standard create, the statement
+// Generator.InsertQuery names, and the first half of the upsert. It is
+// insertStatement with no modifier — see insert.go, where the ignoring form
+// takes the one modifier there is.
 func createStatement(table string, insertColumns, nullable []string) string {
-	values := make([]string, 0, len(insertColumns))
-	for _, column := range insertColumns {
-		values = append(values, binding(column, nullable))
-	}
-
-	return fmt.Sprintf("INSERT INTO %s (\n\t%s\n) VALUES (\n\t%s\n);",
-		table,
-		strings.Join(insertColumns, ",\n\t"),
-		strings.Join(values, ",\n\t"),
-	)
+	return insertStatement("", table, insertColumns, nullable)
 }
 
 // getStatement renders the read of one row: what read projects, from table,
@@ -524,21 +521,41 @@ func (g *Generator) archiveStatement(table string, columns []string, ownership s
 // qualified is false for the UPDATE statements, whose SET clause cannot carry a
 // table qualifier and whose WHERE therefore does not either.
 func singleRowPredicates(table string, columns []string, ownership string, qualified bool, extra ...Match) []string {
-	keyed := slices.Contains(columns, IDColumn) || ownership != "" || len(extra) > 0
-	if !keyed {
+	keyed := keyPredicates(table, columns, ownership, qualified, extra)
+
+	if !slices.Contains(columns, ArchivedAtColumn) {
+		return keyed
+	}
+
+	name := ArchivedAtColumn
+	if qualified {
+		name = Qualify(table, ArchivedAtColumn)
+	}
+
+	return append([]string{name + " IS NULL"}, keyed...)
+}
+
+// keyPredicates is the half of singleRowPredicates that addresses a row: the id
+// where the column list has one, the ownership column where the caller named
+// one, and one predicate per Match.
+//
+// It is separate because the hard delete keys on exactly this and takes no
+// archived predicate — deleting an archived row is still deleting it, and an
+// erasure runs against a subject who was archived first, so a statement that
+// excluded them would be the one write that cannot reach the rows it exists
+// for. See deleteStatement.
+//
+// The refusal is here rather than one level up for the same reason. A statement
+// keying on nothing is unaddressable whether or not the table soft-deletes:
+// what the archived predicate would add is a filter over every row, not a key,
+// and a DELETE carrying it alone empties the live half of the table instead of
+// all of it.
+func keyPredicates(table string, columns []string, ownership string, qualified bool, extra []Match) []string {
+	if !slices.Contains(columns, IDColumn) && ownership == "" && len(extra) == 0 {
 		panic(platformerrors.Wrapf(ErrUnaddressableRow, "querygen: table %q", table))
 	}
 
 	var predicates []string
-
-	if slices.Contains(columns, ArchivedAtColumn) {
-		name := ArchivedAtColumn
-		if qualified {
-			name = Qualify(table, ArchivedAtColumn)
-		}
-
-		predicates = append(predicates, name+" IS NULL")
-	}
 
 	if slices.Contains(columns, IDColumn) {
 		predicates = append(predicates, equalityPredicate(table, IDColumn, qualified))
@@ -548,9 +565,7 @@ func singleRowPredicates(table string, columns []string, ownership string, quali
 		predicates = append(predicates, equalityPredicate(table, ownership, qualified))
 	}
 
-	predicates = append(predicates, matchPredicates(table, qualified, extra)...)
-
-	return predicates
+	return append(predicates, matchPredicates(table, qualified, extra)...)
 }
 
 // equalityPredicate matches a column against a bound argument. It is the one

@@ -350,6 +350,39 @@ func (g *Generator) conflictHeader(keyColumns []string) string {
 	return fmt.Sprintf("ON CONFLICT (%s) DO UPDATE SET", strings.Join(keyColumns, ", "))
 }
 
+// ignoreSpelling renders how the dialect says "write this row unless one for
+// the same key is already there": the modifier that goes between INSERT and
+// INTO, and the clause that goes after the VALUES list. Every dialect uses
+// exactly one of the two and returns the empty string for the other.
+//
+// This is the second place the three disagree about a statement's shape rather
+// than about an expression inside one, and it is a different disagreement from
+// the upsert's. Postgres has no INSERT modifier for this at all and takes ON
+// CONFLICT … DO NOTHING, which is the upsert's conflict clause with the branch
+// emptied; MySQL and SQLite each have a modifier — INSERT IGNORE, INSERT OR
+// IGNORE — and name no target.
+//
+// SQLite is the one that could have gone either way: it takes ON CONFLICT DO
+// NOTHING as well, and would then have named the target Postgres names. The
+// modifier is emitted instead because it is what SQLite's own grammar leads
+// with and what the hand-written statements this replaced already used, and
+// because the target buys nothing where the whole conflict branch is empty: a
+// statement that assigns nothing to the row it found behaves identically
+// whichever unique index detected it. What differs is the collision that is
+// *not* skipped — Postgres raises on a unique index other than the one named —
+// and that difference is the caveat conflictHeader carries, in the same terms.
+func (g *Generator) ignoreSpelling(keyColumns []string) (modifier, clause string) {
+	switch g.dialect {
+	case dialect.MySQL:
+		return "IGNORE ", ""
+	case dialect.SQLite:
+		return "OR IGNORE ", ""
+	// Postgres, which For has already narrowed the alternatives to.
+	default:
+		return "", fmt.Sprintf("ON CONFLICT (%s) DO NOTHING", strings.Join(keyColumns, ", "))
+	}
+}
+
 // insertedValue names, inside a conflict branch, the value the INSERT that
 // collided supplied for column — as against the value already in the row.
 //

@@ -96,7 +96,7 @@ func (s *SQLStore) CreateInvitation(ctx context.Context, invitation *Invitation)
 			return err
 		}
 
-		return s.replaceRoles(ctx, q, s.tables.invitationRoles, invitationIDColumn, invitation.ID, invitation.Roles)
+		return s.replaceRoles(ctx, q, s.invitationRoleWrites(), invitation.ID, invitation.Roles)
 	}); err != nil {
 		return op.Error(err, "creating identity invitation")
 	}

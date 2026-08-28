@@ -142,6 +142,19 @@ INSERT INTO {{prefix}}identity_users (
 	?17
 )`
 
+const deleteInvitationRolesSQLite = `DELETE FROM {{prefix}}identity_invitation_roles
+WHERE invitation_id = ?1`
+
+const deleteMembershipRolesSQLite = `DELETE FROM {{prefix}}identity_membership_roles
+WHERE membership_id = ?1`
+
+const deleteUserRolesSQLite = `DELETE FROM {{prefix}}identity_user_roles
+WHERE user_id = ?1`
+
+const eraseUserSQLite = `DELETE FROM {{prefix}}identity_users
+WHERE id = ?1
+	AND scope = ?2`
+
 const getAccountSQLite = `SELECT
 	{{prefix}}identity_accounts.id,
 	{{prefix}}identity_accounts.scope,
@@ -347,6 +360,30 @@ const getUserCreatedAtSQLite = `SELECT
 	{{prefix}}identity_users.created_at
 FROM {{prefix}}identity_users
 WHERE {{prefix}}identity_users.id = ?1`
+
+const insertInvitationRoleSQLite = `INSERT INTO {{prefix}}identity_invitation_roles (
+	invitation_id,
+	role
+) VALUES (
+	?1,
+	?2
+)`
+
+const insertMembershipRoleSQLite = `INSERT INTO {{prefix}}identity_membership_roles (
+	membership_id,
+	role
+) VALUES (
+	?1,
+	?2
+)`
+
+const insertUserRoleSQLite = `INSERT INTO {{prefix}}identity_user_roles (
+	user_id,
+	role
+) VALUES (
+	?1,
+	?2
+)`
 
 const listAccountMembersSQLite = `SELECT
 	{{prefix}}identity_memberships.id,
@@ -1016,6 +1053,10 @@ type sqliteQueries struct {
 	createAccount                        string
 	createInvitation                     string
 	createUser                           string
+	deleteInvitationRoles                string
+	deleteMembershipRoles                string
+	deleteUserRoles                      string
+	eraseUser                            string
 	getAccount                           string
 	getAccountCreatedAt                  string
 	getInvitation                        string
@@ -1029,6 +1070,9 @@ type sqliteQueries struct {
 	getUserByEmailVerificationToken      string
 	getUserByUsername                    string
 	getUserCreatedAt                     string
+	insertInvitationRole                 string
+	insertMembershipRole                 string
+	insertUserRole                       string
 	listAccountMembers                   string
 	listAccounts                         string
 	listAccountsForUser                  string
@@ -1069,6 +1113,10 @@ func newSQLite(prefix string) *sqliteQueries {
 		createAccount:                        strings.ReplaceAll(createAccountSQLite, prefixMarker, prefix),
 		createInvitation:                     strings.ReplaceAll(createInvitationSQLite, prefixMarker, prefix),
 		createUser:                           strings.ReplaceAll(createUserSQLite, prefixMarker, prefix),
+		deleteInvitationRoles:                strings.ReplaceAll(deleteInvitationRolesSQLite, prefixMarker, prefix),
+		deleteMembershipRoles:                strings.ReplaceAll(deleteMembershipRolesSQLite, prefixMarker, prefix),
+		deleteUserRoles:                      strings.ReplaceAll(deleteUserRolesSQLite, prefixMarker, prefix),
+		eraseUser:                            strings.ReplaceAll(eraseUserSQLite, prefixMarker, prefix),
 		getAccount:                           strings.ReplaceAll(getAccountSQLite, prefixMarker, prefix),
 		getAccountCreatedAt:                  strings.ReplaceAll(getAccountCreatedAtSQLite, prefixMarker, prefix),
 		getInvitation:                        strings.ReplaceAll(getInvitationSQLite, prefixMarker, prefix),
@@ -1082,6 +1130,9 @@ func newSQLite(prefix string) *sqliteQueries {
 		getUserByEmailVerificationToken:      strings.ReplaceAll(getUserByEmailVerificationTokenSQLite, prefixMarker, prefix),
 		getUserByUsername:                    strings.ReplaceAll(getUserByUsernameSQLite, prefixMarker, prefix),
 		getUserCreatedAt:                     strings.ReplaceAll(getUserCreatedAtSQLite, prefixMarker, prefix),
+		insertInvitationRole:                 strings.ReplaceAll(insertInvitationRoleSQLite, prefixMarker, prefix),
+		insertMembershipRole:                 strings.ReplaceAll(insertMembershipRoleSQLite, prefixMarker, prefix),
+		insertUserRole:                       strings.ReplaceAll(insertUserRoleSQLite, prefixMarker, prefix),
 		listAccountMembers:                   strings.ReplaceAll(listAccountMembersSQLite, prefixMarker, prefix),
 		listAccounts:                         strings.ReplaceAll(listAccountsSQLite, prefixMarker, prefix),
 		listAccountsForUser:                  strings.ReplaceAll(listAccountsForUserSQLite, prefixMarker, prefix),
@@ -1267,6 +1318,55 @@ func (q *sqliteQueries) CreateUser(ctx context.Context, db DBTX, arg CreateUserP
 	)
 
 	return err
+}
+
+// DeleteInvitationRoles runs the :execrows query against sqlite.
+func (q *sqliteQueries) DeleteInvitationRoles(ctx context.Context, db DBTX, arg DeleteInvitationRolesParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.deleteInvitationRoles,
+		arg.InvitationID,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// DeleteMembershipRoles runs the :execrows query against sqlite.
+func (q *sqliteQueries) DeleteMembershipRoles(ctx context.Context, db DBTX, arg DeleteMembershipRolesParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.deleteMembershipRoles,
+		arg.MembershipID,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// DeleteUserRoles runs the :execrows query against sqlite.
+func (q *sqliteQueries) DeleteUserRoles(ctx context.Context, db DBTX, arg DeleteUserRolesParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.deleteUserRoles,
+		arg.UserID,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// EraseUser runs the :execrows query against sqlite.
+func (q *sqliteQueries) EraseUser(ctx context.Context, db DBTX, arg EraseUserParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.eraseUser,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
 }
 
 // GetAccount runs the :one query against sqlite.
@@ -1589,6 +1689,36 @@ func (q *sqliteQueries) GetUserCreatedAt(ctx context.Context, db DBTX, arg GetUs
 	)
 
 	return i, err
+}
+
+// InsertInvitationRole runs the :exec query against sqlite.
+func (q *sqliteQueries) InsertInvitationRole(ctx context.Context, db DBTX, arg InsertInvitationRoleParams) error {
+	_, err := db.ExecContext(ctx, q.insertInvitationRole,
+		arg.InvitationID,
+		arg.Role,
+	)
+
+	return err
+}
+
+// InsertMembershipRole runs the :exec query against sqlite.
+func (q *sqliteQueries) InsertMembershipRole(ctx context.Context, db DBTX, arg InsertMembershipRoleParams) error {
+	_, err := db.ExecContext(ctx, q.insertMembershipRole,
+		arg.MembershipID,
+		arg.Role,
+	)
+
+	return err
+}
+
+// InsertUserRole runs the :exec query against sqlite.
+func (q *sqliteQueries) InsertUserRole(ctx context.Context, db DBTX, arg InsertUserRoleParams) error {
+	_, err := db.ExecContext(ctx, q.insertUserRole,
+		arg.UserID,
+		arg.Role,
+	)
+
+	return err
 }
 
 // ListAccountMembers runs the :many query against sqlite.
@@ -2580,6 +2710,19 @@ var (
 		LastAcceptedPrivacyPolicy     *time.Time
 	}(CreateUserParams{})
 	_ = struct {
+		InvitationID string
+	}(DeleteInvitationRolesParams{})
+	_ = struct {
+		MembershipID string
+	}(DeleteMembershipRolesParams{})
+	_ = struct {
+		UserID string
+	}(DeleteUserRolesParams{})
+	_ = struct {
+		ID    string
+		Scope tenancy.Scope
+	}(EraseUserParams{})
+	_ = struct {
 		ID    string
 		Scope tenancy.Scope
 	}(GetAccountParams{})
@@ -2784,6 +2927,18 @@ var (
 	_ = struct {
 		CreatedAt time.Time
 	}(GetUserCreatedAtRow{})
+	_ = struct {
+		InvitationID string
+		Role         string
+	}(InsertInvitationRoleParams{})
+	_ = struct {
+		MembershipID string
+		Role         string
+	}(InsertMembershipRoleParams{})
+	_ = struct {
+		UserID string
+		Role   string
+	}(InsertUserRoleParams{})
 	_ = struct {
 		CreatedAfter     *time.Time
 		CreatedBefore    *time.Time

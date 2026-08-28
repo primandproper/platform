@@ -100,6 +100,27 @@ type CreateUserParams struct {
 	LastAcceptedPrivacyPolicy     *time.Time
 }
 
+// DeleteInvitationRolesParams are the arguments to DeleteInvitationRoles.
+type DeleteInvitationRolesParams struct {
+	InvitationID string
+}
+
+// DeleteMembershipRolesParams are the arguments to DeleteMembershipRoles.
+type DeleteMembershipRolesParams struct {
+	MembershipID string
+}
+
+// DeleteUserRolesParams are the arguments to DeleteUserRoles.
+type DeleteUserRolesParams struct {
+	UserID string
+}
+
+// EraseUserParams are the arguments to EraseUser.
+type EraseUserParams struct {
+	ID    string
+	Scope tenancy.Scope
+}
+
 // GetAccountParams are the arguments to GetAccount.
 type GetAccountParams struct {
 	ID    string
@@ -355,6 +376,24 @@ type GetUserCreatedAtParams struct {
 // GetUserCreatedAtRow is one row of GetUserCreatedAt's result.
 type GetUserCreatedAtRow struct {
 	CreatedAt time.Time
+}
+
+// InsertInvitationRoleParams are the arguments to InsertInvitationRole.
+type InsertInvitationRoleParams struct {
+	InvitationID string
+	Role         string
+}
+
+// InsertMembershipRoleParams are the arguments to InsertMembershipRole.
+type InsertMembershipRoleParams struct {
+	MembershipID string
+	Role         string
+}
+
+// InsertUserRoleParams are the arguments to InsertUserRole.
+type InsertUserRoleParams struct {
+	UserID string
+	Role   string
 }
 
 // ListAccountMembersParams are the arguments to ListAccountMembers.

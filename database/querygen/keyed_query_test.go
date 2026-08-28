@@ -62,7 +62,7 @@ func keyedQueries(d dialect.Dialect) map[string]*Query {
 	)
 
 	return map[string]*Query{
-		"create": g.CreateQuery("CreateGadget", keyedTable, ForInsert(columns), []string{"name"}),
+		"create": g.InsertQuery("CreateGadget", keyedTable, ForInsert(columns), []string{"name"}),
 		"get":    g.GetQuery("GetGadget", keyedTable, columns, owner),
 		"exists": g.ExistsQuery("CheckGadgetExistence", keyedTable, columns, owner),
 		// The owner is out of the updatable set: a statement that assigns the
@@ -176,13 +176,13 @@ func TestGenerator_GetQuery(T *testing.T) {
 	})
 }
 
-func TestGenerator_CreateQuery(T *testing.T) {
+func TestGenerator_InsertQuery_NaturalKey(T *testing.T) {
 	T.Parallel()
 
 	T.Run("is annotated as the write whose failure raises", func(t *testing.T) {
 		t.Parallel()
 
-		q := For(dialectForContent()).CreateQuery("CreateGadget", keyedTable, ForInsert(keyedColumns()), nil)
+		q := For(dialectForContent()).InsertQuery("CreateGadget", keyedTable, ForInsert(keyedColumns()), nil)
 
 		test.EqOp(t, "CreateGadget", q.Annotation.Name)
 		test.EqOp(t, ExecType, q.Annotation.Type)
@@ -193,7 +193,7 @@ func TestGenerator_CreateQuery(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range everyDialect() {
-			_, args := bindQuery(d, For(d).CreateQuery("CreateGadget", keyedTable, ForInsert(keyedColumns()), nil))
+			_, args := bindQuery(d, For(d).InsertQuery("CreateGadget", keyedTable, ForInsert(keyedColumns()), nil))
 
 			for _, column := range []string{CreatedAtColumn, LastUpdatedAtColumn, ArchivedAtColumn, LastIndexedAtColumn} {
 				test.SliceNotContains(t, args, column, test.Sprintf("dialect %q, column %q", d, column))
@@ -209,7 +209,7 @@ func TestGenerator_CreateQuery(T *testing.T) {
 		// is the list beside it, which pages by an id the table has not got.
 		columns := compositeColumns()
 
-		q := For(dialectForContent()).CreateQuery("CreateSprocket", compositeTable, ForInsert(columns), nil)
+		q := For(dialectForContent()).InsertQuery("CreateSprocket", compositeTable, ForInsert(columns), nil)
 
 		test.StrContains(t, q.Content, "sqlc.arg(subject_type)")
 		test.StrContains(t, q.Content, "sqlc.arg(subject_id)")
