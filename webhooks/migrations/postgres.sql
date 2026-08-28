@@ -1,7 +1,6 @@
 -- Every table here carries the module's convention triple: created_at NOT NULL
 -- with a server-side default, last_updated_at NULL until something changes the
--- row, archived_at NULL until the row is soft-deleted. webhooks_subscriptions is
--- the exception, and the comment above it says why.
+-- row, archived_at NULL until the row is soft-deleted.
 --
 -- The endpoint is the only one of these a caller archives today. The delivery
 -- side carries archived_at for the convention's sake — a table querygen can read
@@ -19,6 +18,8 @@
 CREATE TABLE IF NOT EXISTS {{PREFIX}}webhooks_endpoints (
     id              TEXT PRIMARY KEY,
     scope           TEXT NOT NULL,
+    created_by      TEXT,
+    name            TEXT NOT NULL DEFAULT '',
     url             TEXT NOT NULL,
     content_type    TEXT NOT NULL,
     secret_current  BYTEA NOT NULL,
@@ -46,20 +47,39 @@ CREATE INDEX IF NOT EXISTS {{PREFIX}}webhooks_endpoints_scope_idx
 -- registered endpoint. Dispatch runs that query inside the caller's
 -- transaction, so its cost is paid by the request that emitted the event.
 --
--- Mapping rows, and deliberately without the convention triple every other table
--- in this schema carries. Nothing lists, filters or soft-deletes a subscription
--- independently of its endpoint: replacing an endpoint's event types rewrites
--- the set wholesale, and archiving the endpoint already hides every row here.
--- created_at, last_updated_at and archived_at would be three columns no
--- statement in this package reads or writes.
+-- The primary key is still the pair, because one endpoint subscribes to one
+-- event type once. id is a surrogate beside it rather than in front of it: it is
+-- what an API names when it is asked to retire one subscription, and it is what
+-- an existing deployment can add in one ALTER without rebuilding the table's
+-- identity. Re-subscribing to an archived event type revives that row and keeps
+-- its id, so a link to a subscription does not rot.
+--
+-- The convention triple is here now, where it used to be deliberately absent.
+-- Archiving one subscription is a thing a consumer's API does — its users retire
+-- one event type without rewriting the set — and a row that can be soft-deleted
+-- on its own has to be able to say when it was.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}webhooks_subscriptions (
-    endpoint_id TEXT NOT NULL REFERENCES {{PREFIX}}webhooks_endpoints (id) ON DELETE CASCADE,
-    event_type  TEXT NOT NULL,
+    id              TEXT NOT NULL,
+    endpoint_id     TEXT NOT NULL REFERENCES {{PREFIX}}webhooks_endpoints (id) ON DELETE CASCADE,
+    event_type      TEXT NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_updated_at TIMESTAMPTZ,
+    archived_at     TIMESTAMPTZ,
     PRIMARY KEY (endpoint_id, event_type)
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS {{PREFIX}}webhooks_subscriptions_id_idx
+    ON {{PREFIX}}webhooks_subscriptions (id);
+
 CREATE INDEX IF NOT EXISTS {{PREFIX}}webhooks_subscriptions_event_idx
     ON {{PREFIX}}webhooks_subscriptions (event_type, endpoint_id);
+
+-- Serves the paged read of one endpoint's subscriptions, which is cursor-ordered
+-- on id. The event-type index above cannot: it leads with the column this query
+-- does not filter on.
+CREATE INDEX IF NOT EXISTS {{PREFIX}}webhooks_subscriptions_endpoint_idx
+    ON {{PREFIX}}webhooks_subscriptions (endpoint_id, id)
+    WHERE archived_at IS NULL;
 
 -- The delivery holds the payload once, however many subscribers it fans out to.
 --
