@@ -361,14 +361,6 @@ const (
 	emailAddressColumn = queries.UserEmailAddressColumn
 )
 
-// The two columns the role tables key on, aliased from the package that
-// declares the schema as data for the reason the two above are: the write that
-// assigns a role and the statement that reads one back are two files.
-const (
-	userIDColumn       = queries.UserRoleOwnerColumn
-	membershipIDColumn = queries.MembershipRoleOwnerColumn
-)
-
 // liveUser is what the three single-user reads keyed on something other than the
 // id share: the scope check, the not-found mapping, the service roles, and the
 // span.
