@@ -61,28 +61,28 @@ type ruling struct {
 var rulings = map[string]ruling{
 	// The tier itself. Each of these is what sqlc-gen-unison emitted from its
 	// package's corpus, which is what every port below is a port onto.
-	"dataprivacy/internal/dataprivacydb":    {tier: unison},
-	"identity/internal/identitydb":          {tier: unison},
-	"saga/internal/sagadb":                  {tier: unison},
-	"sessions/database/internal/sessionsdb": {tier: unison},
+	"authentication/oauth2server/database/internal/oauth2serverdb": {tier: unison},
+	"dataprivacy/internal/dataprivacydb":                           {tier: unison},
+	"identity/internal/identitydb":                                 {tier: unison},
+	"saga/internal/sagadb":                                         {tier: unison},
+	"sessions/database/internal/sessionsdb":                        {tier: unison},
 
 	// Still composing SQL in Go. Each of these is a tracked port onto the
 	// corpus; nothing about the list is a decision, which is why none of them
 	// carries a reason.
-	"audit":                                {tier: porting},
-	"authentication/oauth2server/database": {tier: porting},
-	"authentication/passwordreset":         {tier: porting},
-	"authentication/webauthn/database":     {tier: porting},
-	"authorization/database":               {tier: porting},
-	"cryptography/shredding":               {tier: porting},
-	"dataprivacy/auditerasure":             {tier: porting},
-	"metering":                             {tier: porting},
-	"operations":                           {tier: porting},
-	"outbox":                               {tier: porting},
-	"retention":                            {tier: porting},
-	"timers":                               {tier: porting},
-	"webhooks":                             {tier: porting},
-	"workqueue":                            {tier: porting},
+	"audit":                            {tier: porting},
+	"authentication/passwordreset":     {tier: porting},
+	"authentication/webauthn/database": {tier: porting},
+	"authorization/database":           {tier: porting},
+	"cryptography/shredding":           {tier: porting},
+	"dataprivacy/auditerasure":         {tier: porting},
+	"metering":                         {tier: porting},
+	"operations":                       {tier: porting},
+	"outbox":                           {tier: porting},
+	"retention":                        {tier: porting},
+	"timers":                           {tier: porting},
+	"webhooks":                         {tier: porting},
+	"workqueue":                        {tier: porting},
 
 	// Not table SQL. The corpus is a set of statements checked against a schema
 	// this module ships, and none of these is one.
