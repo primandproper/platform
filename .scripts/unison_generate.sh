@@ -46,6 +46,7 @@ GOBIN="${BIN_DIR}" go install "github.com/primandproper/sqlc-gen-unison/cmd/unis
 # prefix at construction; sqlc analyzes the canonical names because an
 # identifier is not a bind parameter in any of the three engines.
 COMPONENTS=(
+  "dataprivacy"
   "identity"
 )
 

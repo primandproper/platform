@@ -116,6 +116,30 @@ func (g *Guard) Exec(
 		return op.Error(err, "reading result of %s", description)
 	}
 
+	return g.Report(ctx, op, affected, id, operation)
+}
+
+// Report is Exec without the execution: the same stamping, counting, logging
+// and sentinel, applied to a row count the caller already has.
+//
+// It is what a store on the generated-querier tier calls. A statement rendered
+// by database/querygen and annotated :execrows comes back through sqlc as an
+// int64 rather than as a sql.Result, so there is nothing left for Exec to run —
+// and the half of a guarded write that matters is not the running, it is what
+// the count means. Both halves route through here so that a store executing its
+// SQL through a querier and one still assembling it report a missed guard as the
+// same span attribute, the same counter series, and the same wrapped sentinel.
+//
+// id identifies the row for the log line and the returned error; operation
+// labels the miss counter — "finish", "advance", "release" — so a guard miss
+// distinguishes a caller cancelling twice from a worker losing a lease race, one
+// of which is routine and one of which wants looking at.
+func (g *Guard) Report(
+	ctx context.Context,
+	op observability.Operation,
+	affected int64,
+	id, operation string,
+) error {
 	op.Set(g.Namespace+rowsAffectedSuffix, affected)
 
 	if affected > 0 {

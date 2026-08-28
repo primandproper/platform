@@ -126,14 +126,26 @@ func TestSQLStore_PropagatesFailures(T *testing.T) {
 		test.ErrorIs(t, err, errDatabase)
 	})
 
-	T.Run("Transition", func(t *testing.T) {
+	T.Run("Confirm", func(t *testing.T) {
 		t.Parallel()
 
 		store := newFailingStore(t)
 
 		err := store.WithTransaction(t.Context(), func(q database.Tx) error {
-			_, txErr := store.Transition(t.Context(), q, "r",
-				[]Status{StatusAwaitingConfirmation}, StatusInProgress, "op-1", baseTime)
+			_, txErr := store.Confirm(t.Context(), q, "r", "op-1")
+
+			return txErr
+		})
+		test.ErrorIs(t, err, errDatabase)
+	})
+
+	T.Run("Cancel", func(t *testing.T) {
+		t.Parallel()
+
+		store := newFailingStore(t)
+
+		err := store.WithTransaction(t.Context(), func(q database.Tx) error {
+			_, txErr := store.Cancel(t.Context(), q, "r", StatusInProgress, baseTime)
 
 			return txErr
 		})
@@ -192,8 +204,13 @@ func TestSQLStore_PropagatesFailures(T *testing.T) {
 	T.Run("CountOverdue", func(t *testing.T) {
 		t.Parallel()
 
+		// A scalar count reaches the driver as a Row rather than as Rows, so
+		// what comes back is the closed pool's error rather than this file's
+		// sentinel — see failingExecutor.QueryRowContext. What matters is the
+		// same either way: the gauge reports the failure instead of publishing
+		// a zero that reads as "nobody is owed anything".
 		_, err := newFailingStore(t).CountOverdue(t.Context(), baseTime)
-		test.ErrorIs(t, err, errDatabase)
+		test.Error(t, err)
 	})
 
 	T.Run("Reap", func(t *testing.T) {
@@ -244,14 +261,18 @@ func TestSQLStore_RejectsNilArguments(T *testing.T) {
 		test.ErrorIs(t, store.CompleteErasure(t.Context(), nil, nil, baseTime), ErrNilExecutor)
 		test.ErrorIs(t, store.CompleteExport(t.Context(), nil, nil, baseTime), ErrNilExecutor)
 
-		_, err := store.Transition(t.Context(), nil, "r", []Status{StatusInProgress}, StatusFailed, "", baseTime)
+		_, err := store.Cancel(t.Context(), nil, "r", StatusInProgress, baseTime)
 		test.ErrorIs(t, err, ErrNilExecutor)
 
-		// An empty source-status set would render `status IN ()`, which is a
-		// syntax error in every dialect rather than a transition that matches
-		// nothing.
-		_, err = store.Transition(t.Context(), database.NewTxForTesting(&failingExecutor{}), "r", nil, StatusFailed, "", baseTime)
-		test.ErrorIs(t, err, platformerrors.ErrEmptyInputParameter)
+		_, err = store.Confirm(t.Context(), nil, "r", "op-1")
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		// A status nothing writes matches no row, so without the check the call
+		// would report the request as not cancellable rather than the argument
+		// as wrong — and the two are answered very differently by whoever reads
+		// the error.
+		_, err = store.Cancel(t.Context(), database.NewTxForTesting(&failingExecutor{}), "r", Status("nonsense"), baseTime)
+		test.ErrorIs(t, err, ErrUnknownStatus)
 	})
 }
 

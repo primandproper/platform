@@ -78,7 +78,7 @@ func TestSQLStore_UnreadableRowCounts(T *testing.T) {
 		store := newUncountableStore(t)
 
 		err := store.WithTransaction(t.Context(), func(q database.Tx) error {
-			_, txErr := store.Transition(t.Context(), q, "r", []Status{StatusInProgress}, StatusCancelled, "", baseTime)
+			_, txErr := store.Cancel(t.Context(), q, "r", StatusInProgress, baseTime)
 
 			return txErr
 		})
@@ -130,7 +130,7 @@ func storePrefix(t *testing.T, store Store) string {
 	s, ok := store.(*SQLStore)
 	must.True(t, ok)
 
-	return s.tables.prefix()
+	return s.prefix
 }
 
 // failingSaveUploader accepts nothing.

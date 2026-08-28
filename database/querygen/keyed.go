@@ -179,6 +179,27 @@ const (
 	// exactly now is past it. That is the reading that leaves no instant at
 	// which a row is neither live nor expired.
 	CurrentTime
+	// BoundTime compares the column against an instant the caller binds:
+	// `column <= sqlc.arg(name)`, or `column > sqlc.arg(name)` under
+	// [Match.Exclude].
+	//
+	// It is [CurrentTime] with the caller's clock in place of the server's, and
+	// the two are separate members because the choice between them is a real
+	// one rather than a spelling. The server's clock is right for a deadline
+	// the same server stamped, and it is the only clock a statement can consult
+	// on its own. A caller's is right for the sweeps whose boundary is not now:
+	// a retention reap asks for the records completed before a window that ends
+	// somewhere in the past, and there is no arithmetic on [NowExpression] this
+	// package promises across three dialects. It is also what lets a test drive
+	// a sweep from a clock it controls, which a statement reading the server's
+	// clock cannot be made to do.
+	//
+	// The boundary is inclusive on the swept side and the complement is strict,
+	// exactly as [CurrentTime]'s is, so the two forms partition the rows rather
+	// than overlapping at the instant a bound falls on. That is one boundary per
+	// comparand rather than one per direction, which is the property that keeps
+	// "expired" and "still live" from disagreeing about the same instant.
+	BoundTime
 	// OptionalArgument compares the column against an argument the caller may
 	// leave unset: `column = COALESCE(sqlc.narg(name), '')`, or `<>` under
 	// [Match.Exclude].
@@ -208,6 +229,8 @@ func (c Comparand) String() string {
 		return "the empty string"
 	case CurrentTime:
 		return "the current time"
+	case BoundTime:
+		return "a bound instant"
 	case OptionalArgument:
 		return "an optional bound argument"
 	default:
@@ -218,7 +241,7 @@ func (c Comparand) String() string {
 // binds reports whether this comparand takes an argument from the caller, which
 // is what decides whether [Match.Arg] means anything.
 func (c Comparand) binds() bool {
-	return c == BoundArgument || c == OptionalArgument
+	return c == BoundArgument || c == BoundTime || c == OptionalArgument
 }
 
 // operator returns the comparison this match renders for the comparands whose

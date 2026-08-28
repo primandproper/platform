@@ -532,18 +532,9 @@ func (g *Generator) listStatement(table string, columns []string, ownership stri
 }
 
 func (g *Generator) updateStatement(table string, columns, updateColumns []string, ownership string, nullable []string, extra ...Match) string {
-	assignments := make([]string, 0, len(updateColumns)+1)
-	for _, column := range updateColumns {
-		assignments = append(assignments, fmt.Sprintf("%s = %s", column, binding(column, nullable)))
-	}
-
-	if slices.Contains(columns, LastUpdatedAtColumn) {
-		assignments = append(assignments, fmt.Sprintf("%s = %s", LastUpdatedAtColumn, g.storedNow()))
-	}
-
 	return fmt.Sprintf("UPDATE %s SET\n\t%s\nWHERE %s;",
 		table,
-		strings.Join(assignments, ",\n\t"),
+		strings.Join(g.assignments(columns, updateColumns, nullable), ",\n\t"),
 		joinPredicates(g.singleRowPredicates(table, columns, ownership, false, extra...), "\t"),
 	)
 }
@@ -694,6 +685,16 @@ func (g *Generator) matchPredicate(table string, match Match, qualified bool) st
 		}
 
 		return fmt.Sprintf("%s %s %s", name, operator, g.storedNow())
+	case BoundTime:
+		// The same partition CurrentTime renders, against the caller's clock
+		// rather than the server's — so a sweep and the guard refusing what it
+		// collected agree about the instant on their shared boundary.
+		operator := "<="
+		if match.Exclude {
+			operator = ">"
+		}
+
+		return fmt.Sprintf("%s %s sqlc.arg(%s)", name, operator, match.argument())
 	case OptionalArgument:
 		return fmt.Sprintf("%s %s COALESCE(sqlc.narg(%s), '')", name, match.operator(), match.argument())
 	// BoundArgument, which is the zero value and every keyed read's comparand.

@@ -251,6 +251,70 @@ func TestGuard_Exec(T *testing.T) {
 	})
 }
 
+// Report is the half of Exec that means something, applied to a count a caller
+// already has — which is every store on the generated-querier tier, since a
+// :execrows statement comes back through sqlc as an int64 rather than as a
+// sql.Result.
+//
+// What these assert is that the two paths say the same thing: the same sentinel,
+// the same wrapped reason, the same logged identifier. A store executing its SQL
+// through a querier and one still assembling it must not report a missed guard
+// two different ways, or a dashboard grouping on the attribute sees half of a
+// deployment's misses.
+func TestGuard_Report(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a count above zero succeeds", func(t *testing.T) {
+		t.Parallel()
+
+		test.NoError(t, testGuard().Report(t.Context(), beginOp(t), 1, "id-1", "finish"))
+	})
+
+	T.Run("a count of zero is the sentinel", func(t *testing.T) {
+		t.Parallel()
+
+		err := testGuard().Report(t.Context(), beginOp(t), 0, "id-1", "finish")
+
+		test.ErrorIs(t, err, errNotFound)
+		test.StrContains(t, err.Error(), `thing "id-1" is no longer active`)
+	})
+
+	T.Run("a missed guard names the row it could not find", func(t *testing.T) {
+		t.Parallel()
+
+		logger := newRecordingLogger()
+
+		must.Error(t, testGuard().Report(t.Context(), beginOpWith(t, logger), 0, "id-1", "finish"))
+
+		lines := logger.recorded()
+		must.SliceLen(t, 1, lines)
+		test.EqOp(t, "thing left the active set before its outcome could be recorded", lines[0].message)
+		test.EqOp(t, "id-1", lines[0].values["things.id"])
+	})
+
+	// The path Exec takes to get here, checked against the path a querier takes:
+	// one statement, two ways of learning it moved nothing, one answer.
+	T.Run("says what Exec says about the same count", func(t *testing.T) {
+		t.Parallel()
+
+		const query = "UPDATE things SET state = 'done' WHERE id = :1 AND state = 'running'"
+
+		db, mock, dbErr := sqlmock.New()
+		must.NoError(t, dbErr)
+
+		t.Cleanup(func() { _ = db.Close() })
+
+		mock.ExpectExec(query).WillReturnResult(sqlmock.NewResult(0, 0))
+
+		executed := testGuard().Exec(t.Context(), beginOp(t), db, query, nil, "id-1", "finish", "finishing thing")
+		reported := testGuard().Report(t.Context(), beginOp(t), 0, "id-1", "finish")
+
+		must.Error(t, executed)
+		must.Error(t, reported)
+		test.EqOp(t, executed.Error(), reported.Error())
+	})
+}
+
 func TestGuard_OpAttr(T *testing.T) {
 	T.Parallel()
 
