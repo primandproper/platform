@@ -59,16 +59,16 @@ type ruling struct {
 // same sentence in every case, and a per-package copy of it would be a place for
 // a real reason to hide.
 var rulings = map[string]ruling{
-	// The tier itself. identitydb is what sqlc-gen-unison emitted from
-	// identity's corpus, which is what every port below is a port onto.
-	"identity/internal/identitydb": {tier: unison},
+	// The tier itself. Each is what sqlc-gen-unison emitted from its package's
+	// corpus, which is what every port below is a port onto.
+	"authentication/webauthn/database/internal/webauthndb": {tier: unison},
+	"identity/internal/identitydb":                         {tier: unison},
 
 	// Still composing SQL in Go. Each of these is a tracked port onto the
 	// corpus; nothing about the list is a decision, which is why none of them
 	// carries a reason.
 	"audit":                                {tier: porting},
 	"authentication/oauth2server/database": {tier: porting},
-	"authentication/webauthn/database":     {tier: porting},
 	"authorization/database":               {tier: porting},
 	"cryptography/shredding":               {tier: porting},
 	"dataprivacy":                          {tier: porting},

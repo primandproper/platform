@@ -41,15 +41,28 @@ func TestNewSessionStore(T *testing.T) {
 		store, err := NewSessionStore(&Config{}, newTestClient(t))
 		must.NoError(t, err)
 		must.NotNil(t, store)
-		test.EqOp(t, "webauthn_sessions", store.table)
+
+		must.NoError(t, store.Save(t.Context(), testSession("built"), time.Minute))
+		test.EqOp(t, 1, rowsIn(t, store.db, "webauthn_sessions"))
 	})
 
-	T.Run("takes the table's namespace from the config", func(t *testing.T) {
+	// A namespace is not decoration: it renders a second table, and every
+	// statement the store runs has to name that one. The store carries no table
+	// name of its own to assert on — the prefix reaches the generated querier
+	// and nothing else — so this is asserted where it is decided, in the rows.
+	T.Run("addresses the table its namespace names", func(t *testing.T) {
 		t.Parallel()
 
-		store, err := NewSessionStore(&Config{TablePrefix: "ddb"}, newTestClient(t))
+		client := newTestClient(t)
+		createTable(t, client, dialect.SQLite, "ddb")
+
+		store, err := NewSessionStore(&Config{TablePrefix: "ddb"}, client)
 		must.NoError(t, err)
-		test.EqOp(t, "ddb_webauthn_sessions", store.table)
+
+		must.NoError(t, store.Save(t.Context(), testSession("namespaced"), time.Minute))
+
+		test.EqOp(t, 1, rowsIn(t, client, "ddb_webauthn_sessions"))
+		test.EqOp(t, 0, rowsIn(t, client, "webauthn_sessions"))
 	})
 
 	T.Run("refuses a nil config", func(t *testing.T) {
@@ -220,16 +233,23 @@ func TestSessionStore_Consume(T *testing.T) {
 func TestSessionStore_Sweep(T *testing.T) {
 	T.Parallel()
 
+	// What decides a row's fate is the deadline it was stamped with, since the
+	// sweep compares against the server's clock rather than the store's. So the
+	// expired row is one written by a clock two hours behind the server, and
+	// the live one is written at the server's own time — moving the store's
+	// clock afterwards, as an expiry test would once have done, now changes
+	// nothing.
 	T.Run("removes what has expired and reports how much", func(t *testing.T) {
 		t.Parallel()
 
 		store, c := newTestStore(t)
 		ctx := t.Context()
 
+		c.advance(-2 * time.Hour)
 		must.NoError(t, store.Save(ctx, testSession("short"), time.Minute))
-		must.NoError(t, store.Save(ctx, testSession("long"), time.Hour))
 
-		c.advance(time.Minute)
+		c.advance(2 * time.Hour)
+		must.NoError(t, store.Save(ctx, testSession("long"), time.Hour))
 
 		swept, err := store.Sweep(ctx)
 		must.NoError(t, err)
@@ -308,9 +328,17 @@ func expiresAt(t *testing.T, store *SessionStore, challenge string) time.Time {
 func rowCount(t *testing.T, store *SessionStore) int {
 	t.Helper()
 
+	return rowsIn(t, store.db, "webauthn_sessions")
+}
+
+// rowsIn counts one named table, for the cases that care which of two a
+// statement reached.
+func rowsIn(t *testing.T, client database.Client, table string) int {
+	t.Helper()
+
 	var count int
-	must.NoError(t, store.db.Writer().
-		QueryRowContext(t.Context(), "SELECT COUNT(*) FROM webauthn_sessions").Scan(&count))
+	must.NoError(t, client.Writer().
+		QueryRowContext(t.Context(), "SELECT COUNT(*) FROM "+table).Scan(&count))
 
 	return count
 }
