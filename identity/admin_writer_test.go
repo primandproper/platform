@@ -126,6 +126,61 @@ func runAdminWriterSuite(t *testing.T, env *storeEnv) {
 		must.ErrorIs(t, store.ArchiveUser(t.Context(), testScope, member.ID), ErrUserNotFound)
 	})
 
+	t.Run("refuses to archive an owner out from under their accounts", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		owner := createUser(t, store, newUser("ada"))
+		account := createAccountFor(t, store, owner, "Acme")
+
+		// The same failure RemoveMembership refuses, reached through the other
+		// door: an account left live and answering to a user every scoped read
+		// now reports as absent.
+		err := store.ArchiveUser(t.Context(), testScope, owner.ID)
+		must.ErrorIs(t, err, ErrLastAccountOwner)
+
+		// The refusal names the account that has to move first, which is the
+		// only thing the operator needs and the one thing a bare sentinel
+		// cannot say.
+		test.StrContains(t, err.Error(), account.ID)
+
+		// Nothing was written: the guard shares the transaction with the
+		// archive, so a refusal cannot leave the memberships ended behind it.
+		read, err := store.GetUser(t.Context(), testScope, owner.ID)
+		must.NoError(t, err)
+		test.False(t, read.Archived())
+
+		membership, err := store.GetMembership(t.Context(), testScope, owner.ID, account.ID)
+		must.NoError(t, err)
+		test.False(t, membership.Archived())
+
+		// Transferring is one of the two ways out, and it is the one that keeps
+		// the account.
+		successor := registerInto(t, store, newUser("grace"), account.ID)
+		must.NoError(t, store.TransferAccountOwnership(t.Context(), testScope, account.ID, successor.ID))
+		must.NoError(t, store.ArchiveUser(t.Context(), testScope, owner.ID))
+
+		// Archiving the account is the other, and it unblocks the new owner —
+		// an archived account is not one whose ownership has to move.
+		must.ErrorIs(t, store.ArchiveUser(t.Context(), testScope, successor.ID), ErrLastAccountOwner)
+		must.NoError(t, store.ArchiveAccount(t.Context(), testScope, account.ID))
+		must.NoError(t, store.ArchiveUser(t.Context(), testScope, successor.ID))
+	})
+
+	t.Run("refuses to archive an owner named by another directory's account", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		owner := createUser(t, store, newUser("ada"))
+		createAccountFor(t, store, owner, "Acme")
+
+		// The guard is scoped like every other read here, so a neighbor
+		// directory's accounts neither block an archive nor are consulted by
+		// one — and the archive of a user who is not in this directory is still
+		// the missing user it always was.
+		must.ErrorIs(t, store.ArchiveUser(t.Context(), otherScope, owner.ID), ErrUserNotFound)
+	})
+
 	t.Run("erases a user and everything keyed to them", func(t *testing.T) {
 		t.Parallel()
 
@@ -157,6 +212,92 @@ func runAdminWriterSuite(t *testing.T, env *storeEnv) {
 
 		// The handle is free again, which a soft delete deliberately does not do.
 		createUser(t, store, newUser("brian"))
+	})
+
+	t.Run("erases a user who was archived first", func(t *testing.T) {
+		t.Parallel()
+
+		// The order a right-to-be-forgotten request actually runs in: the
+		// subject is hidden, and destroyed afterwards. Every other single-row
+		// statement in this package requires archived_at IS NULL, so the
+		// erasure is the one that must not — and it is now a generated DELETE,
+		// where the predicate's absence is a property of the emitted text
+		// rather than of a hand-written string.
+		store := env.newStore(t)
+		user := createUser(t, store, newUser("ada"))
+
+		must.NoError(t, store.ArchiveUser(t.Context(), testScope, user.ID))
+
+		var erased int64
+
+		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
+			var err error
+			erased, err = store.EraseUser(ctx, q, testScope, user.ID)
+
+			return err
+		}))
+		test.EqOp(t, int64(1), erased)
+	})
+
+	t.Run("refuses to erase a user in another directory", func(t *testing.T) {
+		t.Parallel()
+
+		// The scope is a predicate on the delete rather than a check above it,
+		// so a neighbor's erasure matches nothing and reports zero.
+		store := env.newStore(t)
+		user := createUser(t, store, newUser("ada"))
+
+		var erased int64
+
+		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
+			var err error
+			erased, err = store.EraseUser(ctx, q, otherScope, user.ID)
+
+			return err
+		}))
+		test.EqOp(t, int64(0), erased)
+
+		_, err := store.GetUser(t.Context(), testScope, user.ID)
+		must.NoError(t, err)
+	})
+
+	t.Run("leaves an erased owner's accounts naming an id that is gone", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		owner := createUser(t, store, newUser("ada"))
+		account := createAccountFor(t, store, owner, "Acme")
+
+		// Erasure is the one path that reaches an ownerless account, and it
+		// does so deliberately: it cannot refuse the way ArchiveUser refuses,
+		// because a right-to-be-forgotten transaction spans every domain and
+		// has to commit.
+		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
+			_, err := store.EraseUser(ctx, q, testScope, owner.ID)
+
+			return err
+		}))
+
+		_, err := store.GetUser(t.Context(), testScope, owner.ID)
+		must.ErrorIs(t, err, ErrUserNotFound)
+
+		// The account is still live and still names the id, which is the
+		// documented post-condition rather than an accident — there is no
+		// foreign key to have taken it, and taking it would put the other
+		// members offline because one of them exercised a right.
+		read, err := store.GetAccount(t.Context(), testScope, account.ID)
+		must.NoError(t, err)
+		test.False(t, read.Archived())
+		test.EqOp(t, owner.ID, read.OwnerUserID)
+
+		// Resolving it is a transfer, and nothing in the store stands in the
+		// way of one — the account is reachable by every scoped read.
+		successor := createUser(t, store, newUser("grace"))
+		must.NoError(t, store.TransferAccountOwnership(t.Context(), testScope, account.ID, successor.ID))
+
+		resolved, err := store.GetAccount(t.Context(), testScope, account.ID)
+		must.NoError(t, err)
+		test.EqOp(t, successor.ID, resolved.OwnerUserID)
 	})
 
 	t.Run("ends memberships when an account is archived", func(t *testing.T) {

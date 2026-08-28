@@ -24,9 +24,8 @@ import (
 // restate the fields rather than casting. Restating is the cost; the compiler
 // checking every field name is what it buys.
 
-// utcPtr normalizes an optional timestamp to UTC, preserving absence. It is
-// the one home for the rule; timePtr is the same rule for the nullable-column
-// input shape.
+// utcPtr normalizes an optional timestamp to UTC, preserving absence. It is the
+// one home for the rule, and every conversion below goes through it.
 //
 // Every timestamp this package writes is UTC, so every one it returns is too —
 // Postgres hands back a time in the session's zone, MySQL in the server's, and
@@ -253,6 +252,73 @@ func userFromSearchRow(r *identitydb.SearchUsersByUsernameRow) *User {
 		LastUpdatedAt:                 r.LastUpdatedAt,
 		ArchivedAt:                    r.ArchivedAt,
 	})
+}
+
+func userFromBatchRow(r *identitydb.ListUsersByIDsRow) *User {
+	return userFromRow(&identitydb.GetUserRow{
+		ID:                            r.ID,
+		Scope:                         r.Scope,
+		Username:                      r.Username,
+		EmailAddress:                  r.EmailAddress,
+		FirstName:                     r.FirstName,
+		LastName:                      r.LastName,
+		HashedPassword:                r.HashedPassword,
+		RequiresPasswordChange:        r.RequiresPasswordChange,
+		PasswordLastChangedAt:         r.PasswordLastChangedAt,
+		TwoFactorSecret:               r.TwoFactorSecret,
+		TwoFactorSecretVerifiedAt:     r.TwoFactorSecretVerifiedAt,
+		EmailAddressVerifiedAt:        r.EmailAddressVerifiedAt,
+		EmailAddressVerificationToken: r.EmailAddressVerificationToken,
+		AccountStatus:                 r.AccountStatus,
+		AccountStatusExplanation:      r.AccountStatusExplanation,
+		LastAcceptedTermsOfService:    r.LastAcceptedTermsOfService,
+		LastAcceptedPrivacyPolicy:     r.LastAcceptedPrivacyPolicy,
+		CreatedAt:                     r.CreatedAt,
+		LastUpdatedAt:                 r.LastUpdatedAt,
+		ArchivedAt:                    r.ArchivedAt,
+	})
+}
+
+// Roles.
+
+// ownedRole is one row of a batched role read: the parent the role hangs off,
+// and the role itself.
+//
+// The three role tables project the same two columns and still have three row
+// types, because sqlc's row types are nominal per statement. Flattening each
+// into this is what lets one grouping — SQLStore's rolesFor — serve all three
+// rather than being written once per table, which is the shape the roles of a
+// user, a membership and an invitation would otherwise arrive in.
+type ownedRole struct {
+	ownerID string
+	role    string
+}
+
+func userRolesFromRows(rows []identitydb.ListUserRolesByUserIDsRow) []ownedRole {
+	owned := make([]ownedRole, 0, len(rows))
+	for i := range rows {
+		owned = append(owned, ownedRole{ownerID: rows[i].UserID, role: rows[i].Role})
+	}
+
+	return owned
+}
+
+func membershipRolesFromRows(rows []identitydb.ListMembershipRolesByMembershipIDsRow) []ownedRole {
+	owned := make([]ownedRole, 0, len(rows))
+	for i := range rows {
+		owned = append(owned, ownedRole{ownerID: rows[i].MembershipID, role: rows[i].Role})
+	}
+
+	return owned
+}
+
+func invitationRolesFromRows(rows []identitydb.ListInvitationRolesByInvitationIDsRow) []ownedRole {
+	owned := make([]ownedRole, 0, len(rows))
+	for i := range rows {
+		owned = append(owned, ownedRole{ownerID: rows[i].InvitationID, role: rows[i].Role})
+	}
+
+	return owned
 }
 
 func createUserParams(u *User) identitydb.CreateUserParams {

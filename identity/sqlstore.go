@@ -14,7 +14,6 @@ import (
 	"github.com/primandproper/platform-go/v13/filtering"
 	"github.com/primandproper/platform-go/v13/identifiers"
 	"github.com/primandproper/platform-go/v13/identity/internal/identitydb"
-	"github.com/primandproper/platform-go/v13/identity/internal/queries"
 	"github.com/primandproper/platform-go/v13/identity/migrations"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/observability/logging"
@@ -174,40 +173,33 @@ func requireExecutor(q database.SQLQueryExecutor) error {
 	return nil
 }
 
-// rolesFor reads the roles for a batch of memberships or invitations at once,
-// keyed by owner ID.
+// rolesFor groups a batched role read by owner, and answers an empty batch
+// without running it.
 //
-// Batched deliberately: a roster page of thirty members read one query at a time
-// is thirty round trips returning two rows each, and that is the shape a page
-// read arrives at when roles are fetched inside the loop that converts rows.
-// An empty ownerIDs returns an empty map without querying, because an IN () is
-// a syntax error in two of the three dialects.
-func (s *SQLStore) rolesFor(
-	ctx context.Context,
-	q database.SQLQueryExecutor,
-	table, idColumn string,
-	ownerIDs []string,
-) (map[string][]string, error) {
+// The read itself is the caller's closure rather than a table this takes, for
+// the reason the keyed user reads enumerate: a query name is a Go method name,
+// so the three role tables are three generated statements rather than one
+// parameterized by a table. What is here is what the three share — the empty
+// batch, and the grouping every caller would otherwise write.
+//
+// Batched deliberately: a roster page of thirty members read one query at a
+// time is thirty round trips returning two rows each, and that is the shape a
+// page read arrives at when roles are fetched inside the loop that converts
+// rows. The generated statement is querygen's batched read, ordered by the
+// owner and then by the role — see querygen.Generator.SetReadQuery.
+//
+// The empty batch is answered here because the statement cannot express one —
+// the SQL the corpus carries has no rendering of an empty set, and what the
+// generated code substitutes for one is a predicate matching no row. Sending it
+// is a round trip whose answer was known before it left, on the read that
+// exists to save round trips.
+func rolesFor(ownerIDs []string, read func([]string) ([]ownedRole, error)) (map[string][]string, error) {
 	byOwner := map[string][]string{}
 	if len(ownerIDs) == 0 {
 		return byOwner, nil
 	}
 
-	query, args := buildSelectRoles(s.dialect, table, idColumn, ownerIDs)
-
-	type roleRow struct {
-		ownerID string
-		role    string
-	}
-
-	rows, err := database.ScanAll(ctx, q, "identity role", query, args, func(scanner database.Scanner) (roleRow, error) {
-		var row roleRow
-		if scanErr := scanner.Scan(&row.ownerID, &row.role); scanErr != nil {
-			return roleRow{}, scanErr
-		}
-
-		return row, nil
-	})
+	rows, err := read(ownerIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -219,53 +211,163 @@ func (s *SQLStore) rolesFor(
 	return byOwner, nil
 }
 
-// replaceRoles clears an owner's roles and writes the new set, which is how both
-// role tables are written — SetMembershipRoles replaces rather than merges, and
-// so does the write behind an accepted invitation.
+// roleStatements is one role table's pair of generated writes, with the owner
+// column each binds already chosen: the clear, and the insert of one grant.
+//
+// A query name is a Go method name, so the three role tables cannot share a
+// statement the way they shared a builder that took the table as an argument —
+// there are six methods where there were two. What they can share is the
+// operation, which is the part that can be got wrong: clear first, then write
+// the set back, because an insert running first collides with the grants it is
+// replacing. That lives once, in replaceRoles, and this is what differs per
+// table.
+type roleStatements struct {
+	clear  func(ctx context.Context, db identitydb.DBTX, ownerID string) (int64, error)
+	insert func(ctx context.Context, db identitydb.DBTX, ownerID, role string) error
+}
+
+// userRoleWrites is the service-role table's pair: the roles a user holds outside
+// any account.
+func (s *SQLStore) userRoleWrites() roleStatements {
+	return roleStatements{
+		clear: func(ctx context.Context, db identitydb.DBTX, ownerID string) (int64, error) {
+			return s.q.DeleteUserRoles(ctx, db, identitydb.DeleteUserRolesParams{UserID: ownerID})
+		},
+		insert: func(ctx context.Context, db identitydb.DBTX, ownerID, role string) error {
+			return s.q.InsertUserRole(ctx, db, identitydb.InsertUserRoleParams{UserID: ownerID, Role: role})
+		},
+	}
+}
+
+// membershipRoleWrites is the pair for what a member may do inside one account.
+func (s *SQLStore) membershipRoleWrites() roleStatements {
+	return roleStatements{
+		clear: func(ctx context.Context, db identitydb.DBTX, ownerID string) (int64, error) {
+			return s.q.DeleteMembershipRoles(ctx, db, identitydb.DeleteMembershipRolesParams{MembershipID: ownerID})
+		},
+		insert: func(ctx context.Context, db identitydb.DBTX, ownerID, role string) error {
+			return s.q.InsertMembershipRole(ctx, db,
+				identitydb.InsertMembershipRoleParams{MembershipID: ownerID, Role: role})
+		},
+	}
+}
+
+// invitationRoleWrites is the pair for what an invitation promises.
+func (s *SQLStore) invitationRoleWrites() roleStatements {
+	return roleStatements{
+		clear: func(ctx context.Context, db identitydb.DBTX, ownerID string) (int64, error) {
+			return s.q.DeleteInvitationRoles(ctx, db, identitydb.DeleteInvitationRolesParams{InvitationID: ownerID})
+		},
+		insert: func(ctx context.Context, db identitydb.DBTX, ownerID, role string) error {
+			return s.q.InsertInvitationRole(ctx, db,
+				identitydb.InsertInvitationRoleParams{InvitationID: ownerID, Role: role})
+		},
+	}
+}
+
+// replaceRoles clears an owner's roles and writes the new set, which is how all
+// three role tables are written — SetMembershipRoles replaces rather than
+// merges, and so do the writes behind a registration and an accepted invitation.
+//
+// The clear's row count is discarded on purpose. An owner with no grants yet is
+// the ordinary case — a registration, a first invitation — so zero means "there
+// was nothing to clear" rather than "the row was not found", and there is no
+// caller for whom the two differ.
+//
+// The insert runs once per role rather than once per call. The multi-row VALUES
+// list it replaced was assembled from the caller's cardinality, which is dynamic
+// SQL by construction: no static text for sqlc to check and none for querygen to
+// emit. What it costs is a round trip per role, inside the transaction the
+// parent's write already opened, at cardinalities that are single-digit.
 func (s *SQLStore) replaceRoles(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
-	table, idColumn, ownerID string,
+	statements roleStatements,
+	ownerID string,
 	roles []string,
 ) error {
-	query, args := buildDeleteRoles(s.dialect, table, idColumn, ownerID)
-	if _, err := q.ExecContext(ctx, query, args...); err != nil {
+	if _, err := statements.clear(ctx, q, ownerID); err != nil {
 		return platformerrors.Wrap(err, "clearing identity roles")
 	}
 
-	if len(roles) == 0 {
-		return nil
-	}
-
-	query, args = buildInsertRoles(s.dialect, table, idColumn, ownerID, roles)
-	if _, err := q.ExecContext(ctx, query, args...); err != nil {
-		return platformerrors.Wrap(err, "writing identity roles")
+	for _, role := range roles {
+		if err := statements.insert(ctx, q, ownerID, role); err != nil {
+			return platformerrors.Wrap(err, "writing identity roles")
+		}
 	}
 
 	return nil
 }
 
-// ensureUnique runs the collision check the unique indexes back up.
+// ensureUsernameFree and ensureEmailAddressFree are the two collision checks a
+// write runs before it writes, so a taken handle reports ErrUsernameTaken or
+// ErrEmailAddressTaken rather than a driver-specific constraint violation the
+// caller would have to parse a SQLSTATE out of.
 //
-// The index is what actually guarantees uniqueness; this read is what turns the
-// ordinary case into ErrUsernameTaken instead of a driver-specific constraint
-// violation the caller would have to parse a SQLSTATE out of. Two registrations
-// racing for the same handle still reach the index, and the loser gets the
-// driver's error — which is correct, rare, and the reason this check is not
-// presented as the guarantee.
-func (s *SQLStore) ensureUnique(
+// exceptID is the row being updated, which is what lets a user save their own
+// profile without colliding with themselves, and is empty at creation because
+// there is no row yet. It reaches the statement as an argument that may be
+// absent rather than as a predicate that may be missing, so both callers run
+// the same checked statement — see the uniqueness checks in
+// identity/internal/queries.
+//
+// They enumerate rather than take a column, for the reason every other read
+// here does: a query name is a Go method name, so a check parameterized on the
+// column cannot be one generated statement.
+func (s *SQLStore) ensureUsernameFree(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
-	column string,
 	scope tenancy.Scope,
-	value, exceptID string,
-	taken error,
+	username, exceptID string,
 ) error {
-	query, args := s.tables.buildSelectUserIDByField(s.dialect, column, scope, value, exceptID)
+	_, err := s.q.GetUserIDByUsername(ctx, q, identitydb.GetUserIDByUsernameParams{
+		Username:     username,
+		Scope:        scope,
+		ExceptUserID: exceptUserID(exceptID),
+	})
 
-	var existingID string
+	return uniquenessResult(err, ErrUsernameTaken)
+}
 
-	switch err := q.QueryRowContext(ctx, query, args...).Scan(&existingID); {
+func (s *SQLStore) ensureEmailAddressFree(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	emailAddress, exceptID string,
+) error {
+	_, err := s.q.GetUserIDByEmailAddress(ctx, q, identitydb.GetUserIDByEmailAddressParams{
+		EmailAddress: emailAddress,
+		Scope:        scope,
+		ExceptUserID: exceptUserID(exceptID),
+	})
+
+	return uniquenessResult(err, ErrEmailAddressTaken)
+}
+
+// exceptUserID renders the id a collision check excludes as the argument the
+// statement takes: absent where there is no row to exclude.
+//
+// The empty string would do the same thing — the statement coalesces an absent
+// argument to it — but sending it would say the caller is excluding a row whose
+// id is empty, which is a row no write in this schema can produce. Absent says
+// what is true.
+func exceptUserID(exceptID string) *string {
+	if exceptID == "" {
+		return nil
+	}
+
+	return &exceptID
+}
+
+// uniquenessResult reads a collision check's outcome: no row is a free handle,
+// a row is taken, and anything else is the read failing.
+//
+// The index is what actually guarantees uniqueness; this read is what turns the
+// ordinary case into a sentinel. Two registrations racing for the same handle
+// still reach the index, and the loser gets the driver's error — which is
+// correct, rare, and the reason this check is not presented as the guarantee.
+func uniquenessResult(err, taken error) error {
+	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return nil
 	case err != nil:
@@ -294,23 +396,10 @@ func newID(existing string) string {
 // and the two guards every paged read and every guarded write goes through.
 // Anything reached from one file only lives in that file.
 
-// The two user columns the collision checks name, aliased from the package that
-// declares the schema as data rather than respelled here — a builder's predicate
-// and the method that calls it are two places, and a typo in one of them is a
-// query that compiles, runs, and matches nothing.
-//
-// The verification token used to be the third. Its read is a generated
-// statement now, so nothing above the SQL names the column any more.
-const (
-	usernameColumn     = queries.UserUsernameColumn
-	emailAddressColumn = queries.UserEmailAddressColumn
-)
-
-// userIDColumn is what the service-role table keys on.
-const userIDColumn = "user_id"
-
-// membershipIDColumn is what the membership role table keys on.
-const membershipIDColumn = "membership_id"
+// The username and the email address used to be here too, aliased for the
+// collision check's hand-built predicate. Both checks are generated statements
+// now, so no column a user's uniqueness turns on is spelled above the SQL any
+// more — nor is the verification token, which went the same way.
 
 // liveUser is what the three single-user reads keyed on something other than the
 // id share: the scope check, the not-found mapping, the service roles, and the
@@ -359,7 +448,14 @@ func (s *SQLStore) attachServiceRoles(ctx context.Context, q database.SQLQueryEx
 		ids = append(ids, user.ID)
 	}
 
-	byUser, err := s.rolesFor(ctx, q, s.tables.userRoles, userIDColumn, ids)
+	byUser, err := rolesFor(ids, func(ids []string) ([]ownedRole, error) {
+		rows, err := s.q.ListUserRolesByUserIDs(ctx, q, identitydb.ListUserRolesByUserIDsParams{IDs: ids})
+		if err != nil {
+			return nil, err
+		}
+
+		return userRolesFromRows(rows), nil
+	})
 	if err != nil {
 		return err
 	}
@@ -433,7 +529,14 @@ func (s *SQLStore) attachMembershipRoles(ctx context.Context, q database.SQLQuer
 		ids = append(ids, membership.ID)
 	}
 
-	byMembership, err := s.rolesFor(ctx, q, s.tables.membershipRoles, membershipIDColumn, ids)
+	byMembership, err := rolesFor(ids, func(ids []string) ([]ownedRole, error) {
+		rows, err := s.q.ListMembershipRolesByMembershipIDs(ctx, q, identitydb.ListMembershipRolesByMembershipIDsParams{IDs: ids})
+		if err != nil {
+			return nil, err
+		}
+
+		return membershipRolesFromRows(rows), nil
+	})
 	if err != nil {
 		return err
 	}
@@ -445,17 +548,63 @@ func (s *SQLStore) attachMembershipRoles(ctx context.Context, q database.SQLQuer
 	return nil
 }
 
+// requireMembershipEndpoints reads the user and the account a membership links,
+// in the membership's own scope.
+//
+// The foreign keys prove existence and not congruence: belongs_to_user
+// references identity_users (id) and nothing else, so a membership naming a
+// user who lives in another directory is a row the database accepts. What it
+// produces is a roster displaying a stranger — the junction join matches on the
+// user id alone, so the projected user_scope disagrees with every other column
+// around it — and a Principal assembled from memberships their own directory
+// cannot see.
+//
+// Everywhere else this store answers "exists, but in another directory" with
+// not-found, and this is the write path agreeing with the reads. It maps a miss
+// onto the entity-shaped sentinel, so a caller learns which endpoint was the
+// stranger without learning that it exists somewhere else.
+//
+// It lives at the write rather than at each of its callers because it is the
+// invariant of the row rather than of any one caller: the next thing to reach
+// writeMembership inherits it instead of having to remember it.
+func (s *SQLStore) requireMembershipEndpoints(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	userID, accountID string,
+) error {
+	if _, err := s.readUser(ctx, q, scope, userID); err != nil {
+		return err
+	}
+
+	if _, err := s.readAccount(ctx, q, scope, accountID); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // writeMembership upserts the membership row, resolves the ID and creation time
 // the row actually carries, and replaces its roles.
 //
-// Both are read back rather than assumed, because neither is what this process
-// sent. The upsert converges on the (user, account) pair, so a user rejoining an
-// account revives the archived membership and it keeps the ID it was created
-// with — writing the roles against the ID the caller generated would attach them
-// to a membership that does not exist. And created_at is database-owned here as
-// everywhere else in this schema, so the inserting branch stores the server's
-// clock rather than the one the caller was handed.
+// Both endpoints are read in the membership's scope before anything is written;
+// see requireMembershipEndpoints for why the foreign keys are not enough.
+//
+// The ID and the creation time are read back rather than assumed, because
+// neither is what this process sent. The upsert converges on the (user,
+// account) pair, so a user rejoining an account revives the archived membership
+// and it keeps the ID it was created with — writing the roles against the ID
+// the caller generated would attach them to a membership that does not exist.
+// And created_at is database-owned here as everywhere else in this schema, so
+// the inserting branch stores the server's clock rather than the one the caller
+// was handed.
 func (s *SQLStore) writeMembership(ctx context.Context, q database.SQLQueryExecutor, membership *Membership) error {
+	if err := s.requireMembershipEndpoints(
+		ctx, q, membership.Scope, membership.BelongsToUser, membership.BelongsToAccount,
+	); err != nil {
+		return err
+	}
+
 	if err := s.q.UpsertMembership(ctx, q, upsertMembershipParams(membership)); err != nil {
 		return platformerrors.Wrap(err, "writing identity membership")
 	}
@@ -477,7 +626,7 @@ func (s *SQLStore) writeMembership(ctx context.Context, q database.SQLQueryExecu
 	membership.ID = row.ID
 	membership.CreatedAt = row.CreatedAt.UTC()
 
-	if err := s.replaceRoles(ctx, q, s.tables.membershipRoles, membershipIDColumn, membership.ID, membership.Roles); err != nil {
+	if err := s.replaceRoles(ctx, q, s.membershipRoleWrites(), membership.ID, membership.Roles); err != nil {
 		return err
 	}
 

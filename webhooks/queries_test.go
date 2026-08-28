@@ -42,7 +42,7 @@ func TestBuildUpsertEndpoint_StampsTheLastMutation(T *testing.T) {
 
 		// The conflict half is the update, so it stamps.
 		test.StrContains(T, query, "last_updated_at = ", test.Sprintf("dialect %q", d))
-		test.SliceLen(T, 10, args, test.Sprintf("dialect %q", d))
+		test.SliceLen(T, 12, args, test.Sprintf("dialect %q", d))
 	}
 }
 

@@ -157,9 +157,18 @@ func (s *SQLStore) MarkUserTwoFactorSecretVerified(ctx context.Context, scope te
 		return op.Error(err, "marking identity two factor secret verified")
 	}
 
-	query, args := s.tables.buildMarkTwoFactorVerified(s.dialect, scope, userID, s.now())
-
-	if err := s.execExpectingRow(ctx, op, s.client.Writer(), query, args, ErrUserNotFound, "marking identity two factor secret verified"); err != nil {
+	// The guards are the statement's, not this method's: a secret that exists
+	// and has not been proven. Neither is an equality against a value held
+	// here, so neither is expressible as an argument — see querygen's
+	// Comparand — and that is what keeps a replayed verification from moving
+	// the timestamp forward.
+	count, err := s.q.MarkUserTwoFactorSecretVerified(ctx, s.client.Writer(),
+		identitydb.MarkUserTwoFactorSecretVerifiedParams{
+			ID:                        userID,
+			Scope:                     scope,
+			TwoFactorSecretVerifiedAt: pointer.To(s.now()),
+		})
+	if err = guardCount(count, err, ErrUserNotFound, "marking identity two factor secret verified"); err != nil {
 		return op.Error(err, "marking identity two factor secret verified")
 	}
 

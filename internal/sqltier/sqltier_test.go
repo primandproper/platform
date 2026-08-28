@@ -296,8 +296,8 @@ func statementLiterals(path string) (int, error) {
 			return true
 		}
 
-		value, err := strconv.Unquote(lit.Value)
-		if err != nil {
+		value, unquoteErr := strconv.Unquote(lit.Value)
+		if unquoteErr != nil {
 			return true
 		}
 
