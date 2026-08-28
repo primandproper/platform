@@ -79,7 +79,7 @@ deadline is bound rather than read off the server: expires_at is stamped as
 now-plus-a-TTL from the clock this backend was constructed with — the interface
 hands this layer a duration, not an instant — so a comparison against the
 server's CURRENT_TIMESTAMP would be two clocks deciding one row, and under the
-injected clock a test controls the two are years apart. See querygen.BoundTime.
+injected clock a test controls the two are years apart. See querygen.AtMostArgument.
 
 One consequence of the tier is visible on SQLite and nowhere else. That engine
 has no date type, so a timestamp is text, and the generated querier binds one in

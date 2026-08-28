@@ -59,7 +59,7 @@ const (
 // It is named for what it is rather than for the column it is compared against,
 // because the two are not the same value: expires_at is a row's own deadline
 // and this is the instant the sweep is asking about. See sweepDelete, and
-// querygen.BoundTime for why the instant is bound at all rather than read off
+// querygen.AtMostArgument for why the instant is bound at all rather than read off
 // the server.
 const SweepCutoffArg = "cutoff"
 
@@ -202,7 +202,7 @@ func rowDelete(g *querygen.Generator) *querygen.Query {
 // sweepDelete renders the removal of every row whose deadline has passed.
 //
 // The deadline is compared against a bound instant rather than the server's
-// clock, which is querygen.BoundTime and is the one decision in this file worth
+// clock, which is querygen.AtMostArgument and is the one decision in this file worth
 // stopping at. expires_at is written by the backend as now-plus-a-TTL from the
 // clock it was constructed with — the interface hands it a duration, not a
 // deadline — so the server's CURRENT_TIMESTAMP is a second clock, and under a
@@ -214,7 +214,7 @@ func sweepDelete(g *querygen.Generator) *querygen.Query {
 	return g.DeleteQuery("SweepSessions", SessionsTable, sweepColumns, querygen.Match{
 		Column:  ExpiresAtColumn,
 		Arg:     SweepCutoffArg,
-		Against: querygen.BoundTime,
+		Against: querygen.AtMostArgument,
 	})
 }
 

@@ -182,20 +182,48 @@ ErrUsernameTaken, which excludes the row being updated through an argument a
 registration simply does not send. Both were hand-built for exactly as long as a
 predicate meant "this column equals a bound value".
 
-What remains hand-written is six builders and the runtime binder they render
-through, and they are worth counting by shape rather than by name, because a
-shape is what the port still owes a generator. One is a predicate querygen has
-no form for: the default-flag clear, whose predicate excludes the membership
-being set rather than matching one. One is an update whose SET list is chosen
-per call, the agreements a registration accepts in a single statement. The last
-four are membership statements addressed by the (user, account) pair — an
-archival, a default set, a count of what is live — and the archive-by-side,
-whose column is chosen per call because one statement ends a user's memberships
-and an account's. The DELETEs used to be on this list and are not any more: the
-erasure and both halves of a role-set rewrite are querygen.Generator.DeleteQuery
-and InsertQuery statements now, one insert per role in place of the multi-row
-VALUES list whose shape was the caller's cardinality and which sqlc therefore
-could never check.
+Nothing remains hand-written. The last six builders and the runtime binder they
+rendered through are gone, and so is the projections file that paired their
+SELECT lists with a list of scan targets by eye. Two of them were shapes the
+port owed a generator and now has: the default-flag clear, whose predicate
+excludes the membership being set rather than matching one, is one static
+statement over an argument that may be absent — the same COALESCE the collision
+check uses — and the agreements a registration accepts are a statement per
+document run inside a transaction, in place of a SET list assembled from
+however many documents were named. The other four were membership statements
+addressed by the (user, account) pair, and each is now the ordinary form of
+what it always was: an update assigning the default flag, three soft deletes
+naming one membership, a user's, or an account's, and a keyed read in place of
+the count that only ever asked whether there was one. The archivals no longer
+clear the default flag themselves — a soft delete stamps archived_at from the
+server's clock and nothing else — so the clear is the statement before them,
+which is one more round trip and one fewer clock.
+
+What follows from that is the store's own shape: it holds a table prefix and a
+generated querier, and it does not know the dialect it is running against. It
+calls no ExecContext and no QueryRowContext, so there is no write left whose row
+count a driver could decline to report — the tolerance that case needed went
+with the statements that needed it. What the store still counts is the writes
+that matched no row, which is where "not there", "another directory's" and
+"lost the race" become one sentinel.
+
+# A note on timestamps, because one dialect does something surprising
+
+Every time this package binds is a UTC time.Time, and every comparison is
+against another such value. Postgres and MySQL store these as real temporal
+types and compare them as such. SQLite does not: modernc's driver stores a
+bound time.Time as Go's own String() rendering — "2026-07-30 12:00:00 +0000
+UTC" — so expires_at <= ? there is a string comparison.
+
+That is still correct, because the rendering begins with a fixed-width
+"YYYY-MM-DD HH:MM:SS" prefix and everything is UTC, so lexical order is
+chronological order. It stops being correct the moment a value is bound in a
+non-UTC location, so do not remove the .UTC() calls at the binding sites.
+
+The stamps the statements write are not among them. created_at, last_updated_at
+and archived_at come from the server's own CURRENT_TIMESTAMP, which on SQLite is
+the shape that column's comparisons are lexicographic over rather than one that
+happens to sort right — see identity/migrations.
 */
 package identity
 

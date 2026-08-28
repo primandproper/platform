@@ -30,7 +30,7 @@ func (b *Backend[T]) Sweep(ctx context.Context) (int64, error) {
 
 	// The cutoff is this backend's own clock, which is the clock expires_at was
 	// stamped from. Asking the server for the time instead would put two clocks
-	// on the two sides of one comparison — see querygen.BoundTime, and the
+	// on the two sides of one comparison — see querygen.AtMostArgument, and the
 	// sweep statement in sessions/database/internal/queries.
 	swept, err := b.q.SweepSessions(ctx, b.db.Writer(),
 		sessionsdb.SweepSessionsParams{Cutoff: b.clock.Now().UTC()})

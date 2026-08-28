@@ -694,19 +694,18 @@ func (g *Generator) matchPredicate(table string, match Match, qualified bool) st
 		}
 
 		return fmt.Sprintf("%s %s %s", name, operator, g.storedNow())
-	case BoundTime:
-		// The same partition as CurrentTime's, against a clock the caller
-		// reads instead of the server. One spelling of the boundary for both,
-		// so a store that binds its own now and one that asks the server for
-		// it agree about the instant a deadline falls on.
+	case OptionalArgument:
+		return fmt.Sprintf("%s %s COALESCE(sqlc.narg(%s), '')", name, match.operator(), match.argument())
+	case AtMostArgument:
+		// The complement of "at or below the ceiling" is "strictly above it",
+		// so the two forms partition the rows the way the clock's do rather
+		// than overlapping on the value the horizon names.
 		operator := "<="
 		if match.Exclude {
 			operator = ">"
 		}
 
 		return fmt.Sprintf("%s %s sqlc.arg(%s)", name, operator, match.argument())
-	case OptionalArgument:
-		return fmt.Sprintf("%s %s COALESCE(sqlc.narg(%s), '')", name, match.operator(), match.argument())
 	// BoundArgument, which is the zero value and every keyed read's comparand.
 	default:
 		return fmt.Sprintf("%s %s sqlc.arg(%s)", name, match.operator(), match.argument())

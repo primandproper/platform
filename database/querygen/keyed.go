@@ -75,9 +75,9 @@ type Match struct {
 	// It is a name rather than a value, and it is interpolated into the
 	// statement the way Column is, so it is restricted the same way.
 	//
-	// Only the comparands that bind anything read it — see [Comparand].
-	// Naming an argument that a NULL, empty-string or server-clock comparison
-	// has nowhere to put is ErrArgumentlessMatch rather than dead text in a
+	// Only the two comparands that bind anything read it — see [Comparand].
+	// Naming an argument that a NULL, empty-string or clock comparison has
+	// nowhere to put is ErrArgumentlessMatch rather than dead text in a
 	// statement.
 	Arg string
 	// Against is what Column is compared against. The zero value is the bound
@@ -179,24 +179,6 @@ const (
 	// exactly now is past it. That is the reading that leaves no instant at
 	// which a row is neither live nor expired.
 	CurrentTime
-	// BoundTime compares the column against a time the caller binds: `column
-	// <= sqlc.arg(name)`, or `column > sqlc.arg(name)` under [Match.Exclude].
-	//
-	// It is [CurrentTime] with the clock supplied from outside, and the two are
-	// alternatives rather than a preference. CurrentTime is right whenever the
-	// column it compares was written by the same server that answers the
-	// comparison, which is what makes one clock decide both halves. It is wrong
-	// for a store whose stamps come from a clock the application injected: a
-	// deadline written as now-plus-a-TTL from that clock, compared against the
-	// server's, is two clocks deciding one row — and under a test clock that
-	// only moves when a test moves it, the two are years apart. Such a store
-	// binds its own reading here, and the comparison is back inside one clock.
-	//
-	// The boundary is inclusive on the same side CurrentTime's is, and
-	// [Match.Exclude] complements it the same way, so the sweep that collects
-	// rows past a deadline and the guard that refuses to spend them cannot come
-	// to disagree about the instant the deadline falls on.
-	BoundTime
 	// OptionalArgument compares the column against an argument the caller may
 	// leave unset: `column = COALESCE(sqlc.narg(name), '')`, or `<>` under
 	// [Match.Exclude].
@@ -213,6 +195,37 @@ const (
 	// is a column this comparand cannot speak for, because an unset argument
 	// would then name a row.
 	OptionalArgument
+	// AtMostArgument compares the column against a bound ceiling: `column <=
+	// sqlc.arg(name)`, or `column > sqlc.arg(name)` under [Match.Exclude].
+	//
+	// It is [CurrentTime]'s bound sibling — the horizon a caller computed
+	// rather than the one the server reads off its own clock — and it is what a
+	// retention sweep is keyed on: everything recorded before this instant,
+	// everything sequenced at or below this number. The clock form cannot
+	// express either, because the horizon a sweep runs to is now less a window
+	// the configuration carries, and interval arithmetic is the arithmetic the
+	// three dialects spell three ways.
+	//
+	// So the subtraction happens in Go and arrives bound, which is the same
+	// thing a filter window's created_before already does. The skew that
+	// introduces is the application's clock against the server's, and it is
+	// bounded by the window: a cutoff a second early deletes a row a second
+	// early, against a horizon measured in days.
+	//
+	// It is also the comparand for a deadline the application stamped from a
+	// clock it was handed, where [CurrentTime] would be the wrong clock rather
+	// than merely the inexpressible one: a deadline written as now-plus-a-TTL
+	// from an injected clock, compared against the server's, is two clocks
+	// deciding one row — and under a test clock that only moves when a test
+	// moves it, the two are years apart. Binding the same clock's reading puts
+	// the comparison back inside one clock, which is the property CurrentTime's
+	// doc asks for rather than an exception to it.
+	//
+	// The boundary is inclusive on the doomed side, for [CurrentTime]'s reason
+	// — that is the reading which leaves no value at which a row is neither
+	// past the horizon nor short of it — and Exclude is its complement rather
+	// than a different question.
+	AtMostArgument
 )
 
 // String names the comparand, for the panic messages the misuse checks raise.
@@ -226,10 +239,10 @@ func (c Comparand) String() string {
 		return "the empty string"
 	case CurrentTime:
 		return "the current time"
-	case BoundTime:
-		return "a bound time"
 	case OptionalArgument:
 		return "an optional bound argument"
+	case AtMostArgument:
+		return "a bound ceiling"
 	default:
 		return fmt.Sprintf("unknown comparand %d", int(c))
 	}
@@ -238,12 +251,12 @@ func (c Comparand) String() string {
 // binds reports whether this comparand takes an argument from the caller, which
 // is what decides whether [Match.Arg] means anything.
 func (c Comparand) binds() bool {
-	return c == BoundArgument || c == BoundTime || c == OptionalArgument
+	return c == BoundArgument || c == OptionalArgument || c == AtMostArgument
 }
 
 // operator returns the comparison this match renders for the comparands whose
 // two directions are spelled `=` and `<>`, which is every one of them but NULL
-// and the two temporal ones.
+// and the clock.
 func (m Match) operator() string {
 	if m.Exclude {
 		return "<>"

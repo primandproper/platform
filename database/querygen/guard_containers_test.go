@@ -87,7 +87,7 @@ func hasSecret() Match  { return Match{Column: "secret", Against: EmptyString, E
 // application clock has to use, and the suite below runs it beside the server's
 // so that the two are checked against the same rows.
 func expiredBy(arg string) Match {
-	return Match{Column: "expires_at", Arg: arg, Against: BoundTime}
+	return Match{Column: "expires_at", Arg: arg, Against: AtMostArgument}
 }
 
 // tokenQueries is every statement the guard suite runs: the standard set for

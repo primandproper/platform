@@ -62,10 +62,11 @@ func (g *Generator) Dialect() dialect.Dialect {
 // written once, in fragments.go, standard.go and upsert.go, and are the same
 // text on every dialect apart from what these return.
 //
-// The last two are the exception that proves the shape of the rest: an upsert's
-// conflict branch is not one statement with a substituted expression in it but
-// two grammars, and they are still here rather than in upsert.go so that the
-// answer to "what does this package assume about MySQL" stays one screen.
+// The ones at the end of the file are the exception that proves the shape of the
+// rest. An upsert's conflict branch is not one statement with a substituted
+// expression in it but two grammars, and a capped delete is three; they are
+// still here rather than in upsert.go, insert.go and prune.go so that the answer
+// to "what does this package assume about MySQL" stays one screen.
 
 // substringMatch renders a case-insensitive substring match of column against a
 // bound argument.
@@ -402,4 +403,83 @@ func (g *Generator) insertedValue(column string) string {
 	}
 
 	return "EXCLUDED." + column
+}
+
+// pruneLimitClause renders the cap one prune pass runs under.
+//
+// It is limitClause's sibling and differs from it in the one way that matters:
+// the argument is required. A page size left unset is a page of the
+// conventional size, which is a reasonable thing for a list to decide on its
+// caller's behalf; a cap left unset is the unbounded DELETE the whole shape
+// exists to make unspellable, and there is no number this package could pick
+// that would be right for a table it knows nothing about.
+//
+// The name is [LimitArg] on the dialects that can carry one, because "how many
+// rows may this statement touch" is one question however the statement got
+// there, and a second name for it would be a second thing a caller has to know.
+// MySQL takes a placeholder after LIMIT and nothing else — not a COALESCE and
+// not a named reference — so its cap is the bare marker limitClause's comment
+// describes, and everything downstream still records it under LimitArg.
+func (g *Generator) pruneLimitClause() string {
+	if g.dialect == dialect.MySQL {
+		return "LIMIT " + g.dialect.Placeholder(1)
+	}
+
+	return fmt.Sprintf("LIMIT sqlc.arg(%s)", LimitArg)
+}
+
+// boundedDelete renders a capped delete whole: the third place the three
+// dialects disagree about a statement's shape rather than about an expression
+// inside one, and the widest of the three disagreements.
+//
+// MySQL is the arm that reads like what it does. Its DELETE takes an ORDER BY
+// and a LIMIT directly, so the bound is on the statement doing the deleting,
+// and the predicates are unqualified as every other write verb's here are.
+//
+// Postgres and SQLite have no such grammar, so the bound goes on a read: a
+// capped SELECT names the doomed rows, and the DELETE removes the rows whose
+// key that read produced. The aliasing, the lock clause and the row-value
+// comparison a compound key renders are all documented on Generator.PruneQuery,
+// which is the shape a reader arrives from.
+//
+// What each of them cannot do is the other one. MySQL refuses a subquery over
+// the table being deleted from (ER_UPDATE_TABLE_USED); Postgres has no DELETE …
+// LIMIT to parse, and SQLite's exists only under a compile-time option, which
+// makes it a run-time failure rather than one a generator would see. So the two
+// arms are a divergence in what the dialects will accept rather than a choice
+// between two workable spellings.
+func (g *Generator) boundedDelete(table string, prune Prune, matches []Match) string {
+	if g.dialect == dialect.MySQL {
+		return fmt.Sprintf("DELETE FROM %s\nWHERE %s%s\n%s;",
+			table,
+			joinPredicates(g.matchPredicates(table, false, matches), "\t"),
+			listOrderClause("", prune.Order),
+			g.pruneLimitClause(),
+		)
+	}
+
+	capped := []string{
+		"SELECT " + strings.Join(QualifyAll(doomedAlias, prune.Key), ", "),
+		fmt.Sprintf("FROM %s AS %s", table, doomedAlias),
+		"WHERE " + joinPredicates(g.matchPredicates(doomedAlias, true, matches), "\t\t"),
+	}
+
+	if terms := orderTerms(doomedAlias, prune.Order); terms != "" {
+		capped = append(capped, "ORDER BY "+terms)
+	}
+
+	capped = append(capped, g.pruneLimitClause())
+
+	// The lock is Postgres's alone. SQLite has no FOR UPDATE and needs none —
+	// one writer at a time is its storage model, so there is no second pruner
+	// whose batch this one could be skipping.
+	if g.dialect == dialect.Postgres {
+		capped = append(capped, "FOR UPDATE SKIP LOCKED")
+	}
+
+	return fmt.Sprintf("DELETE FROM %s\nWHERE %s IN (\n\t%s\n);",
+		table,
+		keyComparand(prune.Key),
+		strings.Join(capped, "\n\t"),
+	)
 }

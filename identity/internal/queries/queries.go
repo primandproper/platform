@@ -170,6 +170,13 @@ const (
 	invitationNoteColumn           = "note"
 	invitationToUserColumn         = "to_user"
 
+	// The two agreement stamps, one per statement. A document is accepted on
+	// its own — a registration that accepts both runs both statements — so the
+	// column a caller's Agreement resolves to is the statement it names rather
+	// than a SET list assembled from however many documents were named.
+	termsOfServiceColumn = "last_accepted_terms_of_service"
+	privacyPolicyColumn  = "last_accepted_privacy_policy"
+
 	// The four billing columns, one per statement. They are named here rather
 	// than at the call site for the reason every other column in this block is:
 	// the statement that assigns one and the store that binds it are two files,
@@ -190,6 +197,15 @@ const (
 // It is the one argument in this schema whose absence is meaningful rather than
 // a caller forgetting to bind it — see uniquenessChecks.
 const exceptUserIDArg = "except_user_id"
+
+// exceptAccountIDArg is the argument the default-flag clear spares a membership
+// through: the account whose membership keeps the flag, absent when none does.
+//
+// The second argument in this schema whose absence is meaningful, and for the
+// same reason the first one's is — see membershipWrites, where one statement
+// serves both the write that has an account to spare and the archival that has
+// none.
+const exceptAccountIDArg = "except_account_id"
 
 // EmailAddressVerifiedAtColumn is the proof a user's address is reachable.
 //
@@ -224,20 +240,20 @@ var Users = Table{
 		"two_factor_secret_verified_at",
 		EmailAddressVerifiedAtColumn,
 		UserEmailVerificationTokenColumn,
-		"account_status",
-		"account_status_explanation",
-		"last_accepted_terms_of_service",
-		"last_accepted_privacy_policy",
+		accountStatusColumn,
+		accountStatusExplanationColumn,
+		termsOfServiceColumn,
+		privacyPolicyColumn,
 		querygen.CreatedAtColumn,
 		querygen.LastUpdatedAtColumn,
 		querygen.ArchivedAtColumn,
 	},
 	Nullable: []string{
-		"password_last_changed_at",
-		"two_factor_secret_verified_at",
+		passwordLastChangedAtColumn,
+		twoFactorVerifiedAtColumn,
 		EmailAddressVerifiedAtColumn,
-		"last_accepted_terms_of_service",
-		"last_accepted_privacy_policy",
+		termsOfServiceColumn,
+		privacyPolicyColumn,
 	},
 	Updatable: []string{
 		UserUsernameColumn,
@@ -337,11 +353,12 @@ var Invitations = Table{
 
 // Memberships is the many-to-many between the two, with facts of its own.
 //
-// It gets no standard queries — every one of its statements keys on the (user,
-// account) pair rather than on the id — but the three keyed reads below, the
-// upsert that revives an archived membership when a user rejoins, and the three
-// junction lists that cross it are all emitted from it, so its columns are the
-// canonical corpus's as well as the store's.
+// It gets no standard queries — not one of its statements keys on the id the
+// table carries — but everything else it runs is emitted from it: the keyed
+// reads, the upsert that revives an archived membership when a user rejoins,
+// the three junction lists that cross it, and the default-flag and archival
+// writes in membershipWrites. Its columns are the canonical corpus's as well as
+// the store's.
 //
 // Updatable is the one column a rejoin may carry over, and stating it is what
 // keeps the upsert's conflict branch off the rest: the id is what the
@@ -372,8 +389,10 @@ var Memberships = Table{
 var Emitted = []*Table{&Users, &Accounts, &Invitations}
 
 // Render returns the canonical sqlc input for d: every emitted table's standard
-// queries, the two keyed invitation lists, and the membership upsert, in one
-// file's worth of text.
+// queries, and beside them every statement this schema runs that a standard set
+// does not describe — the keyed reads and lists, the field-specific and guarded
+// writes, the role rewrites, and the membership upsert and the writes that
+// follow it — in one file's worth of text.
 //
 // It is what identity/internal/queriesgen writes to the .sql beside this file
 // and what CI regenerates to check the committed copy still matches. That .sql
@@ -411,6 +430,7 @@ func Render(d dialect.Dialect) string {
 	rendered = append(rendered, userErasure(g))
 	rendered = append(rendered, roleWrites(g)...)
 	rendered = append(rendered, membershipUpsert(g))
+	rendered = append(rendered, membershipWrites(g)...)
 
 	return querygen.RenderFile(rendered)
 }
@@ -521,8 +541,10 @@ func roleWrites(g *querygen.Generator) []*querygen.Query {
 	return rendered
 }
 
-// fieldWrites is the writes that assign one fact about a row rather than the
-// row, plus the three that guard the assignment on the value being replaced.
+// fieldWrites is the writes that assign one fact about a user, an account or an
+// invitation rather than the row, plus the three that guard the assignment on
+// the value being replaced. The membership's own field write is in
+// membershipWrites, with the archivals it shares a transaction with.
 //
 // They are the largest block of statements this schema has and the standard set
 // contains none of them, because "assign every mutable column" is the wrong
@@ -645,6 +667,86 @@ func fieldWrites(g *querygen.Generator) []*querygen.Query {
 			Invitations.Nullable,
 			scope,
 			querygen.Match{Column: InvitationStatusColumn, Arg: currentInvitationStatusArg}),
+
+		// The agreement stamps, one statement per document rather than one
+		// statement whose SET list was chosen per call from the documents a
+		// caller named. That assembly was the last update in this schema with
+		// no static text — accepting the terms rendered one SQL string and
+		// accepting both rendered another, so there was nothing for sqlc to
+		// check and nothing for this package to emit. Two statements run in one
+		// transaction say the same thing, and each of them is text.
+		g.UpdateQuery("RecordUserTermsOfServiceAgreement", UsersTable, Users.Columns,
+			[]string{termsOfServiceColumn}, Users.Nullable, scope),
+
+		g.UpdateQuery("RecordUserPrivacyPolicyAgreement", UsersTable, Users.Columns,
+			[]string{privacyPolicyColumn}, Users.Nullable, scope),
+	}
+}
+
+// membershipWrites is what happens to a membership row after the upsert has put
+// it there: which of a user's accounts they land in, and the end of the
+// relationship.
+//
+// Every one of them keys on Memberships.KeyedColumns() rather than on the id,
+// like the keyed reads above and for the same reason — the pair is the row's
+// natural key, and the id is what a membership's roles hang off rather than
+// what anything addresses it by. The three archivals differ only in how much of
+// the pair they name: one membership, every membership a user holds, every
+// membership in an account.
+//
+// The flag's new value is bound rather than written into the statement as
+// FALSE, because an assignment querygen renders is an assignment to an
+// argument. What keeps that from being a statement that can set the flag as
+// easily as clear it is the guard beside it: the same argument again, excluded,
+// so the write reaches only the rows whose flag differs from the one being
+// assigned. Clearing therefore touches the rows that were TRUE and nothing
+// else, which is what the hand-built statement's `default_account = TRUE`
+// predicate said, spelled as one argument rather than two.
+//
+// The archivals no longer clear the flag themselves — a soft delete stamps
+// archived_at and nothing else, here as everywhere else in this schema — so the
+// clear is the statement before them in the transaction. That is one more round
+// trip and one fewer place the archived stamp comes from the application's
+// clock instead of the server's.
+func membershipWrites(g *querygen.Generator) []*querygen.Query {
+	var (
+		columns = Memberships.KeyedColumns()
+		flag    = []string{MembershipDefaultColumn}
+		scope   = querygen.Match{Column: ScopeColumn}
+		user    = querygen.Match{Column: MembershipUserColumn}
+		account = querygen.Match{Column: MembershipAccountColumn}
+
+		// The rows whose flag is not already what it is about to become.
+		changing = querygen.Match{Column: MembershipDefaultColumn, Exclude: true}
+	)
+
+	return []*querygen.Query{
+		g.UpdateQuery("SetMembershipDefaultAccount", MembershipsTable, columns,
+			flag, Memberships.Nullable, scope, user, account),
+
+		// The other side of "one default per user": the flag comes off every
+		// other membership the user holds. The spared account is optional
+		// because two callers want the same statement with and without one —
+		// a write that has just marked one membership as the default spares it,
+		// and an archival that is ending all of them spares none. An absent
+		// argument coalesces to the empty string, which is an account id no row
+		// has.
+		g.UpdateQuery("ClearMembershipDefaultAccountsForUser", MembershipsTable, columns,
+			flag, Memberships.Nullable,
+			scope, user, changing,
+			querygen.Match{
+				Column:  MembershipAccountColumn,
+				Arg:     exceptAccountIDArg,
+				Against: querygen.OptionalArgument,
+				Exclude: true,
+			}),
+
+		g.UpdateQuery("ClearMembershipDefaultAccountsForAccount", MembershipsTable, columns,
+			flag, Memberships.Nullable, scope, account, changing),
+
+		g.ArchiveQuery("ArchiveMembership", MembershipsTable, columns, scope, user, account),
+		g.ArchiveQuery("ArchiveMembershipsForUser", MembershipsTable, columns, scope, user),
+		g.ArchiveQuery("ArchiveMembershipsForAccount", MembershipsTable, columns, scope, account),
 	}
 }
 
@@ -784,13 +886,15 @@ func keyedAccountReads(g *querygen.Generator) []*querygen.Query {
 	}
 }
 
-// keyedMembershipReads is the three reads over the table that has no standard
-// queries at all: the membership itself, the id a revived one kept, and the
-// account a user falls back to when the default is being removed.
+// keyedMembershipReads is the four reads over the table that has no standard
+// queries at all: the membership itself, the id a revived one kept, the account
+// a user falls back to when the default is being removed, and whether the user
+// belongs to anything at all.
 //
-// All three key on the (user, account) pair rather than on the id the table
-// carries, which is why each is rendered from Memberships.KeyedColumns() while
-// projecting from Memberships.Columns.
+// None of them keys on the id the table carries — the (user, account) pair is
+// the row's natural key, and the last of them keys on the user alone — which is
+// why each is rendered from Memberships.KeyedColumns() while projecting from
+// Memberships.Columns.
 func keyedMembershipReads(g *querygen.Generator) []*querygen.Query {
 	var (
 		columns = Memberships.KeyedColumns()
@@ -821,6 +925,22 @@ func keyedMembershipReads(g *querygen.Generator) []*querygen.Query {
 				Order:      MembershipAccountColumn,
 			},
 			scope, user, querygen.Match{Column: MembershipAccountColumn, Exclude: true}),
+
+		// Whether the user belongs to anything yet, which is how a membership
+		// write finds out that the one it is about to make is their first and
+		// therefore their default.
+		//
+		// It reads an id rather than counting, because the caller compares
+		// against zero and a COUNT that answers seven has spent the server's
+		// time distinguishing seven from one. Ordering makes "one of them" a
+		// row rather than whichever the planner reached first; no rows is the
+		// answer the caller acts on.
+		g.ReadQuery("GetMembershipIDForUser", MembershipsTable, columns,
+			querygen.Read{
+				Projection: []string{querygen.IDColumn},
+				Order:      querygen.IDColumn,
+			},
+			scope, user),
 	}
 }
 

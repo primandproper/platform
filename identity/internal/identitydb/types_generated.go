@@ -27,10 +27,44 @@ type ArchiveAccountParams struct {
 	Scope tenancy.Scope
 }
 
+// ArchiveMembershipParams are the arguments to ArchiveMembership.
+type ArchiveMembershipParams struct {
+	Scope            tenancy.Scope
+	BelongsToUser    string
+	BelongsToAccount string
+}
+
+// ArchiveMembershipsForAccountParams are the arguments to ArchiveMembershipsForAccount.
+type ArchiveMembershipsForAccountParams struct {
+	Scope            tenancy.Scope
+	BelongsToAccount string
+}
+
+// ArchiveMembershipsForUserParams are the arguments to ArchiveMembershipsForUser.
+type ArchiveMembershipsForUserParams struct {
+	Scope         tenancy.Scope
+	BelongsToUser string
+}
+
 // ArchiveUserParams are the arguments to ArchiveUser.
 type ArchiveUserParams struct {
 	ID    string
 	Scope tenancy.Scope
+}
+
+// ClearMembershipDefaultAccountsForAccountParams are the arguments to ClearMembershipDefaultAccountsForAccount.
+type ClearMembershipDefaultAccountsForAccountParams struct {
+	DefaultAccount   bool
+	Scope            tenancy.Scope
+	BelongsToAccount string
+}
+
+// ClearMembershipDefaultAccountsForUserParams are the arguments to ClearMembershipDefaultAccountsForUser.
+type ClearMembershipDefaultAccountsForUserParams struct {
+	DefaultAccount  bool
+	Scope           tenancy.Scope
+	BelongsToUser   string
+	ExceptAccountID *string
 }
 
 // CountSearchUsersByUsernameParams are the arguments to CountSearchUsersByUsername.
@@ -234,6 +268,17 @@ type GetMembershipIDByUserAndAccountParams struct {
 
 // GetMembershipIDByUserAndAccountRow is one row of GetMembershipIDByUserAndAccount's result.
 type GetMembershipIDByUserAndAccountRow struct {
+	ID string
+}
+
+// GetMembershipIDForUserParams are the arguments to GetMembershipIDForUser.
+type GetMembershipIDForUserParams struct {
+	Scope         tenancy.Scope
+	BelongsToUser string
+}
+
+// GetMembershipIDForUserRow is one row of GetMembershipIDForUser's result.
+type GetMembershipIDForUserRow struct {
 	ID string
 }
 
@@ -1053,6 +1098,20 @@ type RecordAccountSubscriptionParams struct {
 	Scope                       tenancy.Scope
 }
 
+// RecordUserPrivacyPolicyAgreementParams are the arguments to RecordUserPrivacyPolicyAgreement.
+type RecordUserPrivacyPolicyAgreementParams struct {
+	LastAcceptedPrivacyPolicy *time.Time
+	ID                        string
+	Scope                     tenancy.Scope
+}
+
+// RecordUserTermsOfServiceAgreementParams are the arguments to RecordUserTermsOfServiceAgreement.
+type RecordUserTermsOfServiceAgreementParams struct {
+	LastAcceptedTermsOfService *time.Time
+	ID                         string
+	Scope                      tenancy.Scope
+}
+
 // SearchUsersByUsernameParams are the arguments to SearchUsersByUsername.
 type SearchUsersByUsernameParams struct {
 	Scope          tenancy.Scope
@@ -1129,6 +1188,14 @@ type SetAccountPaymentProcessorCustomerIDParams struct {
 	PaymentProcessorCustomerID string
 	ID                         string
 	Scope                      tenancy.Scope
+}
+
+// SetMembershipDefaultAccountParams are the arguments to SetMembershipDefaultAccount.
+type SetMembershipDefaultAccountParams struct {
+	DefaultAccount   bool
+	Scope            tenancy.Scope
+	BelongsToUser    string
+	BelongsToAccount string
 }
 
 // SetUserEmailAddressVerificationTokenParams are the arguments to SetUserEmailAddressVerificationToken.

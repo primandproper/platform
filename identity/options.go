@@ -16,12 +16,12 @@ import (
 // nothing. A caller wanting none of the three names none of them.
 type SQLStoreOption func(*SQLStore)
 
-// WithTablePrefix namespaces the six identity tables. It must match the prefix
-// the migrations were rendered with; nothing here can check that, and a
+// WithTablePrefix namespaces the seven identity tables. It must match the
+// prefix the migrations were rendered with; nothing here can check that, and a
 // mismatch surfaces as a missing table on the first query rather than at
 // construction.
 func WithTablePrefix(prefix string) SQLStoreOption {
-	return func(s *SQLStore) { s.tables = newTables(prefix) }
+	return func(s *SQLStore) { s.tablePrefix = prefix }
 }
 
 // WithStoreLogger attaches a logger. An absent logger logs nowhere.
