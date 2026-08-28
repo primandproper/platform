@@ -123,7 +123,7 @@ func suiteSaveAndGet(t *testing.T, env *storeEnv) {
 func suiteTransition(t *testing.T, env *storeEnv) {
 	t.Helper()
 
-	t.Run("moves from an expected status", func(t *testing.T) {
+	t.Run("a confirmation moves from an expected status", func(t *testing.T) {
 		t.Parallel()
 
 		store := env.newStore(t)
@@ -137,8 +137,7 @@ func suiteTransition(t *testing.T, env *storeEnv) {
 
 		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
 			var err error
-			moved, err = store.Transition(t.Context(), q, req.ID,
-				[]Status{StatusAwaitingConfirmation}, StatusInProgress, "op-9", baseTime)
+			moved, err = store.Confirm(t.Context(), q, req.ID, "op-9")
 
 			return err
 		}))
@@ -162,8 +161,7 @@ func suiteTransition(t *testing.T, env *storeEnv) {
 		req := saveRequest(t, store, newRequest(identifiers.New(), RequestErasure, testSubject, baseTime))
 
 		err := store.WithTransaction(t.Context(), func(q database.Tx) error {
-			_, txErr := store.Transition(t.Context(), q, req.ID,
-				[]Status{StatusAwaitingConfirmation}, StatusInProgress, "op-9", baseTime)
+			_, txErr := store.Confirm(t.Context(), q, req.ID, "op-9")
 
 			return txErr
 		})
@@ -370,9 +368,18 @@ func suiteSweeps(t *testing.T, env *storeEnv) {
 
 		// Late, but served. A fact about the past is not a thing to page
 		// somebody about.
+		//
+		// The completion time is what says so. Every transition into a terminal
+		// state writes it and nothing moves out of one, so the gauge asks
+		// "completed_at IS NULL" rather than carrying its own list of the
+		// statuses a request can still move out of — see the sweeps in
+		// dataprivacy/internal/queries.
+		servedAt := baseTime.Add(-30 * time.Minute)
+
 		served := newRequest(identifiers.New(), RequestExport, testSubject, baseTime)
 		served.DueAt = baseTime.Add(-time.Hour)
 		served.Status = StatusCompleted
+		served.CompletedAt = &servedAt
 		saveRequest(t, store, served)
 
 		counts, err := store.CountOverdue(t.Context(), baseTime)

@@ -210,10 +210,19 @@ func (o Order) String() string {
 	return o.Column + " ASC"
 }
 
-// qualified renders the term against the table it sorts, which is the form the
-// emitted SQL carries. It goes through String so the direction is spelled in one
-// place.
+// qualified renders the term against the table it sorts, which is the form a
+// read's ORDER BY carries. It goes through String so the direction is spelled in
+// one place.
+//
+// An empty table is the unqualified term, which is what a single-table write
+// verb's ordering takes: the bounded delete MySQL caps directly has one table
+// and no qualifier anywhere else in the statement — see
+// Generator.boundedDelete.
 func (o Order) qualified(table string) string {
+	if table == "" {
+		return o.String()
+	}
+
 	return Order{Column: Qualify(table, o.Column), Descending: o.Descending}.String()
 }
 
@@ -228,6 +237,24 @@ func (o Order) qualified(table string) string {
 // at all: its order is the cursor's, and a page ordered by anything else is a
 // keyset walk whose cursor names a position in an order that no longer holds.
 func listOrderClause(table string, order []Order) string {
+	terms := orderTerms(table, order)
+	if terms == "" {
+		return ""
+	}
+
+	return "\nORDER BY " + terms
+}
+
+// orderTerms renders the terms an ORDER BY is made of, and nothing at all when
+// the caller named no order.
+//
+// It is separate from the clause because one statement needs the terms without
+// the line the clause puts them on: a prune's capped read is indented inside the
+// DELETE that consumes it, so it assembles its own lines and takes the terms —
+// see Generator.boundedDelete. One rendering, so an ordering nested inside a
+// statement and one at the end of a read cannot come to spell a direction
+// differently.
+func orderTerms(table string, order []Order) string {
 	if len(order) == 0 {
 		return ""
 	}
@@ -238,7 +265,7 @@ func listOrderClause(table string, order []Order) string {
 		terms = append(terms, term.qualified(table))
 	}
 
-	return "\nORDER BY " + strings.Join(terms, ", ")
+	return strings.Join(terms, ", ")
 }
 
 // fromClause renders the FROM and whatever the junction joins to it.

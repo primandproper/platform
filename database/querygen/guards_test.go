@@ -91,6 +91,18 @@ func TestComparand_Renders(T *testing.T) {
 			match: Match{Column: IDColumn, Against: OptionalArgument, Arg: "except_id", Exclude: true},
 			want:  "tokens.id <> COALESCE(sqlc.narg(except_id), '')",
 		},
+		"a bound ceiling is the horizon a sweep runs to": {
+			match: Match{Column: "expires_at", Against: AtMostArgument, Arg: "horizon"},
+			want:  "tokens.expires_at <= sqlc.arg(horizon)",
+		},
+		"a bound ceiling excluded is everything short of it": {
+			match: Match{Column: "expires_at", Against: AtMostArgument, Arg: "horizon", Exclude: true},
+			want:  "tokens.expires_at > sqlc.arg(horizon)",
+		},
+		"a bound ceiling binds its column's name where the match gives none": {
+			match: Match{Column: "expires_at", Against: AtMostArgument},
+			want:  "tokens.expires_at <= sqlc.arg(expires_at)",
+		},
 	}
 
 	for name, testCase := range cases {
@@ -176,7 +188,7 @@ func TestComparand_ExcludeComplements(T *testing.T) {
 		// one bool between them. If the two spellings were written separately
 		// they could come to disagree about the boundary, and the rows in the
 		// gap would be neither live nor expired.
-		for _, comparand := range []Comparand{BoundArgument, NoValue, EmptyString, CurrentTime, OptionalArgument} {
+		for _, comparand := range []Comparand{BoundArgument, NoValue, EmptyString, CurrentTime, OptionalArgument, AtMostArgument} {
 			included := guardPredicate(t, dialect.Postgres, Match{Column: "expires_at", Against: comparand})
 			excluded := guardPredicate(t, dialect.Postgres,
 				Match{Column: "expires_at", Against: comparand, Exclude: true})
@@ -274,10 +286,10 @@ func TestComparand_ArgumentlessMatchPanics(T *testing.T) {
 		})
 	}
 
-	T.Run("the two comparands that bind take an argument name", func(t *testing.T) {
+	T.Run("the comparands that bind take an argument name", func(t *testing.T) {
 		t.Parallel()
 
-		for _, comparand := range []Comparand{BoundArgument, OptionalArgument} {
+		for _, comparand := range []Comparand{BoundArgument, OptionalArgument, AtMostArgument} {
 			got := guardPredicate(t, dialect.Postgres,
 				Match{Column: IDColumn, Against: comparand, Arg: "except_id"})
 
@@ -297,6 +309,7 @@ func TestComparand_String(T *testing.T) {
 		test.EqOp(t, "the empty string", EmptyString.String())
 		test.EqOp(t, "the current time", CurrentTime.String())
 		test.EqOp(t, "an optional bound argument", OptionalArgument.String())
+		test.EqOp(t, "a bound ceiling", AtMostArgument.String())
 		test.StrContains(t, Comparand(99).String(), "unknown")
 	})
 }

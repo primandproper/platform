@@ -130,12 +130,12 @@ func (s *SQLStore) CreateMembership(ctx context.Context, q database.Tx, membersh
 	// A user with memberships and no default has nowhere to land, and it is a
 	// state that is easy to write and confusing to debug — GetPrincipal reports
 	// ErrNoDefaultAccount and the caller has no obvious way to have caused it.
-	existing, err := s.liveMembershipCount(ctx, q, membership.Scope, membership.BelongsToUser)
+	existing, err := s.hasLiveMembership(ctx, q, membership.Scope, membership.BelongsToUser)
 	if err != nil {
 		return op.Error(err, "creating identity membership")
 	}
 
-	if existing == 0 {
+	if !existing {
 		membership.DefaultAccount = true
 	}
 

@@ -82,6 +82,14 @@ func stillLive() Match  { return Match{Column: "expires_at", Against: CurrentTim
 func expired() Match    { return Match{Column: "expires_at", Against: CurrentTime} }
 func hasSecret() Match  { return Match{Column: "secret", Against: EmptyString, Exclude: true} }
 
+// The same boundary read from a clock the caller supplies rather than from the
+// server's. It is the comparand a store whose deadlines are stamped by an
+// application clock has to use, and the suite below runs it beside the server's
+// so that the two are checked against the same rows.
+func expiredBy(arg string) Match {
+	return Match{Column: "expires_at", Arg: arg, Against: AtMostArgument}
+}
+
 // tokenQueries is every statement the guard suite runs: the standard set for
 // the create, and the four guarded ones beside it.
 func tokenQueries(d dialect.Dialect) []*Query {
@@ -112,6 +120,16 @@ func tokenQueries(d dialect.Dialect) []*Query {
 		// the uninverted half of the guard above.
 		g.ArchiveQuery("ArchiveExpiredTokens", guardTable,
 			without(guardColumns(), IDColumn), expired()),
+
+		// The sweep again, against a clock the caller read rather than the
+		// server's. A store whose deadlines are stamped from an injected clock
+		// — sessions is one — cannot ask the server for the time without
+		// putting two clocks on the two sides of one comparison, so this is the
+		// statement it runs instead. A hard delete, because what it collects is
+		// gone rather than stamped, and because that is what makes it reach the
+		// rows the archive above already took.
+		g.DeleteQuery("DeleteTokensExpiredBy", guardTable,
+			without(guardColumns(), IDColumn), expiredBy("cutoff")),
 
 		// The collision check's shape: a read excluding a row the caller may
 		// not have. It is rendered from no columns at all, so it sees archived
@@ -236,6 +254,35 @@ func runGuardSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql
 		// And it is idempotent, because the archived predicate the column list
 		// contributes has already excluded what the last run took.
 		test.EqOp(t, int64(0), affected(t, ctx, db, statement, arguments))
+	})
+
+	t.Run("the bound instant draws the boundary the server clock draws", func(t *testing.T) {
+		// Three rows around one instant, and the instant itself is whole
+		// seconds because that is the resolution the three engines agree on
+		// after a round trip — SQLite stores a timestamp as text.
+		boundary := now.Add(-24 * time.Hour).Truncate(time.Second)
+
+		insertToken(t, ctx, d, db, "t_bound_before", "secret", boundary.Add(-time.Hour))
+		insertToken(t, ctx, d, db, "t_bound_at", "secret", boundary)
+		insertToken(t, ctx, d, db, "t_bound_after", "secret", boundary.Add(time.Hour))
+
+		statement, arguments := tokenQuery(t, d, "DeleteTokensExpiredBy", map[string]any{
+			"cutoff": timeArg(d, boundary),
+		})
+
+		// Two, not one and not three: the row past the instant and the row at
+		// it. The boundary is inclusive on the expired side, exactly as the
+		// server-clock comparand's is, so there is no instant at which a row is
+		// neither live nor expired.
+		test.EqOp(t, int64(2), affected(t, ctx, db, statement, arguments))
+
+		// And nothing else moved. The rows the earlier statements left behind
+		// are all deadlined an hour either side of now, which is a day after
+		// the cutoff — including the one the archive already took, since a hard
+		// delete carries no archived predicate.
+		test.Eq(t,
+			[]string{"t_bound_after", "t_elapsed", "t_live", "t_secretless"},
+			scanIDs(t, ctx, db, "SELECT id FROM "+guardTable+" ORDER BY id", nil))
 	})
 
 	t.Run("the optional argument excludes a row only when the caller names one", func(t *testing.T) {

@@ -36,6 +36,16 @@ SQLC_VERSION="$(cat "${PROJECT_ROOT}/.sqlc-version")"
 # unison.yaml `schemas:` map.
 COMPONENTS=(
   "./identity ./internal/queriesgen internal/queries postgres mysql sqlite"
+  "./authentication/oauth2server/database ./internal/queriesgen internal/queries postgres mysql sqlite"
+  "./authentication/webauthn/database ./internal/queriesgen internal/queries postgres mysql sqlite"
+  "./cryptography/shredding ./internal/queriesgen internal/queries postgres mysql sqlite"
+  "./dataprivacy ./internal/queriesgen internal/queries postgres mysql sqlite"
+  "./notifications ./internal/queriesgen internal/queries postgres mysql sqlite"
+  "./saga ./internal/queriesgen internal/queries postgres mysql sqlite"
+  "./sessions/database ./internal/queriesgen internal/queries postgres mysql sqlite"
+  "./settings ./internal/queriesgen internal/queries postgres mysql sqlite"
+  "./uploads/registry ./internal/queriesgen internal/queries postgres mysql sqlite"
+  "./webhooks ./internal/queriesgen internal/queries postgres mysql sqlite"
   "./operations ./internal/queriesgen internal/queries postgres"
 )
 

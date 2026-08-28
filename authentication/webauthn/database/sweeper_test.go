@@ -13,24 +13,39 @@ import (
 func TestWithSweeper(T *testing.T) {
 	T.Parallel()
 
-	// The wall clock is deliberate rather than the fake one the other tests
-	// use: inside a synctest bubble clock.NewClock reads the bubble's time, so
-	// the sweeper's ticker advances with time.Sleep and needs no test double.
+	// Two clocks, and each drives one half of the loop. The bubble's is what a
+	// ticker fires on, so time.Sleep is what makes a sweep happen; the fake
+	// clock is what stamps the deadline, and the sweep compares that against
+	// the server's own clock rather than either of them. So a row is made
+	// expired by writing it from a clock behind the server, not by sleeping —
+	// which is the difference the port introduced, and the reason a bubble that
+	// sleeps for an hour still finds a live row live.
 	T.Run("removes expired rows with no Consume to discover them", func(t *testing.T) {
 		t.Parallel()
+
+		// Built outside the bubble, deliberately: inside one, time.Now reads the
+		// bubble's clock rather than the wall's, and a deadline stamped from
+		// that is decades behind the server the sweep compares against.
+		c := newFakeClock()
 
 		synctest.Test(t, func(t *testing.T) {
 			client := newTestClient(t)
 
-			store, err := NewSessionStore(&Config{}, client, WithSweeper(t.Context(), 10*time.Second))
+			store, err := NewSessionStore(&Config{}, client,
+				WithClock(c), WithSweeper(t.Context(), 10*time.Second))
 			must.NoError(t, err)
 
+			// Stamped by a clock two minutes behind the server's, so the row is
+			// past its deadline the moment it is written. This is the ceremony
+			// nobody finished, which is the row nothing else deletes.
+			c.advance(-2 * time.Minute)
 			must.NoError(t, store.Save(t.Context(), testSession("abandoned"), time.Minute))
+			c.advance(2 * time.Minute)
+
 			test.EqOp(t, 1, rowCount(t, store))
 
-			// Past the row's deadline and across at least one tick. This is the
-			// ceremony nobody finished, which is the row nothing else deletes.
-			time.Sleep(time.Minute + 10*time.Second)
+			// Across at least one tick.
+			time.Sleep(20 * time.Second)
 			synctest.Wait()
 
 			test.EqOp(t, 0, rowCount(t, store))
@@ -40,10 +55,14 @@ func TestWithSweeper(T *testing.T) {
 	T.Run("leaves live rows alone", func(t *testing.T) {
 		t.Parallel()
 
+		// Built outside the bubble, for the reason the test above gives.
+		c := newFakeClock()
+
 		synctest.Test(t, func(t *testing.T) {
 			client := newTestClient(t)
 
-			store, err := NewSessionStore(&Config{}, client, WithSweeper(t.Context(), time.Second))
+			store, err := NewSessionStore(&Config{}, client,
+				WithClock(c), WithSweeper(t.Context(), time.Second))
 			must.NoError(t, err)
 
 			must.NoError(t, store.Save(t.Context(), testSession("live"), time.Hour))
@@ -60,18 +79,26 @@ func TestWithSweeper(T *testing.T) {
 	T.Run("stops when its context is done", func(t *testing.T) {
 		t.Parallel()
 
+		// Built outside the bubble, for the reason the first test above gives.
+		c := newFakeClock()
+
 		synctest.Test(t, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 
 			client := newTestClient(t)
 
-			store, err := NewSessionStore(&Config{}, client, WithSweeper(ctx, time.Second))
+			store, err := NewSessionStore(&Config{}, client, WithClock(c), WithSweeper(ctx, time.Second))
 			must.NoError(t, err)
 
 			cancel()
 			synctest.Wait()
 
+			// Already past its deadline, so a sweeper still running would take
+			// it — which is what makes the row surviving an assertion about the
+			// goroutine rather than about the row.
+			c.advance(-time.Hour)
 			must.NoError(t, store.Save(t.Context(), testSession("orphan"), time.Second))
+			c.advance(time.Hour)
 
 			time.Sleep(time.Minute)
 			synctest.Wait()

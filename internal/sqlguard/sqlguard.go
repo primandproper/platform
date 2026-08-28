@@ -91,6 +91,32 @@ func (g *Guard) OpAttr(operation string) metric.MeasurementOption {
 	return metric.WithAttributes(attribute.String(g.Namespace+storeOpSuffix, operation))
 }
 
+// Count reports a guarded write that has already run, from the row count and
+// error a generated statement returned.
+//
+// It is Exec's other half, for a store on the unison tier: the statement went
+// through the generated querier, whose :execrows method has already asked the
+// driver for the affected count, so what is left is everything Exec does after
+// the exec. The arguments after the count are Exec's, and mean the same things.
+//
+// One narrowing against the hand-written path: a driver that declines to report
+// the count reaches this as an error rather than as an acknowledged unknown,
+// because the generated method has no seam between running the statement and
+// reading the count. None of the three supported drivers declines.
+func (g *Guard) Count(
+	ctx context.Context,
+	op observability.Operation,
+	affected int64,
+	err error,
+	id, operation, description string,
+) error {
+	if err != nil {
+		return op.Error(err, "%s", description)
+	}
+
+	return g.report(ctx, op, affected, id, operation)
+}
+
 // Exec runs a guarded write and reports one that matched nothing.
 //
 // id identifies the row for the log line and the returned error; operation
@@ -116,26 +142,12 @@ func (g *Guard) Exec(
 		return op.Error(err, "reading result of %s", description)
 	}
 
-	return g.Report(ctx, op, affected, id, operation)
+	return g.report(ctx, op, affected, id, operation)
 }
 
-// Report is Exec's second half, for a caller whose statement has already run.
-//
-// A store on the unison tier does not hold a query and its arguments: it calls a
-// generated method, and an :execrows method has already asked the driver for the
-// affected count by the time it returns. What is left is what a miss means —
-// stamp the span, count it, log the identifier, return the wrapped sentinel —
-// and that is the half worth having one home for, since it is where the four
-// copies this package replaced had begun to differ.
-//
-// So the split is between running a statement and saying what its count meant,
-// and Exec is now the first of those followed by this.
-func (g *Guard) Report(
-	ctx context.Context,
-	op observability.Operation,
-	affected int64,
-	id, operation string,
-) error {
+// report is what both halves do with a count once they have one: stamp the
+// span, and on zero say so everywhere a missed guard is said.
+func (g *Guard) report(ctx context.Context, op observability.Operation, affected int64, id, operation string) error {
 	op.Set(g.Namespace+rowsAffectedSuffix, affected)
 
 	if affected > 0 {

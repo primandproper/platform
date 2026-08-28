@@ -22,8 +22,8 @@ const (
 	invitationIDKey = serviceName + ".invitation_id"
 	countKey        = serviceName + ".count"
 
-	// storeOpKey labels the unreported-row-count counter with the write that
-	// could not confirm itself.
+	// storeOpKey labels the unmatched-write counter with the write that matched
+	// no row.
 	storeOpKey = serviceName + ".operation"
 )
 

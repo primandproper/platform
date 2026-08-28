@@ -85,9 +85,7 @@ func TestSQLStore_Observability(T *testing.T) {
 		// Guarded on a status the request is not in — the shape of a subject
 		// confirming an erasure twice, or confirming one the sweep just lapsed.
 		err := store.WithTransaction(t.Context(), func(q database.Tx) error {
-			_, transitionErr := store.Transition(
-				t.Context(), q, req.ID, []Status{StatusAwaitingConfirmation}, StatusInProgress, "op-1", baseTime,
-			)
+			_, transitionErr := store.Confirm(t.Context(), q, req.ID, "op-1")
 
 			return transitionErr
 		})
@@ -97,7 +95,6 @@ func TestSQLStore_Observability(T *testing.T) {
 		// guarded on are on the span beside the miss.
 		recorder.ObservedOperationWithData(t, map[string]any{
 			requestIDKey:    req.ID,
-			fromStatusKey:   string(StatusAwaitingConfirmation),
 			statusKey:       string(StatusInProgress),
 			operationIDKey:  "op-1",
 			rowsAffectedKey: int64(0),
@@ -116,9 +113,7 @@ func TestSQLStore_Observability(T *testing.T) {
 		saveRequest(t, store, req)
 
 		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
-			_, transitionErr := store.Transition(
-				t.Context(), q, req.ID, []Status{StatusAwaitingConfirmation}, StatusInProgress, "op-1", baseTime,
-			)
+			_, transitionErr := store.Confirm(t.Context(), q, req.ID, "op-1")
 
 			return transitionErr
 		}))

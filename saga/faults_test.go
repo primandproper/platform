@@ -20,6 +20,13 @@ import (
 // has been told to break.
 var errDatabase = platformerrors.New("database is on fire")
 
+// batchProjection is a fragment of every statement that projects a whole
+// instance row, and of no statement that does not. Within a claim cycle only
+// the read-back of the leased batch projects one — the candidate select names
+// the id and nothing else — so a fault matched on this reaches the second of
+// the cycle's two reads.
+const batchProjection = "saga_instances.step_names"
+
 // The store's error paths are otherwise unreachable: a real database does not
 // fail on demand, and these branches decide whether a failure surfaces to the
 // worker or is silently swallowed. A swallowed store error here is a saga that
@@ -154,7 +161,7 @@ func newFaultyStore(t *testing.T, env *storeEnv, f *faults) (faulty, healthy Sto
 	must.NoError(t, db.Close())
 
 	faulty, err = NewSQLStore(&faultyClient{Client: env.client, closed: db, faults: f},
-		WithTablePrefix(concrete.tables.prefix()))
+		WithTablePrefix(concrete.prefix))
 	must.NoError(t, err)
 
 	return faulty, healthy
@@ -182,7 +189,7 @@ func TestSQLStore_Faults(T *testing.T) {
 
 		// The projection, not the ID select: the claimable read runs first and
 		// must succeed for this branch to be the one under test.
-		faulty, healthy := newFaultyStore(t, env, &faults{failQuery: instanceColumns})
+		faulty, healthy := newFaultyStore(t, env, &faults{failQuery: batchProjection})
 
 		saveInstance(t, healthy, newRecord("i1", "orders", []string{"one"}, testState{}, baseTime), baseTime)
 
@@ -197,9 +204,9 @@ func TestSQLStore_Faults(T *testing.T) {
 
 		// Simulates the instance leaving the active set between the two
 		// statements — another worker's advance finishing it — which is the
-		// race buildClaim repeats its status guard for and which cannot be
+		// race the claim repeats its status guard for and which cannot be
 		// produced deterministically against a serialized database.
-		faulty, healthy := newFaultyStore(t, env, &faults{truncate: instanceColumns})
+		faulty, healthy := newFaultyStore(t, env, &faults{truncate: batchProjection})
 
 		saveInstance(t, healthy, newRecord("i1", "orders", []string{"one"}, testState{}, baseTime), baseTime)
 
@@ -211,11 +218,11 @@ func TestSQLStore_Faults(T *testing.T) {
 		test.SliceEmpty(t, claimed)
 	})
 
-	T.Run("a listing whose count fails reports rather than paginating on a guess", func(t *testing.T) {
+	T.Run("a listing whose read fails reports rather than paginating on a guess", func(t *testing.T) {
 		t.Parallel()
 
 		env := newSQLiteEnv(t)
-		faulty, healthy := newFaultyStore(t, env, &faults{failRow: "COUNT(*)"})
+		faulty, healthy := newFaultyStore(t, env, &faults{failQuery: batchProjection})
 
 		saveInstance(t, healthy, newRecord("i1", "orders", []string{"one"}, testState{}, baseTime), baseTime)
 
@@ -255,16 +262,13 @@ func TestSQLStore_Faults(T *testing.T) {
 		env := newSQLiteEnv(t)
 		store := env.newStore(t)
 
-		concrete, ok := store.(*SQLStore)
-		must.True(t, ok)
-
 		// SQLite permits NULL in a TEXT PRIMARY KEY, which no code path in this
 		// package can produce and which a hand-written repair script can. The
 		// ID projection scans into a string, so the row has to be reported
 		// rather than skipped: a claim that silently dropped it would leave an
 		// advanceable saga nothing ever picks up.
 		_, err := env.client.Writer().ExecContext(t.Context(),
-			"INSERT INTO "+concrete.tables.instances+
+			"INSERT INTO "+instancesTable(t, store)+
 				" (id, definition, status, current_step, step_names, attempts, last_error, "+
 				"resume_status, created_at, next_attempt) "+
 				"VALUES (NULL, 'orders', 'running', 0, '[\"one\"]', 0, '', '', ?, ?)",

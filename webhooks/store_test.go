@@ -5,18 +5,14 @@ import (
 	"testing"
 	"time"
 
-	clockmock "github.com/primandproper/platform-go/v13/clock/mock"
 	"github.com/primandproper/platform-go/v13/database"
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/filtering"
-	"github.com/primandproper/platform-go/v13/observability/metrics"
-	metricsmock "github.com/primandproper/platform-go/v13/observability/metrics/mock"
 	"github.com/primandproper/platform-go/v13/tenancy"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
-	"go.opentelemetry.io/otel/metric"
 )
 
 // bogusDialectClient reports a dialect this package cannot emit SQL for.
@@ -140,8 +136,8 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		test.Eq(t, []EventType{orderUpdated}, got.EventTypes())
 
 		// And the endpoint is no longer resolved for the event it dropped.
-		test.SliceEmpty(t, endpointsFor(t, env, store, "order.created"))
-		test.SliceLen(t, 1, endpointsFor(t, env, store, "order.updated"))
+		test.SliceEmpty(t, endpointsFor(t, store, "order.created"))
+		test.SliceLen(t, 1, endpointsFor(t, store, "order.updated"))
 	})
 
 	// The reconciliation's other half: a subscription the save keeps is the row
@@ -219,8 +215,8 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		must.NoError(t, err)
 
 		test.Eq(t, []EventType{orderUpdated}, got.EventTypes())
-		test.SliceEmpty(t, endpointsFor(t, env, store, "order.created"))
-		test.SliceLen(t, 1, endpointsFor(t, env, store, "order.updated"))
+		test.SliceEmpty(t, endpointsFor(t, store, "order.created"))
+		test.SliceLen(t, 1, endpointsFor(t, store, "order.updated"))
 	})
 
 	// Archived rather than deleted, so the delivery log still has something to be
@@ -255,7 +251,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		test.NotEqOp(t, "", added.ID)
 		test.EqOp(t, orderUpdated, added.EventType)
 
-		test.SliceLen(t, 1, endpointsFor(t, env, store, "order.updated"))
+		test.SliceLen(t, 1, endpointsFor(t, store, "order.updated"))
 	})
 
 	// Idempotent on the pair, because the pair is what identifies a subscription.
@@ -291,7 +287,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		test.EqOp(t, retired.ID, revived.ID)
 		test.Nil(t, revived.ArchivedAt)
-		test.SliceLen(t, 1, endpointsFor(t, env, store, "order.created"))
+		test.SliceLen(t, 1, endpointsFor(t, store, "order.created"))
 	})
 
 	t.Run("lists live subscriptions", func(t *testing.T) {
@@ -462,7 +458,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		}
 		must.NoError(t, store.SaveEndpoint(ctxFor(t), saved))
 
-		dispatchTo(t, env, store, &Delivery{EventType: orderCreated, Payload: testBody}, baseTime, "endpoint-1")
+		dispatchTo(t, store, &Delivery{EventType: orderCreated, Payload: testBody}, baseTime, "endpoint-1")
 
 		claimed := claimAll(t, store, baseTime)
 		must.SliceLen(t, 1, claimed)
@@ -481,9 +477,9 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		registerEndpoint(t, store, "endpoint-2", "order.created", "order.updated")
 		registerEndpoint(t, store, "endpoint-3", "order.updated")
 
-		test.Eq(t, []string{"endpoint-1", "endpoint-2"}, idsOf(endpointsFor(t, env, store, "order.created")))
-		test.Eq(t, []string{"endpoint-2", "endpoint-3"}, idsOf(endpointsFor(t, env, store, "order.updated")))
-		test.SliceEmpty(t, endpointsFor(t, env, store, "order.deleted"))
+		test.Eq(t, []string{"endpoint-1", "endpoint-2"}, idsOf(endpointsFor(t, store, "order.created")))
+		test.Eq(t, []string{"endpoint-2", "endpoint-3"}, idsOf(endpointsFor(t, store, "order.updated")))
+		test.SliceEmpty(t, endpointsFor(t, store, "order.deleted"))
 	})
 
 	// Excluded at fan-out rather than at delivery: a dispatch row for a disabled
@@ -502,7 +498,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		registerEndpoint(t, store, "archived", "order.created")
 		must.NoError(t, store.ArchiveEndpoint(ctxFor(t), testScope, "archived"))
 
-		test.Eq(t, []string{"live"}, idsOf(endpointsFor(t, env, store, "order.created")))
+		test.Eq(t, []string{"live"}, idsOf(endpointsFor(t, store, "order.created")))
 	})
 
 	t.Run("lists live endpoints", func(t *testing.T) {
@@ -539,14 +535,14 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		registerScopedEndpoint(t, store, tenancy.Global(), "endpoint-3", "order.created")
 
 		test.Eq(t, []string{"endpoint-1"},
-			idsOf(scopedEndpointsFor(t, env, store, testScope, "order.created")))
+			idsOf(scopedEndpointsFor(t, store, testScope, "order.created")))
 		test.Eq(t, []string{"endpoint-2"},
-			idsOf(scopedEndpointsFor(t, env, store, otherScope, "order.created")))
+			idsOf(scopedEndpointsFor(t, store, otherScope, "order.created")))
 
 		// The global scope is a scope like any other: it matches only itself, in
 		// both directions.
 		test.Eq(t, []string{"endpoint-3"},
-			idsOf(scopedEndpointsFor(t, env, store, tenancy.Global(), "order.created")))
+			idsOf(scopedEndpointsFor(t, store, tenancy.Global(), "order.created")))
 	})
 
 	t.Run("reads an endpoint in another scope as absent", func(t *testing.T) {
@@ -601,7 +597,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		must.NoError(t, store.ArchiveEndpoint(ctxFor(t), testScope, "endpoint-1"))
 
 		// Still live, and still delivering, for the scope that owns it.
-		test.SliceLen(t, 1, scopedEndpointsFor(t, env, store, otherScope, "order.created"))
+		test.SliceLen(t, 1, scopedEndpointsFor(t, store, otherScope, "order.created"))
 	})
 
 	// The cross-tenant write: without the scope check, an upsert on a known ID
@@ -635,7 +631,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 		registerScopedEndpoint(t, store, otherScope, "endpoint-1", "order.created")
 
-		delivery := dispatchTo(t, env, store,
+		delivery := dispatchTo(t, store,
 			&Delivery{Scope: otherScope, EventType: "order.created", Payload: testBody},
 			baseTime, "endpoint-1")
 
@@ -665,10 +661,10 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		registerScopedEndpoint(t, store, testScope, "endpoint-1", "order.created")
 		registerScopedEndpoint(t, store, otherScope, "endpoint-2", "order.created")
 
-		dispatchTo(t, env, store,
+		dispatchTo(t, store,
 			&Delivery{Scope: testScope, EventType: "order.created", Payload: testBody},
 			baseTime, "endpoint-1")
-		dispatchTo(t, env, store,
+		dispatchTo(t, store,
 			&Delivery{Scope: otherScope, EventType: "order.created", Payload: testBody},
 			baseTime, "endpoint-2")
 
@@ -723,7 +719,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		// And the endpoint that was registered is still reachable in its own
 		// scope, so none of the above half-applied.
-		test.SliceLen(t, 1, endpointsFor(t, env, store, "order.created"))
+		test.SliceLen(t, 1, endpointsFor(t, store, "order.created"))
 	})
 
 	t.Run("fans a delivery out into one dispatch per endpoint", func(t *testing.T) {
@@ -734,7 +730,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		registerEndpoint(t, store, "endpoint-1", "order.created")
 		registerEndpoint(t, store, "endpoint-2", "order.created")
 
-		dispatchTo(t, env, store,
+		dispatchTo(t, store,
 			&Delivery{EventType: "order.created", Payload: testBody},
 			baseTime, "endpoint-1", "endpoint-2")
 
@@ -774,11 +770,11 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 		registerEndpoint(t, store, "endpoint-1", "order.created")
 
-		first := dispatchTo(t, env, store,
+		first := dispatchTo(t, store,
 			&Delivery{EventType: "order.created", Payload: testBody, OrderingKey: "order-7"},
 			baseTime, "endpoint-1")
 
-		dispatchTo(t, env, store,
+		dispatchTo(t, store,
 			&Delivery{EventType: "order.created", Payload: testBody, OrderingKey: "order-7"},
 			baseTime.Add(time.Second), "endpoint-1")
 
@@ -806,11 +802,11 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		registerEndpoint(t, store, "slow", "order.created")
 		registerEndpoint(t, store, "fast", "order.created")
 
-		dispatchTo(t, env, store,
+		dispatchTo(t, store,
 			&Delivery{EventType: "order.created", Payload: testBody, OrderingKey: "order-7"},
 			baseTime, "slow", "fast")
 
-		dispatchTo(t, env, store,
+		dispatchTo(t, store,
 			&Delivery{EventType: "order.created", Payload: testBody, OrderingKey: "order-7"},
 			baseTime.Add(time.Second), "slow", "fast")
 
@@ -841,7 +837,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		registerEndpoint(t, store, "endpoint-1", "order.created")
 
 		for i := range 3 {
-			dispatchTo(t, env, store,
+			dispatchTo(t, store,
 				&Delivery{EventType: "order.created", Payload: testBody},
 				baseTime.Add(time.Duration(i)*time.Second), "endpoint-1")
 		}
@@ -855,7 +851,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 		registerEndpoint(t, store, "endpoint-1", "order.created")
 
-		dispatchTo(t, env, store,
+		dispatchTo(t, store,
 			&Delivery{EventType: "order.created", Payload: testBody}, baseTime, "endpoint-1")
 
 		claimed, err := store.Claim(ctxFor(t), baseTime, 10, baseTime.Add(30*time.Second))
@@ -884,7 +880,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		registerEndpoint(t, store, "endpoint-1", "order.created")
 
 		for i := range 5 {
-			dispatchTo(t, env, store,
+			dispatchTo(t, store,
 				&Delivery{EventType: "order.created", Payload: testBody},
 				baseTime.Add(time.Duration(i)*time.Second), "endpoint-1")
 		}
@@ -900,7 +896,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 		registerEndpoint(t, store, "endpoint-1", "order.created")
 
-		dispatchTo(t, env, store,
+		dispatchTo(t, store,
 			&Delivery{EventType: "order.created", Payload: testBody}, baseTime, "endpoint-1")
 
 		claimed := claimAll(t, store, baseTime)
@@ -929,7 +925,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 		registerEndpoint(t, store, "endpoint-1", "order.created")
 
-		dispatchTo(t, env, store,
+		dispatchTo(t, store,
 			&Delivery{EventType: "order.created", Payload: testBody}, baseTime, "endpoint-1")
 
 		claimed := claimAll(t, store, baseTime)
@@ -953,10 +949,10 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 		registerEndpoint(t, store, "endpoint-1", "order.created")
 
-		dispatchTo(t, env, store,
+		dispatchTo(t, store,
 			&Delivery{EventType: "order.created", Payload: testBody, OrderingKey: "order-7"},
 			baseTime, "endpoint-1")
-		dispatchTo(t, env, store,
+		dispatchTo(t, store,
 			&Delivery{EventType: "order.created", Payload: testBody, OrderingKey: "order-7"},
 			baseTime.Add(time.Second), "endpoint-1")
 
@@ -975,7 +971,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 		registerEndpoint(t, store, "endpoint-1", "order.created")
 
-		delivery := dispatchTo(t, env, store,
+		delivery := dispatchTo(t, store,
 			&Delivery{EventType: "order.created", Payload: testBody}, baseTime, "endpoint-1")
 
 		must.NoError(t, store.RecordAttempt(ctxFor(t), &Attempt{
@@ -1016,7 +1012,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 		registerEndpoint(t, store, "endpoint-1", "order.created")
 
-		delivery := dispatchTo(t, env, store,
+		delivery := dispatchTo(t, store,
 			&Delivery{EventType: "order.created", Payload: testBody}, baseTime, "endpoint-1")
 
 		claimed := claimAll(t, store, baseTime)
@@ -1040,7 +1036,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 		registerEndpoint(t, store, "endpoint-1", "order.created")
 
-		delivery := dispatchTo(t, env, store,
+		delivery := dispatchTo(t, store,
 			&Delivery{EventType: "order.created", Payload: testBody}, baseTime, "endpoint-1")
 
 		claimed := claimAll(t, store, baseTime)
@@ -1071,9 +1067,9 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		test.EqOp(t, int64(0), depth)
 		test.True(t, oldest.IsZero())
 
-		dispatchTo(t, env, store,
+		dispatchTo(t, store,
 			&Delivery{EventType: "order.created", Payload: testBody}, baseTime, "endpoint-1")
-		dispatchTo(t, env, store,
+		dispatchTo(t, store,
 			&Delivery{EventType: "order.created", Payload: testBody}, baseTime.Add(time.Hour), "endpoint-1")
 
 		depth, oldest, err = store.Backlog(ctxFor(t))
@@ -1090,7 +1086,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 		registerEndpoint(t, store, "endpoint-1", "order.created")
 
-		dispatchTo(t, env, store,
+		dispatchTo(t, store,
 			&Delivery{EventType: "order.created", Payload: testBody}, baseTime, "endpoint-1")
 
 		claimed := claimAll(t, store, baseTime)
@@ -1108,7 +1104,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 		registerEndpoint(t, store, "endpoint-1", "order.created")
 
-		delivery := dispatchTo(t, env, store,
+		delivery := dispatchTo(t, store,
 			&Delivery{EventType: "order.created", Payload: testBody}, baseTime, "endpoint-1")
 
 		claimed := claimAll(t, store, baseTime)
@@ -1141,7 +1137,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 		registerEndpoint(t, store, "endpoint-1", "order.created")
 
-		dispatchTo(t, env, store,
+		dispatchTo(t, store,
 			&Delivery{EventType: "order.created", Payload: testBody}, baseTime, "endpoint-1")
 
 		reaped, err := store.Reap(ctxFor(t), baseTime.Add(time.Hour), 100)
@@ -1159,7 +1155,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 		endpoint := registerEndpoint(t, store, "endpoint-1", "order.created")
 
-		dispatchTo(t, env, store,
+		dispatchTo(t, store,
 			&Delivery{EventType: "order.created", Payload: testBody}, baseTime, "endpoint-1")
 
 		endpoint.Secret = Secret{Current: []byte("rotated"), Previous: []byte("secret-endpoint-1")}
@@ -1178,7 +1174,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 		endpoint := registerEndpoint(t, store, "endpoint-1", "order.created")
 
-		dispatchTo(t, env, store,
+		dispatchTo(t, store,
 			&Delivery{EventType: "order.created", Payload: testBody}, baseTime, "endpoint-1")
 
 		endpoint.Disabled = true
@@ -1227,7 +1223,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 		registerEndpoint(t, store, "endpoint-1", "order.created")
 
-		delivery := dispatchTo(t, env, store,
+		delivery := dispatchTo(t, store,
 			&Delivery{EventType: "order.created", Payload: testBody}, baseTime, "endpoint-1")
 
 		for i := range 3 {
@@ -1305,54 +1301,28 @@ func idsOf(endpoints []*Endpoint) []string {
 	return ids
 }
 
-// errStoreInstrument is what the failing provider returns for the one
-// instrument the store registers.
-var errStoreInstrument = platformerrors.New("instrument unavailable")
-
-func TestNewSQLStore_InstrumentFailures(T *testing.T) {
+// The store holds no clock. Every timestamp it writes is the database server's,
+// which is database/querygen's rule rather than a preference taken here: a row's
+// created_at and the filter window compared against it have to come from one
+// clock, or two application instances a second apart write rows a window
+// excludes at random.
+//
+// So this is the test that used to assert an injected clock was consulted
+// twice. What it asserts now is the property that replaced it — that the stamps
+// are real and current without anything having supplied them.
+func TestSQLStore_StampsFromTheDatabaseClock(T *testing.T) {
 	T.Parallel()
 
-	T.Run("refuses to build without the unreported row count counter", func(t *testing.T) {
+	T.Run("endpoint timestamps come from the server", func(t *testing.T) {
 		t.Parallel()
 
 		env := newSQLiteEnv(t)
+		client, prefix := env.database(t)
 
-		provider := &metricsmock.ProviderMock{
-			NewInt64CounterFunc: func(string, ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
-				return nil, errStoreInstrument
-			},
-		}
-
-		store, err := NewSQLStore(env.client, WithStoreMetricsProvider(provider))
-		test.Nil(t, store)
-		test.ErrorIs(t, err, errStoreInstrument)
-	})
-}
-
-func TestSQLStore_UsesTheInjectedClock(T *testing.T) {
-	T.Parallel()
-
-	T.Run("endpoint timestamps come from the clock it was given", func(t *testing.T) {
-		t.Parallel()
-
-		env := newSQLiteEnv(t)
-
-		stamped := time.Date(2026, time.August, 11, 12, 0, 0, 0, time.UTC)
-
-		var asked int
-
-		injected := &clockmock.ClockMock{
-			NowFunc: func() time.Time {
-				asked++
-
-				return stamped
-			},
-		}
-
-		prefix := env.migrate(t)
-
-		store, err := NewSQLStore(env.client, WithTablePrefix(prefix), WithStoreClock(injected))
+		store, err := NewSQLStore(client, WithTablePrefix(prefix))
 		must.NoError(t, err)
+
+		before := time.Now().UTC().Add(-time.Minute)
 
 		must.NoError(t, store.SaveEndpoint(t.Context(), &Endpoint{
 			ID:            "endpoint",
@@ -1361,9 +1331,22 @@ func TestSQLStore_UsesTheInjectedClock(T *testing.T) {
 			Secret:        Secret{Current: []byte("s3cr3t")},
 			Subscriptions: SubscribeTo("user.created"),
 		}))
+
+		saved, err := store.GetEndpoint(t.Context(), testScope, "endpoint")
+		must.NoError(t, err)
+
+		test.True(t, saved.CreatedAt.After(before),
+			test.Sprintf("created_at %s is not after %s", saved.CreatedAt, before))
+		test.True(t, saved.CreatedAt.Before(time.Now().UTC().Add(time.Minute)))
+		must.SliceLen(t, 1, saved.Subscriptions)
+		test.True(t, saved.Subscriptions[0].CreatedAt.After(before))
+
 		must.NoError(t, store.ArchiveEndpoint(t.Context(), testScope, "endpoint"))
 
-		// Both writes stamp through the clock rather than through time.Now.
-		test.EqOp(t, 2, asked)
+		archived, err := store.GetEndpoint(t.Context(), testScope, "endpoint")
+		must.NoError(t, err)
+		must.NotNil(t, archived.ArchivedAt)
+		test.True(t, archived.ArchivedAt.After(before),
+			test.Sprintf("archived_at %s is not after %s", archived.ArchivedAt, before))
 	})
 }

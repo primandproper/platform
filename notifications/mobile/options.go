@@ -10,8 +10,9 @@ import (
 type Option func(*options)
 
 type options struct {
-	logger         logging.Logger
-	tracerProvider tracing.Provider
+	logger           logging.Logger
+	tracerProvider   tracing.Provider
+	tokenInvalidator TokenInvalidator
 }
 
 func newOptions(opts []Option) *options {

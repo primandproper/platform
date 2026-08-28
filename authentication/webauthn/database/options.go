@@ -92,6 +92,10 @@ func WithSweeper(ctx context.Context, interval time.Duration) Option {
 
 // WithClock swaps the clock the expires_at column is stamped from, the one
 // Consume compares against, and the one the sweeper ticks on.
+//
+// It is not the clock the sweep's own comparison is made against: that one is
+// the server's, so the rows a sweep reclaims are decided by the deadlines this
+// clock wrote rather than by where this clock has since got to. See Sweep.
 func WithClock(c clock.Clock) Option {
 	return func(o *options) {
 		if c != nil {

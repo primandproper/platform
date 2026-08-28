@@ -605,12 +605,8 @@ func (s *SQLStore) reportGuardedWrite(
 	err error,
 	id, operation, description string,
 ) error {
-	if err != nil {
-		return span.Error(err, "%s", description)
-	}
-
-	if reportErr := s.guard.Report(ctx, span, affected, id, operation); reportErr != nil {
-		return reportErr
+	if countErr := s.guard.Count(ctx, span, affected, err, id, operation, description); countErr != nil {
+		return countErr
 	}
 
 	s.notify(ctx)

@@ -86,12 +86,14 @@ func WithRunnerMetricsProvider(metricsProvider metrics.Provider) RunnerOption {
 type SQLStoreOption func(*SQLStore)
 
 // WithTablePrefix overrides DefaultTablePrefix. It must be a plain SQL
-// identifier fragment: it is interpolated into the query text, not bound as a
-// parameter, and it must match the prefix the migrations were rendered with.
+// identifier fragment: it is substituted into the generated statements once, at
+// construction, rather than bound as a parameter — an identifier is not a bind
+// parameter in any of the three engines — and it must match the prefix the
+// migrations were rendered with.
 func WithTablePrefix(prefix string) SQLStoreOption {
 	return func(s *SQLStore) {
 		if prefix != "" {
-			s.tables = newTables(prefix)
+			s.prefix = prefix
 		}
 	}
 }

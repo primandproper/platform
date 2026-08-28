@@ -219,6 +219,34 @@ reference each other by foreign key and the queries join across them, so a
 consumer who could name them independently could also name them inconsistently,
 and nothing would catch it until the first dispatch.
 
+# Where the SQL comes from
+
+Every statement the SQL store executes is in a canonical .sql that sqlc checks
+against this package's own schema, on all three dialects, and is executed
+through the querier sqlc-gen-unison emits from it. A column renamed in a
+migration is a failed `make generate` with no database running, where it used to
+be a scan error on whichever dialect a container test happened to reach first.
+
+The schema's facts — the five table names, each table's columns in projection
+order, the two subsets a write may assign — are spelled once, in
+webhooks/internal/queries. `make generate` renders most of the corpus from them
+through database/querygen; eleven statements are written out there in full,
+because they are the shapes querygen deliberately does not render — a self-join,
+a three-table projection, a bounded delete, an incrementing counter, an
+aggregate, a scope reached through another table, and the two creation instants
+that are the emitting transaction's rather than the row's. That package's
+comment says which is which and why, and its tests pin the committed .sql byte
+for byte against the renderer, so "the SQL sqlc checks is the SQL the store
+runs" is a fact a test states rather than a property of a pipeline taken on
+trust.
+
+One consequence reaches a caller. The store holds no clock: the convention
+columns are stamped by the statements themselves, from the database server, and
+the instants that are a caller's to choose — when a delivery was enqueued, how
+long a lease runs, how far back a reap goes — are arguments as they always were.
+A row's created_at and the filter window compared against it now come from one
+clock rather than from however many application instances are writing.
+
 # The catalog
 
 Subscribable event types are supplied at construction via WithCatalog, not
@@ -292,3 +320,5 @@ Spans cover Dispatch, each claim, and each delivery. A cycle that claims nothing
 is not traced: a root span every poll interval is noise.
 */
 package webhooks
+
+//go:generate go run ./internal/queriesgen

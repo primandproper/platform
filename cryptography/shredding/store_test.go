@@ -1,9 +1,11 @@
 package shredding
 
 import (
+	"database/sql"
 	"testing"
 	"time"
 
+	"github.com/primandproper/platform-go/v13/cryptography/shredding/internal/shreddingdb"
 	"github.com/primandproper/platform-go/v13/database/dialect"
 
 	"github.com/shoenig/test"
@@ -234,16 +236,72 @@ func suiteShred(t *testing.T, env *storeEnv) {
 		_, err := store.Shred(t.Context(), Subject{Type: "user"}, baseTime)
 		test.ErrorIs(t, err, ErrEmptySubjectID)
 	})
-}
 
-func TestIgnorePrefix(T *testing.T) {
-	T.Parallel()
-
-	T.Run("renders each dialect's skip-a-duplicate clause", func(t *testing.T) {
+	// The two columns describe one event, so they hold one instant rather than
+	// two clock reads. It is the one thing this schema asks for that the
+	// conventional tables do not — every other update in the module stamps
+	// last_updated_at from the server's clock — so it is pinned here as well as
+	// in the rendered SQL, where dropping it would be a one-line change.
+	t.Run("stamps the destruction and the row's last update from one instant", func(t *testing.T) {
 		t.Parallel()
 
-		test.EqOp(t, "", ignorePrefix(dialect.Postgres))
-		test.EqOp(t, "IGNORE ", ignorePrefix(dialect.MySQL))
-		test.EqOp(t, "OR IGNORE ", ignorePrefix(dialect.SQLite))
+		store, prefix := env.newPrefixedStore(t)
+
+		_, err := store.Insert(t.Context(), &Record{
+			Subject: testSubject, Wrapped: []byte("wrapped"), CreatedAt: baseTime,
+		})
+		must.NoError(t, err)
+
+		receipt, err := store.Shred(t.Context(), testSubject, baseTime)
+		must.NoError(t, err)
+		must.True(t, receipt.Destroyed)
+
+		var shreddedAt, lastUpdatedAt sql.NullTime
+
+		must.NoError(t, env.client.Reader().QueryRowContext(t.Context(),
+			"SELECT shredded_at, last_updated_at FROM "+keysTable(prefix)+
+				" WHERE subject_type = "+env.dialect.Placeholder(1)+
+				" AND subject_id = "+env.dialect.Placeholder(2),
+			testSubject.Type, testSubject.ID,
+		).Scan(&shreddedAt, &lastUpdatedAt))
+
+		must.True(t, shreddedAt.Valid)
+		must.True(t, lastUpdatedAt.Valid)
+
+		// Compared to each other rather than to baseTime, because both come
+		// back through the same driver and the same column type: what is under
+		// test is that they agree, not what either engine does with a zone.
+		test.EqOp(t, shreddedAt.Time.UTC(), lastUpdatedAt.Time.UTC())
+	})
+}
+
+func TestShreddingDBDialect(T *testing.T) {
+	T.Parallel()
+
+	T.Run("maps every dialect this package serves", func(t *testing.T) {
+		t.Parallel()
+
+		want := map[dialect.Dialect]shreddingdb.Dialect{
+			dialect.Postgres: shreddingdb.DialectPostgreSQL,
+			dialect.MySQL:    shreddingdb.DialectMySQL,
+			dialect.SQLite:   shreddingdb.DialectSQLite,
+		}
+
+		for _, d := range allDialects {
+			got, err := shreddingdbDialect(d)
+			must.NoError(t, err, must.Sprintf("dialect %q", d))
+			test.EqOp(t, want[d], got, test.Sprintf("dialect %q", d))
+		}
+	})
+
+	// Reachable only if this module learns a dialect the generated package was
+	// not generated for, which is a construction failure that should name the
+	// dialect rather than surfacing as an empty string reaching shreddingdb.New.
+	T.Run("names a dialect the generated package does not carry", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := shreddingdbDialect(dialect.Dialect("cockroach"))
+		test.EqOp(t, shreddingdb.Dialect(""), got)
+		test.ErrorIs(t, err, dialect.ErrUnsupported)
 	})
 }

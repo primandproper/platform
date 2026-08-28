@@ -62,6 +62,35 @@ func ValidatePrefix(prefix string) error {
 	return schema.ValidatePrefix(prefix)
 }
 
+// Tables returns the table names this package creates, rendered against prefix
+// and sorted.
+//
+// It is the complete list — dataprivacy creates no table this omits, because the
+// names are read out of the DDL beside this file rather than from a list
+// maintained next to it, so a table added to the schema is in this list the
+// moment it is added. That is what a consumer needs it to be: the uses are the
+// per-table jobs that are not per-query — the TRUNCATE an integration suite runs
+// between tests, a backup policy, a schema audit, a data privacy inventory — and
+// every one of them is wrong in a way nothing reports if the list is short by
+// one.
+//
+// One table today, and the function exists anyway. A consumer writing a loop
+// over it is written once and keeps working; a consumer told to name
+// dataprivacy_requests directly has to be found and changed the day there is a
+// second one.
+//
+// The prefix is vetted exactly as [Statements] and [SQL] vet it, and for the
+// same reason: these names are interpolated into statement text rather than
+// bound, so a caller building a TRUNCATE out of them is building it out of
+// whatever this returns.
+func Tables(prefix string) ([]string, error) {
+	if err := schema.ValidatePrefix(prefix); err != nil {
+		return nil, err
+	}
+
+	return schema.Tables(prefix), nil
+}
+
 // SQL renders the same DDL as Statements, joined back into one migration body.
 // It is what you hand to database/migrate's WithGeneratedMigration, so the
 // tables are created by the consumer's own migration run instead of being

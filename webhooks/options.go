@@ -81,18 +81,7 @@ type SQLStoreOption func(*SQLStore)
 func WithTablePrefix(prefix string) SQLStoreOption {
 	return func(s *SQLStore) {
 		if prefix != "" {
-			s.tables = newTables(prefix)
-		}
-	}
-}
-
-// WithStoreClock swaps the clock stamping endpoint updates and archivals. The
-// dispatcher and worker take one already; this is the third of the three, so a
-// deployment that injects time injects all of it.
-func WithStoreClock(c clock.Clock) SQLStoreOption {
-	return func(s *SQLStore) {
-		if c != nil {
-			s.clock = c
+			s.prefix = prefix
 		}
 	}
 }
@@ -111,13 +100,6 @@ func WithStoreLogger(logger logging.Logger) SQLStoreOption {
 func WithStoreTracerProvider(tracerProvider tracing.Provider) SQLStoreOption {
 	return func(s *SQLStore) {
 		s.tracerProvider = tracerProvider
-	}
-}
-
-// WithStoreMetricsProvider attaches a metrics provider.
-func WithStoreMetricsProvider(metricsProvider metrics.Provider) SQLStoreOption {
-	return func(s *SQLStore) {
-		s.metricsProvider = metricsProvider
 	}
 }
 
