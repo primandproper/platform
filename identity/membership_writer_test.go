@@ -82,6 +82,44 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 		)
 	})
 
+	t.Run("admits an empty role set for the owner and nobody else", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		owner := createUser(t, store, newUser("ada"))
+		account := createAccountFor(t, store, owner, "Acme", "account_admin", "billing_admin")
+		member := registerInto(t, store, newUser("brian"), account.ID)
+
+		// The owner's standing is the ownership, so stripping their roles
+		// leaves them able to administer the account rather than belonging to
+		// it and able to do nothing in it. It is also the state
+		// TransferAccountOwnership mints, which is why this door has to open on
+		// it too.
+		must.NoError(t, store.SetMembershipRoles(t.Context(), testScope, owner.ID, account.ID, nil))
+
+		stripped, err := store.GetMembership(t.Context(), testScope, owner.ID, account.ID)
+		must.NoError(t, err)
+		test.SliceEmpty(t, stripped.Roles)
+
+		// Everybody else keeps the refusal, which is the reason it exists.
+		must.ErrorIs(t,
+			store.SetMembershipRoles(t.Context(), testScope, member.ID, account.ID, nil),
+			platformerrors.ErrEmptyInputParameter,
+		)
+
+		unchanged, err := store.GetMembership(t.Context(), testScope, member.ID, account.ID)
+		must.NoError(t, err)
+		test.Eq(t, []string{"account_member"}, unchanged.Roles)
+
+		// The exception is decided by an account read, so an account that is
+		// not there reports as much rather than as an empty slice somebody
+		// passed.
+		must.ErrorIs(t,
+			store.SetMembershipRoles(t.Context(), testScope, owner.ID, "not-an-account", nil),
+			ErrAccountNotFound,
+		)
+	})
+
 	t.Run("refuses to remove the last owner", func(t *testing.T) {
 		t.Parallel()
 
@@ -164,8 +202,15 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 		must.NoError(t, err)
 		test.EqOp(t, successor.ID, read.OwnerUserID)
 
-		_, err = store.GetMembership(t.Context(), testScope, successor.ID, account.ID)
+		minted, err := store.GetMembership(t.Context(), testScope, successor.ID, account.ID)
 		must.NoError(t, err)
+
+		// It carries no roles, which is the state rather than a gap in it: the
+		// ownership is the standing, and a role invented here would be a name
+		// this package does not define written into somebody's authorization.
+		// SetMembershipRoles admits the same set for the same reason.
+		test.SliceEmpty(t, minted.Roles)
+		must.NoError(t, store.SetMembershipRoles(t.Context(), testScope, successor.ID, account.ID, nil))
 
 		// Transferring and ejecting are different acts; handing over and staying
 		// on is the common case.
@@ -182,6 +227,41 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 			store.TransferAccountOwnership(t.Context(), testScope, account.ID, ""),
 			platformerrors.ErrEmptyInputParameter,
 		)
+	})
+
+	t.Run("refuses a new owner from another directory", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		owner := createUser(t, store, newUser("ada"))
+		account := createAccountFor(t, store, owner, "Acme")
+
+		// A neighbor whose id is perfectly real and whose directory is not this
+		// one. owner_user_id carries no foreign key at all and the membership's
+		// carries no scope, so the store's own scoped read is the only thing
+		// between this id and the account it would come to own.
+		neighbor := newUser("eve")
+		neighbor.Scope = otherScope
+		createUser(t, store, neighbor)
+
+		must.ErrorIs(t,
+			store.TransferAccountOwnership(t.Context(), testScope, account.ID, neighbor.ID),
+			ErrUserNotFound,
+		)
+
+		// Neither half of the transfer landed: the account keeps the owner it
+		// had, and the roster gains no stranger.
+		read, err := store.GetAccount(t.Context(), testScope, account.ID)
+		must.NoError(t, err)
+		test.EqOp(t, owner.ID, read.OwnerUserID)
+
+		_, err = store.GetMembership(t.Context(), testScope, neighbor.ID, account.ID)
+		must.ErrorIs(t, err, ErrMembershipNotFound)
+
+		members, err := store.ListAccountMembers(t.Context(), testScope, account.ID, nil)
+		must.NoError(t, err)
+		must.SliceLen(t, 1, members.Data)
+		test.EqOp(t, owner.ID, members.Data[0].User.ID)
 	})
 
 	t.Run("keeps an existing member's roles on transfer", func(t *testing.T) {

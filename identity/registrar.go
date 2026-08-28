@@ -61,7 +61,7 @@ func (s *SQLStore) CreateUser(ctx context.Context, q database.Tx, user *User) er
 	// That holds because the parameter is a database.Tx: the sentence used to
 	// be true only of a caller who had opened one, and nothing stopped a caller
 	// who had not.
-	if err := s.replaceRoles(ctx, q, s.userRoles(), user.ID, user.ServiceRoles); err != nil {
+	if err := s.replaceRoles(ctx, q, s.userRoleWrites(), user.ID, user.ServiceRoles); err != nil {
 		return op.Error(err, "creating identity user")
 	}
 

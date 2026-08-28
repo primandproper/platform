@@ -244,20 +244,20 @@ func TestGenerator_limitClause(T *testing.T) {
 	})
 }
 
-func TestGenerator_idSetPredicate(T *testing.T) {
+func TestGenerator_setPredicate(T *testing.T) {
 	T.Parallel()
 
 	T.Run("per dialect", func(t *testing.T) {
 		t.Parallel()
 
-		test.EqOp(t, `id = ANY(sqlc.arg(ids)::text[])`, For(dialect.Postgres).idSetPredicate())
+		test.EqOp(t, `id = ANY(sqlc.arg(ids)::text[])`, For(dialect.Postgres).setPredicate(IDColumn, IDsArg))
 
 		// Neither of the others has an array type, so sqlc expands the slice
 		// into as many placeholders as there are ids. The Go signature is
 		// []string either way.
 		for _, d := range []dialect.Dialect{dialect.MySQL, dialect.SQLite} {
 			test.EqOp(t, `id IN (sqlc.slice(ids))`,
-				For(d).idSetPredicate(), test.Sprintf("dialect %q", d))
+				For(d).setPredicate(IDColumn, IDsArg), test.Sprintf("dialect %q", d))
 		}
 	})
 
@@ -265,7 +265,22 @@ func TestGenerator_idSetPredicate(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range everyDialect() {
-			test.StrContains(t, For(d).idSetPredicate(), IDsArg, test.Sprintf("dialect %q", d))
+			test.StrContains(t, For(d).setPredicate(IDColumn, IDsArg), IDsArg, test.Sprintf("dialect %q", d))
+		}
+	})
+
+	// The column and the argument are both the caller's, which is what a
+	// batched read keyed on a child row's parent needs — the bulk stamp's id
+	// and ids are one caller's choice rather than the fragment's.
+	T.Run("keys on the column it is handed", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, `membership_id = ANY(sqlc.arg(membership_ids)::text[])`,
+			For(dialect.Postgres).setPredicate("membership_id", "membership_ids"))
+
+		for _, d := range []dialect.Dialect{dialect.MySQL, dialect.SQLite} {
+			test.EqOp(t, `membership_id IN (sqlc.slice(membership_ids))`,
+				For(d).setPredicate("membership_id", "membership_ids"), test.Sprintf("dialect %q", d))
 		}
 	})
 }

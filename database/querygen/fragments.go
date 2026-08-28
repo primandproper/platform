@@ -130,7 +130,7 @@ ORDER BY %[4]s
 // statement per flush is the entire reason the write is buffered. See
 // searchsync.NewStampBuffer, which is what a Syncer stamps through. How that set
 // reaches the server differs by dialect and the Go signature does not — see
-// Generator.idSetPredicate.
+// Generator.setPredicate.
 //
 // There is no owner predicate and no archived_at predicate, and both omissions
 // are deliberate. This is the search sync's own machinery servicing itself — it
@@ -146,7 +146,7 @@ WHERE %[4]s;`,
 		table,
 		LastIndexedAtColumn,
 		g.storedNow(),
-		g.idSetPredicate(),
+		g.setPredicate(IDColumn, IDsArg),
 	)
 }
 

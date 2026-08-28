@@ -17,6 +17,28 @@ const (
 	InvitationRolesTable = "identity_invitation_roles"
 )
 
+// TableNames is every table identity owns, in the order the DDL creates them.
+//
+// Seven rather than the four declared below as [Table] values: the three role
+// tables carry no columns worth describing here and are written by hand-rendered
+// DELETE/INSERT pairs, but a table nothing generates queries for is still a
+// table with rows in it. That is the distinction the querygen registry is built
+// around, and this is the list [Render] feeds it — see the comment there.
+//
+// identity/migrations is where a consumer gets these names rendered at their
+// prefix. This list is the canonical spelling, and migrations.Tables reads the
+// DDL, so the two are cross-checked against each other in this package's tests
+// rather than one being derived from the other.
+var TableNames = []string{
+	UsersTable,
+	UserRolesTable,
+	AccountsTable,
+	MembershipsTable,
+	MembershipRolesTable,
+	InvitationsTable,
+	InvitationRolesTable,
+}
+
 // ScopeColumn is the tenancy dimension every table here carries and every
 // statement is keyed on. It is a column, not a convention: an unscoped read of
 // this schema is not expressible, because there is no statement that omits it.
@@ -40,6 +62,24 @@ const (
 	UserEmailVerificationTokenColumn = "email_address_verification_token"
 )
 
+// The role tables' columns. Each of the three is a child set of one parent row
+// — a user, a membership, an invitation — keyed on that parent and carrying one
+// role per row, with no id, no scope and no timestamps of its own — see
+// [RoleTable]. RoleColumn is the grant itself, and the second half of every
+// role table's primary key; the owner column is the first.
+//
+// They carry no scope because they are not read on their own: a role row is
+// reached through the parent whose id it names, and that parent is scoped. What
+// keys the batched reads below is the parent column, which is why each is
+// spelled here rather than at the store — the read that binds it and the write
+// that assigns it are two files.
+const (
+	UserRoleOwnerColumn       = "user_id"
+	MembershipRoleOwnerColumn = "membership_id"
+	InvitationRoleOwnerColumn = "invitation_id"
+	RoleColumn                = "role"
+)
+
 // The two columns a membership is keyed on, unique on the pair live and
 // archived alike. Together they are the row's natural key — one live membership
 // per (user, account) pair — which is why every membership statement addresses
@@ -57,21 +97,6 @@ const (
 	MembershipUserColumn    = "belongs_to_user"
 	MembershipAccountColumn = querygen.BelongsToAccountColumn
 	MembershipDefaultColumn = "default_account"
-)
-
-// RoleColumn is the grant itself, and the second half of every role table's
-// primary key. The first half is the parent the grant hangs off — see
-// [RoleTable].
-const RoleColumn = "role"
-
-// The three role tables' owner columns: the parent a grant belongs to, which is
-// what a clear is keyed on and what an insert writes beside the role. Exported
-// for the reason every other column in this file is — the store binds them, and
-// a column spelled in two files is a column that can be spelled two ways.
-const (
-	UserRoleOwnerColumn       = "user_id"
-	MembershipRoleOwnerColumn = "membership_id"
-	InvitationRoleOwnerColumn = "invitation_id"
 )
 
 // RoleTable is one of the three tables a role grant lands in, and it is not a
@@ -351,6 +376,16 @@ var Emitted = []*Table{&Users, &Accounts, &Invitations}
 func Render(d dialect.Dialect) string {
 	g := querygen.For(d)
 
+	// Every table identity owns, not the three the loop below emits for.
+	// StandardCRUD registers what it emits, which leaves memberships and the
+	// three role tables out — and those are tables with rows in them, so a
+	// consumer reading the registry back to truncate a database would miss four
+	// of seven. Registering the whole list here is what keeps that list fed by
+	// the tables existing rather than by what currently produces their SQL: the
+	// role tables are due to join Emitted, and nothing about this line has to
+	// change when they do.
+	querygen.RegisterTable(TableNames...)
+
 	var rendered []*querygen.Query
 	for _, table := range Emitted {
 		rendered = append(rendered, g.StandardCRUD(table.Name, table.Columns, table.Options()...)...)
@@ -359,7 +394,9 @@ func Render(d dialect.Dialect) string {
 	rendered = append(rendered, keyedInvitationLists(g)...)
 	rendered = append(rendered, createdAtReads(g)...)
 	rendered = append(rendered, keyedUserReads(g)...)
+	rendered = append(rendered, keyedAccountReads(g)...)
 	rendered = append(rendered, keyedMembershipReads(g)...)
+	rendered = append(rendered, batchedReads(g)...)
 	rendered = append(rendered, junctionLists(g)...)
 	rendered = append(rendered, usernamePrefixSearch(g)...)
 	rendered = append(rendered, fieldWrites(g)...)
@@ -648,6 +685,31 @@ func keyedUserReads(g *querygen.Generator) []*querygen.Query {
 	return rendered
 }
 
+// keyedAccountReads is the one account read that keys on something other than
+// the id: an account the user owns.
+//
+// It is the guard behind ArchiveUser, and it is a read rather than an existence
+// check because the answer a caller needs is which account blocked. An owner
+// archived out from under their accounts leaves them live and owned by a user
+// every scoped read reports as absent, so the refusal has to name the account
+// whose ownership has to move first — the same sentence RemoveMembership's
+// refusal already carries, which can name it because it was handed it.
+//
+// A user may own several; the ordering is what makes "one of them" a row rather
+// than whichever one the planner reached first, so a refusal repeated against
+// an unchanged directory names the same account twice.
+func keyedAccountReads(g *querygen.Generator) []*querygen.Query {
+	return []*querygen.Query{
+		g.ReadQuery("GetOwnedAccountIDForUser", AccountsTable, Accounts.KeyedColumns(),
+			querygen.Read{
+				Projection: []string{querygen.IDColumn},
+				Order:      querygen.IDColumn,
+			},
+			querygen.Match{Column: ScopeColumn},
+			querygen.Match{Column: ownerUserIDColumn}),
+	}
+}
+
 // keyedMembershipReads is the three reads over the table that has no standard
 // queries at all: the membership itself, the id a revived one kept, and the
 // account a user falls back to when the default is being removed.
@@ -686,6 +748,65 @@ func keyedMembershipReads(g *querygen.Generator) []*querygen.Query {
 			},
 			scope, user, querygen.Match{Column: MembershipAccountColumn, Exclude: true}),
 	}
+}
+
+// batchedReads is the four reads that answer for a whole batch of keys at once:
+// the users a page's rows refer to, and the roles hanging off a page of users,
+// memberships or invitations.
+//
+// Each is the read a page would otherwise make one query at a time. A roster of
+// thirty members whose roles were fetched inside the loop that converts rows is
+// thirty round trips returning two rows each, and the loop is where that shape
+// arrives without anybody choosing it — which is why the batched form is the
+// one that exists rather than an optimization applied later.
+//
+// All four were hand-assembled IN lists until querygen learned the shape, and
+// they were the last reads in this package that no generator could render. The
+// store still owes them the one thing the statement cannot express: an empty
+// batch, answered without a query rather than sent as one whose answer is
+// already known — see querygen.Generator.SetReadQuery.
+func batchedReads(g *querygen.Generator) []*querygen.Query {
+	// The users a page's rows point at, read for hydration rather than as a
+	// listing: "who created each of these rows". The column list has no
+	// archived_at in it, which is how a statement says the archived predicate
+	// does not apply — hiding a soft-deleted user here turns "created by a
+	// departed colleague" into "created by nobody". The projection is still the
+	// whole table, archived_at included, so a caller can see that they are
+	// looking at one.
+	rendered := []*querygen.Query{
+		g.SetReadQuery("ListUsersByIDs", UsersTable,
+			Users.ColumnsExcept(querygen.ArchivedAtColumn),
+			querygen.Read{Projection: Users.Columns},
+			querygen.SetKey{Column: querygen.IDColumn},
+			querygen.Match{Column: ScopeColumn}),
+	}
+
+	// Statement name to the table and the parent column it keys on, in the
+	// order the file lists them. One named read each rather than one builder
+	// over a table parameter, for the reason keyedUserReads enumerates: a query
+	// name is a Go method name, and a method name is not a parameter.
+	//
+	// None carries a scope: a role table has no scope column, because the
+	// parent whose id keys the read is the scoped row. The store reaches these
+	// with ids it read through a scoped statement.
+	named := [][3]string{
+		{"ListUserRolesByUserIDs", UserRolesTable, UserRoleOwnerColumn},
+		{"ListMembershipRolesByMembershipIDs", MembershipRolesTable, MembershipRoleOwnerColumn},
+		{"ListInvitationRolesByInvitationIDs", InvitationRolesTable, InvitationRoleOwnerColumn},
+	}
+
+	for i := range named {
+		// Ordered by the parent and then by the role, which is what makes the
+		// roles of one owner arrive together and in a stable order — a set the
+		// caller compares against another set, or renders, should not come back
+		// in whichever order the planner found convenient.
+		rendered = append(rendered, g.SetReadQuery(named[i][0], named[i][1],
+			[]string{named[i][2], RoleColumn},
+			querygen.Read{Order: RoleColumn},
+			querygen.SetKey{Column: named[i][2]}))
+	}
+
+	return rendered
 }
 
 // junctionLists is the three reads that cross the membership junction: an

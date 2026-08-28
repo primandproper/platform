@@ -72,7 +72,6 @@ func (t *tables) prefix() string { return t.base }
 // reaches all three, and a column added to only one of these strings is not
 // something there is a string to add it to.
 var (
-	userProjection       = projection(queries.Users.Columns)
 	accountProjection    = projection(queries.Accounts.Columns)
 	membershipProjection = projection(queries.Memberships.Columns)
 	invitationProjection = projection(queries.Invitations.Columns)
@@ -109,18 +108,19 @@ func projection(columns []string) string {
 // querygen.Generator.UpdateQuery statements in the canonical .sql, executed
 // through the generated querier.
 //
-// What is left are the statements querygen still does not emit, and they are
-// worth naming because each is a shape the epic behind this port owes a
-// generator:
+// What is left is eight builders, and the ones below are the shapes among
+// them that the epic behind this port still owes a generator — the rest are
+// conventional statements against tables the emitted corpus has yet to reach,
+// or ones addressed by a pair of columns rather than by id:
 //
 //	buildMarkTwoFactorVerified     an update whose guard is not an equality —
 //	                               a secret that exists and has not been
 //	                               proven, which is a `<> ''` and an IS NULL
+//	buildSelectUserIDByField       a predicate present only when the caller
+//	                               has a row to exclude from the collision
 //	buildRecordAgreements          an update whose SET list is chosen per call
 //	the default-flag maintenance   a clear whose predicate excludes a row
 //	                               rather than matching one
-//	the prefix search              a LIKE with an ESCAPE and one conditional
-//	                               cursor predicate
 //
 // The membership upsert used to be on that list and is not any more: querygen
 // renders it, sqlc checks it, and the store executes the generated method. The
@@ -214,23 +214,6 @@ func (t *tables) buildRecordAgreements(d dialect.Dialect, scope tenancy.Scope, u
 
 // ------------------------------------------------------------ memberships
 
-// buildSelectRoles reads the roles for a batch of owners at once.
-//
-// Batched rather than one query per membership, which is the shape webhooks
-// reads subscriptions in and the shape a roster page cannot afford: thirty
-// members would be thirty round trips, each returning two rows.
-func buildSelectRoles(d dialect.Dialect, table, idColumn string, ownerIDs []string) (query string, args []any) {
-	args = make([]any, 0, len(ownerIDs))
-	for _, id := range ownerIDs {
-		args = append(args, id)
-	}
-
-	return fmt.Sprintf(
-		"SELECT %s, role FROM %s WHERE %s IN (%s) ORDER BY %s, role",
-		idColumn, table, idColumn, d.Placeholders(1, len(args)), idColumn,
-	), args
-}
-
 // buildClearDefaultAccount clears the default flag from a user's other
 // memberships, so "one default per user" is an invariant of the write rather
 // than of the caller remembering to.
@@ -290,24 +273,4 @@ func (t *tables) buildCountLiveMembershipsForUser(d dialect.Dialect, scope tenan
 		"SELECT COUNT(*) FROM %s WHERE scope = %s AND belongs_to_user = %s AND archived_at IS NULL",
 		t.memberships, d.Placeholder(1), d.Placeholder(2),
 	), []any{scope, userID}
-}
-
-// buildSelectUsersByIDs reads a batch of users in one query.
-//
-// It has no archived clause: a caller hydrating references is naming users that
-// other rows already point at, and hiding a soft-deleted one turns "created by
-// a departed colleague" into "created by nobody".
-func (t *tables) buildSelectUsersByIDs(d dialect.Dialect, scope tenancy.Scope, userIDs []string) (query string, args []any) {
-	args = make([]any, 0, len(userIDs)+1)
-	for _, id := range userIDs {
-		args = append(args, id)
-	}
-
-	placeholders := d.Placeholders(1, len(userIDs))
-	args = append(args, scope)
-
-	return fmt.Sprintf(
-		"SELECT %s FROM %s WHERE id IN (%s) AND scope = %s ORDER BY id",
-		userProjection, t.users, placeholders, d.Placeholder(len(args)),
-	), args
 }

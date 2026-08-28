@@ -15,87 +15,42 @@ import (
 	"github.com/shoenig/test/must"
 )
 
-// bind_test.go checks that the bound statements are the emitted ones with a
-// different argument spelling, against the rewrite sqlc performs. That is an
-// assertion about text, and text is only half of it: the reason this package
-// renders a statement at all is that a server executes it, and the bound path
-// has a failure mode the sqlc path does not.
+// keyed_query_test.go checks that a keyed variant is the standard statement with
+// more predicates. That is an assertion about text, and text is only half of it:
+// the reason this package renders a statement at all is that a server executes
+// it, and the standard suite beside this one executes only the statements a
+// conventional table gets.
 //
-// A statement rendered here is handed to a driver directly rather than to a
-// generator, so the count and order of its arguments are this package's problem
-// rather than sqlc's. Getting them wrong does not always fail: a marker too many
-// is an error a driver raises, but a value in the wrong slot is a query that
-// runs and answers about something else — a cursor compared against a limit, a
-// window compared against an account id.
+// The variants are what a store's corpus adds to that set — a get keyed on an
+// owner, a read that projects one column and excludes rather than matches, an
+// update guarded by the value it is replacing, a table whose primary key is
+// natural. Each of those is SQL a server either accepts or does not, and the
+// failures are not all loud: a predicate dropped from a count is a page whose
+// totals belong to another tenant, and an exclusion rendered as an equality
+// answers the row it was asked to avoid.
 //
-// So the bound statements get the same treatment the emitted ones get: run,
-// against one of each server, asserting the behavior rather than the SQL. This
-// suite hangs off runDialect beside the sqlc one and stands up its own table, so
+// So the variants get the same treatment the standard set gets: run, against one
+// of each server, asserting the behavior rather than the SQL. This suite hangs
+// off runDialect beside the standard one and stands up its own tables, so
 // neither can see the other's writes.
-
-const gadgetsTable = "gadgets"
 
 const (
 	gadgetOwner = "account_one"
 	gadgetOther = "account_two"
 )
 
-// gadgetStatements is what a scoped store would hold: one statement per
-// operation, each keyed on the owner as well as on whatever it already keyed on.
+// execQuery binds the values a statement names and runs it, failing on either.
 //
-// Rendering them once up front is the usage this package is built for — a store
-// renders at construction and executes per request — and it is also the thing
-// worth checking, since a Bound that only works when rendered per call would
-// have hidden the repeated-argument bug rather than exposed it.
-type gadgetStatements struct {
-	create  Bound
-	get     Bound
-	exists  Bound
-	update  Bound
-	archive Bound
-	list    Bound
-}
-
-func gadgetsFor(d dialect.Dialect) *gadgetStatements {
-	var (
-		g       = For(d)
-		columns = widgetsColumns()
-		owner   = Match{Column: BelongsToAccountColumn}
-	)
-
-	return &gadgetStatements{
-		create: g.BoundCreate(gadgetsTable, ForInsert(columns), nil),
-		get:    g.BoundGet(gadgetsTable, columns, owner),
-		exists: g.BoundExists(gadgetsTable, columns, owner),
-		// The owner is out of the updatable set: a statement that assigns the
-		// column it keys on binds one argument to both, and there is no value
-		// of it that moves a row anywhere.
-		update:  g.BoundUpdate(gadgetsTable, columns, ForUpdate(columns, BelongsToAccountColumn), nil, owner),
-		archive: g.BoundArchive(gadgetsTable, columns, owner),
-		list:    g.BoundList(gadgetsTable, columns, owner),
-	}
-}
-
-func (s *gadgetStatements) all() map[string]Bound {
-	return map[string]Bound{
-		"create":  s.create,
-		"get":     s.get,
-		"exists":  s.exists,
-		"update":  s.update,
-		"archive": s.archive,
-		"list":    s.list,
-	}
-}
-
-// execBound binds the values and runs the statement, failing on either.
-func execBound(tb testing.TB, ctx context.Context, db *sql.DB, b Bound, values map[string]any) sql.Result {
+// It is what a generated querier does with a params struct, spelled for a
+// harness that holds its values in a map: the statement is rendered once, up
+// front, and bound per execution.
+func execQuery(tb testing.TB, ctx context.Context, db *sql.DB, d dialect.Dialect, q *Query, values map[string]any) sql.Result {
 	tb.Helper()
 
-	arguments, err := b.Bind(values)
-	must.NoError(tb, err)
+	statement, order := bindQuery(d, q)
 
-	result, err := db.ExecContext(ctx, b.SQL, arguments...)
-	must.NoError(tb, err, must.Sprintf("executing\n%s", b.SQL))
+	result, err := db.ExecContext(ctx, statement, argumentsFor(tb, order, values)...)
+	must.NoError(tb, err, must.Sprintf("executing\n%s", statement))
 
 	return result
 }
@@ -109,23 +64,38 @@ func affectedRows(tb testing.TB, result sql.Result) int64 {
 	return affected
 }
 
-func insertGadget(tb testing.TB, ctx context.Context, db *sql.DB, s *gadgetStatements, id, name, account string) {
+// text reads a column back as a string, whichever shape the driver handed it
+// over in — MySQL hands a VARCHAR back as bytes.
+func text(tb testing.TB, read any) string {
 	tb.Helper()
 
-	execBound(tb, ctx, db, s.create, map[string]any{
+	if got, ok := read.(string); ok {
+		return got
+	}
+
+	raw, isBytes := read.([]byte)
+	must.True(tb, isBytes, must.Sprintf("column came back as %T", read))
+
+	return string(raw)
+}
+
+func insertGadget(tb testing.TB, ctx context.Context, db *sql.DB, d dialect.Dialect, queries map[string]*Query, id, name, account string) {
+	tb.Helper()
+
+	execQuery(tb, ctx, db, d, queries["create"], map[string]any{
 		IDColumn:               id,
 		"name":                 name,
 		BelongsToAccountColumn: account,
 	})
 }
 
-// getGadget runs the bound get, returning the name it read and whether there was
+// getGadget runs the keyed get, returning the name it read and whether there was
 // a row at all.
-func getGadget(tb testing.TB, ctx context.Context, db *sql.DB, s *gadgetStatements, id, account string) (name string, found bool) {
+func getGadget(tb testing.TB, ctx context.Context, db *sql.DB, d dialect.Dialect, queries map[string]*Query, id, account string) (name string, found bool) {
 	tb.Helper()
 
-	arguments, err := s.get.Bind(map[string]any{IDColumn: id, BelongsToAccountColumn: account})
-	must.NoError(tb, err)
+	statement, order := bindQuery(d, queries["get"])
+	arguments := argumentsFor(tb, order, map[string]any{IDColumn: id, BelongsToAccountColumn: account})
 
 	var (
 		gotID                                     string
@@ -133,7 +103,7 @@ func getGadget(tb testing.TB, ctx context.Context, db *sql.DB, s *gadgetStatemen
 		indexed, created, updated, archived, read any
 	)
 
-	err = db.QueryRowContext(ctx, s.get.SQL, arguments...).
+	err := db.QueryRowContext(ctx, statement, arguments...).
 		Scan(&gotID, &read, &gotAccount, &indexed, &created, &updated, &archived)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", false
@@ -141,30 +111,21 @@ func getGadget(tb testing.TB, ctx context.Context, db *sql.DB, s *gadgetStatemen
 
 	must.NoError(tb, err)
 
-	got, ok := read.(string)
-	if !ok {
-		// MySQL hands a VARCHAR back as bytes.
-		raw, isBytes := read.([]byte)
-		must.True(tb, isBytes, must.Sprintf("name came back as %T", read))
-		got = string(raw)
-	}
-
-	return got, true
+	return text(tb, read), true
 }
 
-// listGadgets runs the bound list for one account, returning the page and the
+// listGadgets runs the keyed list for one account, returning the page and the
 // two counts beside it.
-func listGadgets(tb testing.TB, ctx context.Context, d dialect.Dialect, db *sql.DB, s *gadgetStatements, account string, filter *filtering.QueryFilter) (ids []string, filtered, total int64) {
+func listGadgets(tb testing.TB, ctx context.Context, d dialect.Dialect, db *sql.DB, queries map[string]*Query, account string, filter *filtering.QueryFilter) (ids []string, filtered, total int64) {
 	tb.Helper()
 
 	values := map[string]any{BelongsToAccountColumn: account}
-	For(d).BindFilter(values, filter)
+	filterValues(d, values, filter)
 
-	arguments, err := s.list.Bind(values)
-	must.NoError(tb, err)
+	statement, order := bindQuery(d, queries["list"])
 
-	rows, err := db.QueryContext(ctx, s.list.SQL, arguments...)
-	must.NoError(tb, err, must.Sprintf("executing\n%s", s.list.SQL))
+	rows, err := db.QueryContext(ctx, statement, argumentsFor(tb, order, values)...)
+	must.NoError(tb, err, must.Sprintf("executing\n%s", statement))
 
 	defer func() { must.NoError(tb, rows.Close()) }()
 
@@ -186,47 +147,56 @@ func listGadgets(tb testing.TB, ctx context.Context, d dialect.Dialect, db *sql.
 	return ids, filtered, total
 }
 
-// runBoundSuite is the bound counterpart of runWidgetSuite, and like it is
-// written once and run against each of the three servers.
-func runBoundSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql.DB) {
+// assertServerAccepts prepares every statement, which is the cheapest assertion
+// a server can make about SQL it has not been given values for.
+func assertServerAccepts(t *testing.T, ctx context.Context, db *sql.DB, d dialect.Dialect, queries map[string]*Query) {
 	t.Helper()
 
-	_, err := db.ExecContext(ctx, conventionalDDL(d, gadgetsTable))
+	for name := range queries {
+		statement, _ := bindQuery(d, queries[name])
+
+		stmt, prepareErr := db.PrepareContext(ctx, statement)
+		must.NoError(t, prepareErr, must.Sprintf("preparing %s:\n%s", name, statement))
+		must.NoError(t, stmt.Close()) //nolint:sqlclosecheck // the prepare is the assertion; there is nothing to read.
+	}
+}
+
+// runKeyedSuite is the keyed counterpart of runWidgetSuite, and like it is
+// written once and run against each of the three servers.
+func runKeyedSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql.DB) {
+	t.Helper()
+
+	_, err := db.ExecContext(ctx, conventionalDDL(d, keyedTable))
 	must.NoError(t, err)
 
-	statements := gadgetsFor(d)
+	queries := keyedQueries(d)
 
-	t.Run("every bound statement is one the server accepts", func(t *testing.T) {
-		// Unlike the emitted statements, these need no rewriting first: what a
-		// Bound holds is what a driver is handed.
-		all := statements.all()
-		for name := range all {
-			stmt, prepareErr := db.PrepareContext(ctx, all[name].SQL)
-			must.NoError(t, prepareErr, must.Sprintf("preparing %s:\n%s", name, all[name].SQL))
-			must.NoError(t, stmt.Close()) //nolint:sqlclosecheck // the prepare is the assertion; there is nothing to read.
-		}
+	t.Run("every keyed statement is one the server accepts", func(t *testing.T) {
+		assertServerAccepts(t, ctx, db, d, queries)
 	})
 
 	for _, id := range []string{"g_003", "g_001", "g_004", "g_002"} {
-		insertGadget(t, ctx, db, statements, id, "gadget "+id, gadgetOwner)
+		insertGadget(t, ctx, db, d, queries, id, "gadget "+id, gadgetOwner)
 	}
 
-	insertGadget(t, ctx, db, statements, "g_005", "someone else's gadget", gadgetOther)
+	insertGadget(t, ctx, db, d, queries, "g_005", "someone else's gadget", gadgetOther)
 
 	t.Run("a read is answered within its scope and refused outside it", func(t *testing.T) {
-		name, found := getGadget(t, ctx, db, statements, "g_001", gadgetOwner)
+		name, found := getGadget(t, ctx, db, d, queries, "g_001", gadgetOwner)
 
 		test.True(t, found)
 		test.EqOp(t, "gadget g_001", name)
 
-		// The row exists; the scope is what withholds it. A bound statement
-		// whose extra predicate went missing would return it here, and the
-		// caller would never learn it had read across a tenant boundary.
-		_, found = getGadget(t, ctx, db, statements, "g_005", gadgetOwner)
+		// The row exists; the scope is what withholds it. A statement whose
+		// extra predicate went missing would return it here, and the caller
+		// would never learn it had read across a tenant boundary.
+		_, found = getGadget(t, ctx, db, d, queries, "g_005", gadgetOwner)
 		test.False(t, found)
 	})
 
 	t.Run("exists reports what get would find", func(t *testing.T) {
+		statement, order := bindQuery(d, queries["exists"])
+
 		cases := []struct {
 			id, account string
 			want        bool
@@ -240,21 +210,20 @@ func runBoundSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql
 		for i := range cases {
 			tc := cases[i]
 
-			arguments, bindErr := statements.exists.Bind(map[string]any{
+			arguments := argumentsFor(t, order, map[string]any{
 				IDColumn:               tc.id,
 				BelongsToAccountColumn: tc.account,
 			})
-			must.NoError(t, bindErr)
 
 			var got bool
 
-			must.NoError(t, db.QueryRowContext(ctx, statements.exists.SQL, arguments...).Scan(&got))
+			must.NoError(t, db.QueryRowContext(ctx, statement, arguments...).Scan(&got))
 			test.EqOp(t, tc.want, got, test.Sprintf("%s in %s", tc.id, tc.account))
 		}
 	})
 
 	t.Run("a keyed read projects one column, excludes, and picks in a named order", func(t *testing.T) {
-		// The three things BoundRead adds over BoundGet, in one statement,
+		// The three things ReadQuery adds over GetQuery, in one statement,
 		// because each of them is SQL a server either accepts or does not: a
 		// projection narrower than the table, a predicate that excludes rather
 		// than matches, and the ORDER BY ... LIMIT 1 that makes "another row
@@ -262,23 +231,22 @@ func runBoundSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql
 		//
 		// It runs before anything archives, so the four live gadgets are
 		// g_001 through g_004 and the answer is not a matter of timing.
-		columns := widgetsColumns()
+		columns := keyedColumns()
 
-		read := For(d).BoundRead(gadgetsTable, without(columns, IDColumn),
+		statement, order := bindQuery(d, For(d).ReadQuery("GetAnotherGadgetID", keyedTable, without(columns, IDColumn),
 			Read{Projection: []string{IDColumn}, Order: IDColumn},
 			Match{Column: BelongsToAccountColumn},
-			Match{Column: "name", Exclude: true})
+			Match{Column: "name", Exclude: true}))
 
-		arguments, bindErr := read.Bind(map[string]any{
+		arguments := argumentsFor(t, order, map[string]any{
 			BelongsToAccountColumn: gadgetOwner,
 			"name":                 "gadget g_001",
 		})
-		must.NoError(t, bindErr)
 
 		var got string
 
-		must.NoError(t, db.QueryRowContext(ctx, read.SQL, arguments...).Scan(&got),
-			must.Sprintf("executing\n%s", read.SQL))
+		must.NoError(t, db.QueryRowContext(ctx, statement, arguments...).Scan(&got),
+			must.Sprintf("executing\n%s", statement))
 
 		// g_001 is excluded by name and g_005 belongs to someone else, so the
 		// first row in id order is g_002. A statement whose exclusion had
@@ -288,13 +256,12 @@ func runBoundSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql
 
 		// The same read with nothing left to find is no rows rather than an
 		// arbitrary one — which is what lets a caller branch on sql.ErrNoRows.
-		arguments, bindErr = read.Bind(map[string]any{
+		arguments = argumentsFor(t, order, map[string]any{
 			BelongsToAccountColumn: "account_nobody",
 			"name":                 "gadget g_001",
 		})
-		must.NoError(t, bindErr)
 
-		test.ErrorIs(t, db.QueryRowContext(ctx, read.SQL, arguments...).Scan(&got), sql.ErrNoRows)
+		test.ErrorIs(t, db.QueryRowContext(ctx, statement, arguments...).Scan(&got), sql.ErrNoRows)
 	})
 
 	t.Run("the list pages without its counts moving", func(t *testing.T) {
@@ -302,14 +269,14 @@ func runBoundSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql
 		// cursor, so it answers "how many are left" rather than "how many are
 		// on this page" — and it is the same answer on the fiftieth page as on
 		// the first.
-		first, filtered, total := listGadgets(t, ctx, d, db, statements, gadgetOwner,
+		first, filtered, total := listGadgets(t, ctx, d, db, queries, gadgetOwner,
 			&filtering.QueryFilter{MaxResponseSize: pointer.To(uint16(2))})
 
 		test.Eq(t, []string{"g_001", "g_002"}, first)
 		test.EqOp(t, int64(4), filtered)
 		test.EqOp(t, int64(4), total)
 
-		second, filtered, total := listGadgets(t, ctx, d, db, statements, gadgetOwner,
+		second, filtered, total := listGadgets(t, ctx, d, db, queries, gadgetOwner,
 			&filtering.QueryFilter{MaxResponseSize: pointer.To(uint16(2)), Cursor: pointer.To("g_002")})
 
 		test.Eq(t, []string{"g_003", "g_004"}, second)
@@ -321,23 +288,23 @@ func runBoundSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql
 		// The other account's row is in the table and in neither count: a keyed
 		// list whose counts were unkeyed would report five here, which reads as
 		// a pagination bug somewhere else entirely.
-		ids, filtered, total := listGadgets(t, ctx, d, db, statements, gadgetOther, nil)
+		ids, filtered, total := listGadgets(t, ctx, d, db, queries, gadgetOther, nil)
 
 		test.Eq(t, []string{"g_005"}, ids)
 		test.EqOp(t, int64(1), filtered)
 		test.EqOp(t, int64(1), total)
 	})
 
-	t.Run("a window bound through BindFilter filters", func(t *testing.T) {
+	t.Run("a bound window filters", func(t *testing.T) {
 		// This is the assertion SQLite needs. Its timestamps are text and its
 		// comparisons over them lexicographic, and a time handed to the driver
 		// as a time arrives as a number — which its affinity rules sort below
 		// every string, so the window admits every row for every bound. The
 		// page would look correct, the count would look correct, and the filter
-		// would be doing nothing.
+		// would be doing nothing. See filterTime.
 		future := time.Now().Add(time.Hour)
 
-		ids, filtered, _ := listGadgets(t, ctx, d, db, statements, gadgetOwner,
+		ids, filtered, _ := listGadgets(t, ctx, d, db, queries, gadgetOwner,
 			&filtering.QueryFilter{CreatedAfter: &future})
 
 		test.SliceEmpty(t, ids)
@@ -345,7 +312,7 @@ func runBoundSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql
 
 		past := time.Now().Add(-time.Hour)
 
-		ids, filtered, _ = listGadgets(t, ctx, d, db, statements, gadgetOwner,
+		ids, filtered, _ = listGadgets(t, ctx, d, db, queries, gadgetOwner,
 			&filtering.QueryFilter{CreatedAfter: &past})
 
 		test.SliceLen(t, 4, ids)
@@ -359,9 +326,9 @@ func runBoundSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql
 			BelongsToAccountColumn: gadgetOwner,
 		}
 
-		test.EqOp(t, int64(1), affectedRows(t, execBound(t, ctx, db, statements.update, values)))
+		test.EqOp(t, int64(1), affectedRows(t, execQuery(t, ctx, db, d, queries["update"], values)))
 
-		name, found := getGadget(t, ctx, db, statements, "g_001", gadgetOwner)
+		name, found := getGadget(t, ctx, db, d, queries, "g_001", gadgetOwner)
 		test.True(t, found)
 		test.EqOp(t, "renamed", name)
 
@@ -370,9 +337,9 @@ func runBoundSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql
 		// counts rows rather than execing.
 		values[IDColumn] = "g_005"
 
-		test.EqOp(t, int64(0), affectedRows(t, execBound(t, ctx, db, statements.update, values)))
+		test.EqOp(t, int64(0), affectedRows(t, execQuery(t, ctx, db, d, queries["update"], values)))
 
-		name, found = getGadget(t, ctx, db, statements, "g_005", gadgetOther)
+		name, found = getGadget(t, ctx, db, d, queries, "g_005", gadgetOther)
 		test.True(t, found)
 		test.EqOp(t, "someone else's gadget", name)
 	})
@@ -380,22 +347,22 @@ func runBoundSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql
 	t.Run("archive soft-deletes once and reports the second attempt", func(t *testing.T) {
 		values := map[string]any{IDColumn: "g_004", BelongsToAccountColumn: gadgetOwner}
 
-		test.EqOp(t, int64(1), affectedRows(t, execBound(t, ctx, db, statements.archive, values)))
+		test.EqOp(t, int64(1), affectedRows(t, execQuery(t, ctx, db, d, queries["archive"], values)))
 
 		// The archived_at IS NULL in the WHERE is what makes the second count
 		// zero rather than one.
-		test.EqOp(t, int64(0), affectedRows(t, execBound(t, ctx, db, statements.archive, values)))
+		test.EqOp(t, int64(0), affectedRows(t, execQuery(t, ctx, db, d, queries["archive"], values)))
 
-		_, found := getGadget(t, ctx, db, statements, "g_004", gadgetOwner)
+		_, found := getGadget(t, ctx, db, d, queries, "g_004", gadgetOwner)
 		test.False(t, found)
 	})
 
 	t.Run("include_archived admits the archived row rather than decorating the query", func(t *testing.T) {
-		ids, filtered, _ := listGadgets(t, ctx, d, db, statements, gadgetOwner, nil)
+		ids, filtered, _ := listGadgets(t, ctx, d, db, queries, gadgetOwner, nil)
 		test.Eq(t, []string{"g_001", "g_002", "g_003"}, ids)
 		test.EqOp(t, int64(3), filtered)
 
-		ids, filtered, _ = listGadgets(t, ctx, d, db, statements, gadgetOwner,
+		ids, filtered, _ = listGadgets(t, ctx, d, db, queries, gadgetOwner,
 			&filtering.QueryFilter{IncludeArchived: pointer.To(true)})
 
 		test.Eq(t, []string{"g_001", "g_002", "g_003", "g_004"}, ids)
@@ -403,8 +370,8 @@ func runBoundSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql
 	})
 }
 
-// The composite-key half of the bound suite. Its table has no id at all, so the
-// four single-row statements key on the whole natural key, and the thing worth
+// The natural-key half of the suite. Its table has no id at all, so the four
+// single-row statements key on the whole natural key, and the thing worth
 // running against a server is that both of its columns bind: a statement that
 // dropped one would still parse, still return a row, and return the wrong one
 // whenever two rows share the column it kept.
@@ -452,20 +419,20 @@ func compositeDDL(d dialect.Dialect) string {
 	}
 }
 
-// subjectKey is the argument map a composite-keyed statement binds its key from,
+// subjectKey is the argument map a natural-keyed statement binds its key from,
 // which is the whole difference at the call site: two entries where a
 // conventional store writes one.
 func subjectKey(subjectType, subjectID string) map[string]any {
 	return map[string]any{"subject_type": subjectType, "subject_id": subjectID}
 }
 
-// getSubjectKey runs the bound get, returning the key material it read and
+// getSubjectKey runs the keyed get, returning the key material it read and
 // whether there was a row at all.
-func getSubjectKey(tb testing.TB, ctx context.Context, db *sql.DB, statements map[string]Bound, subjectType, subjectID string) (material string, found bool) {
+func getSubjectKey(tb testing.TB, ctx context.Context, db *sql.DB, d dialect.Dialect, queries map[string]*Query, subjectType, subjectID string) (material string, found bool) {
 	tb.Helper()
 
-	arguments, err := statements["get"].Bind(subjectKey(subjectType, subjectID))
-	must.NoError(tb, err)
+	statement, order := bindQuery(d, queries["get"])
+	arguments := argumentsFor(tb, order, subjectKey(subjectType, subjectID))
 
 	var (
 		gotType, gotID             string
@@ -473,7 +440,7 @@ func getSubjectKey(tb testing.TB, ctx context.Context, db *sql.DB, statements ma
 		created, updated, archived any
 	)
 
-	err = db.QueryRowContext(ctx, statements["get"].SQL, arguments...).
+	err := db.QueryRowContext(ctx, statement, arguments...).
 		Scan(&gotType, &gotID, &read, &created, &updated, &archived)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", false
@@ -481,46 +448,21 @@ func getSubjectKey(tb testing.TB, ctx context.Context, db *sql.DB, statements ma
 
 	must.NoError(tb, err)
 
-	got, ok := read.(string)
-	if !ok {
-		// MySQL hands a VARCHAR back as bytes.
-		raw, isBytes := read.([]byte)
-		must.True(tb, isBytes, must.Sprintf("key material came back as %T", read))
-		got = string(raw)
-	}
-
-	return got, true
+	return text(tb, read), true
 }
 
-// runCompositeSuite is the composite-key counterpart of runBoundSuite, and like
-// it is written once and run against each of the three servers.
+// runCompositeSuite is the natural-key counterpart of runKeyedSuite, and like it
+// is written once and run against each of the three servers.
 func runCompositeSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql.DB) {
 	t.Helper()
 
 	_, err := db.ExecContext(ctx, compositeDDL(d))
 	must.NoError(t, err)
 
-	var (
-		g          = For(d)
-		columns    = compositeColumns()
-		statements = compositeStatements(d)
-	)
+	queries := compositeQueries(d)
 
-	// The create is not one of the four this ticket is about — an INSERT keys on
-	// nothing — but the suite needs rows.
-	create := g.BoundCreate(compositeTable, ForInsert(columns), nil)
-
-	t.Run("every bound statement is one the server accepts", func(t *testing.T) {
-		all := map[string]Bound{"create": create}
-		for name := range statements {
-			all[name] = statements[name]
-		}
-
-		for name := range all {
-			stmt, prepareErr := db.PrepareContext(ctx, all[name].SQL)
-			must.NoError(t, prepareErr, must.Sprintf("preparing %s:\n%s", name, all[name].SQL))
-			must.NoError(t, stmt.Close()) //nolint:sqlclosecheck // the prepare is the assertion; there is nothing to read.
-		}
+	t.Run("every natural-key statement is one the server accepts", func(t *testing.T) {
+		assertServerAccepts(t, ctx, db, d, queries)
 	})
 
 	// Three rows across two subject types, deliberately sharing an id between
@@ -535,7 +477,7 @@ func runCompositeSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db 
 		values := subjectKey(rows[i].subjectType, rows[i].subjectID)
 		values["key_material"] = rows[i].material
 
-		execBound(t, ctx, db, create, values)
+		execQuery(t, ctx, db, d, queries["create"], values)
 	}
 
 	t.Run("a read is answered by the whole key rather than half of it", func(t *testing.T) {
@@ -544,22 +486,24 @@ func runCompositeSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db 
 		// wrong one. That is the failure the id predicate's unconditional
 		// rendering used to make unrepresentable by making the table
 		// unrepresentable.
-		material, found := getSubjectKey(t, ctx, db, statements, "user", "s_001")
+		material, found := getSubjectKey(t, ctx, db, d, queries, "user", "s_001")
 
 		test.True(t, found)
 		test.EqOp(t, "user s_001 material", material)
 
-		material, found = getSubjectKey(t, ctx, db, statements, "device", "s_001")
+		material, found = getSubjectKey(t, ctx, db, d, queries, "device", "s_001")
 
 		test.True(t, found)
 		test.EqOp(t, "device s_001 material", material)
 
 		// A pairing no row has, whose halves are each present.
-		_, found = getSubjectKey(t, ctx, db, statements, "device", "s_002")
+		_, found = getSubjectKey(t, ctx, db, d, queries, "device", "s_002")
 		test.False(t, found)
 	})
 
 	t.Run("exists reports what get would find", func(t *testing.T) {
+		statement, order := bindQuery(d, queries["exists"])
+
 		cases := []struct {
 			subjectType, subjectID string
 			want                   bool
@@ -573,12 +517,11 @@ func runCompositeSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db 
 		for i := range cases {
 			tc := cases[i]
 
-			arguments, bindErr := statements["exists"].Bind(subjectKey(tc.subjectType, tc.subjectID))
-			must.NoError(t, bindErr)
+			arguments := argumentsFor(t, order, subjectKey(tc.subjectType, tc.subjectID))
 
 			var got bool
 
-			must.NoError(t, db.QueryRowContext(ctx, statements["exists"].SQL, arguments...).Scan(&got))
+			must.NoError(t, db.QueryRowContext(ctx, statement, arguments...).Scan(&got))
 			test.EqOp(t, tc.want, got, test.Sprintf("%s/%s", tc.subjectType, tc.subjectID))
 		}
 	})
@@ -587,19 +530,19 @@ func runCompositeSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db 
 		values := subjectKey("user", "s_001")
 		values["key_material"] = "rotated"
 
-		test.EqOp(t, int64(1), affectedRows(t, execBound(t, ctx, db, statements["update"], values)))
+		test.EqOp(t, int64(1), affectedRows(t, execQuery(t, ctx, db, d, queries["update"], values)))
 
-		material, found := getSubjectKey(t, ctx, db, statements, "user", "s_001")
+		material, found := getSubjectKey(t, ctx, db, d, queries, "user", "s_001")
 		test.True(t, found)
 		test.EqOp(t, "rotated", material)
 
 		// The two rows sharing a column with it are untouched, which is the
 		// assertion an update keyed on one half of the key would fail.
-		material, found = getSubjectKey(t, ctx, db, statements, "device", "s_001")
+		material, found = getSubjectKey(t, ctx, db, d, queries, "device", "s_001")
 		test.True(t, found)
 		test.EqOp(t, "device s_001 material", material)
 
-		material, found = getSubjectKey(t, ctx, db, statements, "user", "s_002")
+		material, found = getSubjectKey(t, ctx, db, d, queries, "user", "s_002")
 		test.True(t, found)
 		test.EqOp(t, "user s_002 material", material)
 	})
@@ -607,17 +550,17 @@ func runCompositeSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db 
 	t.Run("archive soft-deletes once and reports the second attempt", func(t *testing.T) {
 		values := subjectKey("user", "s_002")
 
-		test.EqOp(t, int64(1), affectedRows(t, execBound(t, ctx, db, statements["archive"], values)))
+		test.EqOp(t, int64(1), affectedRows(t, execQuery(t, ctx, db, d, queries["archive"], values)))
 
 		// The archived_at IS NULL that makes the second count zero survived
 		// archiveStatement's move onto singleRowPredicates.
-		test.EqOp(t, int64(0), affectedRows(t, execBound(t, ctx, db, statements["archive"], values)))
+		test.EqOp(t, int64(0), affectedRows(t, execQuery(t, ctx, db, d, queries["archive"], values)))
 
-		_, found := getSubjectKey(t, ctx, db, statements, "user", "s_002")
+		_, found := getSubjectKey(t, ctx, db, d, queries, "user", "s_002")
 		test.False(t, found)
 
 		// And the row it shares a subject type with is still live.
-		_, found = getSubjectKey(t, ctx, db, statements, "user", "s_001")
+		_, found = getSubjectKey(t, ctx, db, d, queries, "user", "s_001")
 		test.True(t, found)
 	})
 
@@ -625,6 +568,6 @@ func runCompositeSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db 
 		values := subjectKey("user", "s_002")
 		values["key_material"] = "should not land"
 
-		test.EqOp(t, int64(0), affectedRows(t, execBound(t, ctx, db, statements["update"], values)))
+		test.EqOp(t, int64(0), affectedRows(t, execQuery(t, ctx, db, d, queries["update"], values)))
 	})
 }

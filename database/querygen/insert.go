@@ -27,7 +27,11 @@ var ErrDegenerateInsert = platformerrors.New("insert would not write a row")
 // needs no such thing — a create is "these columns, these bindings" whatever
 // the table keys on. So the child tables keyed on their parent, whose primary
 // key is (parent_id, value) and whose whole set StandardCRUD refuses, get their
-// create from here instead of from a hand-written statement.
+// create from here instead of from a hand-written statement. A natural-key
+// table is the same case one shape earlier: an INSERT keys on nothing, so it is
+// the one statement such a table wants unchanged from the standard set while
+// every other one it wants keyed on that natural key — without this, its corpus
+// would be five statements sqlc checks and a sixth nobody could render.
 //
 // insertColumns is what the caller supplies — [ForInsert] over the table's
 // columns — and nullable names those whose value may be NULL, exactly as they

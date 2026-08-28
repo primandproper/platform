@@ -90,13 +90,13 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 
 		saved := &Endpoint{
-			ID:          "endpoint-1",
-			Scope:       testScope,
-			URL:         "https://93.184.216.34/hooks",
-			ContentType: "application/cloudevents+json",
-			Secret:      Secret{Current: []byte("current"), Previous: []byte("previous")},
-			Headers:     map[string]string{"X-Tenant": "acme"},
-			Events:      []EventType{orderCreated, orderUpdated},
+			ID:            "endpoint-1",
+			Scope:         testScope,
+			URL:           "https://93.184.216.34/hooks",
+			ContentType:   "application/cloudevents+json",
+			Secret:        Secret{Current: []byte("current"), Previous: []byte("previous")},
+			Headers:       map[string]string{"X-Tenant": "acme"},
+			Subscriptions: SubscribeTo(orderCreated, orderUpdated),
 		}
 		must.NoError(t, store.SaveEndpoint(ctxFor(t), saved))
 
@@ -108,7 +108,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		test.Eq(t, []byte("current"), got.Secret.Current)
 		test.Eq(t, []byte("previous"), got.Secret.Previous)
 		test.Eq(t, map[string]string{"X-Tenant": "acme"}, got.Headers)
-		test.Eq(t, []EventType{orderCreated, orderUpdated}, got.Events)
+		test.Eq(t, []EventType{orderCreated, orderUpdated}, got.EventTypes())
 		test.False(t, got.Disabled)
 	})
 
@@ -126,7 +126,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		test.SliceEmpty(t, got.Secret.Previous)
 	})
 
-	t.Run("re-saving replaces the subscription set", func(t *testing.T) {
+	t.Run("re-saving reconciles the subscription set", func(t *testing.T) {
 		t.Parallel()
 
 		store := env.newStore(t)
@@ -137,11 +137,339 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		got, err := store.GetEndpoint(ctxFor(t), testScope, "endpoint-1")
 		must.NoError(t, err)
 
-		test.Eq(t, []EventType{orderUpdated}, got.Events)
+		test.Eq(t, []EventType{orderUpdated}, got.EventTypes())
 
 		// And the endpoint is no longer resolved for the event it dropped.
 		test.SliceEmpty(t, endpointsFor(t, env, store, "order.created"))
 		test.SliceLen(t, 1, endpointsFor(t, env, store, "order.updated"))
+	})
+
+	// The reconciliation's other half: a subscription the save keeps is the row
+	// it already was, rather than a fresh one wearing the same event type. An ID
+	// handed out once has to still name something after the endpoint is edited.
+	t.Run("re-saving preserves the identity of a kept subscription", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		first := registerEndpoint(t, store, "endpoint-1", "order.created", "order.updated")
+		must.SliceLen(t, 2, first.Subscriptions)
+
+		kept := subscriptionFor(t, first, orderUpdated)
+
+		registerEndpoint(t, store, "endpoint-1", "order.updated", "order.deleted")
+
+		got, err := store.GetEndpoint(ctxFor(t), testScope, "endpoint-1")
+		must.NoError(t, err)
+
+		test.EqOp(t, kept.ID, subscriptionFor(t, got, orderUpdated).ID)
+		test.EqOp(t, kept.CreatedAt, subscriptionFor(t, got, orderUpdated).CreatedAt)
+	})
+
+	// A dropped subscription is archived rather than deleted, so re-adding it
+	// revives the row an operator may already be holding a link to.
+	t.Run("re-saving revives a subscription it had archived", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		first := registerEndpoint(t, store, "endpoint-1", "order.created")
+		original := subscriptionFor(t, first, orderCreated)
+
+		registerEndpoint(t, store, "endpoint-1", "order.updated")
+		registerEndpoint(t, store, "endpoint-1", "order.created")
+
+		got, err := store.GetEndpoint(ctxFor(t), testScope, "endpoint-1")
+		must.NoError(t, err)
+
+		revived := subscriptionFor(t, got, orderCreated)
+		test.EqOp(t, original.ID, revived.ID)
+		test.Nil(t, revived.ArchivedAt)
+		test.NotNil(t, revived.LastUpdatedAt)
+	})
+
+	t.Run("saving fills in the subscriptions that were written", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		saved := registerEndpoint(t, store, "endpoint-1", "order.created", "order.updated")
+
+		must.SliceLen(t, 2, saved.Subscriptions)
+
+		for i := range saved.Subscriptions {
+			test.NotEqOp(t, "", saved.Subscriptions[i].ID)
+			test.EqOp(t, "endpoint-1", saved.Subscriptions[i].EndpointID)
+			test.False(t, saved.Subscriptions[i].CreatedAt.IsZero())
+		}
+	})
+
+	// The operation a flat event list has no form for.
+	t.Run("archives one subscription without touching the others", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		saved := registerEndpoint(t, store, "endpoint-1", "order.created", "order.updated")
+		retired := subscriptionFor(t, saved, orderCreated)
+
+		must.NoError(t, store.ArchiveSubscription(ctxFor(t), testScope, retired.ID))
+
+		got, err := store.GetEndpoint(ctxFor(t), testScope, "endpoint-1")
+		must.NoError(t, err)
+
+		test.Eq(t, []EventType{orderUpdated}, got.EventTypes())
+		test.SliceEmpty(t, endpointsFor(t, env, store, "order.created"))
+		test.SliceLen(t, 1, endpointsFor(t, env, store, "order.updated"))
+	})
+
+	// Archived rather than deleted, so the delivery log still has something to be
+	// read against and "when did they stop receiving this" has an answer.
+	t.Run("an archived subscription is still readable", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		saved := registerEndpoint(t, store, "endpoint-1", "order.created")
+		retired := subscriptionFor(t, saved, orderCreated)
+
+		must.NoError(t, store.ArchiveSubscription(ctxFor(t), testScope, retired.ID))
+
+		got, err := store.GetSubscription(ctxFor(t), testScope, retired.ID)
+		must.NoError(t, err)
+
+		test.EqOp(t, retired.ID, got.ID)
+		test.EqOp(t, orderCreated, got.EventType)
+		test.True(t, got.Archived())
+	})
+
+	t.Run("adds a subscription to an existing endpoint", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		registerEndpoint(t, store, "endpoint-1", "order.created")
+
+		added, err := store.AddSubscription(ctxFor(t), testScope, "endpoint-1", orderUpdated)
+		must.NoError(t, err)
+		test.NotEqOp(t, "", added.ID)
+		test.EqOp(t, orderUpdated, added.EventType)
+
+		test.SliceLen(t, 1, endpointsFor(t, env, store, "order.updated"))
+	})
+
+	// Idempotent on the pair, because the pair is what identifies a subscription.
+	t.Run("adding a subscription twice returns the same row", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		saved := registerEndpoint(t, store, "endpoint-1", "order.created")
+
+		again, err := store.AddSubscription(ctxFor(t), testScope, "endpoint-1", orderCreated)
+		must.NoError(t, err)
+
+		test.EqOp(t, subscriptionFor(t, saved, orderCreated).ID, again.ID)
+
+		got, readErr := store.GetEndpoint(ctxFor(t), testScope, "endpoint-1")
+		must.NoError(t, readErr)
+		test.SliceLen(t, 1, got.Subscriptions)
+	})
+
+	t.Run("re-adding an archived subscription revives it", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		saved := registerEndpoint(t, store, "endpoint-1", "order.created", "order.updated")
+		retired := subscriptionFor(t, saved, orderCreated)
+
+		must.NoError(t, store.ArchiveSubscription(ctxFor(t), testScope, retired.ID))
+
+		revived, err := store.AddSubscription(ctxFor(t), testScope, "endpoint-1", orderCreated)
+		must.NoError(t, err)
+
+		test.EqOp(t, retired.ID, revived.ID)
+		test.Nil(t, revived.ArchivedAt)
+		test.SliceLen(t, 1, endpointsFor(t, env, store, "order.created"))
+	})
+
+	t.Run("lists live subscriptions", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		saved := registerEndpoint(t, store, "endpoint-1", "order.created", "order.updated")
+		must.NoError(t, store.ArchiveSubscription(ctxFor(t), testScope, subscriptionFor(t, saved, orderCreated).ID))
+
+		listed, err := store.ListSubscriptions(ctxFor(t), testScope, "endpoint-1", filtering.DefaultQueryFilter())
+		must.NoError(t, err)
+
+		must.SliceLen(t, 1, listed.Data)
+		test.EqOp(t, orderUpdated, listed.Data[0].EventType)
+		test.EqOp(t, uint64(1), listed.TotalCount)
+	})
+
+	// Every subscription read is reached through its endpoint, so a neighboring
+	// tenant's subscription is not readable, listable, or archivable from here.
+	t.Run("does not reach another scope's subscriptions", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		theirs := registerScopedEndpoint(t, store, otherScope, "endpoint-1", "order.created")
+		subscription := subscriptionFor(t, theirs, orderCreated)
+
+		_, err := store.GetSubscription(ctxFor(t), testScope, subscription.ID)
+		test.ErrorIs(t, err, sql.ErrNoRows)
+
+		listed, listErr := store.ListSubscriptions(ctxFor(t), testScope, "endpoint-1", nil)
+		must.NoError(t, listErr)
+		test.SliceEmpty(t, listed.Data)
+
+		_, addErr := store.AddSubscription(ctxFor(t), testScope, "endpoint-1", orderUpdated)
+		test.ErrorIs(t, addErr, sql.ErrNoRows)
+
+		// The archive matches nothing, and the owner's row is untouched.
+		must.NoError(t, store.ArchiveSubscription(ctxFor(t), testScope, subscription.ID))
+
+		still, readErr := store.GetSubscription(ctxFor(t), otherScope, subscription.ID)
+		must.NoError(t, readErr)
+		test.False(t, still.Archived())
+	})
+
+	// Every subscription entry point refuses the zero scope rather than widening.
+	t.Run("subscription reads refuse a scope that names nobody", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		_, err := store.AddSubscription(ctxFor(t), tenancy.Scope{}, "endpoint-1", orderCreated)
+		test.ErrorIs(t, err, ErrNoScope)
+
+		_, err = store.GetSubscription(ctxFor(t), tenancy.Scope{}, "subscription-1")
+		test.ErrorIs(t, err, ErrNoScope)
+
+		_, err = store.ListSubscriptions(ctxFor(t), tenancy.Scope{}, "endpoint-1", nil)
+		test.ErrorIs(t, err, ErrNoScope)
+
+		test.ErrorIs(t, store.ArchiveSubscription(ctxFor(t), tenancy.Scope{}, "subscription-1"), ErrNoScope)
+	})
+
+	t.Run("refuses to subscribe to an empty event type", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		registerEndpoint(t, store, "endpoint-1", "order.created")
+
+		_, err := store.AddSubscription(ctxFor(t), testScope, "endpoint-1", "")
+		test.ErrorIs(t, err, ErrEmptyEventType)
+	})
+
+	// The endpoint metadata the consumer's own resource model carried because
+	// Endpoint had nowhere to put it.
+	t.Run("round-trips an endpoint's name, creator, and timestamps", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		saved := &Endpoint{
+			ID:            "endpoint-1",
+			Scope:         testScope,
+			CreatedBy:     tenancy.Of("user_7"),
+			Name:          "billing exports",
+			URL:           "https://93.184.216.34/hooks",
+			ContentType:   DefaultContentType,
+			Secret:        Secret{Current: []byte("current")},
+			Subscriptions: SubscribeTo(orderCreated),
+		}
+		must.NoError(t, store.SaveEndpoint(ctxFor(t), saved))
+
+		got, err := store.GetEndpoint(ctxFor(t), testScope, "endpoint-1")
+		must.NoError(t, err)
+
+		test.EqOp(t, "billing exports", got.Name)
+		test.EqOp(t, tenancy.Of("user_7"), got.CreatedBy)
+		test.False(t, got.CreatedAt.IsZero())
+		test.Nil(t, got.LastUpdatedAt)
+		test.Nil(t, got.ArchivedAt)
+		test.False(t, got.Archived())
+
+		// Archival is representable rather than merely happening in the column.
+		must.NoError(t, store.ArchiveEndpoint(ctxFor(t), testScope, "endpoint-1"))
+
+		archived, readErr := store.GetEndpoint(ctxFor(t), testScope, "endpoint-1")
+		must.NoError(t, readErr)
+		test.True(t, archived.Archived())
+	})
+
+	// An application that does not attribute endpoints to a person leaves
+	// CreatedBy unset, and the column has to tell that apart from the global
+	// scope — whose stored identifier is the empty string.
+	t.Run("an unset creator reads back unset rather than global", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		registerEndpoint(t, store, "endpoint-1", "order.created")
+
+		got, err := store.GetEndpoint(ctxFor(t), testScope, "endpoint-1")
+		must.NoError(t, err)
+
+		test.ErrorIs(t, got.CreatedBy.Validate(), ErrNoScope)
+		test.False(t, got.CreatedBy.IsGlobal())
+	})
+
+	t.Run("the global scope is a creator like any other", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		saved := &Endpoint{
+			ID:            "endpoint-1",
+			Scope:         testScope,
+			CreatedBy:     tenancy.Global(),
+			URL:           "https://93.184.216.34/hooks",
+			ContentType:   DefaultContentType,
+			Secret:        Secret{Current: []byte("current")},
+			Subscriptions: SubscribeTo(orderCreated),
+		}
+		must.NoError(t, store.SaveEndpoint(ctxFor(t), saved))
+
+		got, err := store.GetEndpoint(ctxFor(t), testScope, "endpoint-1")
+		must.NoError(t, err)
+
+		test.True(t, got.CreatedBy.IsGlobal())
+	})
+
+	// A claim reads the endpoint through the same projection, so the metadata has
+	// to survive the join too.
+	t.Run("a claimed dispatch carries the endpoint's metadata", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		saved := &Endpoint{
+			ID:            "endpoint-1",
+			Scope:         testScope,
+			CreatedBy:     tenancy.Of("user_7"),
+			Name:          "billing exports",
+			URL:           "https://93.184.216.34/hooks",
+			ContentType:   DefaultContentType,
+			Secret:        Secret{Current: []byte("current")},
+			Subscriptions: SubscribeTo(orderCreated),
+		}
+		must.NoError(t, store.SaveEndpoint(ctxFor(t), saved))
+
+		dispatchTo(t, env, store, &Delivery{EventType: orderCreated, Payload: testBody}, baseTime, "endpoint-1")
+
+		claimed := claimAll(t, store, baseTime)
+		must.SliceLen(t, 1, claimed)
+
+		test.EqOp(t, "billing exports", claimed[0].Endpoint.Name)
+		test.EqOp(t, tenancy.Of("user_7"), claimed[0].Endpoint.CreatedBy)
+		test.False(t, claimed[0].Endpoint.CreatedAt.IsZero())
 	})
 
 	t.Run("resolves the fan-out set for an event", func(t *testing.T) {
@@ -195,7 +523,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		// Subscriptions come back with each row.
 		for _, endpoint := range listed.Data {
-			test.Eq(t, []EventType{orderCreated}, endpoint.Events)
+			test.Eq(t, []EventType{orderCreated}, endpoint.EventTypes())
 		}
 	})
 
@@ -285,12 +613,12 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		registerScopedEndpoint(t, store, otherScope, "endpoint-1", "order.created")
 
 		err := store.SaveEndpoint(ctxFor(t), &Endpoint{
-			ID:          "endpoint-1",
-			Scope:       testScope,
-			URL:         "https://93.184.216.34/attacker",
-			ContentType: DefaultContentType,
-			Secret:      Secret{Current: []byte("attacker")},
-			Events:      []EventType{orderCreated},
+			ID:            "endpoint-1",
+			Scope:         testScope,
+			URL:           "https://93.184.216.34/attacker",
+			ContentType:   DefaultContentType,
+			Secret:        Secret{Current: []byte("attacker")},
+			Subscriptions: SubscribeTo(orderCreated),
 		})
 		test.ErrorIs(t, err, ErrEndpointOutOfScope)
 
@@ -1027,11 +1355,11 @@ func TestSQLStore_UsesTheInjectedClock(T *testing.T) {
 		must.NoError(t, err)
 
 		must.NoError(t, store.SaveEndpoint(t.Context(), &Endpoint{
-			ID:     "endpoint",
-			Scope:  testScope,
-			URL:    "https://example.com/hook",
-			Secret: Secret{Current: []byte("s3cr3t")},
-			Events: []EventType{"user.created"},
+			ID:            "endpoint",
+			Scope:         testScope,
+			URL:           "https://example.com/hook",
+			Secret:        Secret{Current: []byte("s3cr3t")},
+			Subscriptions: SubscribeTo("user.created"),
 		}))
 		must.NoError(t, store.ArchiveEndpoint(t.Context(), testScope, "endpoint"))
 

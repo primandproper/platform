@@ -90,10 +90,10 @@ within the delivery's scope, so an endpoint registered by one account never
 receives another account's copy of the same event type.
 
 	err := dispatcher.Register(ctx, &webhooks.Endpoint{
-		Scope:  tenancy.Of(accountID),
-		URL:    "https://subscriber.example/hooks",
-		Secret: webhooks.Secret{Current: key},
-		Events: []webhooks.EventType{OrderUpdated},
+		Scope:         tenancy.Of(accountID),
+		URL:           "https://subscriber.example/hooks",
+		Secret:        webhooks.Secret{Current: key},
+		Subscriptions: webhooks.SubscribeTo(OrderUpdated),
 	})
 
 An application whose events are global says tenancy.Global() in both places and
@@ -101,8 +101,9 @@ gets what this package did before the dimension existed — Global is a scope li
 any other, matching only itself, and it is stored as the empty identifier that
 the scope columns default to.
 
-There is no unscoped read. Every Store method that reaches an endpoint or a
-delivery takes a scope or carries one on the value it is given, the zero
+There is no unscoped read. Every Store method that reaches an endpoint, a
+subscription, or a delivery takes a scope or carries one on the value it is
+given, the zero
 tenancy.Scope is not a scope, and a query that lost one fails at the driver
 rather than widening. The exceptions are the worker's own machinery — Claim,
 Backlog, and Reap span every scope, because one worker drains one queue for the
@@ -111,6 +112,42 @@ whole deployment — and they say so.
 What a scope is not is permission. Passing tenancy.Of(accountID) says these rows
 are that account's; whether the caller may act for that account is
 authorization's question, asked before this one.
+
+# Endpoints and subscriptions
+
+An endpoint is a subscriber, and a subscription is one of the event types it
+wants. Subscriptions are rows of their own — identified, timestamped, and
+archivable one at a time — rather than a list of strings on the endpoint.
+
+That is not bookkeeping. An application's own API is asked to retire one
+subscription: a user unticks order.created and leaves the other four alone.
+Against a flat list the only available answer is to rewrite the whole set, which
+cannot say when the subscription ended, has no identifier for the request that
+asked to name, and silently reverts whatever a concurrent edit of the same
+endpoint did. Against rows it is Unsubscribe on one ID:
+
+	sub, err := dispatcher.Subscribe(ctx, scope, endpointID, OrderShipped)
+	// ...
+	err = dispatcher.Unsubscribe(ctx, scope, sub.ID)
+
+Register and SaveEndpoint still take the whole set, because registration names
+event types rather than subscription IDs — there are none yet — and SubscribeTo
+builds it. What a save does to the stored rows is reconcile rather than replace:
+one the endpoint already has keeps its identity and its creation time, one it no
+longer names is archived rather than deleted, and Endpoint.Subscriptions comes
+back filled with what is live.
+
+Endpoint.EventTypes derives the flat list where one is wanted — a catalog check,
+a subscription UI's checkboxes. It is derived and not stored, so there is no
+second copy of the set to keep in step with the rows.
+
+An endpoint also carries a Name, a CreatedBy, and the convention triple's
+timestamps. CreatedBy is a tenancy.Scope rather than a user ID string: "whose is
+this" already has a type here, and the principal who registered an endpoint is a
+finer-grained answer to it rather than a different question. Unlike Scope it is
+optional — an application that does not attribute endpoints to a person leaves
+it unset — and it is written once, with the row, because an endpoint does not
+change hands.
 
 # Ordering
 
@@ -171,6 +208,11 @@ Store is the seam. This package ships a SQL implementation (NewSQLStore) and the
 DDL it needs (webhooks/migrations), so adopting webhooks does not mean writing
 one — but an application with its own schema conventions can implement the
 interface instead of forking the package.
+
+A deployment whose tables predate subscriptions being rows migrates with
+migrations.UpgradeSQL, which adds the columns and backfills the existing flat
+subscription set. Read that package's Upgrading section first: unlike the
+create-only DDL, it is one-shot.
 
 The five tables are rendered from one prefix rather than five names. They
 reference each other by foreign key and the queries join across them, so a
