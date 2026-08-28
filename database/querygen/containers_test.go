@@ -430,6 +430,12 @@ func runDialect(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql.DB
 	t.Run("the junction suite", func(t *testing.T) {
 		runJunctionSuite(t, ctx, d, db)
 	})
+
+	// And the guard comparands, whose promise is behavioral throughout — see
+	// guard_containers_test.go.
+	t.Run("the guard suite", func(t *testing.T) {
+		runGuardSuite(t, ctx, d, db)
+	})
 }
 
 // prepare asks the server to plan the statement, which is the cheapest way to

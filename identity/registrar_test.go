@@ -77,6 +77,32 @@ func runRegistrarSuite(t *testing.T, env *storeEnv) {
 		must.ErrorIs(t, err, ErrEmailAddressTaken)
 	})
 
+	t.Run("keeps an archived user's handle taken", func(t *testing.T) {
+		t.Parallel()
+
+		// The unique indexes cover archived rows, so the collision check must
+		// see them: freeing a username when its owner is soft-deleted means a
+		// later registrant can take it, and every audit row naming that handle
+		// then refers to two people. The check is a generated read now, and
+		// querygen derives its archived predicate from the column list it is
+		// handed — so this is what pins the empty list that read is rendered
+		// from. Adding columns to it would hand the second registration to the
+		// index instead, which reports a driver error rather than this
+		// sentinel.
+		store := env.newStore(t)
+		ada := createUser(t, store, newUser("ada"))
+
+		must.NoError(t, store.ArchiveUser(t.Context(), testScope, ada.ID))
+
+		second := newUser("ada")
+		second.EmailAddress = "different@example.com"
+
+		err := inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
+			return store.CreateUser(ctx, q, second)
+		})
+		must.ErrorIs(t, err, ErrUsernameTaken)
+	})
+
 	t.Run("allows the same username in another directory", func(t *testing.T) {
 		t.Parallel()
 

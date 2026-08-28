@@ -46,6 +46,12 @@ table's mutable set, and three of them carry a predicate on the value being
 replaced, which is what makes a losing concurrent writer report zero rows
 instead of overwriting the winner.
 
+The two-factor verification is the fourth guarded one and its guard is not an
+equality at all: a secret that exists and has not been proven, which is a
+not-empty comparison and an IS NULL. Neither names a value a caller holds, so
+neither is an argument, and that is what makes a replayed verification write
+nothing rather than move the timestamp forward.
+
 Memberships is the fourth table and gets none of the standard set. Its columns
 are textbook and not one of its statements is: the get, the archive and the bulk
 archive key on the (belongs_to_user, belongs_to_account) pair rather than on id,
@@ -83,6 +89,10 @@ methods, which are the same statement text by construction:
   - the read-back of created_at, one per emitted table
   - the three single-user reads keyed on a username, an email address, or a
     verification token
+  - the two collision checks, keyed on a username or an email address and
+    excluding the row being updated — see uniquenessChecks, which is the one
+    pair here rendered from no column list at all, because the unique indexes
+    cover archived rows and so must the read
   - the three membership reads, all keyed on the (user, account) pair
 
 The membership ones are why Memberships is declared at all despite emitting no

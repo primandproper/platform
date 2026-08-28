@@ -1,6 +1,7 @@
 package querygen
 
 import (
+	"fmt"
 	"regexp"
 	"time"
 
@@ -177,10 +178,10 @@ func (g *Generator) bound(statement string) Bound {
 	return Bound{SQL: sql, Args: args}
 }
 
-// Match is an equality predicate on one column, for a read keyed on something
-// other than the row's own id — comments on one reference, signups for one
-// waitlist, or the whole key of a table whose primary key is natural rather than
-// a surrogate id.
+// Match is a predicate on one column, for a read keyed on something other than
+// the row's own id — comments on one reference, signups for one waitlist, or
+// the whole key of a table whose primary key is natural rather than a surrogate
+// id — and for the guards a write puts its own correctness on.
 //
 // It is a column name rather than rendered SQL because the statements it lands
 // in render it more than once: a list query carries its predicates in the SELECT
@@ -189,6 +190,10 @@ func (g *Generator) bound(statement string) Bound {
 // which on Postgres is once and on the positional dialects is three times.
 // Handing over the column instead leaves that to bindArguments, which counts
 // them where they land.
+//
+// What the column is compared against is [Match.Against] — a bound argument by
+// default, and one of a small closed set of things a statement owns otherwise.
+// See [Comparand].
 type Match struct {
 	// Column is the column matched. It is bound, never interpolated, so its
 	// value needs no escaping; the name itself is interpolated and is therefore
@@ -209,17 +214,152 @@ type Match struct {
 	//
 	// It is a name rather than a value, and it is interpolated into the
 	// statement the way Column is, so it is restricted the same way.
+	//
+	// Only the two comparands that bind anything read it — see [Comparand].
+	// Naming an argument that a NULL, empty-string or clock comparison has
+	// nowhere to put is ErrArgumentlessMatch rather than dead text in a
+	// statement.
 	Arg string
-	// Exclude inverts the predicate: the rows matched are the ones whose column
-	// does not hold the bound value.
+	// Against is what Column is compared against. The zero value is the bound
+	// argument, which is what every keyed read wants; the rest are the guard
+	// forms — see [Comparand].
+	Against Comparand
+	// Exclude inverts the predicate: the rows matched are the ones the
+	// uninverted form would have left out.
 	//
 	// It is a field on Match rather than a second type because the two are the
-	// same predicate over the same bound argument, differing in one operator,
-	// and a caller assembling a mixed key writes one slice either way. The read
-	// that wants it is the one looking for another row like this one — the
-	// remaining live membership when the default is being removed — where the
-	// excluded value is as much a part of the key as the included ones.
+	// same predicate over the same comparand, differing in one operator, and a
+	// caller assembling a mixed key writes one slice either way. The read that
+	// wants it against a bound value is the one looking for another row like
+	// this one — the remaining live membership when the default is being
+	// removed — where the excluded value is as much a part of the key as the
+	// included ones.
+	//
+	// It inverts every comparand rather than only the bound one, and each
+	// inversion is a complement rather than a different question: IS NULL
+	// becomes IS NOT NULL, `= ''` becomes the not-empty guard, and a clock
+	// comparison flips from "at or before now" to "after now". So a guard and
+	// the rows it refuses are one Match with one bool between them, which is
+	// what keeps "unexpired" and "expired" from being two spellings that can
+	// come to disagree about the boundary.
 	Exclude bool
+}
+
+// Comparand is what a [Match] compares its column against.
+//
+// The zero value is a bound argument, which is the predicate this package
+// started with and still the one nearly every statement wants. The rest are the
+// guard vocabulary — the things a statement owns rather than takes from its
+// caller — and the set is closed on purpose. Each member is a shape whose
+// meaning is the same on all three dialects and whose spelling this package can
+// therefore promise; a caller needing something outside it is describing a
+// statement that has to be checked by a person, not one this package should
+// learn to guess at.
+//
+// A guard is not decoration. The reason MarkUserTwoFactorSecretVerified names
+// [EmptyString] and [NoValue] is that a replayed verification must write
+// nothing, and the reason a token consumption names [CurrentTime] and [NoValue]
+// is that an expired or already-redeemed token must not be spendable. Each
+// reports zero rows when it loses, which is the answer the caller acts on.
+type Comparand int
+
+const (
+	// BoundArgument compares the column against a value the caller binds:
+	// `column = sqlc.arg(name)`, or `<>` under [Match.Exclude].
+	BoundArgument Comparand = iota
+	// NoValue compares the column against NULL: `column IS NULL`, or IS NOT
+	// NULL under [Match.Exclude]. It binds nothing.
+	//
+	// It is spelled as its own comparand rather than as a bound NULL because
+	// `column = NULL` is not false, it is unknown — the predicate every SQL
+	// dialect agrees matches no row, including the rows it was meant to match.
+	// A nullable stamp is how this module records that something has not
+	// happened yet: an unproven secret, an unredeemed token, a key not yet
+	// shredded, a row not yet archived. Guarding on it is what makes the write
+	// that does the thing happen exactly once.
+	NoValue
+	// EmptyString compares the column against the empty string: `column = ''`,
+	// or the not-empty guard `column <> ''` under [Match.Exclude]. It binds
+	// nothing.
+	//
+	// The empty string is this module's sentinel for a TEXT NOT NULL column
+	// holding nothing yet — an outstanding verification token that has been
+	// cleared, a two-factor secret that was never issued — so the not-empty
+	// guard is "this fact exists" without a second column to record it in.
+	//
+	// The literal is the statement's own rather than a bound value on purpose:
+	// there is exactly one empty string, so binding it would be an argument
+	// every caller had to supply and none could get right in more than one way,
+	// and a guard that took its own sentinel from its caller would be one a
+	// caller could disarm by leaving the argument unset.
+	EmptyString
+	// CurrentTime compares the column against the server's clock: `column <=
+	// CURRENT_TIMESTAMP`, or `column > CURRENT_TIMESTAMP` under
+	// [Match.Exclude]. It binds nothing.
+	//
+	// The uninverted form is the sweep — expired, elapsed, due — and the
+	// inverted one is the guard a consumption puts on itself: still live at the
+	// moment the row is claimed. Both are the server's clock rather than the
+	// application's, for the reason [NowExpression] gives: a row's timestamps
+	// and the comparison against them have to come from one clock, or two
+	// application instances a second apart decide differently about the same
+	// row.
+	//
+	// The boundary is inclusive on the expired side, so a row whose deadline is
+	// exactly now is past it. That is the reading that leaves no instant at
+	// which a row is neither live nor expired.
+	CurrentTime
+	// OptionalArgument compares the column against an argument the caller may
+	// leave unset: `column = COALESCE(sqlc.narg(name), '')`, or `<>` under
+	// [Match.Exclude].
+	//
+	// It is the presence-conditional predicate, and it is one static statement
+	// rather than two texts assembled per call. The excluded form is the one
+	// with callers: a uniqueness check that must not collide with the row it is
+	// about to update excludes that row's id, and the same check at creation
+	// time excludes nothing — so the argument is absent, the COALESCE yields
+	// the empty string, and the predicate excludes an id no row has.
+	//
+	// That correctness rests on the same fact [Generator.CursorCondition]
+	// rests on: no id is empty. A column whose domain includes the empty string
+	// is a column this comparand cannot speak for, because an unset argument
+	// would then name a row.
+	OptionalArgument
+)
+
+// String names the comparand, for the panic messages the misuse checks raise.
+func (c Comparand) String() string {
+	switch c {
+	case BoundArgument:
+		return "bound argument"
+	case NoValue:
+		return "NULL"
+	case EmptyString:
+		return "the empty string"
+	case CurrentTime:
+		return "the current time"
+	case OptionalArgument:
+		return "an optional bound argument"
+	default:
+		return fmt.Sprintf("unknown comparand %d", int(c))
+	}
+}
+
+// binds reports whether this comparand takes an argument from the caller, which
+// is what decides whether [Match.Arg] means anything.
+func (c Comparand) binds() bool {
+	return c == BoundArgument || c == OptionalArgument
+}
+
+// operator returns the comparison this match renders for the comparands whose
+// two directions are spelled `=` and `<>`, which is every one of them but NULL
+// and the clock.
+func (m Match) operator() string {
+	if m.Exclude {
+		return "<>"
+	}
+
+	return "="
 }
 
 // argument returns the name this match binds through: Arg where the caller gave
@@ -334,7 +474,7 @@ func (g *Generator) ListQuery(name, table string, columns []string, matches ...M
 
 // BoundGet renders the read of one row by id, plus any extra predicate columns.
 func (g *Generator) BoundGet(table string, columns []string, extra ...Match) Bound {
-	return g.bound(getStatement(table, columns, "", Read{}, extra...))
+	return g.bound(g.getStatement(table, columns, "", Read{}, extra...))
 }
 
 // BoundRead renders a keyed read that is not the standard get: one that returns
@@ -347,13 +487,13 @@ func (g *Generator) BoundGet(table string, columns []string, extra ...Match) Bou
 // read.Projection, which is the same idiom a table with no id at all already
 // uses, with the projection now able to say so.
 func (g *Generator) BoundRead(table string, columns []string, read Read, extra ...Match) Bound {
-	return g.bound(getStatement(table, columns, "", read, extra...))
+	return g.bound(g.getStatement(table, columns, "", read, extra...))
 }
 
 // BoundExists renders the existence check for one row by id, plus any extra
 // predicate columns. It reports what BoundGet would find without reading it.
 func (g *Generator) BoundExists(table string, columns []string, extra ...Match) Bound {
-	return g.bound(existsStatement(table, columns, "", extra...))
+	return g.bound(g.existsStatement(table, columns, "", extra...))
 }
 
 // BoundCreate renders the insert. insertColumns is what the caller supplies —
@@ -427,7 +567,7 @@ func (g *Generator) BoundArchive(table string, columns []string, extra ...Match)
 func (g *Generator) GetQuery(name, table string, columns []string, extra ...Match) *Query {
 	return &Query{
 		Annotation: QueryAnnotation{Name: name, Type: OneType},
-		Content:    getStatement(table, columns, "", Read{}, extra...),
+		Content:    g.getStatement(table, columns, "", Read{}, extra...),
 	}
 }
 
@@ -436,7 +576,7 @@ func (g *Generator) GetQuery(name, table string, columns []string, extra ...Matc
 func (g *Generator) ReadQuery(name, table string, columns []string, read Read, extra ...Match) *Query {
 	return &Query{
 		Annotation: QueryAnnotation{Name: name, Type: OneType},
-		Content:    getStatement(table, columns, "", read, extra...),
+		Content:    g.getStatement(table, columns, "", read, extra...),
 	}
 }
 
@@ -444,7 +584,7 @@ func (g *Generator) ReadQuery(name, table string, columns []string, read Read, e
 func (g *Generator) ExistsQuery(name, table string, columns []string, extra ...Match) *Query {
 	return &Query{
 		Annotation: QueryAnnotation{Name: name, Type: OneType},
-		Content:    existsStatement(table, columns, "", extra...),
+		Content:    g.existsStatement(table, columns, "", extra...),
 	}
 }
 

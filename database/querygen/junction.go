@@ -158,7 +158,7 @@ func (j *Junction) joins(table string) []string {
 // here: the filter window describes the rows being listed, and the joined row is
 // a reference those rows hold. A roster asked for archived memberships wants the
 // memberships that ended, not the users who were deleted.
-func (j *Junction) conditions() []string {
+func (j *Junction) conditions(g *Generator) []string {
 	if !j.joined() {
 		return nil
 	}
@@ -169,7 +169,7 @@ func (j *Junction) conditions() []string {
 		conditions = append(conditions, Qualify(j.Table, ArchivedAtColumn)+" IS NULL")
 	}
 
-	return append(conditions, matchPredicates(j.Table, true, j.Matches)...)
+	return append(conditions, g.matchPredicates(j.Table, true, j.Matches)...)
 }
 
 // projection renders the joined table's columns, each aliased with Prefix. An
@@ -315,8 +315,8 @@ func (g *Generator) junctionListAllStatement(table string, columns []string, jun
 		predicates = append(predicates, Qualify(table, ArchivedAtColumn)+" IS NULL")
 	}
 
-	predicates = append(predicates, matchPredicates(table, true, matches)...)
-	predicates = append(predicates, junction.conditions()...)
+	predicates = append(predicates, g.matchPredicates(table, true, matches)...)
+	predicates = append(predicates, junction.conditions(g)...)
 
 	statement := fmt.Sprintf("SELECT\n\t%s\n%s",
 		strings.Join(append(QualifyAll(table, columns), junction.projection()...), ",\n\t"),

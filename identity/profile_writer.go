@@ -35,11 +35,11 @@ func (s *SQLStore) UpdateUser(ctx context.Context, user *User) error {
 	// check and taken at the write, which surfaces as the driver's constraint
 	// violation rather than as ErrUsernameTaken.
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		if err := s.ensureUnique(ctx, q, usernameColumn, user.Scope, user.Username, user.ID, ErrUsernameTaken); err != nil {
+		if err := s.ensureUsernameFree(ctx, q, user.Scope, user.Username, user.ID); err != nil {
 			return err
 		}
 
-		if err := s.ensureUnique(ctx, q, emailAddressColumn, user.Scope, user.EmailAddress, user.ID, ErrEmailAddressTaken); err != nil {
+		if err := s.ensureEmailAddressFree(ctx, q, user.Scope, user.EmailAddress, user.ID); err != nil {
 			return err
 		}
 

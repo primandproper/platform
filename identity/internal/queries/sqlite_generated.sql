@@ -616,6 +616,22 @@ WHERE identity_users.archived_at IS NULL
 	AND identity_users.email_address_verification_token = sqlc.arg(email_address_verification_token)
 	AND identity_users.scope = sqlc.arg(scope);
 
+-- name: GetUserIDByUsername :one
+SELECT
+	identity_users.id
+FROM identity_users
+WHERE identity_users.username = sqlc.arg(username)
+	AND identity_users.scope = sqlc.arg(scope)
+	AND identity_users.id <> COALESCE(sqlc.narg(except_user_id), '');
+
+-- name: GetUserIDByEmailAddress :one
+SELECT
+	identity_users.id
+FROM identity_users
+WHERE identity_users.email_address = sqlc.arg(email_address)
+	AND identity_users.scope = sqlc.arg(scope)
+	AND identity_users.id <> COALESCE(sqlc.narg(except_user_id), '');
+
 -- name: GetMembershipByUserAndAccount :one
 SELECT
 	identity_memberships.id,
@@ -878,6 +894,16 @@ UPDATE identity_users SET
 WHERE archived_at IS NULL
 	AND id = sqlc.arg(id)
 	AND scope = sqlc.arg(scope);
+
+-- name: MarkUserTwoFactorSecretVerified :execrows
+UPDATE identity_users SET
+	two_factor_secret_verified_at = sqlc.narg(two_factor_secret_verified_at),
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope)
+	AND two_factor_secret <> ''
+	AND two_factor_secret_verified_at IS NULL;
 
 -- name: SetUserEmailAddressVerificationToken :execrows
 UPDATE identity_users SET

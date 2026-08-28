@@ -108,6 +108,25 @@ func runCredentialStoreSuite(t *testing.T, env *storeEnv) {
 		test.False(t, rotated.TwoFactorEnabled())
 	})
 
+	t.Run("refuses to verify a second factor nobody enrolled", func(t *testing.T) {
+		t.Parallel()
+
+		// The other conjunct of the same guard, and the one an IS NULL could
+		// not have expressed: two_factor_secret is NOT NULL, so a user who
+		// never enrolled holds the empty string rather than a NULL. Without the
+		// not-empty half, this would stamp a proof onto a user with no secret
+		// to have proved — a second factor that reads as enabled and cannot be
+		// challenged.
+		store := env.newStore(t)
+		user := createUser(t, store, newUser("ada"))
+
+		must.ErrorIs(t, store.MarkUserTwoFactorSecretVerified(t.Context(), testScope, user.ID), ErrUserNotFound)
+
+		unenrolled, err := store.GetUser(t.Context(), testScope, user.ID)
+		must.NoError(t, err)
+		test.Nil(t, unenrolled.TwoFactorSecretVerifiedAt)
+	})
+
 	t.Run("issues a verification token and replaces the outstanding one", func(t *testing.T) {
 		t.Parallel()
 

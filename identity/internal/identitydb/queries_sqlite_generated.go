@@ -339,6 +339,20 @@ const getUserCreatedAtSQLite = `SELECT
 FROM {{prefix}}identity_users
 WHERE {{prefix}}identity_users.id = ?1`
 
+const getUserIdbyEmailAddressSQLite = `SELECT
+	{{prefix}}identity_users.id
+FROM {{prefix}}identity_users
+WHERE {{prefix}}identity_users.email_address = ?1
+	AND {{prefix}}identity_users.scope = ?2
+	AND {{prefix}}identity_users.id <> COALESCE(?3, '')`
+
+const getUserIdbyUsernameSQLite = `SELECT
+	{{prefix}}identity_users.id
+FROM {{prefix}}identity_users
+WHERE {{prefix}}identity_users.username = ?1
+	AND {{prefix}}identity_users.scope = ?2
+	AND {{prefix}}identity_users.id <> COALESCE(?3, '')`
+
 const listAccountMembersSQLite = `SELECT
 	{{prefix}}identity_memberships.id,
 	{{prefix}}identity_memberships.scope,
@@ -808,6 +822,15 @@ WHERE archived_at IS NULL
 	AND scope = ?4
 	AND email_address_verification_token = ?5`
 
+const markUserTwoFactorSecretVerifiedSQLite = `UPDATE {{prefix}}identity_users SET
+	two_factor_secret_verified_at = ?1,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = ?2
+	AND scope = ?3
+	AND two_factor_secret <> ''
+	AND two_factor_secret_verified_at IS NULL`
+
 const recordAccountSubscriptionSQLite = `UPDATE {{prefix}}identity_accounts SET
 	billing_status = ?1,
 	subscription_plan_id = ?2,
@@ -972,6 +995,8 @@ type sqliteQueries struct {
 	getUserByEmailVerificationToken      string
 	getUserByUsername                    string
 	getUserCreatedAt                     string
+	getUserIdbyEmailAddress              string
+	getUserIdbyUsername                  string
 	listAccountMembers                   string
 	listAccounts                         string
 	listAccountsForUser                  string
@@ -982,6 +1007,7 @@ type sqliteQueries struct {
 	listUsers                            string
 	markAccountBillingSynced             string
 	markUserEmailAddressVerified         string
+	markUserTwoFactorSecretVerified      string
 	recordAccountSubscription            string
 	searchUsersByUsername                string
 	setAccountBillingStatus              string
@@ -1020,6 +1046,8 @@ func newSQLite(prefix string) *sqliteQueries {
 		getUserByEmailVerificationToken:      strings.ReplaceAll(getUserByEmailVerificationTokenSQLite, prefixMarker, prefix),
 		getUserByUsername:                    strings.ReplaceAll(getUserByUsernameSQLite, prefixMarker, prefix),
 		getUserCreatedAt:                     strings.ReplaceAll(getUserCreatedAtSQLite, prefixMarker, prefix),
+		getUserIdbyEmailAddress:              strings.ReplaceAll(getUserIdbyEmailAddressSQLite, prefixMarker, prefix),
+		getUserIdbyUsername:                  strings.ReplaceAll(getUserIdbyUsernameSQLite, prefixMarker, prefix),
 		listAccountMembers:                   strings.ReplaceAll(listAccountMembersSQLite, prefixMarker, prefix),
 		listAccounts:                         strings.ReplaceAll(listAccountsSQLite, prefixMarker, prefix),
 		listAccountsForUser:                  strings.ReplaceAll(listAccountsForUserSQLite, prefixMarker, prefix),
@@ -1030,6 +1058,7 @@ func newSQLite(prefix string) *sqliteQueries {
 		listUsers:                            strings.ReplaceAll(listUsersSQLite, prefixMarker, prefix),
 		markAccountBillingSynced:             strings.ReplaceAll(markAccountBillingSyncedSQLite, prefixMarker, prefix),
 		markUserEmailAddressVerified:         strings.ReplaceAll(markUserEmailAddressVerifiedSQLite, prefixMarker, prefix),
+		markUserTwoFactorSecretVerified:      strings.ReplaceAll(markUserTwoFactorSecretVerifiedSQLite, prefixMarker, prefix),
 		recordAccountSubscription:            strings.ReplaceAll(recordAccountSubscriptionSQLite, prefixMarker, prefix),
 		searchUsersByUsername:                strings.ReplaceAll(searchUsersByUsernameSQLite, prefixMarker, prefix),
 		setAccountBillingStatus:              strings.ReplaceAll(setAccountBillingStatusSQLite, prefixMarker, prefix),
@@ -1474,6 +1503,40 @@ func (q *sqliteQueries) GetUserCreatedAt(ctx context.Context, db DBTX, arg GetUs
 
 	err := row.Scan(
 		&i.CreatedAt,
+	)
+
+	return i, err
+}
+
+// GetUserIDByEmailAddress runs the :one query against sqlite.
+func (q *sqliteQueries) GetUserIDByEmailAddress(ctx context.Context, db DBTX, arg GetUserIDByEmailAddressParams) (GetUserIDByEmailAddressRow, error) {
+	row := db.QueryRowContext(ctx, q.getUserIdbyEmailAddress,
+		arg.EmailAddress,
+		arg.Scope,
+		arg.ExceptUserID,
+	)
+
+	var i GetUserIDByEmailAddressRow
+
+	err := row.Scan(
+		&i.ID,
+	)
+
+	return i, err
+}
+
+// GetUserIDByUsername runs the :one query against sqlite.
+func (q *sqliteQueries) GetUserIDByUsername(ctx context.Context, db DBTX, arg GetUserIDByUsernameParams) (GetUserIDByUsernameRow, error) {
+	row := db.QueryRowContext(ctx, q.getUserIdbyUsername,
+		arg.Username,
+		arg.Scope,
+		arg.ExceptUserID,
+	)
+
+	var i GetUserIDByUsernameRow
+
+	err := row.Scan(
+		&i.ID,
 	)
 
 	return i, err
@@ -1955,6 +2018,20 @@ func (q *sqliteQueries) MarkUserEmailAddressVerified(ctx context.Context, db DBT
 		arg.ID,
 		arg.Scope,
 		arg.CurrentEmailAddressVerificationToken,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// MarkUserTwoFactorSecretVerified runs the :execrows query against sqlite.
+func (q *sqliteQueries) MarkUserTwoFactorSecretVerified(ctx context.Context, db DBTX, arg MarkUserTwoFactorSecretVerifiedParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.markUserTwoFactorSecretVerified,
+		arg.TwoFactorSecretVerifiedAt,
+		arg.ID,
+		arg.Scope,
 	)
 	if err != nil {
 		return 0, err
@@ -2482,6 +2559,22 @@ var (
 		CreatedAt time.Time
 	}(GetUserCreatedAtRow{})
 	_ = struct {
+		EmailAddress string
+		Scope        tenancy.Scope
+		ExceptUserID *string
+	}(GetUserIDByEmailAddressParams{})
+	_ = struct {
+		ID string
+	}(GetUserIDByEmailAddressRow{})
+	_ = struct {
+		Username     string
+		Scope        tenancy.Scope
+		ExceptUserID *string
+	}(GetUserIDByUsernameParams{})
+	_ = struct {
+		ID string
+	}(GetUserIDByUsernameRow{})
+	_ = struct {
 		CreatedAfter     *time.Time
 		CreatedBefore    *time.Time
 		UpdatedAfter     *time.Time
@@ -2739,6 +2832,11 @@ var (
 		Scope                                tenancy.Scope
 		CurrentEmailAddressVerificationToken string
 	}(MarkUserEmailAddressVerifiedParams{})
+	_ = struct {
+		TwoFactorSecretVerifiedAt *time.Time
+		ID                        string
+		Scope                     tenancy.Scope
+	}(MarkUserTwoFactorSecretVerifiedParams{})
 	_ = struct {
 		BillingStatus               string
 		SubscriptionPlanID          *string

@@ -726,10 +726,10 @@ func TestGenerator_boundIsPerStatement(T *testing.T) {
 		for _, d := range everyDialect() {
 			g := For(d)
 
-			before := getStatement(boundTable, boundColumns(), "", Read{})
+			before := g.getStatement(boundTable, boundColumns(), "", Read{})
 			_ = g.BoundGet(boundTable, boundColumns())
 			_ = g.BoundList(boundTable, boundColumns(), Match{Column: BelongsToAccountColumn})
-			after := getStatement(boundTable, boundColumns(), "", Read{})
+			after := g.getStatement(boundTable, boundColumns(), "", Read{})
 
 			test.EqOp(t, before, after, test.Sprintf("dialect %q", d))
 			test.StrContains(t, after, "sqlc.arg("+IDColumn+")", test.Sprintf("dialect %q", d))

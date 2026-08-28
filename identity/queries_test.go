@@ -59,10 +59,7 @@ func TestBinder_NeverReusesAPlaceholder(T *testing.T) {
 		t := newTables("")
 
 		rendered := map[string]func() (string, []any){
-			"selectUsersByIDs":         func() (string, []any) { return t.buildSelectUsersByIDs(d, scope, []string{"u1", "u2"}) },
-			"selectUserIDByField":      func() (string, []any) { return t.buildSelectUserIDByField(d, usernameColumn, scope, "ada", "u1") },
-			"selectUserIDByFieldNoExc": func() (string, []any) { return t.buildSelectUserIDByField(d, usernameColumn, scope, "ada", "") },
-			"markTwoFactorVerified":    func() (string, []any) { return t.buildMarkTwoFactorVerified(d, scope, "u1", now) },
+			"selectUsersByIDs": func() (string, []any) { return t.buildSelectUsersByIDs(d, scope, []string{"u1", "u2"}) },
 			"recordAgreementsOne": func() (string, []any) {
 				return t.buildRecordAgreements(d, scope, "u1", []Agreement{TermsOfService}, now)
 			},

@@ -346,6 +346,30 @@ type GetUserCreatedAtRow struct {
 	CreatedAt time.Time
 }
 
+// GetUserIDByEmailAddressParams are the arguments to GetUserIDByEmailAddress.
+type GetUserIDByEmailAddressParams struct {
+	EmailAddress string
+	Scope        tenancy.Scope
+	ExceptUserID *string
+}
+
+// GetUserIDByEmailAddressRow is one row of GetUserIDByEmailAddress's result.
+type GetUserIDByEmailAddressRow struct {
+	ID string
+}
+
+// GetUserIDByUsernameParams are the arguments to GetUserIDByUsername.
+type GetUserIDByUsernameParams struct {
+	Username     string
+	Scope        tenancy.Scope
+	ExceptUserID *string
+}
+
+// GetUserIDByUsernameRow is one row of GetUserIDByUsername's result.
+type GetUserIDByUsernameRow struct {
+	ID string
+}
+
 // ListAccountMembersParams are the arguments to ListAccountMembers.
 type ListAccountMembersParams struct {
 	CreatedAfter     *time.Time
@@ -638,6 +662,13 @@ type MarkUserEmailAddressVerifiedParams struct {
 	ID                                   string
 	Scope                                tenancy.Scope
 	CurrentEmailAddressVerificationToken string
+}
+
+// MarkUserTwoFactorSecretVerifiedParams are the arguments to MarkUserTwoFactorSecretVerified.
+type MarkUserTwoFactorSecretVerifiedParams struct {
+	TwoFactorSecretVerifiedAt *time.Time
+	ID                        string
+	Scope                     tenancy.Scope
 }
 
 // RecordAccountSubscriptionParams are the arguments to RecordAccountSubscription.

@@ -161,8 +161,17 @@ the row it comes back as is generated rather than paired to a Scan by eye. The
 username prefix search is a rendered pair the same way: the page and the count
 beside it, which is the one read here whose statement is not a filtered list.
 
-What remains hand-written is what querygen does not yet emit — the billing
-update's conditional SET.
+The two writes whose guards are not equalities came the same way once querygen
+learned to say them: the two-factor verification, which stamps a proof only
+where a secret exists and has not been proven, and the collision check behind
+ErrUsernameTaken, which excludes the row being updated through an argument a
+registration simply does not send. Both were hand-built for exactly as long as a
+predicate meant "this column equals a bound value".
+
+What remains hand-written is what querygen does not yet emit — the agreement
+stamp whose SET list is chosen per call, the erasure's hard DELETE, the
+default-flag maintenance, and the role tables, whose multi-row INSERT and IN
+lists take their arity from the caller.
 */
 package identity
 
