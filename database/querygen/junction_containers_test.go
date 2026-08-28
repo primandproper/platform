@@ -115,36 +115,37 @@ func junctionDDL(d dialect.Dialect) []string {
 	}
 }
 
-// junctionQueries is the three statements the suite runs: both directions of the
-// paged shape, and the unpaged read of the junction's own rows.
+// junctionQueries is the statements the suite runs: both orientations of the
+// paged shape — each of which is a pair, one statement per sort direction — and
+// the unpaged read of the junction's own rows.
 func junctionQueries(d dialect.Dialect) []*Query {
 	g := For(d)
 
-	return []*Query{
-		g.JunctionListQuery("ListCrewMembers", crewMembersTable, crewMemberColumns(),
-			&Junction{
-				Table:    peopleTable,
-				Column:   IDColumn,
-				OnColumn: personColumn,
-				Columns:  personColumns(),
-				Prefix:   "person",
-			},
-			Match{Column: crewColumn}),
+	roster := g.JunctionListQueries("ListCrewMembers", crewMembersTable, crewMemberColumns(),
+		&Junction{
+			Table:    peopleTable,
+			Column:   IDColumn,
+			OnColumn: personColumn,
+			Columns:  personColumns(),
+			Prefix:   "person",
+		},
+		Match{Column: crewColumn})
 
-		g.JunctionListQuery("ListPeopleInCrew", peopleTable, personColumns(),
-			&Junction{
-				Table:    crewMembersTable,
-				Column:   personColumn,
-				OnColumn: IDColumn,
-				Columns:  crewMemberColumns(),
-				Matches:  []Match{{Column: crewColumn}},
-			}),
+	inCrew := g.JunctionListQueries("ListPeopleInCrew", peopleTable, personColumns(),
+		&Junction{
+			Table:    crewMembersTable,
+			Column:   personColumn,
+			OnColumn: IDColumn,
+			Columns:  crewMemberColumns(),
+			Matches:  []Match{{Column: crewColumn}},
+		})
 
-		g.JunctionListAllQuery("ListCrewsForPerson", crewMembersTable, crewMemberColumns(),
-			nil,
-			[]Order{{Column: crewColumn, Descending: true}},
-			Match{Column: personColumn}),
-	}
+	unpaged := g.JunctionListAllQuery("ListCrewsForPerson", crewMembersTable, crewMemberColumns(),
+		nil,
+		[]Order{{Column: crewColumn, Descending: true}},
+		Match{Column: personColumn})
+
+	return append(append(roster, inCrew...), unpaged)
 }
 
 // junctionQuery finds one of the three and returns it bound.
@@ -165,7 +166,20 @@ func junctionQuery(tb testing.TB, d dialect.Dialect, name string, values map[str
 func listRoster(tb testing.TB, ctx context.Context, d dialect.Dialect, db *sql.DB, values map[string]any) (ids, names []string, filtered, total int64) {
 	tb.Helper()
 
-	statement, arguments := junctionQuery(tb, d, "ListCrewMembers", values)
+	return listRosterIn(tb, ctx, d, db, Ascending, values)
+}
+
+// listRosterIn is listRoster in whichever direction the caller asked for, which
+// is a choice of statement rather than an argument — see Direction.
+func listRosterIn(tb testing.TB, ctx context.Context, d dialect.Dialect, db *sql.DB, direction Direction, values map[string]any) (ids, names []string, filtered, total int64) {
+	tb.Helper()
+
+	query := "ListCrewMembers"
+	if direction == Descending {
+		query = DescendingName(query)
+	}
+
+	statement, arguments := junctionQuery(tb, d, query, values)
 
 	rows, err := db.QueryContext(ctx, statement, arguments...)
 	must.NoError(tb, err)
@@ -373,6 +387,43 @@ func runJunctionSuite(t *testing.T, ctx context.Context, d dialect.Dialect, db *
 
 		test.EqOp(t, filtered, filteredAgain)
 		test.EqOp(t, total, totalAgain)
+	})
+
+	t.Run("the descending roster walks the same rows the other way", func(t *testing.T) {
+		values := rosterValues()
+
+		// The whole page first, newest membership first — which is the
+		// assertion the absent cursor is about: the descending walk has no
+		// sentinel to coalesce to and reaches for the row's own key instead, so
+		// a first page that came back empty is exactly how getting that wrong
+		// would look.
+		ids, names, filtered, total := listRosterIn(t, ctx, d, db, Descending, values)
+
+		test.Eq(t, []string{"m_002", "m_001"}, ids)
+		test.Eq(t, []string{"grace", "ada"}, names)
+		test.EqOp(t, int64(2), filtered)
+		test.EqOp(t, int64(2), total)
+
+		// And the keyset walk over it reads each row once, with the counts
+		// describing the same collection the ascending walk reported.
+		values[LimitArg] = 1
+
+		var walked []string
+
+		for range 10 {
+			page, _, pageFiltered, pageTotal := listRosterIn(t, ctx, d, db, Descending, values)
+			if len(page) == 0 {
+				break
+			}
+
+			test.EqOp(t, filtered, pageFiltered)
+			test.EqOp(t, total, pageTotal)
+
+			walked = append(walked, page...)
+			values[CursorArg] = page[len(page)-1]
+		}
+
+		test.Eq(t, []string{"m_002", "m_001"}, walked)
 	})
 
 	t.Run("the other direction lists the far table keyed on the junction", func(t *testing.T) {

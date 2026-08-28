@@ -73,11 +73,15 @@ const (
 // converters' business, and .../filtering/grpc documents it.
 type QueryFilter struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// sort_by is a direction, not a column: "asc" for oldest first, "desc" for
-	// newest first, and nothing else. It is a string rather than an enum because
-	// it is one on the other transports this type crosses -- the query parameter
-	// and the JSON body both carry those two words -- and an enum here would put
-	// a third spelling of the same two values on the wire.
+	// sort_by is a direction, not a column: "asc" walks a list forwards and
+	// "desc" backwards, and nothing else. On the usual list, ordered by when a
+	// row was created, that is oldest first and newest first; a read ordered by
+	// something else -- a name search -- is walked in that order instead.
+	//
+	// It is a string rather than an enum because it is one on the other
+	// transports this type crosses -- the query parameter and the JSON body both
+	// carry those two words -- and an enum here would put a third spelling of the
+	// same two values on the wire.
 	SortBy *string `protobuf:"bytes,1,opt,name=sort_by,json=sortBy,proto3,oneof" json:"sort_by,omitempty"`
 	// The four windows on when a row was created or last updated. Message fields
 	// already have explicit presence, so they carry no `optional` keyword; an

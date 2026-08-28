@@ -267,7 +267,7 @@ func TestGenerator_BoundList(T *testing.T) {
 		// occurrence while reporting one argument for all of them, and every
 		// value after the first lands in the wrong slot.
 		for _, d := range everyDialect() {
-			got := For(d).BoundList(boundTable, boundColumns())
+			got := For(d).BoundList(boundTable, boundColumns(), Ascending)
 
 			assertMarkersMatchArgs(t, d, got)
 
@@ -295,7 +295,7 @@ func TestGenerator_BoundList(T *testing.T) {
 		// cursor, so it does not shrink as a caller pages. The cursor argument
 		// appears once, in the outer WHERE.
 		for _, d := range everyDialect() {
-			got := For(d).BoundList(boundTable, boundColumns())
+			got := For(d).BoundList(boundTable, boundColumns(), Ascending)
 
 			cursors := 0
 
@@ -318,7 +318,7 @@ func TestGenerator_BoundList(T *testing.T) {
 		// totals beside one owner's page, which reads as a pagination bug
 		// somewhere else entirely.
 		for _, d := range everyDialect() {
-			got := For(d).BoundList(boundTable, boundColumns(),
+			got := For(d).BoundList(boundTable, boundColumns(), Ascending,
 				Match{Column: BelongsToAccountColumn}, Match{Column: "name"})
 
 			test.EqOp(t, 3, strings.Count(got.SQL, Qualify(boundTable, BelongsToAccountColumn)+" ="),
@@ -434,7 +434,7 @@ func boundStatements(tb testing.TB, d dialect.Dialect) map[string]Bound {
 		"exists":  g.BoundExists(boundTable, columns, owner),
 		"update":  g.BoundUpdate(boundTable, columns, ForUpdate(columns, BelongsToAccountColumn), nil, owner),
 		"archive": g.BoundArchive(boundTable, columns, owner),
-		"list":    g.BoundList(boundTable, columns, owner),
+		"list":    g.BoundList(boundTable, columns, Ascending, owner),
 	}
 }
 
@@ -523,7 +523,7 @@ func TestBound_Bind(T *testing.T) {
 		// Which is what makes the positional dialects work: the statement has a
 		// marker per occurrence and the driver is handed a value per marker.
 		g := For(dialect.MySQL)
-		b := g.BoundList(boundTable, boundColumns())
+		b := g.BoundList(boundTable, boundColumns(), Ascending)
 
 		values := map[string]any{}
 		g.BindFilter(values, nil)
@@ -699,7 +699,7 @@ func TestBindFilter(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range everyDialect() {
-			b := For(d).BoundList(boundTable, boundColumns(), Match{Column: BelongsToAccountColumn})
+			b := For(d).BoundList(boundTable, boundColumns(), Ascending, Match{Column: BelongsToAccountColumn})
 
 			values := map[string]any{BelongsToAccountColumn: "account_one"}
 			For(d).BindFilter(values, filtering.DefaultQueryFilter())
@@ -728,7 +728,7 @@ func TestGenerator_boundIsPerStatement(T *testing.T) {
 
 			before := getStatement(boundTable, boundColumns(), "", Read{})
 			_ = g.BoundGet(boundTable, boundColumns())
-			_ = g.BoundList(boundTable, boundColumns(), Match{Column: BelongsToAccountColumn})
+			_ = g.BoundList(boundTable, boundColumns(), Ascending, Match{Column: BelongsToAccountColumn})
 			after := getStatement(boundTable, boundColumns(), "", Read{})
 
 			test.EqOp(t, before, after, test.Sprintf("dialect %q", d))
@@ -785,7 +785,7 @@ func TestListArgumentsAreTheOnesFilteringBinds(T *testing.T) {
 			// No ownership column and no matches, so what is left is the
 			// filter's own vocabulary. The list is deduplicated because the
 			// positional dialects repeat a name once per occurrence.
-			got := For(d).BoundList(boundTable, boundColumns())
+			got := For(d).BoundList(boundTable, boundColumns(), Ascending)
 
 			names := slices.Sorted(slices.Values(got.Args))
 			names = slices.Compact(names)
@@ -986,7 +986,7 @@ func TestBoundStatementsKeyOnSomething(T *testing.T) {
 		// rather than a row of one, and the filter and the cursor are what
 		// bound it.
 		for _, d := range everyDialect() {
-			err := recovered(func() { _ = For(d).BoundList(compositeTable, without(compositeColumns(), IDColumn)) })
+			err := recovered(func() { _ = For(d).BoundList(compositeTable, without(compositeColumns(), IDColumn), Ascending) })
 
 			must.NoError(t, err, must.Sprintf("dialect %q", d))
 		}

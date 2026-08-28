@@ -256,8 +256,10 @@ func (s *SQLStore) List(
 	// Ordering follows the filter rather than a package-local preference.
 	// filtering.DefaultQueryFilter asks for ascending, and a package that quietly
 	// reversed it would make this the one list endpoint in the module whose sort
-	// does not mean what the shared filter says it means.
-	descending := filter.SortBy != nil && *filter.SortBy == *filtering.SortDescending
+	// does not mean what the shared filter says it means. The reading of the
+	// field is filtering's — one home for it, so a store cannot come to differ
+	// from the generated statements about what "desc" is.
+	descending := filter.SortsDescending()
 
 	span.Set(limitKey, limit)
 

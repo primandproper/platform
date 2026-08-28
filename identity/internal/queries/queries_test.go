@@ -56,17 +56,26 @@ func TestRender_MatchesTheCommittedFiles(T *testing.T) {
 func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 	T.Parallel()
 
+	// Every paged read appears twice, under its name and that name plus
+	// Descending: a sort direction is which way the ORDER BY runs and which way
+	// the cursor comparison points, so it is answered by a second statement
+	// rather than by a bound argument. The unpaged ListMembershipsForUser is
+	// the one list with a single entry, because it takes no filter to carry a
+	// direction, and the search's count is single for the same reason a count
+	// does not move as a caller pages.
 	want := []string{
-		"CreateUser", "GetUser", "ListUsers", "UpdateUser", "ArchiveUser",
-		"CreateAccount", "GetAccount", "ListAccounts", "UpdateAccount", "ArchiveAccount",
-		"CreateInvitation", "GetInvitation", "ListInvitations",
-		"ListInvitationsByFromUser", "ListInvitationsByToEmail",
+		"CreateUser", "GetUser", "ListUsers", "ListUsersDescending", "UpdateUser", "ArchiveUser",
+		"CreateAccount", "GetAccount", "ListAccounts", "ListAccountsDescending", "UpdateAccount", "ArchiveAccount",
+		"CreateInvitation", "GetInvitation", "ListInvitations", "ListInvitationsDescending",
+		"ListInvitationsByFromUser", "ListInvitationsByFromUserDescending",
+		"ListInvitationsByToEmail", "ListInvitationsByToEmailDescending",
 		"GetUserCreatedAt", "GetAccountCreatedAt", "GetInvitationCreatedAt",
 		"GetUserByUsername", "GetUserByEmailAddress", "GetUserByEmailVerificationToken",
 		"GetMembershipByUserAndAccount", "GetMembershipIDByUserAndAccount",
 		"GetMembershipFallbackAccountID",
-		"ListAccountMembers", "ListAccountsForUser", "ListMembershipsForUser",
-		"SearchUsersByUsername", "CountSearchUsersByUsername",
+		"ListAccountMembers", "ListAccountMembersDescending",
+		"ListAccountsForUser", "ListAccountsForUserDescending", "ListMembershipsForUser",
+		"SearchUsersByUsername", "SearchUsersByUsernameDescending", "CountSearchUsersByUsername",
 		"UpdateUserPassword", "SetUserRequiresPasswordChange", "UpdateUserTwoFactorSecret",
 		"SetUserEmailAddressVerificationToken", "MarkUserEmailAddressVerified",
 		"UpdateUserAccountStatus", "TransferAccountOwnership",

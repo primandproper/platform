@@ -22,6 +22,13 @@ const (
 	ExistsQuery
 	// ListQuery reads a filtered, cursor-paginated page along with the two
 	// counts filtering.QueryFilteredResult carries.
+	//
+	// It names two emitted statements rather than one: the ascending page and
+	// the descending one, the second under [DescendingName] of the first. They
+	// are one entry here because they are one decision — a caller renaming the
+	// list renames both, and a caller omitting it omits both, so a table cannot
+	// end up with half a paged list and a filter direction that answers with
+	// the other half. See [Direction].
 	ListQuery
 	// UpdateQuery assigns every mutable column and stamps last_updated_at.
 	UpdateQuery
@@ -209,8 +216,15 @@ func WithImmutable(columns ...string) Option {
 }
 
 // StandardCRUD emits the queries every table following this module's row
-// conventions needs: create, get, exists, list, update, archive, the id scan a
-// search reindex walks, and the stamp that maintains the column the scan reads.
+// conventions needs: create, get, exists, the paged list in both directions,
+// update, archive, the id scan a search reindex walks, and the stamp that
+// maintains the column the scan reads.
+//
+// The list is two statements because a page has a direction and a direction is
+// statement text — see [Direction]. They differ in their cursor comparison and
+// their ORDER BY and in nothing else, and the descending one is named with
+// [DescendingSuffix], so a store holding a filtering.QueryFilter picks between
+// two generated methods rather than assembling an ORDER BY.
 //
 // columns is the table's full column list, in the order the emitted SELECTs
 // should list them, and it decides which queries appear. A table without
@@ -283,7 +297,8 @@ func (g *Generator) StandardCRUD(table string, columns []string, opts ...Option)
 	queries := []*Query{
 		s.query(GetQuery, OneType, getStatement(table, columns, s.ownership, Read{})),
 		s.query(ExistsQuery, OneType, existsStatement(table, columns, s.ownership)),
-		s.query(ListQuery, ManyType, g.listStatement(table, columns, s.ownership, nil)),
+		s.query(ListQuery, ManyType, g.listStatement(table, columns, s.ownership, nil, Ascending)),
+		s.descendingQuery(ListQuery, ManyType, g.listStatement(table, columns, s.ownership, nil, Descending)),
 	}
 
 	// An INSERT with an empty column list is not a degenerate insert, it is a
@@ -324,12 +339,29 @@ func (g *Generator) StandardCRUD(table string, columns []string, opts ...Option)
 // when WithOmitted named it. StandardCRUD drops the nils, which keeps the
 // decision in one place rather than at each of the seven call sites.
 func (s *settings) query(which StandardQuery, queryType QueryType, content string) *Query {
+	return s.named(which, s.name(which), queryType, content)
+}
+
+// descendingQuery is query under the descending half's name, for the one query
+// in the set that is two statements.
+//
+// It reads the same omission and the same configured name the ascending half
+// does, which is what makes the pair one entry in the enum rather than two: a
+// list renamed is renamed on both arms, and a list omitted takes its descending
+// half with it.
+func (s *settings) descendingQuery(which StandardQuery, queryType QueryType, content string) *Query {
+	return s.named(which, DescendingName(s.name(which)), queryType, content)
+}
+
+// named builds one annotated query, or nil when WithOmitted named the query it
+// belongs to.
+func (s *settings) named(which StandardQuery, name string, queryType QueryType, content string) *Query {
 	if slices.Contains(s.omitted, which) {
 		return nil
 	}
 
 	return &Query{
-		Annotation: QueryAnnotation{Name: s.name(which), Type: queryType},
+		Annotation: QueryAnnotation{Name: name, Type: queryType},
 		Content:    content,
 	}
 }
@@ -448,7 +480,12 @@ func existsProjection(table string, columns []string) string {
 // junction because the joined form is this statement with a join spliced into
 // its FROM rather than a statement of its own — see junction.go for why that is
 // worth a parameter every single-table caller passes a zero value for.
-func (g *Generator) listStatement(table string, columns []string, ownership string, junction *Junction, extra ...Match) string {
+//
+// The direction is the same parameter twice over: the cursor predicate and the
+// ORDER BY are rendered from it together, because a walk whose ordering and
+// whose comparison disagree pages through an order its cursor does not name.
+// Nothing above here renders one without the other — see [Direction].
+func (g *Generator) listStatement(table string, columns []string, ownership string, junction *Junction, direction Direction, extra ...Match) string {
 	var conditions []string
 	if ownership != "" {
 		conditions = append(conditions, equalityPredicate(table, ownership, true))
@@ -464,8 +501,8 @@ func (g *Generator) listStatement(table string, columns []string, ownership stri
 		g.FilterCountSelect(table, columns, joins, conditions...),
 		g.TotalCountSelect(table, columns, joins, conditions...),
 		fromClause(table, joins),
-		g.FilterConditions(table, columns, conditions...),
-		g.CursorLimitClause(table),
+		g.FilterConditions(table, columns, direction, conditions...),
+		g.CursorLimitClause(table, direction),
 	)
 }
 

@@ -305,8 +305,8 @@ func Render(d dialect.Dialect) string {
 }
 
 // keyedInvitationLists is the two paged invitation reads the store actually
-// runs: pending invitations from one user, and pending invitations addressed to
-// one email. They are list variants rather than standard queries — a keyed
+// runs — pending invitations from one user, and pending invitations addressed
+// to one email — each in both directions, since a paged list is two statements. They are list variants rather than standard queries — a keyed
 // column and a status predicate on top of the standard list — and before they
 // were rendered here, the canonical .sql carried only the unkeyed list while
 // the store executed these, which is exactly the checked-versus-executed gap
@@ -319,12 +319,13 @@ func keyedInvitationLists(g *querygen.Generator) []*querygen.Query {
 	scope := querygen.Match{Column: ScopeColumn}
 	status := querygen.Match{Column: InvitationStatusColumn}
 
-	return []*querygen.Query{
-		g.ListQuery("ListInvitationsByFromUser", InvitationsTable, Invitations.Columns,
-			scope, querygen.Match{Column: InvitationFromUserColumn}, status),
-		g.ListQuery("ListInvitationsByToEmail", InvitationsTable, Invitations.Columns,
-			scope, querygen.Match{Column: InvitationToEmailColumn}, status),
-	}
+	fromUser := g.ListQueries("ListInvitationsByFromUser", InvitationsTable, Invitations.Columns,
+		scope, querygen.Match{Column: InvitationFromUserColumn}, status)
+
+	toEmail := g.ListQueries("ListInvitationsByToEmail", InvitationsTable, Invitations.Columns,
+		scope, querygen.Match{Column: InvitationToEmailColumn}, status)
+
+	return append(fromUser, toEmail...)
 }
 
 // membershipUpsert is the write that puts a user in an account, and the one
@@ -589,50 +590,53 @@ func keyedMembershipReads(g *querygen.Generator) []*querygen.Query {
 func junctionLists(g *querygen.Generator) []*querygen.Query {
 	scope := querygen.Match{Column: ScopeColumn}
 
-	return []*querygen.Query{
-		// The roster. The user's columns are projected beside the membership's
-		// under a user_ prefix, so a page of thirty members is one query rather
-		// than thirty-one, and the two tables' shared column names — id, scope,
-		// created_at — stay distinguishable in the row type.
-		g.JunctionListQuery("ListAccountMembers", MembershipsTable, Memberships.Columns,
-			&querygen.Junction{
-				Table:    UsersTable,
-				Column:   querygen.IDColumn,
-				OnColumn: MembershipUserColumn,
-				Columns:  Users.Columns,
-				Prefix:   "user",
-			},
-			scope, querygen.Match{Column: MembershipAccountColumn}),
+	// The roster. The user's columns are projected beside the membership's
+	// under a user_ prefix, so a page of thirty members is one query rather
+	// than thirty-one, and the two tables' shared column names — id, scope,
+	// created_at — stay distinguishable in the row type.
+	roster := g.JunctionListQueries("ListAccountMembers", MembershipsTable, Memberships.Columns,
+		&querygen.Junction{
+			Table:    UsersTable,
+			Column:   querygen.IDColumn,
+			OnColumn: MembershipUserColumn,
+			Columns:  Users.Columns,
+			Prefix:   "user",
+		},
+		scope, querygen.Match{Column: MembershipAccountColumn})
 
-		// The accounts a user is a live member of. The membership's columns are
-		// declared and not projected: the caller wants accounts, and what the
-		// junction owes the statement is its key and the requirement that the
-		// membership itself has not been archived — a user removed from an
-		// account they are still nominally listed against would otherwise keep
-		// seeing it in their switcher.
-		g.JunctionListQuery("ListAccountsForUser", AccountsTable, Accounts.Columns,
-			&querygen.Junction{
-				Table:    MembershipsTable,
-				Column:   MembershipAccountColumn,
-				OnColumn: querygen.IDColumn,
-				Columns:  Memberships.Columns,
-				Matches:  []querygen.Match{{Column: MembershipUserColumn}},
-			},
-			scope),
+	// The accounts a user is a live member of. The membership's columns are
+	// declared and not projected: the caller wants accounts, and what the
+	// junction owes the statement is its key and the requirement that the
+	// membership itself has not been archived — a user removed from an account
+	// they are still nominally listed against would otherwise keep seeing it in
+	// their switcher.
+	forUser := g.JunctionListQueries("ListAccountsForUser", AccountsTable, Accounts.Columns,
+		&querygen.Junction{
+			Table:    MembershipsTable,
+			Column:   MembershipAccountColumn,
+			OnColumn: querygen.IDColumn,
+			Columns:  Memberships.Columns,
+			Matches:  []querygen.Match{{Column: MembershipUserColumn}},
+		},
+		scope)
 
-		// A user's memberships, default account first — so a caller that takes
-		// the first row gets the one the user lands in. Unpaged and unjoined:
-		// it answers "where may this principal act", which is every row or none
-		// of them, and the account behind each is read separately when it is
-		// read at all.
-		g.JunctionListAllQuery("ListMembershipsForUser", MembershipsTable, Memberships.Columns,
-			nil,
-			[]querygen.Order{
-				{Column: MembershipDefaultColumn, Descending: true},
-				{Column: MembershipAccountColumn},
-			},
-			scope, querygen.Match{Column: MembershipUserColumn}),
-	}
+	// A user's memberships, default account first — so a caller that takes the
+	// first row gets the one the user lands in. Unpaged and unjoined: it answers
+	// "where may this principal act", which is every row or none of them, and
+	// the account behind each is read separately when it is read at all.
+	//
+	// It is the one list here with no descending half, and the reason is that it
+	// is not paged: it takes no filtering.QueryFilter, so there is no direction
+	// to answer. Its order is the caller's, named right here.
+	memberships := g.JunctionListAllQuery("ListMembershipsForUser", MembershipsTable, Memberships.Columns,
+		nil,
+		[]querygen.Order{
+			{Column: MembershipDefaultColumn, Descending: true},
+			{Column: MembershipAccountColumn},
+		},
+		scope, querygen.Match{Column: MembershipUserColumn})
+
+	return append(append(roster, forUser...), memberships)
 }
 
 // usernamePrefixSearch is the directory's search: the page of users whose

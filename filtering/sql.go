@@ -33,6 +33,15 @@ import (
 // The alternative to renaming it is a generator that emits one name for two of
 // the three dialects and another for the third, which is a difference every
 // consumer of every dialect would then have to know about.
+//
+// One field of a QueryFilter is deliberately absent from this list, and its
+// absence is the point rather than an omission. SortBy names a direction, and a
+// direction is not a value: it decides which way the ORDER BY runs and which
+// way the cursor comparison points, both of which are statement text. So a
+// store answers it by choosing between two statements rather than by binding a
+// seventh argument — SortsDescending is that choice, and database/querygen
+// emits the pair it chooses between. An argument name here would be one nothing
+// could bind.
 const (
 	// ArgCursor is the keyset position a page resumes after — see
 	// database/querygen's cursor predicate. `page_cursor` rather than `cursor`

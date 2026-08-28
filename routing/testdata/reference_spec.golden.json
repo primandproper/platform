@@ -245,7 +245,7 @@
               "desc"
             ],
             "type": "string",
-            "description": "Sort direction, not a column name: \"asc\" for oldest first, \"desc\" for newest first, and nothing else.",
+            "description": "Sort direction, not a column name: \"asc\" walks a list forwards and \"desc\" backwards, and nothing else. On the usual list, ordered by when a row was created, that is oldest first and newest first; a read ordered by something else — a name search — is walked in that order instead.",
             "default": "asc"
           },
           "updatedAfter": {

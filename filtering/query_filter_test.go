@@ -770,6 +770,54 @@ func TestQueryFilter_Normalize(T *testing.T) {
 	})
 }
 
+// TestQueryFilter_SortsDescending pins the one reading of SortBy a store makes.
+// The field parsed, validated and normalized for a long time without anything
+// consuming it, and this is what consumes it — so what it answers for each
+// spelling is worth stating rather than inferring from Normalize.
+func TestQueryFilter_SortsDescending(T *testing.T) {
+	T.Parallel()
+
+	T.Run("desc is the descending page", func(t *testing.T) {
+		t.Parallel()
+
+		test.True(t, (&QueryFilter{SortBy: SortDescending}).SortsDescending())
+		test.True(t, (&QueryFilter{SortBy: new("desc")}).SortsDescending())
+	})
+
+	T.Run("case is folded, as both parsers fold it", func(t *testing.T) {
+		t.Parallel()
+
+		// "DESC" is what a hand-written client sends about as often as "desc",
+		// and FromParams already accepts it — a store reading the field after
+		// one of those parsers must not disagree with the parser about what it
+		// holds.
+		test.True(t, (&QueryFilter{SortBy: new("DESC")}).SortsDescending())
+		test.True(t, (&QueryFilter{SortBy: new("Desc")}).SortsDescending())
+	})
+
+	T.Run("everything else is the ascending page", func(t *testing.T) {
+		t.Parallel()
+
+		var nilFilter *QueryFilter
+
+		// A nil filter and an absent direction are what DefaultQueryFilter
+		// holds; an unrecognized one is what Normalize reports and answers
+		// ascending, and answering it differently here would be a third
+		// behavior nobody described.
+		test.False(t, nilFilter.SortsDescending())
+		test.False(t, (&QueryFilter{}).SortsDescending())
+		test.False(t, (&QueryFilter{SortBy: SortAscending}).SortsDescending())
+		test.False(t, (&QueryFilter{SortBy: new("descending")}).SortsDescending())
+		test.False(t, (&QueryFilter{SortBy: new("")}).SortsDescending())
+	})
+
+	T.Run("the default filter asks for the ascending page", func(t *testing.T) {
+		t.Parallel()
+
+		test.False(t, DefaultQueryFilter().SortsDescending())
+	})
+}
+
 func TestNewQueryFilteredResult_cursorContract(T *testing.T) {
 	T.Parallel()
 

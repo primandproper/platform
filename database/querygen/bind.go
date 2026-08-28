@@ -271,7 +271,8 @@ func (r Read) projecting(columns []string) []string {
 	return r.Projection
 }
 
-// BoundList renders a list query carrying extra equality predicates.
+// BoundList renders one direction of a list query carrying extra equality
+// predicates.
 //
 // It is listStatement — the same function StandardCRUD's list query comes from,
 // with the matches where WithOwnership's column goes — so the filter window, the
@@ -279,13 +280,21 @@ func (r Read) projecting(columns []string) []string {
 // generated list gets, they are the same code path. A keyed read filters exactly
 // as an unkeyed one does because there is nothing that could make it not.
 //
+// The direction is a parameter here where [Generator.ListQueries] emits the pair,
+// and the asymmetry is the one between the two halves of this package. A
+// generator binary is asked what statements a table needs, and a paged list
+// needs both; a store is asked to execute one statement per call, holds a
+// filtering.QueryFilter when it does, and renders each Bound once at
+// construction — so it builds two and picks with [DirectionOf], which is the
+// same choice the generated path makes between two method names.
+//
 // Each match binds under its own column name, so a caller assembles the argument
 // map by column and Bind puts the values where this dialect wants them.
-func (g *Generator) BoundList(table string, columns []string, matches ...Match) Bound {
-	return g.bound(g.listStatement(table, columns, "", nil, matches...))
+func (g *Generator) BoundList(table string, columns []string, direction Direction, matches ...Match) Bound {
+	return g.bound(g.listStatement(table, columns, "", nil, direction, matches...))
 }
 
-// ListQuery is BoundList's canonical form: the same statement, in the sqlc
+// ListQueries is BoundList's canonical form: the same statements, in the sqlc
 // spelling, named and annotated for a query file.
 //
 // It exists so a keyed list variant can be part of the canonical .sql rather
@@ -296,12 +305,25 @@ func (g *Generator) BoundList(table string, columns []string, matches ...Match) 
 // same listStatement call BoundList makes keeps the two the same text by
 // construction.
 //
-// The name must be unique across the consumer's whole sqlc package, as every
+// It returns both directions, under name and [DescendingName] of it, for the
+// reason StandardCRUD's list is one entry in its enum: a corpus carrying only
+// the ascending half of a list is a store that answers sortBy=desc with an
+// ascending page, which is the failure this pair exists to make unspellable.
+// The two statements differ in their cursor comparison and their ORDER BY and
+// in nothing else — same projection, same predicates, same counts.
+//
+// Both names must be unique across the consumer's whole sqlc package, as every
 // QueryAnnotation.Name must.
-func (g *Generator) ListQuery(name, table string, columns []string, matches ...Match) *Query {
-	return &Query{
-		Annotation: QueryAnnotation{Name: name, Type: ManyType},
-		Content:    g.listStatement(table, columns, "", nil, matches...),
+func (g *Generator) ListQueries(name, table string, columns []string, matches ...Match) []*Query {
+	return []*Query{
+		{
+			Annotation: QueryAnnotation{Name: name, Type: ManyType},
+			Content:    g.listStatement(table, columns, "", nil, Ascending, matches...),
+		},
+		{
+			Annotation: QueryAnnotation{Name: DescendingName(name), Type: ManyType},
+			Content:    g.listStatement(table, columns, "", nil, Descending, matches...),
+		},
 	}
 }
 

@@ -416,6 +416,83 @@ WHERE {{prefix}}identity_memberships.created_at > COALESCE(?, (SELECT CURRENT_TI
 ORDER BY {{prefix}}identity_memberships.id ASC
 LIMIT ?`
 
+const listAccountMembersDescendingMySQL = `SELECT
+	{{prefix}}identity_memberships.id,
+	{{prefix}}identity_memberships.scope,
+	{{prefix}}identity_memberships.belongs_to_user,
+	{{prefix}}identity_memberships.belongs_to_account,
+	{{prefix}}identity_memberships.default_account,
+	{{prefix}}identity_memberships.created_at,
+	{{prefix}}identity_memberships.last_updated_at,
+	{{prefix}}identity_memberships.archived_at,
+	{{prefix}}identity_users.id AS user_id,
+	{{prefix}}identity_users.scope AS user_scope,
+	{{prefix}}identity_users.username AS user_username,
+	{{prefix}}identity_users.email_address AS user_email_address,
+	{{prefix}}identity_users.first_name AS user_first_name,
+	{{prefix}}identity_users.last_name AS user_last_name,
+	{{prefix}}identity_users.hashed_password AS user_hashed_password,
+	{{prefix}}identity_users.requires_password_change AS user_requires_password_change,
+	{{prefix}}identity_users.password_last_changed_at AS user_password_last_changed_at,
+	{{prefix}}identity_users.two_factor_secret AS user_two_factor_secret,
+	{{prefix}}identity_users.two_factor_secret_verified_at AS user_two_factor_secret_verified_at,
+	{{prefix}}identity_users.email_address_verified_at AS user_email_address_verified_at,
+	{{prefix}}identity_users.email_address_verification_token AS user_email_address_verification_token,
+	{{prefix}}identity_users.account_status AS user_account_status,
+	{{prefix}}identity_users.account_status_explanation AS user_account_status_explanation,
+	{{prefix}}identity_users.last_accepted_terms_of_service AS user_last_accepted_terms_of_service,
+	{{prefix}}identity_users.last_accepted_privacy_policy AS user_last_accepted_privacy_policy,
+	{{prefix}}identity_users.created_at AS user_created_at,
+	{{prefix}}identity_users.last_updated_at AS user_last_updated_at,
+	{{prefix}}identity_users.archived_at AS user_archived_at,
+	(
+		SELECT COUNT({{prefix}}identity_memberships.id)
+		FROM {{prefix}}identity_memberships
+		JOIN {{prefix}}identity_users ON {{prefix}}identity_memberships.belongs_to_user={{prefix}}identity_users.id
+		WHERE {{prefix}}identity_memberships.created_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+			AND {{prefix}}identity_memberships.created_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+			AND (
+				{{prefix}}identity_memberships.last_updated_at IS NULL
+				OR {{prefix}}identity_memberships.last_updated_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+			)
+			AND (
+				{{prefix}}identity_memberships.last_updated_at IS NULL
+				OR {{prefix}}identity_memberships.last_updated_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+			)
+			AND (COALESCE(?, false) = true OR {{prefix}}identity_memberships.archived_at IS NULL)
+			AND {{prefix}}identity_memberships.scope = ?
+			AND {{prefix}}identity_memberships.belongs_to_account = ?
+			AND {{prefix}}identity_users.archived_at IS NULL
+	) AS filtered_count,
+	(
+		SELECT COUNT({{prefix}}identity_memberships.id)
+		FROM {{prefix}}identity_memberships
+		JOIN {{prefix}}identity_users ON {{prefix}}identity_memberships.belongs_to_user={{prefix}}identity_users.id
+		WHERE (COALESCE(?, false) = true OR {{prefix}}identity_memberships.archived_at IS NULL)
+			AND {{prefix}}identity_memberships.scope = ?
+			AND {{prefix}}identity_memberships.belongs_to_account = ?
+			AND {{prefix}}identity_users.archived_at IS NULL
+	) AS total_count
+FROM {{prefix}}identity_memberships
+JOIN {{prefix}}identity_users ON {{prefix}}identity_memberships.belongs_to_user={{prefix}}identity_users.id
+WHERE {{prefix}}identity_memberships.created_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+	AND {{prefix}}identity_memberships.created_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+	AND (
+		{{prefix}}identity_memberships.last_updated_at IS NULL
+		OR {{prefix}}identity_memberships.last_updated_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+	)
+	AND (
+		{{prefix}}identity_memberships.last_updated_at IS NULL
+		OR {{prefix}}identity_memberships.last_updated_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+	)
+	AND (COALESCE(?, false) = true OR {{prefix}}identity_memberships.archived_at IS NULL)
+	AND {{prefix}}identity_memberships.scope = ?
+	AND {{prefix}}identity_memberships.belongs_to_account = ?
+	AND {{prefix}}identity_users.archived_at IS NULL
+	AND ({{prefix}}identity_memberships.id <= COALESCE(?, {{prefix}}identity_memberships.id) AND {{prefix}}identity_memberships.id <> COALESCE(?, ''))
+ORDER BY {{prefix}}identity_memberships.id DESC
+LIMIT ?`
+
 const listAccountsMySQL = `SELECT
 	{{prefix}}identity_accounts.id,
 	{{prefix}}identity_accounts.scope,
@@ -473,6 +550,65 @@ WHERE {{prefix}}identity_accounts.created_at > COALESCE(?, (SELECT CURRENT_TIMES
 	AND {{prefix}}identity_accounts.scope = ?
 	AND {{prefix}}identity_accounts.id > COALESCE(?, '')
 ORDER BY {{prefix}}identity_accounts.id ASC
+LIMIT ?`
+
+const listAccountsDescendingMySQL = `SELECT
+	{{prefix}}identity_accounts.id,
+	{{prefix}}identity_accounts.scope,
+	{{prefix}}identity_accounts.name,
+	{{prefix}}identity_accounts.owner_user_id,
+	{{prefix}}identity_accounts.billing_status,
+	{{prefix}}identity_accounts.subscription_plan_id,
+	{{prefix}}identity_accounts.payment_processor_customer_id,
+	{{prefix}}identity_accounts.last_payment_provider_synced_at,
+	{{prefix}}identity_accounts.address_line1,
+	{{prefix}}identity_accounts.address_line2,
+	{{prefix}}identity_accounts.address_city,
+	{{prefix}}identity_accounts.address_state,
+	{{prefix}}identity_accounts.address_postal_code,
+	{{prefix}}identity_accounts.address_country,
+	{{prefix}}identity_accounts.address_phone,
+	{{prefix}}identity_accounts.time_zone,
+	{{prefix}}identity_accounts.created_at,
+	{{prefix}}identity_accounts.last_updated_at,
+	{{prefix}}identity_accounts.archived_at,
+	(
+		SELECT COUNT({{prefix}}identity_accounts.id)
+		FROM {{prefix}}identity_accounts
+		WHERE {{prefix}}identity_accounts.created_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+			AND {{prefix}}identity_accounts.created_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+			AND (
+				{{prefix}}identity_accounts.last_updated_at IS NULL
+				OR {{prefix}}identity_accounts.last_updated_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+			)
+			AND (
+				{{prefix}}identity_accounts.last_updated_at IS NULL
+				OR {{prefix}}identity_accounts.last_updated_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+			)
+			AND (COALESCE(?, false) = true OR {{prefix}}identity_accounts.archived_at IS NULL)
+			AND {{prefix}}identity_accounts.scope = ?
+	) AS filtered_count,
+	(
+		SELECT COUNT({{prefix}}identity_accounts.id)
+		FROM {{prefix}}identity_accounts
+		WHERE (COALESCE(?, false) = true OR {{prefix}}identity_accounts.archived_at IS NULL)
+			AND {{prefix}}identity_accounts.scope = ?
+	) AS total_count
+FROM {{prefix}}identity_accounts
+WHERE {{prefix}}identity_accounts.created_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+	AND {{prefix}}identity_accounts.created_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+	AND (
+		{{prefix}}identity_accounts.last_updated_at IS NULL
+		OR {{prefix}}identity_accounts.last_updated_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+	)
+	AND (
+		{{prefix}}identity_accounts.last_updated_at IS NULL
+		OR {{prefix}}identity_accounts.last_updated_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+	)
+	AND (COALESCE(?, false) = true OR {{prefix}}identity_accounts.archived_at IS NULL)
+	AND {{prefix}}identity_accounts.scope = ?
+	AND ({{prefix}}identity_accounts.id <= COALESCE(?, {{prefix}}identity_accounts.id) AND {{prefix}}identity_accounts.id <> COALESCE(?, ''))
+ORDER BY {{prefix}}identity_accounts.id DESC
 LIMIT ?`
 
 const listAccountsForUserMySQL = `SELECT
@@ -541,6 +677,74 @@ WHERE {{prefix}}identity_accounts.created_at > COALESCE(?, (SELECT CURRENT_TIMES
 	AND {{prefix}}identity_memberships.belongs_to_user = ?
 	AND {{prefix}}identity_accounts.id > COALESCE(?, '')
 ORDER BY {{prefix}}identity_accounts.id ASC
+LIMIT ?`
+
+const listAccountsForUserDescendingMySQL = `SELECT
+	{{prefix}}identity_accounts.id,
+	{{prefix}}identity_accounts.scope,
+	{{prefix}}identity_accounts.name,
+	{{prefix}}identity_accounts.owner_user_id,
+	{{prefix}}identity_accounts.billing_status,
+	{{prefix}}identity_accounts.subscription_plan_id,
+	{{prefix}}identity_accounts.payment_processor_customer_id,
+	{{prefix}}identity_accounts.last_payment_provider_synced_at,
+	{{prefix}}identity_accounts.address_line1,
+	{{prefix}}identity_accounts.address_line2,
+	{{prefix}}identity_accounts.address_city,
+	{{prefix}}identity_accounts.address_state,
+	{{prefix}}identity_accounts.address_postal_code,
+	{{prefix}}identity_accounts.address_country,
+	{{prefix}}identity_accounts.address_phone,
+	{{prefix}}identity_accounts.time_zone,
+	{{prefix}}identity_accounts.created_at,
+	{{prefix}}identity_accounts.last_updated_at,
+	{{prefix}}identity_accounts.archived_at,
+	(
+		SELECT COUNT({{prefix}}identity_accounts.id)
+		FROM {{prefix}}identity_accounts
+		JOIN {{prefix}}identity_memberships ON {{prefix}}identity_accounts.id={{prefix}}identity_memberships.belongs_to_account
+		WHERE {{prefix}}identity_accounts.created_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+			AND {{prefix}}identity_accounts.created_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+			AND (
+				{{prefix}}identity_accounts.last_updated_at IS NULL
+				OR {{prefix}}identity_accounts.last_updated_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+			)
+			AND (
+				{{prefix}}identity_accounts.last_updated_at IS NULL
+				OR {{prefix}}identity_accounts.last_updated_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+			)
+			AND (COALESCE(?, false) = true OR {{prefix}}identity_accounts.archived_at IS NULL)
+			AND {{prefix}}identity_accounts.scope = ?
+			AND {{prefix}}identity_memberships.archived_at IS NULL
+			AND {{prefix}}identity_memberships.belongs_to_user = ?
+	) AS filtered_count,
+	(
+		SELECT COUNT({{prefix}}identity_accounts.id)
+		FROM {{prefix}}identity_accounts
+		JOIN {{prefix}}identity_memberships ON {{prefix}}identity_accounts.id={{prefix}}identity_memberships.belongs_to_account
+		WHERE (COALESCE(?, false) = true OR {{prefix}}identity_accounts.archived_at IS NULL)
+			AND {{prefix}}identity_accounts.scope = ?
+			AND {{prefix}}identity_memberships.archived_at IS NULL
+			AND {{prefix}}identity_memberships.belongs_to_user = ?
+	) AS total_count
+FROM {{prefix}}identity_accounts
+JOIN {{prefix}}identity_memberships ON {{prefix}}identity_accounts.id={{prefix}}identity_memberships.belongs_to_account
+WHERE {{prefix}}identity_accounts.created_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+	AND {{prefix}}identity_accounts.created_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+	AND (
+		{{prefix}}identity_accounts.last_updated_at IS NULL
+		OR {{prefix}}identity_accounts.last_updated_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+	)
+	AND (
+		{{prefix}}identity_accounts.last_updated_at IS NULL
+		OR {{prefix}}identity_accounts.last_updated_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+	)
+	AND (COALESCE(?, false) = true OR {{prefix}}identity_accounts.archived_at IS NULL)
+	AND {{prefix}}identity_accounts.scope = ?
+	AND {{prefix}}identity_memberships.archived_at IS NULL
+	AND {{prefix}}identity_memberships.belongs_to_user = ?
+	AND ({{prefix}}identity_accounts.id <= COALESCE(?, {{prefix}}identity_accounts.id) AND {{prefix}}identity_accounts.id <> COALESCE(?, ''))
+ORDER BY {{prefix}}identity_accounts.id DESC
 LIMIT ?`
 
 const listInvitationsMySQL = `SELECT
@@ -657,6 +861,66 @@ WHERE {{prefix}}identity_invitations.created_at > COALESCE(?, (SELECT CURRENT_TI
 ORDER BY {{prefix}}identity_invitations.id ASC
 LIMIT ?`
 
+const listInvitationsByFromUserDescendingMySQL = `SELECT
+	{{prefix}}identity_invitations.id,
+	{{prefix}}identity_invitations.scope,
+	{{prefix}}identity_invitations.belongs_to_account,
+	{{prefix}}identity_invitations.from_user,
+	{{prefix}}identity_invitations.to_email,
+	{{prefix}}identity_invitations.to_name,
+	{{prefix}}identity_invitations.to_user,
+	{{prefix}}identity_invitations.token,
+	{{prefix}}identity_invitations.status,
+	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.expires_at,
+	{{prefix}}identity_invitations.created_at,
+	{{prefix}}identity_invitations.last_updated_at,
+	{{prefix}}identity_invitations.archived_at,
+	(
+		SELECT COUNT({{prefix}}identity_invitations.id)
+		FROM {{prefix}}identity_invitations
+		WHERE {{prefix}}identity_invitations.created_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+			AND {{prefix}}identity_invitations.created_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+			AND (
+				{{prefix}}identity_invitations.last_updated_at IS NULL
+				OR {{prefix}}identity_invitations.last_updated_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+			)
+			AND (
+				{{prefix}}identity_invitations.last_updated_at IS NULL
+				OR {{prefix}}identity_invitations.last_updated_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+			)
+			AND (COALESCE(?, false) = true OR {{prefix}}identity_invitations.archived_at IS NULL)
+			AND {{prefix}}identity_invitations.scope = ?
+			AND {{prefix}}identity_invitations.from_user = ?
+			AND {{prefix}}identity_invitations.status = ?
+	) AS filtered_count,
+	(
+		SELECT COUNT({{prefix}}identity_invitations.id)
+		FROM {{prefix}}identity_invitations
+		WHERE (COALESCE(?, false) = true OR {{prefix}}identity_invitations.archived_at IS NULL)
+			AND {{prefix}}identity_invitations.scope = ?
+			AND {{prefix}}identity_invitations.from_user = ?
+			AND {{prefix}}identity_invitations.status = ?
+	) AS total_count
+FROM {{prefix}}identity_invitations
+WHERE {{prefix}}identity_invitations.created_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+	AND {{prefix}}identity_invitations.created_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+	AND (
+		{{prefix}}identity_invitations.last_updated_at IS NULL
+		OR {{prefix}}identity_invitations.last_updated_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+	)
+	AND (
+		{{prefix}}identity_invitations.last_updated_at IS NULL
+		OR {{prefix}}identity_invitations.last_updated_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+	)
+	AND (COALESCE(?, false) = true OR {{prefix}}identity_invitations.archived_at IS NULL)
+	AND {{prefix}}identity_invitations.scope = ?
+	AND {{prefix}}identity_invitations.from_user = ?
+	AND {{prefix}}identity_invitations.status = ?
+	AND ({{prefix}}identity_invitations.id <= COALESCE(?, {{prefix}}identity_invitations.id) AND {{prefix}}identity_invitations.id <> COALESCE(?, ''))
+ORDER BY {{prefix}}identity_invitations.id DESC
+LIMIT ?`
+
 const listInvitationsByToEmailMySQL = `SELECT
 	{{prefix}}identity_invitations.id,
 	{{prefix}}identity_invitations.scope,
@@ -715,6 +979,120 @@ WHERE {{prefix}}identity_invitations.created_at > COALESCE(?, (SELECT CURRENT_TI
 	AND {{prefix}}identity_invitations.status = ?
 	AND {{prefix}}identity_invitations.id > COALESCE(?, '')
 ORDER BY {{prefix}}identity_invitations.id ASC
+LIMIT ?`
+
+const listInvitationsByToEmailDescendingMySQL = `SELECT
+	{{prefix}}identity_invitations.id,
+	{{prefix}}identity_invitations.scope,
+	{{prefix}}identity_invitations.belongs_to_account,
+	{{prefix}}identity_invitations.from_user,
+	{{prefix}}identity_invitations.to_email,
+	{{prefix}}identity_invitations.to_name,
+	{{prefix}}identity_invitations.to_user,
+	{{prefix}}identity_invitations.token,
+	{{prefix}}identity_invitations.status,
+	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.expires_at,
+	{{prefix}}identity_invitations.created_at,
+	{{prefix}}identity_invitations.last_updated_at,
+	{{prefix}}identity_invitations.archived_at,
+	(
+		SELECT COUNT({{prefix}}identity_invitations.id)
+		FROM {{prefix}}identity_invitations
+		WHERE {{prefix}}identity_invitations.created_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+			AND {{prefix}}identity_invitations.created_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+			AND (
+				{{prefix}}identity_invitations.last_updated_at IS NULL
+				OR {{prefix}}identity_invitations.last_updated_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+			)
+			AND (
+				{{prefix}}identity_invitations.last_updated_at IS NULL
+				OR {{prefix}}identity_invitations.last_updated_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+			)
+			AND (COALESCE(?, false) = true OR {{prefix}}identity_invitations.archived_at IS NULL)
+			AND {{prefix}}identity_invitations.scope = ?
+			AND {{prefix}}identity_invitations.to_email = ?
+			AND {{prefix}}identity_invitations.status = ?
+	) AS filtered_count,
+	(
+		SELECT COUNT({{prefix}}identity_invitations.id)
+		FROM {{prefix}}identity_invitations
+		WHERE (COALESCE(?, false) = true OR {{prefix}}identity_invitations.archived_at IS NULL)
+			AND {{prefix}}identity_invitations.scope = ?
+			AND {{prefix}}identity_invitations.to_email = ?
+			AND {{prefix}}identity_invitations.status = ?
+	) AS total_count
+FROM {{prefix}}identity_invitations
+WHERE {{prefix}}identity_invitations.created_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+	AND {{prefix}}identity_invitations.created_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+	AND (
+		{{prefix}}identity_invitations.last_updated_at IS NULL
+		OR {{prefix}}identity_invitations.last_updated_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+	)
+	AND (
+		{{prefix}}identity_invitations.last_updated_at IS NULL
+		OR {{prefix}}identity_invitations.last_updated_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+	)
+	AND (COALESCE(?, false) = true OR {{prefix}}identity_invitations.archived_at IS NULL)
+	AND {{prefix}}identity_invitations.scope = ?
+	AND {{prefix}}identity_invitations.to_email = ?
+	AND {{prefix}}identity_invitations.status = ?
+	AND ({{prefix}}identity_invitations.id <= COALESCE(?, {{prefix}}identity_invitations.id) AND {{prefix}}identity_invitations.id <> COALESCE(?, ''))
+ORDER BY {{prefix}}identity_invitations.id DESC
+LIMIT ?`
+
+const listInvitationsDescendingMySQL = `SELECT
+	{{prefix}}identity_invitations.id,
+	{{prefix}}identity_invitations.scope,
+	{{prefix}}identity_invitations.belongs_to_account,
+	{{prefix}}identity_invitations.from_user,
+	{{prefix}}identity_invitations.to_email,
+	{{prefix}}identity_invitations.to_name,
+	{{prefix}}identity_invitations.to_user,
+	{{prefix}}identity_invitations.token,
+	{{prefix}}identity_invitations.status,
+	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.expires_at,
+	{{prefix}}identity_invitations.created_at,
+	{{prefix}}identity_invitations.last_updated_at,
+	{{prefix}}identity_invitations.archived_at,
+	(
+		SELECT COUNT({{prefix}}identity_invitations.id)
+		FROM {{prefix}}identity_invitations
+		WHERE {{prefix}}identity_invitations.created_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+			AND {{prefix}}identity_invitations.created_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+			AND (
+				{{prefix}}identity_invitations.last_updated_at IS NULL
+				OR {{prefix}}identity_invitations.last_updated_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+			)
+			AND (
+				{{prefix}}identity_invitations.last_updated_at IS NULL
+				OR {{prefix}}identity_invitations.last_updated_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+			)
+			AND (COALESCE(?, false) = true OR {{prefix}}identity_invitations.archived_at IS NULL)
+			AND {{prefix}}identity_invitations.scope = ?
+	) AS filtered_count,
+	(
+		SELECT COUNT({{prefix}}identity_invitations.id)
+		FROM {{prefix}}identity_invitations
+		WHERE (COALESCE(?, false) = true OR {{prefix}}identity_invitations.archived_at IS NULL)
+			AND {{prefix}}identity_invitations.scope = ?
+	) AS total_count
+FROM {{prefix}}identity_invitations
+WHERE {{prefix}}identity_invitations.created_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+	AND {{prefix}}identity_invitations.created_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+	AND (
+		{{prefix}}identity_invitations.last_updated_at IS NULL
+		OR {{prefix}}identity_invitations.last_updated_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+	)
+	AND (
+		{{prefix}}identity_invitations.last_updated_at IS NULL
+		OR {{prefix}}identity_invitations.last_updated_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+	)
+	AND (COALESCE(?, false) = true OR {{prefix}}identity_invitations.archived_at IS NULL)
+	AND {{prefix}}identity_invitations.scope = ?
+	AND ({{prefix}}identity_invitations.id <= COALESCE(?, {{prefix}}identity_invitations.id) AND {{prefix}}identity_invitations.id <> COALESCE(?, ''))
+ORDER BY {{prefix}}identity_invitations.id DESC
 LIMIT ?`
 
 const listMembershipsForUserMySQL = `SELECT
@@ -792,6 +1170,66 @@ WHERE {{prefix}}identity_users.created_at > COALESCE(?, (SELECT CURRENT_TIMESTAM
 ORDER BY {{prefix}}identity_users.id ASC
 LIMIT ?`
 
+const listUsersDescendingMySQL = `SELECT
+	{{prefix}}identity_users.id,
+	{{prefix}}identity_users.scope,
+	{{prefix}}identity_users.username,
+	{{prefix}}identity_users.email_address,
+	{{prefix}}identity_users.first_name,
+	{{prefix}}identity_users.last_name,
+	{{prefix}}identity_users.hashed_password,
+	{{prefix}}identity_users.requires_password_change,
+	{{prefix}}identity_users.password_last_changed_at,
+	{{prefix}}identity_users.two_factor_secret,
+	{{prefix}}identity_users.two_factor_secret_verified_at,
+	{{prefix}}identity_users.email_address_verified_at,
+	{{prefix}}identity_users.email_address_verification_token,
+	{{prefix}}identity_users.account_status,
+	{{prefix}}identity_users.account_status_explanation,
+	{{prefix}}identity_users.last_accepted_terms_of_service,
+	{{prefix}}identity_users.last_accepted_privacy_policy,
+	{{prefix}}identity_users.created_at,
+	{{prefix}}identity_users.last_updated_at,
+	{{prefix}}identity_users.archived_at,
+	(
+		SELECT COUNT({{prefix}}identity_users.id)
+		FROM {{prefix}}identity_users
+		WHERE {{prefix}}identity_users.created_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+			AND {{prefix}}identity_users.created_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+			AND (
+				{{prefix}}identity_users.last_updated_at IS NULL
+				OR {{prefix}}identity_users.last_updated_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+			)
+			AND (
+				{{prefix}}identity_users.last_updated_at IS NULL
+				OR {{prefix}}identity_users.last_updated_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+			)
+			AND (COALESCE(?, false) = true OR {{prefix}}identity_users.archived_at IS NULL)
+			AND {{prefix}}identity_users.scope = ?
+	) AS filtered_count,
+	(
+		SELECT COUNT({{prefix}}identity_users.id)
+		FROM {{prefix}}identity_users
+		WHERE (COALESCE(?, false) = true OR {{prefix}}identity_users.archived_at IS NULL)
+			AND {{prefix}}identity_users.scope = ?
+	) AS total_count
+FROM {{prefix}}identity_users
+WHERE {{prefix}}identity_users.created_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+	AND {{prefix}}identity_users.created_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+	AND (
+		{{prefix}}identity_users.last_updated_at IS NULL
+		OR {{prefix}}identity_users.last_updated_at > COALESCE(?, (SELECT CURRENT_TIMESTAMP - INTERVAL 999 YEAR))
+	)
+	AND (
+		{{prefix}}identity_users.last_updated_at IS NULL
+		OR {{prefix}}identity_users.last_updated_at < COALESCE(?, (SELECT CURRENT_TIMESTAMP + INTERVAL 999 YEAR))
+	)
+	AND (COALESCE(?, false) = true OR {{prefix}}identity_users.archived_at IS NULL)
+	AND {{prefix}}identity_users.scope = ?
+	AND ({{prefix}}identity_users.id <= COALESCE(?, {{prefix}}identity_users.id) AND {{prefix}}identity_users.id <> COALESCE(?, ''))
+ORDER BY {{prefix}}identity_users.id DESC
+LIMIT ?`
+
 const markAccountBillingSyncedMySQL = `UPDATE {{prefix}}identity_accounts SET
 	last_payment_provider_synced_at = ?,
 	last_updated_at = CURRENT_TIMESTAMP(6)
@@ -844,6 +1282,35 @@ WHERE {{prefix}}identity_users.archived_at IS NULL
 	AND ({{prefix}}identity_users.username LIKE ? ESCAPE '!')
 	AND {{prefix}}identity_users.username > COALESCE(?, '')
 ORDER BY {{prefix}}identity_users.username ASC
+LIMIT ?`
+
+const searchUsersByUsernameDescendingMySQL = `SELECT
+	{{prefix}}identity_users.id,
+	{{prefix}}identity_users.scope,
+	{{prefix}}identity_users.username,
+	{{prefix}}identity_users.email_address,
+	{{prefix}}identity_users.first_name,
+	{{prefix}}identity_users.last_name,
+	{{prefix}}identity_users.hashed_password,
+	{{prefix}}identity_users.requires_password_change,
+	{{prefix}}identity_users.password_last_changed_at,
+	{{prefix}}identity_users.two_factor_secret,
+	{{prefix}}identity_users.two_factor_secret_verified_at,
+	{{prefix}}identity_users.email_address_verified_at,
+	{{prefix}}identity_users.email_address_verification_token,
+	{{prefix}}identity_users.account_status,
+	{{prefix}}identity_users.account_status_explanation,
+	{{prefix}}identity_users.last_accepted_terms_of_service,
+	{{prefix}}identity_users.last_accepted_privacy_policy,
+	{{prefix}}identity_users.created_at,
+	{{prefix}}identity_users.last_updated_at,
+	{{prefix}}identity_users.archived_at
+FROM {{prefix}}identity_users
+WHERE {{prefix}}identity_users.archived_at IS NULL
+	AND {{prefix}}identity_users.scope = ?
+	AND ({{prefix}}identity_users.username LIKE ? ESCAPE '!')
+	AND ({{prefix}}identity_users.username <= COALESCE(?, {{prefix}}identity_users.username) AND {{prefix}}identity_users.username <> COALESCE(?, ''))
+ORDER BY {{prefix}}identity_users.username DESC
 LIMIT ?`
 
 const setAccountBillingStatusMySQL = `UPDATE {{prefix}}identity_accounts SET
@@ -973,17 +1440,25 @@ type mysqlQueries struct {
 	getUserByUsername                    string
 	getUserCreatedAt                     string
 	listAccountMembers                   string
+	listAccountMembersDescending         string
 	listAccounts                         string
+	listAccountsDescending               string
 	listAccountsForUser                  string
+	listAccountsForUserDescending        string
 	listInvitations                      string
 	listInvitationsByFromUser            string
+	listInvitationsByFromUserDescending  string
 	listInvitationsByToEmail             string
+	listInvitationsByToEmailDescending   string
+	listInvitationsDescending            string
 	listMembershipsForUser               string
 	listUsers                            string
+	listUsersDescending                  string
 	markAccountBillingSynced             string
 	markUserEmailAddressVerified         string
 	recordAccountSubscription            string
 	searchUsersByUsername                string
+	searchUsersByUsernameDescending      string
 	setAccountBillingStatus              string
 	setAccountPaymentProcessorCustomerID string
 	setUserEmailAddressVerificationToken string
@@ -1021,17 +1496,25 @@ func newMySQL(prefix string) *mysqlQueries {
 		getUserByUsername:                    strings.ReplaceAll(getUserByUsernameMySQL, prefixMarker, prefix),
 		getUserCreatedAt:                     strings.ReplaceAll(getUserCreatedAtMySQL, prefixMarker, prefix),
 		listAccountMembers:                   strings.ReplaceAll(listAccountMembersMySQL, prefixMarker, prefix),
+		listAccountMembersDescending:         strings.ReplaceAll(listAccountMembersDescendingMySQL, prefixMarker, prefix),
 		listAccounts:                         strings.ReplaceAll(listAccountsMySQL, prefixMarker, prefix),
+		listAccountsDescending:               strings.ReplaceAll(listAccountsDescendingMySQL, prefixMarker, prefix),
 		listAccountsForUser:                  strings.ReplaceAll(listAccountsForUserMySQL, prefixMarker, prefix),
+		listAccountsForUserDescending:        strings.ReplaceAll(listAccountsForUserDescendingMySQL, prefixMarker, prefix),
 		listInvitations:                      strings.ReplaceAll(listInvitationsMySQL, prefixMarker, prefix),
 		listInvitationsByFromUser:            strings.ReplaceAll(listInvitationsByFromUserMySQL, prefixMarker, prefix),
+		listInvitationsByFromUserDescending:  strings.ReplaceAll(listInvitationsByFromUserDescendingMySQL, prefixMarker, prefix),
 		listInvitationsByToEmail:             strings.ReplaceAll(listInvitationsByToEmailMySQL, prefixMarker, prefix),
+		listInvitationsByToEmailDescending:   strings.ReplaceAll(listInvitationsByToEmailDescendingMySQL, prefixMarker, prefix),
+		listInvitationsDescending:            strings.ReplaceAll(listInvitationsDescendingMySQL, prefixMarker, prefix),
 		listMembershipsForUser:               strings.ReplaceAll(listMembershipsForUserMySQL, prefixMarker, prefix),
 		listUsers:                            strings.ReplaceAll(listUsersMySQL, prefixMarker, prefix),
+		listUsersDescending:                  strings.ReplaceAll(listUsersDescendingMySQL, prefixMarker, prefix),
 		markAccountBillingSynced:             strings.ReplaceAll(markAccountBillingSyncedMySQL, prefixMarker, prefix),
 		markUserEmailAddressVerified:         strings.ReplaceAll(markUserEmailAddressVerifiedMySQL, prefixMarker, prefix),
 		recordAccountSubscription:            strings.ReplaceAll(recordAccountSubscriptionMySQL, prefixMarker, prefix),
 		searchUsersByUsername:                strings.ReplaceAll(searchUsersByUsernameMySQL, prefixMarker, prefix),
+		searchUsersByUsernameDescending:      strings.ReplaceAll(searchUsersByUsernameDescendingMySQL, prefixMarker, prefix),
 		setAccountBillingStatus:              strings.ReplaceAll(setAccountBillingStatusMySQL, prefixMarker, prefix),
 		setAccountPaymentProcessorCustomerID: strings.ReplaceAll(setAccountPaymentProcessorCustomerIDMySQL, prefixMarker, prefix),
 		setUserEmailAddressVerificationToken: strings.ReplaceAll(setUserEmailAddressVerificationTokenMySQL, prefixMarker, prefix),
@@ -1558,6 +2041,86 @@ func (q *mysqlQueries) ListAccountMembers(ctx context.Context, db DBTX, arg List
 	return items, nil
 }
 
+// ListAccountMembersDescending runs the :many query against mysql.
+func (q *mysqlQueries) ListAccountMembersDescending(ctx context.Context, db DBTX, arg ListAccountMembersDescendingParams) ([]ListAccountMembersDescendingRow, error) {
+	rows, err := db.QueryContext(ctx, q.listAccountMembersDescending,
+		arg.CreatedAfter,
+		arg.CreatedBefore,
+		arg.UpdatedAfter,
+		arg.UpdatedBefore,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.BelongsToAccount,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.BelongsToAccount,
+		arg.CreatedAfter,
+		arg.CreatedBefore,
+		arg.UpdatedAfter,
+		arg.UpdatedBefore,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.BelongsToAccount,
+		arg.PageCursor,
+		arg.PageCursor,
+		arg.ResultLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var items []ListAccountMembersDescendingRow
+
+	for rows.Next() {
+		var i ListAccountMembersDescendingRow
+
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.BelongsToUser,
+			&i.BelongsToAccount,
+			&i.DefaultAccount,
+			&i.CreatedAt,
+			&i.LastUpdatedAt,
+			&i.ArchivedAt,
+			&i.UserID,
+			&i.UserScope,
+			&i.UserUsername,
+			&i.UserEmailAddress,
+			&i.UserFirstName,
+			&i.UserLastName,
+			&i.UserHashedPassword,
+			&i.UserRequiresPasswordChange,
+			&i.UserPasswordLastChangedAt,
+			&i.UserTwoFactorSecret,
+			&i.UserTwoFactorSecretVerifiedAt,
+			&i.UserEmailAddressVerifiedAt,
+			&i.UserEmailAddressVerificationToken,
+			&i.UserAccountStatus,
+			&i.UserAccountStatusExplanation,
+			&i.UserLastAcceptedTermsOfService,
+			&i.UserLastAcceptedPrivacyPolicy,
+			&i.UserCreatedAt,
+			&i.UserLastUpdatedAt,
+			&i.UserArchivedAt,
+			&i.FilteredCount,
+			&i.TotalCount,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(items, i)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
 // ListAccounts runs the :many query against mysql.
 func (q *mysqlQueries) ListAccounts(ctx context.Context, db DBTX, arg ListAccountsParams) ([]ListAccountsRow, error) {
 	rows, err := db.QueryContext(ctx, q.listAccounts,
@@ -1588,6 +2151,74 @@ func (q *mysqlQueries) ListAccounts(ctx context.Context, db DBTX, arg ListAccoun
 
 	for rows.Next() {
 		var i ListAccountsRow
+
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.Name,
+			&i.OwnerUserID,
+			&i.BillingStatus,
+			&i.SubscriptionPlanID,
+			&i.PaymentProcessorCustomerID,
+			&i.LastPaymentProviderSyncedAt,
+			&i.AddressLine1,
+			&i.AddressLine2,
+			&i.AddressCity,
+			&i.AddressState,
+			&i.AddressPostalCode,
+			&i.AddressCountry,
+			&i.AddressPhone,
+			&i.TimeZone,
+			&i.CreatedAt,
+			&i.LastUpdatedAt,
+			&i.ArchivedAt,
+			&i.FilteredCount,
+			&i.TotalCount,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(items, i)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
+// ListAccountsDescending runs the :many query against mysql.
+func (q *mysqlQueries) ListAccountsDescending(ctx context.Context, db DBTX, arg ListAccountsDescendingParams) ([]ListAccountsDescendingRow, error) {
+	rows, err := db.QueryContext(ctx, q.listAccountsDescending,
+		arg.CreatedAfter,
+		arg.CreatedBefore,
+		arg.UpdatedAfter,
+		arg.UpdatedBefore,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.CreatedAfter,
+		arg.CreatedBefore,
+		arg.UpdatedAfter,
+		arg.UpdatedBefore,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.PageCursor,
+		arg.PageCursor,
+		arg.ResultLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var items []ListAccountsDescendingRow
+
+	for rows.Next() {
+		var i ListAccountsDescendingRow
 
 		if err := rows.Scan(
 			&i.ID,
@@ -1658,6 +2289,77 @@ func (q *mysqlQueries) ListAccountsForUser(ctx context.Context, db DBTX, arg Lis
 
 	for rows.Next() {
 		var i ListAccountsForUserRow
+
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.Name,
+			&i.OwnerUserID,
+			&i.BillingStatus,
+			&i.SubscriptionPlanID,
+			&i.PaymentProcessorCustomerID,
+			&i.LastPaymentProviderSyncedAt,
+			&i.AddressLine1,
+			&i.AddressLine2,
+			&i.AddressCity,
+			&i.AddressState,
+			&i.AddressPostalCode,
+			&i.AddressCountry,
+			&i.AddressPhone,
+			&i.TimeZone,
+			&i.CreatedAt,
+			&i.LastUpdatedAt,
+			&i.ArchivedAt,
+			&i.FilteredCount,
+			&i.TotalCount,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(items, i)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
+// ListAccountsForUserDescending runs the :many query against mysql.
+func (q *mysqlQueries) ListAccountsForUserDescending(ctx context.Context, db DBTX, arg ListAccountsForUserDescendingParams) ([]ListAccountsForUserDescendingRow, error) {
+	rows, err := db.QueryContext(ctx, q.listAccountsForUserDescending,
+		arg.CreatedAfter,
+		arg.CreatedBefore,
+		arg.UpdatedAfter,
+		arg.UpdatedBefore,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.BelongsToUser,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.BelongsToUser,
+		arg.CreatedAfter,
+		arg.CreatedBefore,
+		arg.UpdatedAfter,
+		arg.UpdatedBefore,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.BelongsToUser,
+		arg.PageCursor,
+		arg.PageCursor,
+		arg.ResultLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var items []ListAccountsForUserDescendingRow
+
+	for rows.Next() {
+		var i ListAccountsForUserDescendingRow
 
 		if err := rows.Scan(
 			&i.ID,
@@ -1825,6 +2527,75 @@ func (q *mysqlQueries) ListInvitationsByFromUser(ctx context.Context, db DBTX, a
 	return items, nil
 }
 
+// ListInvitationsByFromUserDescending runs the :many query against mysql.
+func (q *mysqlQueries) ListInvitationsByFromUserDescending(ctx context.Context, db DBTX, arg ListInvitationsByFromUserDescendingParams) ([]ListInvitationsByFromUserDescendingRow, error) {
+	rows, err := db.QueryContext(ctx, q.listInvitationsByFromUserDescending,
+		arg.CreatedAfter,
+		arg.CreatedBefore,
+		arg.UpdatedAfter,
+		arg.UpdatedBefore,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.FromUser,
+		arg.Status,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.FromUser,
+		arg.Status,
+		arg.CreatedAfter,
+		arg.CreatedBefore,
+		arg.UpdatedAfter,
+		arg.UpdatedBefore,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.FromUser,
+		arg.Status,
+		arg.PageCursor,
+		arg.PageCursor,
+		arg.ResultLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var items []ListInvitationsByFromUserDescendingRow
+
+	for rows.Next() {
+		var i ListInvitationsByFromUserDescendingRow
+
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.BelongsToAccount,
+			&i.FromUser,
+			&i.ToEmail,
+			&i.ToName,
+			&i.ToUser,
+			&i.Token,
+			&i.Status,
+			&i.Note,
+			&i.ExpiresAt,
+			&i.CreatedAt,
+			&i.LastUpdatedAt,
+			&i.ArchivedAt,
+			&i.FilteredCount,
+			&i.TotalCount,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(items, i)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
 // ListInvitationsByToEmail runs the :many query against mysql.
 func (q *mysqlQueries) ListInvitationsByToEmail(ctx context.Context, db DBTX, arg ListInvitationsByToEmailParams) ([]ListInvitationsByToEmailRow, error) {
 	rows, err := db.QueryContext(ctx, q.listInvitationsByToEmail,
@@ -1861,6 +2632,138 @@ func (q *mysqlQueries) ListInvitationsByToEmail(ctx context.Context, db DBTX, ar
 
 	for rows.Next() {
 		var i ListInvitationsByToEmailRow
+
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.BelongsToAccount,
+			&i.FromUser,
+			&i.ToEmail,
+			&i.ToName,
+			&i.ToUser,
+			&i.Token,
+			&i.Status,
+			&i.Note,
+			&i.ExpiresAt,
+			&i.CreatedAt,
+			&i.LastUpdatedAt,
+			&i.ArchivedAt,
+			&i.FilteredCount,
+			&i.TotalCount,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(items, i)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
+// ListInvitationsByToEmailDescending runs the :many query against mysql.
+func (q *mysqlQueries) ListInvitationsByToEmailDescending(ctx context.Context, db DBTX, arg ListInvitationsByToEmailDescendingParams) ([]ListInvitationsByToEmailDescendingRow, error) {
+	rows, err := db.QueryContext(ctx, q.listInvitationsByToEmailDescending,
+		arg.CreatedAfter,
+		arg.CreatedBefore,
+		arg.UpdatedAfter,
+		arg.UpdatedBefore,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.ToEmail,
+		arg.Status,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.ToEmail,
+		arg.Status,
+		arg.CreatedAfter,
+		arg.CreatedBefore,
+		arg.UpdatedAfter,
+		arg.UpdatedBefore,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.ToEmail,
+		arg.Status,
+		arg.PageCursor,
+		arg.PageCursor,
+		arg.ResultLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var items []ListInvitationsByToEmailDescendingRow
+
+	for rows.Next() {
+		var i ListInvitationsByToEmailDescendingRow
+
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.BelongsToAccount,
+			&i.FromUser,
+			&i.ToEmail,
+			&i.ToName,
+			&i.ToUser,
+			&i.Token,
+			&i.Status,
+			&i.Note,
+			&i.ExpiresAt,
+			&i.CreatedAt,
+			&i.LastUpdatedAt,
+			&i.ArchivedAt,
+			&i.FilteredCount,
+			&i.TotalCount,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(items, i)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
+// ListInvitationsDescending runs the :many query against mysql.
+func (q *mysqlQueries) ListInvitationsDescending(ctx context.Context, db DBTX, arg ListInvitationsDescendingParams) ([]ListInvitationsDescendingRow, error) {
+	rows, err := db.QueryContext(ctx, q.listInvitationsDescending,
+		arg.CreatedAfter,
+		arg.CreatedBefore,
+		arg.UpdatedAfter,
+		arg.UpdatedBefore,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.CreatedAfter,
+		arg.CreatedBefore,
+		arg.UpdatedAfter,
+		arg.UpdatedBefore,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.PageCursor,
+		arg.PageCursor,
+		arg.ResultLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var items []ListInvitationsDescendingRow
+
+	for rows.Next() {
+		var i ListInvitationsDescendingRow
 
 		if err := rows.Scan(
 			&i.ID,
@@ -2001,6 +2904,75 @@ func (q *mysqlQueries) ListUsers(ctx context.Context, db DBTX, arg ListUsersPara
 	return items, nil
 }
 
+// ListUsersDescending runs the :many query against mysql.
+func (q *mysqlQueries) ListUsersDescending(ctx context.Context, db DBTX, arg ListUsersDescendingParams) ([]ListUsersDescendingRow, error) {
+	rows, err := db.QueryContext(ctx, q.listUsersDescending,
+		arg.CreatedAfter,
+		arg.CreatedBefore,
+		arg.UpdatedAfter,
+		arg.UpdatedBefore,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.CreatedAfter,
+		arg.CreatedBefore,
+		arg.UpdatedAfter,
+		arg.UpdatedBefore,
+		arg.IncludeArchived,
+		arg.Scope,
+		arg.PageCursor,
+		arg.PageCursor,
+		arg.ResultLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var items []ListUsersDescendingRow
+
+	for rows.Next() {
+		var i ListUsersDescendingRow
+
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.Username,
+			&i.EmailAddress,
+			&i.FirstName,
+			&i.LastName,
+			&i.HashedPassword,
+			&i.RequiresPasswordChange,
+			&i.PasswordLastChangedAt,
+			&i.TwoFactorSecret,
+			&i.TwoFactorSecretVerifiedAt,
+			&i.EmailAddressVerifiedAt,
+			&i.EmailAddressVerificationToken,
+			&i.AccountStatus,
+			&i.AccountStatusExplanation,
+			&i.LastAcceptedTermsOfService,
+			&i.LastAcceptedPrivacyPolicy,
+			&i.CreatedAt,
+			&i.LastUpdatedAt,
+			&i.ArchivedAt,
+			&i.FilteredCount,
+			&i.TotalCount,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(items, i)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
 // MarkAccountBillingSynced runs the :execrows query against mysql.
 func (q *mysqlQueries) MarkAccountBillingSynced(ctx context.Context, db DBTX, arg MarkAccountBillingSyncedParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.markAccountBillingSynced,
@@ -2065,6 +3037,61 @@ func (q *mysqlQueries) SearchUsersByUsername(ctx context.Context, db DBTX, arg S
 
 	for rows.Next() {
 		var i SearchUsersByUsernameRow
+
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.Username,
+			&i.EmailAddress,
+			&i.FirstName,
+			&i.LastName,
+			&i.HashedPassword,
+			&i.RequiresPasswordChange,
+			&i.PasswordLastChangedAt,
+			&i.TwoFactorSecret,
+			&i.TwoFactorSecretVerifiedAt,
+			&i.EmailAddressVerifiedAt,
+			&i.EmailAddressVerificationToken,
+			&i.AccountStatus,
+			&i.AccountStatusExplanation,
+			&i.LastAcceptedTermsOfService,
+			&i.LastAcceptedPrivacyPolicy,
+			&i.CreatedAt,
+			&i.LastUpdatedAt,
+			&i.ArchivedAt,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(items, i)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
+// SearchUsersByUsernameDescending runs the :many query against mysql.
+func (q *mysqlQueries) SearchUsersByUsernameDescending(ctx context.Context, db DBTX, arg SearchUsersByUsernameDescendingParams) ([]SearchUsersByUsernameDescendingRow, error) {
+	rows, err := db.QueryContext(ctx, q.searchUsersByUsernameDescending,
+		arg.Scope,
+		arg.UsernamePrefix,
+		arg.PageCursor,
+		arg.PageCursor,
+		arg.ResultLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var items []SearchUsersByUsernameDescendingRow
+
+	for rows.Next() {
+		var i SearchUsersByUsernameDescendingRow
 
 		if err := rows.Scan(
 			&i.ID,
@@ -2593,6 +3620,49 @@ var (
 		TotalCount                        int64
 	}(ListAccountMembersRow{})
 	_ = struct {
+		CreatedAfter     *time.Time
+		CreatedBefore    *time.Time
+		UpdatedAfter     *time.Time
+		UpdatedBefore    *time.Time
+		IncludeArchived  bool
+		Scope            tenancy.Scope
+		BelongsToAccount string
+		PageCursor       *string
+		ResultLimit      int64
+	}(ListAccountMembersDescendingParams{})
+	_ = struct {
+		ID                                string
+		Scope                             tenancy.Scope
+		BelongsToUser                     string
+		BelongsToAccount                  string
+		DefaultAccount                    bool
+		CreatedAt                         time.Time
+		LastUpdatedAt                     *time.Time
+		ArchivedAt                        *time.Time
+		UserID                            string
+		UserScope                         tenancy.Scope
+		UserUsername                      string
+		UserEmailAddress                  string
+		UserFirstName                     string
+		UserLastName                      string
+		UserHashedPassword                string
+		UserRequiresPasswordChange        bool
+		UserPasswordLastChangedAt         *time.Time
+		UserTwoFactorSecret               string
+		UserTwoFactorSecretVerifiedAt     *time.Time
+		UserEmailAddressVerifiedAt        *time.Time
+		UserEmailAddressVerificationToken string
+		UserAccountStatus                 string
+		UserAccountStatusExplanation      string
+		UserLastAcceptedTermsOfService    *time.Time
+		UserLastAcceptedPrivacyPolicy     *time.Time
+		UserCreatedAt                     time.Time
+		UserLastUpdatedAt                 *time.Time
+		UserArchivedAt                    *time.Time
+		FilteredCount                     int64
+		TotalCount                        int64
+	}(ListAccountMembersDescendingRow{})
+	_ = struct {
 		CreatedAfter    *time.Time
 		CreatedBefore   *time.Time
 		UpdatedAfter    *time.Time
@@ -2632,6 +3702,39 @@ var (
 		UpdatedBefore   *time.Time
 		IncludeArchived bool
 		Scope           tenancy.Scope
+		PageCursor      *string
+		ResultLimit     int64
+	}(ListAccountsDescendingParams{})
+	_ = struct {
+		ID                          string
+		Scope                       tenancy.Scope
+		Name                        string
+		OwnerUserID                 string
+		BillingStatus               string
+		SubscriptionPlanID          *string
+		PaymentProcessorCustomerID  string
+		LastPaymentProviderSyncedAt *time.Time
+		AddressLine1                string
+		AddressLine2                string
+		AddressCity                 string
+		AddressState                string
+		AddressPostalCode           string
+		AddressCountry              string
+		AddressPhone                string
+		TimeZone                    string
+		CreatedAt                   time.Time
+		LastUpdatedAt               *time.Time
+		ArchivedAt                  *time.Time
+		FilteredCount               int64
+		TotalCount                  int64
+	}(ListAccountsDescendingRow{})
+	_ = struct {
+		CreatedAfter    *time.Time
+		CreatedBefore   *time.Time
+		UpdatedAfter    *time.Time
+		UpdatedBefore   *time.Time
+		IncludeArchived bool
+		Scope           tenancy.Scope
 		BelongsToUser   string
 		PageCursor      *string
 		ResultLimit     int64
@@ -2659,6 +3762,40 @@ var (
 		FilteredCount               int64
 		TotalCount                  int64
 	}(ListAccountsForUserRow{})
+	_ = struct {
+		CreatedAfter    *time.Time
+		CreatedBefore   *time.Time
+		UpdatedAfter    *time.Time
+		UpdatedBefore   *time.Time
+		IncludeArchived bool
+		Scope           tenancy.Scope
+		BelongsToUser   string
+		PageCursor      *string
+		ResultLimit     int64
+	}(ListAccountsForUserDescendingParams{})
+	_ = struct {
+		ID                          string
+		Scope                       tenancy.Scope
+		Name                        string
+		OwnerUserID                 string
+		BillingStatus               string
+		SubscriptionPlanID          *string
+		PaymentProcessorCustomerID  string
+		LastPaymentProviderSyncedAt *time.Time
+		AddressLine1                string
+		AddressLine2                string
+		AddressCity                 string
+		AddressState                string
+		AddressPostalCode           string
+		AddressCountry              string
+		AddressPhone                string
+		TimeZone                    string
+		CreatedAt                   time.Time
+		LastUpdatedAt               *time.Time
+		ArchivedAt                  *time.Time
+		FilteredCount               int64
+		TotalCount                  int64
+	}(ListAccountsForUserDescendingRow{})
 	_ = struct {
 		CreatedAfter    *time.Time
 		CreatedBefore   *time.Time
@@ -2724,6 +3861,36 @@ var (
 		UpdatedBefore   *time.Time
 		IncludeArchived bool
 		Scope           tenancy.Scope
+		FromUser        string
+		Status          string
+		PageCursor      *string
+		ResultLimit     int64
+	}(ListInvitationsByFromUserDescendingParams{})
+	_ = struct {
+		ID               string
+		Scope            tenancy.Scope
+		BelongsToAccount string
+		FromUser         string
+		ToEmail          string
+		ToName           string
+		ToUser           *string
+		Token            string
+		Status           string
+		Note             string
+		ExpiresAt        time.Time
+		CreatedAt        time.Time
+		LastUpdatedAt    *time.Time
+		ArchivedAt       *time.Time
+		FilteredCount    int64
+		TotalCount       int64
+	}(ListInvitationsByFromUserDescendingRow{})
+	_ = struct {
+		CreatedAfter    *time.Time
+		CreatedBefore   *time.Time
+		UpdatedAfter    *time.Time
+		UpdatedBefore   *time.Time
+		IncludeArchived bool
+		Scope           tenancy.Scope
 		ToEmail         string
 		Status          string
 		PageCursor      *string
@@ -2747,6 +3914,64 @@ var (
 		FilteredCount    int64
 		TotalCount       int64
 	}(ListInvitationsByToEmailRow{})
+	_ = struct {
+		CreatedAfter    *time.Time
+		CreatedBefore   *time.Time
+		UpdatedAfter    *time.Time
+		UpdatedBefore   *time.Time
+		IncludeArchived bool
+		Scope           tenancy.Scope
+		ToEmail         string
+		Status          string
+		PageCursor      *string
+		ResultLimit     int64
+	}(ListInvitationsByToEmailDescendingParams{})
+	_ = struct {
+		ID               string
+		Scope            tenancy.Scope
+		BelongsToAccount string
+		FromUser         string
+		ToEmail          string
+		ToName           string
+		ToUser           *string
+		Token            string
+		Status           string
+		Note             string
+		ExpiresAt        time.Time
+		CreatedAt        time.Time
+		LastUpdatedAt    *time.Time
+		ArchivedAt       *time.Time
+		FilteredCount    int64
+		TotalCount       int64
+	}(ListInvitationsByToEmailDescendingRow{})
+	_ = struct {
+		CreatedAfter    *time.Time
+		CreatedBefore   *time.Time
+		UpdatedAfter    *time.Time
+		UpdatedBefore   *time.Time
+		IncludeArchived bool
+		Scope           tenancy.Scope
+		PageCursor      *string
+		ResultLimit     int64
+	}(ListInvitationsDescendingParams{})
+	_ = struct {
+		ID               string
+		Scope            tenancy.Scope
+		BelongsToAccount string
+		FromUser         string
+		ToEmail          string
+		ToName           string
+		ToUser           *string
+		Token            string
+		Status           string
+		Note             string
+		ExpiresAt        time.Time
+		CreatedAt        time.Time
+		LastUpdatedAt    *time.Time
+		ArchivedAt       *time.Time
+		FilteredCount    int64
+		TotalCount       int64
+	}(ListInvitationsDescendingRow{})
 	_ = struct {
 		Scope         tenancy.Scope
 		BelongsToUser string
@@ -2796,6 +4021,40 @@ var (
 		TotalCount                    int64
 	}(ListUsersRow{})
 	_ = struct {
+		CreatedAfter    *time.Time
+		CreatedBefore   *time.Time
+		UpdatedAfter    *time.Time
+		UpdatedBefore   *time.Time
+		IncludeArchived bool
+		Scope           tenancy.Scope
+		PageCursor      *string
+		ResultLimit     int64
+	}(ListUsersDescendingParams{})
+	_ = struct {
+		ID                            string
+		Scope                         tenancy.Scope
+		Username                      string
+		EmailAddress                  string
+		FirstName                     string
+		LastName                      string
+		HashedPassword                string
+		RequiresPasswordChange        bool
+		PasswordLastChangedAt         *time.Time
+		TwoFactorSecret               string
+		TwoFactorSecretVerifiedAt     *time.Time
+		EmailAddressVerifiedAt        *time.Time
+		EmailAddressVerificationToken string
+		AccountStatus                 string
+		AccountStatusExplanation      string
+		LastAcceptedTermsOfService    *time.Time
+		LastAcceptedPrivacyPolicy     *time.Time
+		CreatedAt                     time.Time
+		LastUpdatedAt                 *time.Time
+		ArchivedAt                    *time.Time
+		FilteredCount                 int64
+		TotalCount                    int64
+	}(ListUsersDescendingRow{})
+	_ = struct {
 		LastPaymentProviderSyncedAt *time.Time
 		ID                          string
 		Scope                       tenancy.Scope
@@ -2842,6 +4101,34 @@ var (
 		LastUpdatedAt                 *time.Time
 		ArchivedAt                    *time.Time
 	}(SearchUsersByUsernameRow{})
+	_ = struct {
+		Scope          tenancy.Scope
+		UsernamePrefix string
+		PageCursor     *string
+		ResultLimit    int64
+	}(SearchUsersByUsernameDescendingParams{})
+	_ = struct {
+		ID                            string
+		Scope                         tenancy.Scope
+		Username                      string
+		EmailAddress                  string
+		FirstName                     string
+		LastName                      string
+		HashedPassword                string
+		RequiresPasswordChange        bool
+		PasswordLastChangedAt         *time.Time
+		TwoFactorSecret               string
+		TwoFactorSecretVerifiedAt     *time.Time
+		EmailAddressVerifiedAt        *time.Time
+		EmailAddressVerificationToken string
+		AccountStatus                 string
+		AccountStatusExplanation      string
+		LastAcceptedTermsOfService    *time.Time
+		LastAcceptedPrivacyPolicy     *time.Time
+		CreatedAt                     time.Time
+		LastUpdatedAt                 *time.Time
+		ArchivedAt                    *time.Time
+	}(SearchUsersByUsernameDescendingRow{})
 	_ = struct {
 		BillingStatus string
 		ID            string

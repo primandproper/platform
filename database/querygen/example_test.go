@@ -34,6 +34,7 @@ func ExampleGenerator_StandardCRUD() {
 	// GetWebhook :one
 	// CheckWebhookExistence :one
 	// ListWebhooks :many
+	// ListWebhooksDescending :many
 	// UpdateWebhook :execrows
 	// ArchiveWebhook :execrows
 }
@@ -77,6 +78,7 @@ func ExampleRenderFile() {
 	// -- name: GetThing :one
 	// -- name: CheckThingExistence :one
 	// -- name: ListThings :many
+	// -- name: ListThingsDescending :many
 	// -- name: ArchiveThing :execrows
 }
 
@@ -87,7 +89,7 @@ func ExampleGenerator_FilterConditions() {
 	g := querygen.For(dialect.Postgres)
 	columns := []string{querygen.IDColumn, querygen.CreatedAtColumn, querygen.ArchivedAtColumn}
 
-	fmt.Println(g.FilterConditions("things", columns, g.ContainsCondition("things.name", "name_query")))
+	fmt.Println(g.FilterConditions("things", columns, querygen.Ascending, g.ContainsCondition("things.name", "name_query")))
 
 	// Output:
 	// things.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
@@ -128,8 +130,8 @@ func ExampleRegistry() {
 // of them is listed is what a page is a page of: a roster is a page of
 // memberships with the member attached, so memberships is listed, the cursor
 // walks its id, and the user's columns arrive beside them under a prefix.
-func ExampleGenerator_JunctionListQuery() {
-	roster := querygen.For(dialect.Postgres).JunctionListQuery(
+func ExampleGenerator_JunctionListQueries() {
+	roster := querygen.For(dialect.Postgres).JunctionListQueries(
 		"ListAccountMembers", "memberships",
 		[]string{querygen.IDColumn, querygen.BelongsToAccountColumn, "belongs_to_user", querygen.ArchivedAtColumn},
 		&querygen.Junction{
@@ -142,18 +144,33 @@ func ExampleGenerator_JunctionListQuery() {
 		querygen.Match{Column: querygen.BelongsToAccountColumn},
 	)
 
-	for line := range strings.SplitSeq(roster.Content, "\n") {
-		if strings.HasPrefix(line, "FROM") || strings.HasPrefix(line, "JOIN") ||
-			strings.HasPrefix(line, "ORDER BY") || strings.Contains(line, " AS user_") {
-			fmt.Println(strings.TrimSpace(line))
+	// Two statements come back rather than one: a page has a direction, and a
+	// direction is statement text rather than a bound value. The ORDER BY is
+	// where they part company.
+	for _, query := range roster {
+		fmt.Println(query.Annotation.Name)
+
+		for line := range strings.SplitSeq(query.Content, "\n") {
+			if strings.HasPrefix(line, "FROM") || strings.HasPrefix(line, "JOIN") ||
+				strings.HasPrefix(line, "ORDER BY") || strings.Contains(line, " AS user_") {
+				fmt.Println(strings.TrimSpace(line))
+			}
 		}
 	}
 
 	// Output:
+	// ListAccountMembers
 	// users.id AS user_id,
 	// users.username AS user_username,
 	// users.archived_at AS user_archived_at,
 	// FROM memberships
 	// JOIN users ON memberships.belongs_to_user=users.id
 	// ORDER BY memberships.id ASC
+	// ListAccountMembersDescending
+	// users.id AS user_id,
+	// users.username AS user_username,
+	// users.archived_at AS user_archived_at,
+	// FROM memberships
+	// JOIN users ON memberships.belongs_to_user=users.id
+	// ORDER BY memberships.id DESC
 }

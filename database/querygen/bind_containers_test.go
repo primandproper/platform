@@ -72,7 +72,7 @@ func gadgetsFor(d dialect.Dialect) *gadgetStatements {
 		// of it that moves a row anywhere.
 		update:  g.BoundUpdate(gadgetsTable, columns, ForUpdate(columns, BelongsToAccountColumn), nil, owner),
 		archive: g.BoundArchive(gadgetsTable, columns, owner),
-		list:    g.BoundList(gadgetsTable, columns, owner),
+		list:    g.BoundList(gadgetsTable, columns, Ascending, owner),
 	}
 }
 

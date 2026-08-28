@@ -94,6 +94,169 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 		test.EqOp(t, uint64(4), filtered)
 	})
 
+	// sortBy is the parameter that parsed, validated and normalized for a long
+	// time while every list answered oldest-first regardless. It is answered by
+	// a second statement rather than by a bound argument — see
+	// filtering.QueryFilter.SortsDescending — so the assertion that matters is
+	// that the walk is a walk: newest first, every row once, and the counts
+	// describing the same collection the ascending page described.
+	t.Run("pages the directory newest first when the filter says so", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		var created []*User
+		for i, name := range []string{"ada", "brian", "carol", "dennis"} {
+			user := newUser(name)
+			user.ID = fmt.Sprintf("u_%02d", i)
+			created = append(created, createUser(t, store, user))
+		}
+
+		neighbor := newUser("eve")
+		neighbor.Scope = otherScope
+		createUser(t, store, neighbor)
+
+		descending := func(cursor *string) *filtering.QueryFilter {
+			return &filtering.QueryFilter{
+				SortBy:          filtering.SortDescending,
+				MaxResponseSize: pointer.To(uint16(2)),
+				Cursor:          cursor,
+			}
+		}
+
+		// The first page has no cursor, which is the case the descending walk
+		// has no sentinel for: it coalesces to the row's own key rather than to
+		// a string that would be above every id in one collation and below some
+		// of them in another.
+		first, err := store.ListUsers(t.Context(), testScope, descending(nil))
+		must.NoError(t, err)
+		must.SliceLen(t, 2, first.Data)
+		test.EqOp(t, "dennis", first.Data[0].Username)
+		test.EqOp(t, "carol", first.Data[1].Username)
+
+		// The counts describe the collection rather than the page, so they are
+		// the ascending page's counts and the neighbor's directory is in
+		// neither.
+		filtered, total, known := first.Counts()
+		must.True(t, known)
+		test.EqOp(t, uint64(4), filtered)
+		test.EqOp(t, uint64(4), total)
+
+		// And the page is still redacted, because that is the store's rule
+		// rather than the statement's.
+		for _, user := range first.Data {
+			test.EqOp(t, "", user.HashedPassword)
+			test.EqOp(t, "", user.TwoFactorSecret)
+		}
+
+		second, err := store.ListUsers(t.Context(), testScope, descending(pointer.To(first.Cursor)))
+		must.NoError(t, err)
+		must.SliceLen(t, 2, second.Data)
+		test.EqOp(t, "brian", second.Data[0].Username)
+		test.EqOp(t, "ada", second.Data[1].Username)
+
+		// The walk ends rather than repeating its last page, which is what a
+		// cursor comparison pointing the wrong way would do.
+		last, err := store.ListUsers(t.Context(), testScope, descending(pointer.To(second.Cursor)))
+		must.NoError(t, err)
+		test.SliceEmpty(t, last.Data)
+
+		// The ascending page over the same filter is the same four users the
+		// other way round: the window, the archived toggle and the scope are
+		// one text on both statements.
+		ascending, err := store.ListUsers(t.Context(), testScope, nil)
+		must.NoError(t, err)
+		must.SliceLen(t, 4, ascending.Data)
+
+		for i, user := range ascending.Data {
+			test.EqOp(t, created[i].ID, user.ID)
+		}
+	})
+
+	t.Run("answers the other paged reads newest first too", func(t *testing.T) {
+		t.Parallel()
+
+		// Every paged read this store serves takes the same filter, so a
+		// direction honored by the directory and dropped by the roster would be
+		// the same silent wrong order in a different response body.
+		store := env.newStore(t)
+		owner := createUser(t, store, newUser("ada"))
+
+		first := createAccountFor(t, store, owner, "First")
+		second := createAccountFor(t, store, owner, "Second")
+
+		for _, name := range []string{"brian", "carol"} {
+			registerInto(t, store, newUser(name), first.ID)
+		}
+
+		newestFirst := &filtering.QueryFilter{SortBy: filtering.SortDescending}
+
+		accounts, err := store.ListAccounts(t.Context(), testScope, newestFirst)
+		must.NoError(t, err)
+		must.SliceLen(t, 2, accounts.Data)
+		test.EqOp(t, second.ID, accounts.Data[0].ID)
+		test.EqOp(t, first.ID, accounts.Data[1].ID)
+
+		mine, err := store.ListAccountsForUser(t.Context(), testScope, owner.ID, newestFirst)
+		must.NoError(t, err)
+		must.SliceLen(t, 2, mine.Data)
+		test.EqOp(t, second.ID, mine.Data[0].ID)
+		test.EqOp(t, first.ID, mine.Data[1].ID)
+
+		roster, err := store.ListAccountMembers(t.Context(), testScope, first.ID, newestFirst)
+		must.NoError(t, err)
+		must.SliceLen(t, 3, roster.Data)
+
+		ascendingRoster, err := store.ListAccountMembers(t.Context(), testScope, first.ID, nil)
+		must.NoError(t, err)
+		must.SliceLen(t, 3, ascendingRoster.Data)
+
+		// The roster is a page of memberships with the member attached, so the
+		// order reversed is the membership ids reversed — and the joined user
+		// still comes back beside each one.
+		for i, member := range roster.Data {
+			test.EqOp(t, ascendingRoster.Data[len(ascendingRoster.Data)-1-i].ID, member.ID)
+			must.NotNil(t, member.User)
+			test.EqOp(t, "", member.User.HashedPassword)
+		}
+	})
+
+	t.Run("searches a username prefix in the direction the filter names", func(t *testing.T) {
+		t.Parallel()
+
+		// The search's order is the searched column's rather than the id's, so
+		// what a direction reverses here is the alphabet. A search that ignored
+		// the filter would look identical to one that honored it on the first
+		// page of a one-page result, which is why this one pages.
+		store := env.newStore(t)
+		for _, name := range []string{"ada", "adam", "adele", "brian"} {
+			createUser(t, store, newUser(name))
+		}
+
+		page, err := store.SearchUsersByUsername(t.Context(), testScope, "ad",
+			&filtering.QueryFilter{SortBy: filtering.SortDescending, MaxResponseSize: pointer.To(uint16(2))})
+		must.NoError(t, err)
+		must.SliceLen(t, 2, page.Data)
+		test.EqOp(t, "adele", page.Data[0].Username)
+		test.EqOp(t, "adam", page.Data[1].Username)
+
+		// The count is its own statement and does not depend on the direction.
+		_, total, known := page.Counts()
+		must.True(t, known)
+		test.EqOp(t, uint64(3), total)
+
+		// The cursor is the username, so the next page resumes below it.
+		next, err := store.SearchUsersByUsername(t.Context(), testScope, "ad",
+			&filtering.QueryFilter{
+				SortBy:          filtering.SortDescending,
+				MaxResponseSize: pointer.To(uint16(2)),
+				Cursor:          pointer.To(page.Cursor),
+			})
+		must.NoError(t, err)
+		must.SliceLen(t, 1, next.Data)
+		test.EqOp(t, "ada", next.Data[0].Username)
+	})
+
 	// The window the hand-written page could not express. It is the reason the
 	// list signatures moved to a filter rather than a cursor and a limit.
 	t.Run("pages the directory through the created window", func(t *testing.T) {

@@ -87,6 +87,48 @@ func windowFrom(filter *filtering.QueryFilter) listWindow {
 	return w
 }
 
+// sortedRows runs whichever of a paged read's two statements the filter's sort
+// direction names, and hands back the ascending statement's rows either way.
+//
+// A paged list is two statements here, because a direction is which way the
+// ORDER BY runs and which way the cursor comparison points — statement text,
+// not a bound value, on all three engines. database/querygen emits the pair and
+// filtering.QueryFilter.SortsDescending picks between them; this is where the
+// pick is made, once, rather than at each of the six paged reads. A read that
+// reached for the ascending statement while holding a descending filter would
+// answer in the order the client did not ask for, and nothing about the rows
+// that came back would say so.
+//
+// The descending rows are converted rather than restated field by field, which
+// is the one place in this file that casts. The preamble's rule is about two
+// projections that happen to agree — a list row and a get row — and these are
+// not that: they are one projection rendered twice, with the walk reversed and
+// nothing else changed. So the conversion is the assertion, and Go makes it the
+// compiler's: the day the two projections stop being identical, in field name,
+// type or order, this stops building rather than filling the wrong fields.
+func sortedRows[Ascending, Descending any](
+	filter *filtering.QueryFilter,
+	ascending func() ([]Ascending, error),
+	descending func() ([]Descending, error),
+	same func(Descending) Ascending,
+) ([]Ascending, error) {
+	if !filter.SortsDescending() {
+		return ascending()
+	}
+
+	rows, err := descending()
+	if err != nil {
+		return nil, err
+	}
+
+	page := make([]Ascending, 0, len(rows))
+	for i := range rows {
+		page = append(page, same(rows[i]))
+	}
+
+	return page, nil
+}
+
 // Users.
 
 func userFromRow(r *identitydb.GetUserRow) *User {

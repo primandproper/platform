@@ -50,7 +50,36 @@ func TestGenerator_CursorCondition(T *testing.T) {
 	T.Run("an absent cursor coalesces rather than branching", func(t *testing.T) {
 		t.Parallel()
 
-		test.EqOp(t, "things.id > COALESCE(sqlc.narg(page_cursor), '')", pg().CursorCondition("things"))
+		test.EqOp(t, "things.id > COALESCE(sqlc.narg(page_cursor), '')", pg().CursorCondition("things", Ascending))
+	})
+
+	// The descending half reaches for no sentinel, because there is no string
+	// that sorts above every id in every collation — it coalesces to the row's
+	// own key instead. See CursorCondition.
+	T.Run("the descending walk coalesces to the row's own key", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t,
+			"(things.id <= COALESCE(sqlc.narg(page_cursor), things.id) AND things.id <> COALESCE(sqlc.narg(page_cursor), ''))",
+			pg().CursorCondition("things", Descending))
+	})
+
+	T.Run("both walks read an empty cursor as the first page", func(t *testing.T) {
+		t.Parallel()
+
+		// The two directions say it differently and have to mean the same
+		// thing: a store that switched direction mid-walk would otherwise find
+		// the first page of one of them empty. Both spell the absent cursor as
+		// the empty string, and neither reads the argument except beside the
+		// column it filters — which is what keeps every analyzer able to type
+		// it.
+		for _, d := range everyDialect() {
+			for _, direction := range []Direction{Ascending, Descending} {
+				test.StrContains(t, For(d).CursorCondition("things", direction),
+					"COALESCE(sqlc.narg(page_cursor), '')",
+					test.Sprintf("dialect %q, %s", d, direction))
+			}
+		}
 	})
 }
 
@@ -60,7 +89,13 @@ func TestGenerator_CursorLimitClause(T *testing.T) {
 	T.Run("orders by the column the cursor names", func(t *testing.T) {
 		t.Parallel()
 
-		test.EqOp(t, "ORDER BY things.id ASC\nLIMIT COALESCE(sqlc.narg(result_limit), 50)", pg().CursorLimitClause("things"))
+		test.EqOp(t, "ORDER BY things.id ASC\nLIMIT COALESCE(sqlc.narg(result_limit), 50)", pg().CursorLimitClause("things", Ascending))
+	})
+
+	T.Run("orders the other way for the descending walk", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, "ORDER BY things.id DESC\nLIMIT COALESCE(sqlc.narg(result_limit), 50)", pg().CursorLimitClause("things", Descending))
 	})
 
 	// The ordering is the same on every dialect; only the page size differs, and
@@ -69,7 +104,9 @@ func TestGenerator_CursorLimitClause(T *testing.T) {
 		t.Parallel()
 
 		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite} {
-			test.StrContains(t, For(d).CursorLimitClause("things"), "ORDER BY things.id ASC\n",
+			test.StrContains(t, For(d).CursorLimitClause("things", Ascending), "ORDER BY things.id ASC\n",
+				test.Sprintf("dialect %q", d))
+			test.StrContains(t, For(d).CursorLimitClause("things", Descending), "ORDER BY things.id DESC\n",
 				test.Sprintf("dialect %q", d))
 		}
 	})
@@ -84,7 +121,19 @@ func TestGenerator_CursorPaginationFragment(T *testing.T) {
 		want := "AND things.id > COALESCE(sqlc.narg(page_cursor), '')\n" +
 			"ORDER BY things.id ASC\nLIMIT COALESCE(sqlc.narg(result_limit), 50)"
 
-		test.EqOp(t, want, pg().CursorPaginationFragment("things"))
+		test.EqOp(t, want, pg().CursorPaginationFragment("things", Ascending))
+	})
+
+	// The predicate and the ordering come from one direction, which is the
+	// property that keeps a cursor naming a position in the order it is walked
+	// in — see cursorLimitClause.
+	T.Run("the comparison and the ordering agree in both directions", func(t *testing.T) {
+		t.Parallel()
+
+		want := "AND (things.id <= COALESCE(sqlc.narg(page_cursor), things.id) AND things.id <> COALESCE(sqlc.narg(page_cursor), ''))\n" +
+			"ORDER BY things.id DESC\nLIMIT COALESCE(sqlc.narg(result_limit), 50)"
+
+		test.EqOp(t, want, pg().CursorPaginationFragment("things", Descending))
 	})
 }
 
@@ -167,7 +216,7 @@ func TestGenerator_FilterConditions(T *testing.T) {
 	AND (COALESCE(sqlc.narg(include_archived), false)::boolean OR things.archived_at IS NULL)
 	AND things.id > COALESCE(sqlc.narg(page_cursor), '')`
 
-		test.EqOp(t, want, pg().FilterConditions("things", columnsFor()))
+		test.EqOp(t, want, pg().FilterConditions("things", columnsFor(), Ascending))
 	})
 
 	T.Run("is the whole clause, so include_archived is the only thing deciding", func(t *testing.T) {
@@ -177,7 +226,7 @@ func TestGenerator_FilterConditions(T *testing.T) {
 		// decorative: the rows it admits would already have been excluded. True
 		// on every dialect, since only the flag's spelling differs.
 		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite} {
-			got := For(d).FilterConditions("things", columnsFor())
+			got := For(d).FilterConditions("things", columnsFor(), Ascending)
 
 			test.EqOp(t, 1, strings.Count(got, ArchivedAtColumn+" IS NULL"), test.Sprintf("dialect %q", d))
 			test.StrContains(t, got, "sqlc.narg("+IncludeArchivedArg+")", test.Sprintf("dialect %q", d))
@@ -187,7 +236,7 @@ func TestGenerator_FilterConditions(T *testing.T) {
 	T.Run("omits the predicates whose columns the table lacks", func(t *testing.T) {
 		t.Parallel()
 
-		got := pg().FilterConditions("things", []string{IDColumn, "name"})
+		got := pg().FilterConditions("things", []string{IDColumn, "name"}, Ascending)
 
 		test.EqOp(t, "things.id > COALESCE(sqlc.narg(page_cursor), '')", got)
 	})
@@ -195,7 +244,7 @@ func TestGenerator_FilterConditions(T *testing.T) {
 	T.Run("places the caller's conditions before the cursor", func(t *testing.T) {
 		t.Parallel()
 
-		got := pg().FilterConditions("things", []string{IDColumn}, "things.kind = sqlc.arg(kind)")
+		got := pg().FilterConditions("things", []string{IDColumn}, Ascending, "things.kind = sqlc.arg(kind)")
 
 		test.EqOp(t, "things.kind = sqlc.arg(kind)\n\tAND things.id > COALESCE(sqlc.narg(page_cursor), '')", got)
 	})

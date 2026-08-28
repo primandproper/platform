@@ -76,20 +76,34 @@ type Querier interface {
 	GetUserCreatedAt(ctx context.Context, db DBTX, arg GetUserCreatedAtParams) (GetUserCreatedAtRow, error)
 	// ListAccountMembers runs the :many query.
 	ListAccountMembers(ctx context.Context, db DBTX, arg ListAccountMembersParams) ([]ListAccountMembersRow, error)
+	// ListAccountMembersDescending runs the :many query.
+	ListAccountMembersDescending(ctx context.Context, db DBTX, arg ListAccountMembersDescendingParams) ([]ListAccountMembersDescendingRow, error)
 	// ListAccounts runs the :many query.
 	ListAccounts(ctx context.Context, db DBTX, arg ListAccountsParams) ([]ListAccountsRow, error)
+	// ListAccountsDescending runs the :many query.
+	ListAccountsDescending(ctx context.Context, db DBTX, arg ListAccountsDescendingParams) ([]ListAccountsDescendingRow, error)
 	// ListAccountsForUser runs the :many query.
 	ListAccountsForUser(ctx context.Context, db DBTX, arg ListAccountsForUserParams) ([]ListAccountsForUserRow, error)
+	// ListAccountsForUserDescending runs the :many query.
+	ListAccountsForUserDescending(ctx context.Context, db DBTX, arg ListAccountsForUserDescendingParams) ([]ListAccountsForUserDescendingRow, error)
 	// ListInvitations runs the :many query.
 	ListInvitations(ctx context.Context, db DBTX, arg ListInvitationsParams) ([]ListInvitationsRow, error)
 	// ListInvitationsByFromUser runs the :many query.
 	ListInvitationsByFromUser(ctx context.Context, db DBTX, arg ListInvitationsByFromUserParams) ([]ListInvitationsByFromUserRow, error)
+	// ListInvitationsByFromUserDescending runs the :many query.
+	ListInvitationsByFromUserDescending(ctx context.Context, db DBTX, arg ListInvitationsByFromUserDescendingParams) ([]ListInvitationsByFromUserDescendingRow, error)
 	// ListInvitationsByToEmail runs the :many query.
 	ListInvitationsByToEmail(ctx context.Context, db DBTX, arg ListInvitationsByToEmailParams) ([]ListInvitationsByToEmailRow, error)
+	// ListInvitationsByToEmailDescending runs the :many query.
+	ListInvitationsByToEmailDescending(ctx context.Context, db DBTX, arg ListInvitationsByToEmailDescendingParams) ([]ListInvitationsByToEmailDescendingRow, error)
+	// ListInvitationsDescending runs the :many query.
+	ListInvitationsDescending(ctx context.Context, db DBTX, arg ListInvitationsDescendingParams) ([]ListInvitationsDescendingRow, error)
 	// ListMembershipsForUser runs the :many query.
 	ListMembershipsForUser(ctx context.Context, db DBTX, arg ListMembershipsForUserParams) ([]ListMembershipsForUserRow, error)
 	// ListUsers runs the :many query.
 	ListUsers(ctx context.Context, db DBTX, arg ListUsersParams) ([]ListUsersRow, error)
+	// ListUsersDescending runs the :many query.
+	ListUsersDescending(ctx context.Context, db DBTX, arg ListUsersDescendingParams) ([]ListUsersDescendingRow, error)
 	// MarkAccountBillingSynced runs the :execrows query.
 	//
 	// The count means different things on different engines; see the note
@@ -107,6 +121,8 @@ type Querier interface {
 	RecordAccountSubscription(ctx context.Context, db DBTX, arg RecordAccountSubscriptionParams) (int64, error)
 	// SearchUsersByUsername runs the :many query.
 	SearchUsersByUsername(ctx context.Context, db DBTX, arg SearchUsersByUsernameParams) ([]SearchUsersByUsernameRow, error)
+	// SearchUsersByUsernameDescending runs the :many query.
+	SearchUsersByUsernameDescending(ctx context.Context, db DBTX, arg SearchUsersByUsernameDescendingParams) ([]SearchUsersByUsernameDescendingRow, error)
 	// SetAccountBillingStatus runs the :execrows query.
 	//
 	// The count means different things on different engines; see the note

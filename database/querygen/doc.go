@@ -84,6 +84,15 @@ guessed from another, so they are written down here:
 The bulk stamp binds one argument that is not a filter field at all: ids, the
 list of row ids to mark as indexed.
 
+One filter field binds nothing, and its absence from that table is the point.
+SortBy names a direction, and a direction is which way the ORDER BY runs and
+which way the cursor comparison points — statement text on all three servers,
+with no expression that takes a bound value and orders by it. So a paged list is
+emitted twice, under a name and [DescendingName] of it, and what a store does
+with SortBy is choose between them. See [Direction] and
+filtering.QueryFilter.SortsDescending, which is the one reading of that field
+there is.
+
 The keyset position is page_cursor rather than cursor because CURSOR is a
 reserved word in MySQL — see filtering's own constants for why the name moved
 rather than the dialect being special-cased. MySQL is also the one dialect whose
@@ -142,14 +151,21 @@ nobody executes while the store executes statements sqlc never saw, and the gap
 is invisible until one of them drifts.
 
 So every [Bound] method has a Query form beside it — [Generator.GetQuery],
-[Generator.ReadQuery], [Generator.ExistsQuery], [Generator.ListQuery],
+[Generator.ReadQuery], [Generator.ExistsQuery], [Generator.ListQueries],
 [Generator.UpdateQuery] and [Generator.ArchiveQuery] — which is the same
 statement in the sqlc spelling, named and annotated for a query file:
 
-	list := querygen.For(dialect.Postgres).ListQuery(
+	list := querygen.For(dialect.Postgres).ListQueries(
 		"ListInvitationsByFromUser", "identity_invitations", columns,
 		querygen.Match{Column: "scope"},
 		querygen.Match{Column: "from_user"})
+
+The list is the one of them that is plural, because a paged list is two
+statements: ListInvitationsByFromUser and ListInvitationsByFromUserDescending,
+identical but for the cursor comparison and the ORDER BY. Emitting the pair from
+one call is what keeps a corpus from carrying only the direction somebody
+happened to think of — a store answering sortBy=desc with an ascending page is
+not a failure any test of the ascending statement can see.
 
 Each calls the statement function its [Bound] counterpart calls, so the checked
 text and the executed text are the same text by construction. A consumer renders
@@ -201,13 +217,13 @@ this package was single-table, and the roster in particular kept a hand-paired
 two-entity scanner alive — a projection in one file and a list of scan targets
 in another, where a mismatch is a runtime scan error rather than a failed build.
 
-[Generator.JunctionListQuery] renders them, and [Generator.JunctionListAllQuery]
+[Generator.JunctionListQueries] renders them, and [Generator.JunctionListAllQuery]
 renders the unpaged form. What a caller adds to a list is a [Junction]: the table
 joined in, the two columns the join matches, whatever key the far side carries,
 and — where the caller wants the joined row's columns too — the prefix they are
 aliased under.
 
-	roster := querygen.For(dialect.Postgres).JunctionListQuery(
+	roster := querygen.For(dialect.Postgres).JunctionListQueries(
 		"ListAccountMembers", "memberships", membershipColumns,
 		&querygen.Junction{
 			Table:    "users",
@@ -311,6 +327,13 @@ second statement rather than a subquery riding on the rows, because the number a
 caller wants is of everything the pattern matched rather than of what remains
 after the cursor. And archived rows are excluded outright rather than through
 include_archived: a name search is a lookup somebody is about to act on.
+
+The page comes in both directions like every other paged read here, and what a
+direction means is this statement's order rather than creation order: the
+descending half walks the searched column backwards. That is the only reading
+available to a statement that never orders by the id, and it is the one that
+keeps the cursor and the ORDER BY naming the same order. The count is emitted
+once, since a count does not depend on the order its rows would have arrived in.
 
 The pattern is an argument rather than something the SQL assembles, and
 [PrefixPattern] is what builds it — the wildcards escaped, a trailing % added,

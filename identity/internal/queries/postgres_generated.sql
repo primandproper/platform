@@ -127,6 +127,67 @@ WHERE identity_users.created_at > COALESCE(sqlc.narg(created_after), (SELECT CUR
 ORDER BY identity_users.id ASC
 LIMIT COALESCE(sqlc.narg(result_limit), 50);
 
+-- name: ListUsersDescending :many
+SELECT
+	identity_users.id,
+	identity_users.scope,
+	identity_users.username,
+	identity_users.email_address,
+	identity_users.first_name,
+	identity_users.last_name,
+	identity_users.hashed_password,
+	identity_users.requires_password_change,
+	identity_users.password_last_changed_at,
+	identity_users.two_factor_secret,
+	identity_users.two_factor_secret_verified_at,
+	identity_users.email_address_verified_at,
+	identity_users.email_address_verification_token,
+	identity_users.account_status,
+	identity_users.account_status_explanation,
+	identity_users.last_accepted_terms_of_service,
+	identity_users.last_accepted_privacy_policy,
+	identity_users.created_at,
+	identity_users.last_updated_at,
+	identity_users.archived_at,
+	(
+		SELECT COUNT(identity_users.id)
+		FROM identity_users
+		WHERE identity_users.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+			AND identity_users.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+			AND (
+				identity_users.last_updated_at IS NULL
+				OR identity_users.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+			)
+			AND (
+				identity_users.last_updated_at IS NULL
+				OR identity_users.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+			)
+			AND (COALESCE(sqlc.narg(include_archived), false)::boolean OR identity_users.archived_at IS NULL)
+			AND identity_users.scope = sqlc.arg(scope)
+	) AS filtered_count,
+	(
+		SELECT COUNT(identity_users.id)
+		FROM identity_users
+		WHERE (COALESCE(sqlc.narg(include_archived), false)::boolean OR identity_users.archived_at IS NULL)
+			AND identity_users.scope = sqlc.arg(scope)
+	) AS total_count
+FROM identity_users
+WHERE identity_users.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+	AND identity_users.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+	AND (
+		identity_users.last_updated_at IS NULL
+		OR identity_users.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+	)
+	AND (
+		identity_users.last_updated_at IS NULL
+		OR identity_users.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+	)
+	AND (COALESCE(sqlc.narg(include_archived), false)::boolean OR identity_users.archived_at IS NULL)
+	AND identity_users.scope = sqlc.arg(scope)
+	AND (identity_users.id <= COALESCE(sqlc.narg(page_cursor), identity_users.id) AND identity_users.id <> COALESCE(sqlc.narg(page_cursor), ''))
+ORDER BY identity_users.id DESC
+LIMIT COALESCE(sqlc.narg(result_limit), 50);
+
 -- name: UpdateUser :execrows
 UPDATE identity_users SET
 	username = sqlc.arg(username),
@@ -269,6 +330,66 @@ WHERE identity_accounts.created_at > COALESCE(sqlc.narg(created_after), (SELECT 
 ORDER BY identity_accounts.id ASC
 LIMIT COALESCE(sqlc.narg(result_limit), 50);
 
+-- name: ListAccountsDescending :many
+SELECT
+	identity_accounts.id,
+	identity_accounts.scope,
+	identity_accounts.name,
+	identity_accounts.owner_user_id,
+	identity_accounts.billing_status,
+	identity_accounts.subscription_plan_id,
+	identity_accounts.payment_processor_customer_id,
+	identity_accounts.last_payment_provider_synced_at,
+	identity_accounts.address_line1,
+	identity_accounts.address_line2,
+	identity_accounts.address_city,
+	identity_accounts.address_state,
+	identity_accounts.address_postal_code,
+	identity_accounts.address_country,
+	identity_accounts.address_phone,
+	identity_accounts.time_zone,
+	identity_accounts.created_at,
+	identity_accounts.last_updated_at,
+	identity_accounts.archived_at,
+	(
+		SELECT COUNT(identity_accounts.id)
+		FROM identity_accounts
+		WHERE identity_accounts.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+			AND identity_accounts.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+			AND (
+				identity_accounts.last_updated_at IS NULL
+				OR identity_accounts.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+			)
+			AND (
+				identity_accounts.last_updated_at IS NULL
+				OR identity_accounts.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+			)
+			AND (COALESCE(sqlc.narg(include_archived), false)::boolean OR identity_accounts.archived_at IS NULL)
+			AND identity_accounts.scope = sqlc.arg(scope)
+	) AS filtered_count,
+	(
+		SELECT COUNT(identity_accounts.id)
+		FROM identity_accounts
+		WHERE (COALESCE(sqlc.narg(include_archived), false)::boolean OR identity_accounts.archived_at IS NULL)
+			AND identity_accounts.scope = sqlc.arg(scope)
+	) AS total_count
+FROM identity_accounts
+WHERE identity_accounts.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+	AND identity_accounts.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+	AND (
+		identity_accounts.last_updated_at IS NULL
+		OR identity_accounts.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+	)
+	AND (
+		identity_accounts.last_updated_at IS NULL
+		OR identity_accounts.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+	)
+	AND (COALESCE(sqlc.narg(include_archived), false)::boolean OR identity_accounts.archived_at IS NULL)
+	AND identity_accounts.scope = sqlc.arg(scope)
+	AND (identity_accounts.id <= COALESCE(sqlc.narg(page_cursor), identity_accounts.id) AND identity_accounts.id <> COALESCE(sqlc.narg(page_cursor), ''))
+ORDER BY identity_accounts.id DESC
+LIMIT COALESCE(sqlc.narg(result_limit), 50);
+
 -- name: UpdateAccount :execrows
 UPDATE identity_accounts SET
 	name = sqlc.arg(name),
@@ -395,6 +516,61 @@ WHERE identity_invitations.created_at > COALESCE(sqlc.narg(created_after), (SELE
 ORDER BY identity_invitations.id ASC
 LIMIT COALESCE(sqlc.narg(result_limit), 50);
 
+-- name: ListInvitationsDescending :many
+SELECT
+	identity_invitations.id,
+	identity_invitations.scope,
+	identity_invitations.belongs_to_account,
+	identity_invitations.from_user,
+	identity_invitations.to_email,
+	identity_invitations.to_name,
+	identity_invitations.to_user,
+	identity_invitations.token,
+	identity_invitations.status,
+	identity_invitations.note,
+	identity_invitations.expires_at,
+	identity_invitations.created_at,
+	identity_invitations.last_updated_at,
+	identity_invitations.archived_at,
+	(
+		SELECT COUNT(identity_invitations.id)
+		FROM identity_invitations
+		WHERE identity_invitations.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+			AND identity_invitations.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+			AND (
+				identity_invitations.last_updated_at IS NULL
+				OR identity_invitations.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+			)
+			AND (
+				identity_invitations.last_updated_at IS NULL
+				OR identity_invitations.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+			)
+			AND (COALESCE(sqlc.narg(include_archived), false)::boolean OR identity_invitations.archived_at IS NULL)
+			AND identity_invitations.scope = sqlc.arg(scope)
+	) AS filtered_count,
+	(
+		SELECT COUNT(identity_invitations.id)
+		FROM identity_invitations
+		WHERE (COALESCE(sqlc.narg(include_archived), false)::boolean OR identity_invitations.archived_at IS NULL)
+			AND identity_invitations.scope = sqlc.arg(scope)
+	) AS total_count
+FROM identity_invitations
+WHERE identity_invitations.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+	AND identity_invitations.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+	AND (
+		identity_invitations.last_updated_at IS NULL
+		OR identity_invitations.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+	)
+	AND (
+		identity_invitations.last_updated_at IS NULL
+		OR identity_invitations.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+	)
+	AND (COALESCE(sqlc.narg(include_archived), false)::boolean OR identity_invitations.archived_at IS NULL)
+	AND identity_invitations.scope = sqlc.arg(scope)
+	AND (identity_invitations.id <= COALESCE(sqlc.narg(page_cursor), identity_invitations.id) AND identity_invitations.id <> COALESCE(sqlc.narg(page_cursor), ''))
+ORDER BY identity_invitations.id DESC
+LIMIT COALESCE(sqlc.narg(result_limit), 50);
+
 -- name: ListInvitationsByFromUser :many
 SELECT
 	identity_invitations.id,
@@ -456,6 +632,67 @@ WHERE identity_invitations.created_at > COALESCE(sqlc.narg(created_after), (SELE
 ORDER BY identity_invitations.id ASC
 LIMIT COALESCE(sqlc.narg(result_limit), 50);
 
+-- name: ListInvitationsByFromUserDescending :many
+SELECT
+	identity_invitations.id,
+	identity_invitations.scope,
+	identity_invitations.belongs_to_account,
+	identity_invitations.from_user,
+	identity_invitations.to_email,
+	identity_invitations.to_name,
+	identity_invitations.to_user,
+	identity_invitations.token,
+	identity_invitations.status,
+	identity_invitations.note,
+	identity_invitations.expires_at,
+	identity_invitations.created_at,
+	identity_invitations.last_updated_at,
+	identity_invitations.archived_at,
+	(
+		SELECT COUNT(identity_invitations.id)
+		FROM identity_invitations
+		WHERE identity_invitations.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+			AND identity_invitations.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+			AND (
+				identity_invitations.last_updated_at IS NULL
+				OR identity_invitations.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+			)
+			AND (
+				identity_invitations.last_updated_at IS NULL
+				OR identity_invitations.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+			)
+			AND (COALESCE(sqlc.narg(include_archived), false)::boolean OR identity_invitations.archived_at IS NULL)
+			AND identity_invitations.scope = sqlc.arg(scope)
+			AND identity_invitations.from_user = sqlc.arg(from_user)
+			AND identity_invitations.status = sqlc.arg(status)
+	) AS filtered_count,
+	(
+		SELECT COUNT(identity_invitations.id)
+		FROM identity_invitations
+		WHERE (COALESCE(sqlc.narg(include_archived), false)::boolean OR identity_invitations.archived_at IS NULL)
+			AND identity_invitations.scope = sqlc.arg(scope)
+			AND identity_invitations.from_user = sqlc.arg(from_user)
+			AND identity_invitations.status = sqlc.arg(status)
+	) AS total_count
+FROM identity_invitations
+WHERE identity_invitations.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+	AND identity_invitations.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+	AND (
+		identity_invitations.last_updated_at IS NULL
+		OR identity_invitations.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+	)
+	AND (
+		identity_invitations.last_updated_at IS NULL
+		OR identity_invitations.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+	)
+	AND (COALESCE(sqlc.narg(include_archived), false)::boolean OR identity_invitations.archived_at IS NULL)
+	AND identity_invitations.scope = sqlc.arg(scope)
+	AND identity_invitations.from_user = sqlc.arg(from_user)
+	AND identity_invitations.status = sqlc.arg(status)
+	AND (identity_invitations.id <= COALESCE(sqlc.narg(page_cursor), identity_invitations.id) AND identity_invitations.id <> COALESCE(sqlc.narg(page_cursor), ''))
+ORDER BY identity_invitations.id DESC
+LIMIT COALESCE(sqlc.narg(result_limit), 50);
+
 -- name: ListInvitationsByToEmail :many
 SELECT
 	identity_invitations.id,
@@ -515,6 +752,67 @@ WHERE identity_invitations.created_at > COALESCE(sqlc.narg(created_after), (SELE
 	AND identity_invitations.status = sqlc.arg(status)
 	AND identity_invitations.id > COALESCE(sqlc.narg(page_cursor), '')
 ORDER BY identity_invitations.id ASC
+LIMIT COALESCE(sqlc.narg(result_limit), 50);
+
+-- name: ListInvitationsByToEmailDescending :many
+SELECT
+	identity_invitations.id,
+	identity_invitations.scope,
+	identity_invitations.belongs_to_account,
+	identity_invitations.from_user,
+	identity_invitations.to_email,
+	identity_invitations.to_name,
+	identity_invitations.to_user,
+	identity_invitations.token,
+	identity_invitations.status,
+	identity_invitations.note,
+	identity_invitations.expires_at,
+	identity_invitations.created_at,
+	identity_invitations.last_updated_at,
+	identity_invitations.archived_at,
+	(
+		SELECT COUNT(identity_invitations.id)
+		FROM identity_invitations
+		WHERE identity_invitations.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+			AND identity_invitations.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+			AND (
+				identity_invitations.last_updated_at IS NULL
+				OR identity_invitations.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+			)
+			AND (
+				identity_invitations.last_updated_at IS NULL
+				OR identity_invitations.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+			)
+			AND (COALESCE(sqlc.narg(include_archived), false)::boolean OR identity_invitations.archived_at IS NULL)
+			AND identity_invitations.scope = sqlc.arg(scope)
+			AND identity_invitations.to_email = sqlc.arg(to_email)
+			AND identity_invitations.status = sqlc.arg(status)
+	) AS filtered_count,
+	(
+		SELECT COUNT(identity_invitations.id)
+		FROM identity_invitations
+		WHERE (COALESCE(sqlc.narg(include_archived), false)::boolean OR identity_invitations.archived_at IS NULL)
+			AND identity_invitations.scope = sqlc.arg(scope)
+			AND identity_invitations.to_email = sqlc.arg(to_email)
+			AND identity_invitations.status = sqlc.arg(status)
+	) AS total_count
+FROM identity_invitations
+WHERE identity_invitations.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+	AND identity_invitations.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+	AND (
+		identity_invitations.last_updated_at IS NULL
+		OR identity_invitations.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+	)
+	AND (
+		identity_invitations.last_updated_at IS NULL
+		OR identity_invitations.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+	)
+	AND (COALESCE(sqlc.narg(include_archived), false)::boolean OR identity_invitations.archived_at IS NULL)
+	AND identity_invitations.scope = sqlc.arg(scope)
+	AND identity_invitations.to_email = sqlc.arg(to_email)
+	AND identity_invitations.status = sqlc.arg(status)
+	AND (identity_invitations.id <= COALESCE(sqlc.narg(page_cursor), identity_invitations.id) AND identity_invitations.id <> COALESCE(sqlc.narg(page_cursor), ''))
+ORDER BY identity_invitations.id DESC
 LIMIT COALESCE(sqlc.narg(result_limit), 50);
 
 -- name: GetUserCreatedAt :one
@@ -730,6 +1028,84 @@ WHERE identity_memberships.created_at > COALESCE(sqlc.narg(created_after), (SELE
 ORDER BY identity_memberships.id ASC
 LIMIT COALESCE(sqlc.narg(result_limit), 50);
 
+-- name: ListAccountMembersDescending :many
+SELECT
+	identity_memberships.id,
+	identity_memberships.scope,
+	identity_memberships.belongs_to_user,
+	identity_memberships.belongs_to_account,
+	identity_memberships.default_account,
+	identity_memberships.created_at,
+	identity_memberships.last_updated_at,
+	identity_memberships.archived_at,
+	identity_users.id AS user_id,
+	identity_users.scope AS user_scope,
+	identity_users.username AS user_username,
+	identity_users.email_address AS user_email_address,
+	identity_users.first_name AS user_first_name,
+	identity_users.last_name AS user_last_name,
+	identity_users.hashed_password AS user_hashed_password,
+	identity_users.requires_password_change AS user_requires_password_change,
+	identity_users.password_last_changed_at AS user_password_last_changed_at,
+	identity_users.two_factor_secret AS user_two_factor_secret,
+	identity_users.two_factor_secret_verified_at AS user_two_factor_secret_verified_at,
+	identity_users.email_address_verified_at AS user_email_address_verified_at,
+	identity_users.email_address_verification_token AS user_email_address_verification_token,
+	identity_users.account_status AS user_account_status,
+	identity_users.account_status_explanation AS user_account_status_explanation,
+	identity_users.last_accepted_terms_of_service AS user_last_accepted_terms_of_service,
+	identity_users.last_accepted_privacy_policy AS user_last_accepted_privacy_policy,
+	identity_users.created_at AS user_created_at,
+	identity_users.last_updated_at AS user_last_updated_at,
+	identity_users.archived_at AS user_archived_at,
+	(
+		SELECT COUNT(identity_memberships.id)
+		FROM identity_memberships
+		JOIN identity_users ON identity_memberships.belongs_to_user=identity_users.id
+		WHERE identity_memberships.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+			AND identity_memberships.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+			AND (
+				identity_memberships.last_updated_at IS NULL
+				OR identity_memberships.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+			)
+			AND (
+				identity_memberships.last_updated_at IS NULL
+				OR identity_memberships.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+			)
+			AND (COALESCE(sqlc.narg(include_archived), false)::boolean OR identity_memberships.archived_at IS NULL)
+			AND identity_memberships.scope = sqlc.arg(scope)
+			AND identity_memberships.belongs_to_account = sqlc.arg(belongs_to_account)
+			AND identity_users.archived_at IS NULL
+	) AS filtered_count,
+	(
+		SELECT COUNT(identity_memberships.id)
+		FROM identity_memberships
+		JOIN identity_users ON identity_memberships.belongs_to_user=identity_users.id
+		WHERE (COALESCE(sqlc.narg(include_archived), false)::boolean OR identity_memberships.archived_at IS NULL)
+			AND identity_memberships.scope = sqlc.arg(scope)
+			AND identity_memberships.belongs_to_account = sqlc.arg(belongs_to_account)
+			AND identity_users.archived_at IS NULL
+	) AS total_count
+FROM identity_memberships
+JOIN identity_users ON identity_memberships.belongs_to_user=identity_users.id
+WHERE identity_memberships.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+	AND identity_memberships.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+	AND (
+		identity_memberships.last_updated_at IS NULL
+		OR identity_memberships.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+	)
+	AND (
+		identity_memberships.last_updated_at IS NULL
+		OR identity_memberships.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+	)
+	AND (COALESCE(sqlc.narg(include_archived), false)::boolean OR identity_memberships.archived_at IS NULL)
+	AND identity_memberships.scope = sqlc.arg(scope)
+	AND identity_memberships.belongs_to_account = sqlc.arg(belongs_to_account)
+	AND identity_users.archived_at IS NULL
+	AND (identity_memberships.id <= COALESCE(sqlc.narg(page_cursor), identity_memberships.id) AND identity_memberships.id <> COALESCE(sqlc.narg(page_cursor), ''))
+ORDER BY identity_memberships.id DESC
+LIMIT COALESCE(sqlc.narg(result_limit), 50);
+
 -- name: ListAccountsForUser :many
 SELECT
 	identity_accounts.id,
@@ -799,6 +1175,75 @@ WHERE identity_accounts.created_at > COALESCE(sqlc.narg(created_after), (SELECT 
 ORDER BY identity_accounts.id ASC
 LIMIT COALESCE(sqlc.narg(result_limit), 50);
 
+-- name: ListAccountsForUserDescending :many
+SELECT
+	identity_accounts.id,
+	identity_accounts.scope,
+	identity_accounts.name,
+	identity_accounts.owner_user_id,
+	identity_accounts.billing_status,
+	identity_accounts.subscription_plan_id,
+	identity_accounts.payment_processor_customer_id,
+	identity_accounts.last_payment_provider_synced_at,
+	identity_accounts.address_line1,
+	identity_accounts.address_line2,
+	identity_accounts.address_city,
+	identity_accounts.address_state,
+	identity_accounts.address_postal_code,
+	identity_accounts.address_country,
+	identity_accounts.address_phone,
+	identity_accounts.time_zone,
+	identity_accounts.created_at,
+	identity_accounts.last_updated_at,
+	identity_accounts.archived_at,
+	(
+		SELECT COUNT(identity_accounts.id)
+		FROM identity_accounts
+		JOIN identity_memberships ON identity_accounts.id=identity_memberships.belongs_to_account
+		WHERE identity_accounts.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+			AND identity_accounts.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+			AND (
+				identity_accounts.last_updated_at IS NULL
+				OR identity_accounts.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+			)
+			AND (
+				identity_accounts.last_updated_at IS NULL
+				OR identity_accounts.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+			)
+			AND (COALESCE(sqlc.narg(include_archived), false)::boolean OR identity_accounts.archived_at IS NULL)
+			AND identity_accounts.scope = sqlc.arg(scope)
+			AND identity_memberships.archived_at IS NULL
+			AND identity_memberships.belongs_to_user = sqlc.arg(belongs_to_user)
+	) AS filtered_count,
+	(
+		SELECT COUNT(identity_accounts.id)
+		FROM identity_accounts
+		JOIN identity_memberships ON identity_accounts.id=identity_memberships.belongs_to_account
+		WHERE (COALESCE(sqlc.narg(include_archived), false)::boolean OR identity_accounts.archived_at IS NULL)
+			AND identity_accounts.scope = sqlc.arg(scope)
+			AND identity_memberships.archived_at IS NULL
+			AND identity_memberships.belongs_to_user = sqlc.arg(belongs_to_user)
+	) AS total_count
+FROM identity_accounts
+JOIN identity_memberships ON identity_accounts.id=identity_memberships.belongs_to_account
+WHERE identity_accounts.created_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+	AND identity_accounts.created_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+	AND (
+		identity_accounts.last_updated_at IS NULL
+		OR identity_accounts.last_updated_at > COALESCE(sqlc.narg(updated_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))
+	)
+	AND (
+		identity_accounts.last_updated_at IS NULL
+		OR identity_accounts.last_updated_at < COALESCE(sqlc.narg(updated_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))
+	)
+	AND (COALESCE(sqlc.narg(include_archived), false)::boolean OR identity_accounts.archived_at IS NULL)
+	AND identity_accounts.scope = sqlc.arg(scope)
+	AND identity_memberships.archived_at IS NULL
+	AND identity_memberships.belongs_to_user = sqlc.arg(belongs_to_user)
+	AND (identity_accounts.id <= COALESCE(sqlc.narg(page_cursor), identity_accounts.id) AND identity_accounts.id <> COALESCE(sqlc.narg(page_cursor), ''))
+ORDER BY identity_accounts.id DESC
+LIMIT COALESCE(sqlc.narg(result_limit), 50);
+
 -- name: ListMembershipsForUser :many
 SELECT
 	identity_memberships.id,
@@ -843,6 +1288,36 @@ WHERE identity_users.archived_at IS NULL
 	AND (identity_users.username LIKE sqlc.arg(username_prefix)::text ESCAPE '!')
 	AND identity_users.username > COALESCE(sqlc.narg(page_cursor), '')
 ORDER BY identity_users.username ASC
+LIMIT COALESCE(sqlc.narg(result_limit), 50);
+
+-- name: SearchUsersByUsernameDescending :many
+SELECT
+	identity_users.id,
+	identity_users.scope,
+	identity_users.username,
+	identity_users.email_address,
+	identity_users.first_name,
+	identity_users.last_name,
+	identity_users.hashed_password,
+	identity_users.requires_password_change,
+	identity_users.password_last_changed_at,
+	identity_users.two_factor_secret,
+	identity_users.two_factor_secret_verified_at,
+	identity_users.email_address_verified_at,
+	identity_users.email_address_verification_token,
+	identity_users.account_status,
+	identity_users.account_status_explanation,
+	identity_users.last_accepted_terms_of_service,
+	identity_users.last_accepted_privacy_policy,
+	identity_users.created_at,
+	identity_users.last_updated_at,
+	identity_users.archived_at
+FROM identity_users
+WHERE identity_users.archived_at IS NULL
+	AND identity_users.scope = sqlc.arg(scope)
+	AND (identity_users.username LIKE sqlc.arg(username_prefix)::text ESCAPE '!')
+	AND (identity_users.username <= COALESCE(sqlc.narg(page_cursor), identity_users.username) AND identity_users.username <> COALESCE(sqlc.narg(page_cursor), ''))
+ORDER BY identity_users.username DESC
 LIMIT COALESCE(sqlc.narg(result_limit), 50);
 
 -- name: CountSearchUsersByUsername :one

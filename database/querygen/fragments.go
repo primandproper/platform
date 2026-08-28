@@ -38,13 +38,38 @@ func (g *Generator) ContainsCondition(column, argument string) string {
 	return g.substringMatch(column, argument)
 }
 
-// CursorCondition renders the keyset predicate: rows strictly after the cursor.
+// CursorCondition renders the keyset predicate: the rows on the far side of the
+// cursor, in whichever direction the walk runs.
 //
-// An absent cursor coalesces to the empty string rather than being handled by a
-// second query, which is what keeps the first page and the fiftieth page the same
-// statement. It works because id sorts by creation time and no id is empty.
-func (g *Generator) CursorCondition(table string) string {
-	return g.cursorCondition(table, IDColumn)
+// An absent cursor is the first page rather than a second query, which is what
+// keeps the first page and the fiftieth the same statement. The two directions
+// say that differently, and the difference is not cosmetic.
+//
+// Ascending coalesces an absent cursor to the empty string and compares
+// greater: no id is empty, so every row is after it. Descending has no such
+// value to reach for, and no string this package could write down is one. A
+// sentinel of high characters is a sentinel in one collation and a sentinel in
+// no other — glibc's en_US.UTF-8 orders punctuation before letters and
+// lowercase before uppercase, so 'zzz' is above every id under C and below an
+// uppercase ULID under a linguistic collation, which is a first page missing
+// its first rows on one server and not on another. Over a searched column it is
+// worse still, since the values there are whatever somebody typed.
+//
+// So the descending arm coalesces to the row's own key instead, which is the
+// one value that is always in range: an absent cursor makes the first
+// comparison the row against itself, admitting every row, and the second
+// comparison is what keeps the walk strict without needing a sentinel to be
+// strictly above anything. A cursor that was supplied reads both times, and the
+// pair is "at most the cursor, and not the cursor".
+//
+// Both references being comparisons against the column is also what keeps the
+// statement analyzable. sqlc types an argument from what it is used against,
+// and a reference that is only ever compared to a literal is one MySQL's
+// analyzer reports no type for at all — the same problem the archived toggle
+// solves with a cast, solved here by never writing the reference except beside
+// the column it filters. See Generator.includeArchivedFlag.
+func (g *Generator) CursorCondition(table string, direction Direction) string {
+	return g.cursorCondition(table, IDColumn, direction)
 }
 
 // cursorCondition is CursorCondition over an arbitrary column, for the keyset
@@ -54,8 +79,15 @@ func (g *Generator) CursorCondition(table string) string {
 // searched, so its cursor names a position in that order. The predicate is
 // otherwise the same predicate — one rendering, so a search's cursor and a
 // list's cannot come to differ about what an absent one means.
-func (g *Generator) cursorCondition(table, column string) string {
-	return fmt.Sprintf("%s > COALESCE(sqlc.narg(%s), '')", Qualify(table, column), CursorArg)
+func (g *Generator) cursorCondition(table, column string, direction Direction) string {
+	position := Qualify(table, column)
+
+	if direction == Descending {
+		return fmt.Sprintf("(%[1]s <= COALESCE(sqlc.narg(%[2]s), %[1]s) AND %[1]s <> COALESCE(sqlc.narg(%[2]s), ''))",
+			position, CursorArg)
+	}
+
+	return fmt.Sprintf("%s > COALESCE(sqlc.narg(%s), '')", position, CursorArg)
 }
 
 // CursorLimitClause renders the ordering and page size a keyset walk needs.
@@ -65,14 +97,20 @@ func (g *Generator) cursorCondition(table, column string) string {
 // the planner found convenient, and the next page's cursor names a position in an
 // order that no longer holds — pages that skip rows and repeat others, with
 // nothing reporting an error.
-func (g *Generator) CursorLimitClause(table string) string {
-	return g.cursorLimitClause(table, IDColumn)
+func (g *Generator) CursorLimitClause(table string, direction Direction) string {
+	return g.cursorLimitClause(table, IDColumn, direction)
 }
 
 // cursorLimitClause is CursorLimitClause over an arbitrary column, ordering by
 // whatever the walk's cursor compares against — see cursorCondition.
-func (g *Generator) cursorLimitClause(table, column string) string {
-	return fmt.Sprintf("ORDER BY %s ASC\n%s", Qualify(table, column), g.limitClause())
+//
+// The direction is the same one the cursor predicate was rendered with, and the
+// two are only ever rendered together for that reason: an ORDER BY that
+// disagrees with the comparison its cursor is made of is the keyset walk this
+// clause's own comment describes, pages that skip rows and repeat others with
+// nothing reporting an error.
+func (g *Generator) cursorLimitClause(table, column string, direction Direction) string {
+	return fmt.Sprintf("ORDER BY %s %s\n%s", Qualify(table, column), direction.keyword(), g.limitClause())
 }
 
 // CursorPaginationFragment renders the cursor predicate and the ordering
@@ -81,8 +119,8 @@ func (g *Generator) cursorLimitClause(table, column string) string {
 //
 // The predicate arrives prefixed with AND, because the only place it belongs is
 // the tail of a WHERE clause that already has one.
-func (g *Generator) CursorPaginationFragment(table string) string {
-	return fmt.Sprintf("AND %s\n%s", g.CursorCondition(table), g.CursorLimitClause(table))
+func (g *Generator) CursorPaginationFragment(table string, direction Direction) string {
+	return fmt.Sprintf("AND %s\n%s", g.CursorCondition(table, direction), g.CursorLimitClause(table, direction))
 }
 
 // ReindexScanQuery builds the keyset walk a search reindex reads its source
@@ -163,8 +201,8 @@ WHERE %[4]s;`,
 // conditions are rendered verbatim, one per line. They are the caller's SQL:
 // this package does not parse them and cannot vet them — nor, therefore, can it
 // tell whether they are the dialect g emits for.
-func (g *Generator) FilterConditions(table string, columns []string, conditions ...string) string {
-	return joinPredicates(append(g.filterPredicates(table, columns, conditions...), g.CursorCondition(table)), "\t")
+func (g *Generator) FilterConditions(table string, columns []string, direction Direction, conditions ...string) string {
+	return joinPredicates(append(g.filterPredicates(table, columns, conditions...), g.CursorCondition(table, direction)), "\t")
 }
 
 // FilterCountSelect renders the scalar subquery counting the rows the same

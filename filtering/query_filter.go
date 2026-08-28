@@ -264,7 +264,7 @@ type (
 		// blank field whatever it is tagged.
 		_ struct{} `additionalProperties:"false" description:"The slice of a collection a caller is asking for: how many rows, where to resume, which direction, and optional windows on when a row was created or last updated. Every field is optional, and an absent one filters nothing."`
 
-		SortBy *string `default:"asc" description:"Sort direction, not a column name: \"asc\" for oldest first, \"desc\" for newest first, and nothing else." enum:"asc,desc" json:"sortBy,omitempty" nullable:"false"`
+		SortBy *string `default:"asc" description:"Sort direction, not a column name: \"asc\" walks a list forwards and \"desc\" backwards, and nothing else. On the usual list, ordered by when a row was created, that is oldest first and newest first; a read ordered by something else — a name search — is walked in that order instead." enum:"asc,desc" json:"sortBy,omitempty" nullable:"false"`
 
 		CreatedAfter *time.Time `description:"Only rows created after this instant." json:"createdAfter,omitempty" nullable:"false"`
 
@@ -515,6 +515,29 @@ func (qf *QueryFilter) Normalize() error {
 	}
 
 	return nil
+}
+
+// SortsDescending reports whether this filter asks for the newest-first page.
+//
+// It is the whole of what SortBy means to a store, and the shape of the answer
+// is not an accident. The direction is not a value a statement binds — no query
+// in this module has an argument for it, and the ORDER BY and the cursor
+// comparison it decides are statement text rather than parameters — so what a
+// store does with a direction is choose between two statements that were
+// written down in both directions. database/querygen emits that pair for every
+// paged list; this is the read that picks one of them.
+//
+// Anything that is not "desc" is ascending, matching the reading Normalize
+// applies: an unrecognized direction is reported there, where a caller asked
+// for the filter to be checked, and is answered here with the ascending page
+// rather than with a third behavior nobody described. A nil filter and an
+// absent SortBy are ascending for the same reason — that is what
+// DefaultQueryFilter holds.
+//
+// The comparison folds case because both parsers do, and for the same reason:
+// "DESC" is what a hand-written client sends about as often as "desc".
+func (qf *QueryFilter) SortsDescending() bool {
+	return qf != nil && qf.SortBy != nil && strings.EqualFold(*qf.SortBy, sortDescendingString)
 }
 
 // SetCursor sets the current page with certain constraints.
