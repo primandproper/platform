@@ -147,9 +147,10 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 		test.SliceLen(t, len(roles), got)
 	})
 
-	// Exercises the chunked multi-row inserts against a server's real
-	// bind-parameter limits and its own view of statement size.
-	t.Run("handles a policy larger than one insert batch", func(t *testing.T) {
+	// Exercises the one batch that still reaches a server whole — the name
+	// lookup's bound set — against that server's real bind-parameter limit and
+	// its own view of statement size.
+	t.Run("handles a policy of a few hundred permissions", func(t *testing.T) {
 		const permCount = 250
 
 		perms := make([]authorization.Permission, 0, permCount)

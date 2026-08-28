@@ -150,6 +150,40 @@ which is what the id and archived predicates are derived from, so a table
 carrying an id it does not key on leaves the column out of that list and names it
 in [Read.Projection].
 
+# The recursive one
+
+[Generator.ClosureQuery] is the only shape here that is not a statement over a
+fixed number of rows. It seeds from a bound set, walks an [Edge] — a mapping
+table read in one direction — to whatever depth the data has, and reads through
+a second edge into the table the answer comes out of:
+
+	resolve := querygen.For(dialect.Postgres).ClosureQuery(
+		"ResolvePermissionsForRoles", "authz_roles", roleColumns,
+		&querygen.Closure{
+			Alias:      "role_closure",
+			Walk:       querygen.Edge{Table: "authz_role_hierarchy", From: "child_role_id", To: "parent_role_id"},
+			Reach:      querygen.Edge{Table: "authz_role_permissions", From: "role_id", To: "permission_id"},
+			Table:      "authz_permissions",
+			Columns:    permissionColumns,
+			Projection: []string{"name"},
+		},
+		querygen.SetKey{Column: "name", Arg: "role_names"})
+
+It is a shape rather than a statement a consumer writes out, which is the
+opposite ruling from the one operations and saga got, and the reason is that its
+two properties are the whole of its correctness and neither is visible in a diff
+of the SQL. UNION rather than UNION ALL is what makes it terminate on a cycle a
+hand-edited table can hold, and the archived predicate at every join rather than
+only at the seed is what stops an archived intermediate row from going on
+granting what it reached. Both are rendered unconditionally, so a corpus holding
+one and not the other is not something anybody can write — where an authored
+statement is one where a reviewer has to notice.
+
+The archived predicates come off the two column lists exactly as they do
+everywhere else here. The edges carry none, and cannot: a mapping table has no
+column list, because an edge is live exactly when the rows at both of its ends
+are.
+
 # Guarded writes
 
 The update is not only the conventional whole-row one. It assigns the columns it
@@ -441,13 +475,19 @@ to, and it says so when the statement runs rather than when it is parsed. A key
 of more than one column compares as a row value, which is the queue tables'
 shape, where (queue_name, item_key) names a row and neither half of it does.
 
-Neither arm travels. MySQL refuses a subquery over the table being deleted from
-(ER_UPDATE_TABLE_USED); Postgres does not parse DELETE … LIMIT at all, and SQLite
-parses it only in builds compiled with an option most are not, which makes it a
-failure that waits for run time. So the divergence is confined to
-Generator.boundedDelete the way the upsert's is to Generator.conflictHeader, and
-the corpus above is authored once and rendered three times: one name, one
-signature, one set of arguments.
+Only one half of that is forced. Postgres does not parse DELETE … LIMIT at all,
+and SQLite parses it only in builds compiled with an option most are not, which
+makes it a failure that waits for run time — so the doomed subquery is the only
+bounded delete those two have. MySQL is the one with a choice: it refuses a
+subquery over the table being deleted from (ER_UPDATE_TABLE_USED), and accepts
+the identical rows once that scan is materialized through a derived table, which
+is what [Generator.SweepDeleteQuery] renders there. The prune declines the
+derived table because the native arm is strictly better for a statement with no
+read to keep in step with, and the three spellings and the servers that take them
+are written down once, in querygen's boundedWriteForm, which both shapes derive
+their arm from. So the divergence is confined to Generator.boundedDelete the way
+the upsert's is to Generator.conflictHeader, and the corpus above is authored
+once and rendered three times: one name, one signature, one set of arguments.
 
 The capped read takes FOR UPDATE SKIP LOCKED on Postgres, so a fleet of reapers
 takes disjoint batches instead of queueing behind each other; a row another pass
@@ -640,23 +680,77 @@ the bucket, which is the outcome an expiry state exists to prevent.
 
 Two things about the writes are the statement's rather than a caller's. The rows
 are named through a subquery, because two of the three dialects have no LIMIT on
-a DELETE and the third spells it differently again; and the outer key is
-qualified, because SQLite resolves a bare id against both the statement's target
-and the subquery's table and calls that ambiguous. MySQL is the one shape that
-differs: it refuses a subquery reading the table being written
-(ER_UPDATE_TABLE_USED) and accepts the identical rows once materialized through a
-derived table, so its rendering wraps the scan in one. The [Generator] carries
-the dialect, so a Postgres statement cannot acquire the wrapper or a MySQL one
-lose it.
+a DELETE and the third's — which the prune does take — has no read in it for the
+sweep's own read to be rendered from; and the outer key is qualified, because
+SQLite resolves a bare id against both the statement's target and the subquery's
+table and calls that ambiguous. MySQL is the one shape that differs: it refuses a
+subquery reading the table being written (ER_UPDATE_TABLE_USED) and accepts the
+identical rows once materialized through a derived table, so its rendering wraps
+the scan in one — the same boundedWriteForm table the prune reads its arm off.
+The [Generator] carries the dialect, so a Postgres statement cannot acquire the
+wrapper or a MySQL one lose it.
 
 All three take their predicates the way the batched read does rather than the way
 the single-row statements do: the archived clause where the column list carries
 archived_at, one predicate per [Match], and no id predicate — a sweep addresses a
 set, so a statement keyed on the row's own id would be a sweep of exactly one
 row. A sweep with no [Match] is [ErrUnpredicatedStatement] rather than a bounded
-truncate, and one naming no ordering is [ErrUnorderedSweep] rather than "whichever
-N rows the server produced first", which is a set that can differ between two
-runs over the same rows and can pass over the oldest row forever.
+truncate, and one naming no ordering is [ErrUnorderedBoundedStatement] rather
+than "whichever N rows the server produced first", which is a set that can differ
+between two runs over the same rows and can pass over the oldest row forever. The
+prune refuses an unordered pass under the same error, for the same reason, argued
+once where both shapes point at it.
+
+# Choosing between the prune and the sweep
+
+Two shapes above render a bounded write, and a store porting its reaper has to
+pick one. They are not variants of each other, and neither is a superset of the
+other:
+
+  - [Generator.SweepDeleteQuery] and [Generator.SweepUpdateQuery] address rows by
+    id, leave archived rows alone wherever the column list carries archived_at,
+    and render from the same scan [Generator.SweepQuery] renders — so a caller
+    can look at the rows a pass is about to take.
+  - [Generator.PruneQuery] addresses rows by any key, a natural key of several
+    columns included; dooms archived rows like any others, because retention
+    destroys rather than hides; and takes Postgres's FOR UPDATE SKIP LOCKED, so a
+    fleet of reapers divides one backlog instead of queueing on it. It renders no
+    read, which is what lets it take MySQL's native DELETE … ORDER BY … LIMIT.
+
+So: a pass over a soft-deleting table whose rows a caller could also be listing
+is the sweep. A retention pass over an append-only table, or any pass keyed on
+something other than an id, is the prune. Where both would render, the prune is
+the cheaper statement and the sweep is the one whose rows something can read
+first. Both are ordered and both are capped; that part is not a choice, for
+[ErrUnorderedBoundedStatement]'s reason.
+
+The reapers this module already has, and which shape each takes:
+
+  - dataprivacy is the sweep, and is already on it: an expiry read whose
+    artifacts leave a bucket before the row may say they are gone, a bounded
+    stamp for the confirmation windows that lapsed, and a bounded delete for the
+    requests past retention — one scan, three statements, archived requests left
+    alone.
+  - metering's ReapEvents is the prune. Its rows are addressed by the compound
+    natural key the events table is keyed on, (meter, idempotency_key), which is
+    the row-value comparison [Prune.Key] exists for. Its NOT EXISTS over the
+    totals table — the guard that keeps retention from destroying the evidence
+    behind an unflushed total — is not a [Match], so that statement is one of the
+    authored ones: written into metering's own corpus and checked by sqlc there,
+    the way the queue stores' expression writes are.
+  - outbox's reap is the prune. Its table carries no archived_at by design, so
+    the sweep's one advantage does not apply, and a fleet of relays reaping
+    concurrently is exactly what SKIP LOCKED is for.
+  - audit's prune is the prune, keyed on the pair (scope, seq). The two reads
+    computing its horizon are aggregates over a chain rather than statements this
+    package emits, and stay authored; what the port changes is that the DELETE
+    they feed gains the cap it does not have today.
+  - retention's Table is the prune's shape and cannot be a prune's caller. Its
+    table, its age column and its key column arrive from a policy a consumer
+    writes at run time, and everything here is rendered from string literals at
+    generate time against a schema sqlc has read. What it takes from this section
+    is the rules — ordered, capped, native arm on MySQL — rather than the
+    rendering.
 
 # The count
 
@@ -851,20 +945,7 @@ its own. That it holds none is recorded as an assertion rather than left as an
 absence, because an absence goes on reading true after the package stops
 deserving it.
 
-The remaining two are ports rather than exemptions.
-
-authorization/database owns four tables and builds thirteen statements over
-them, which a survey counting functions that return a query and its arguments
-read as zero: these return the query alone, and their arguments are assembled at
-the call site. Roles and permissions carry the convention triple, so the reads
-and the writes over them are this package's ordinary shapes, and the shapes the
-survey found missing have since landed: the mapping rows between them are the
-id-less child tables [Generator.DeleteQuery] and [Generator.InsertQuery] now
-serve, and the seed's lookups over a bound set are [Generator.SetReadQuery]. What
-the port still waits on is the resolution query, a recursive closure — a shape
-this package cannot render at all. sqlc is not the obstacle; it analyzes that
-query on all three engines, binding the role names through ANY on Postgres and
-sqlc.slice on the other two.
+The remaining one is a port rather than an exemption.
 
 dataprivacy/auditerasure owns no table. Its three statements — two deletes of a
 subject's audit scopes and the count of what the hash chain will not let go of —
@@ -883,6 +964,18 @@ the column they assign rather than by the status they came from — which is the
 same substitution [Generator.UpdateQuery] made for identity's field-specific
 writes: a builder whose branches are the cases becomes one statement per case,
 each of them checked.
+
+authorization/database is on it too, and it is the one port that added a shape
+rather than reusing them. A survey counting functions that return a query and
+its arguments read it as zero builders; it had thirteen, which returned the
+query alone and assembled the arguments at each call site. Twelve of its
+fourteen statements turned out to be shapes that already existed — the mapping
+rows between its tables are the id-less child tables [Generator.DeleteQuery] and
+[Generator.InsertQuery] serve, its seed's lookups are [Generator.SetReadQuery],
+and its two named tables converge through [Generator.UpsertQuery], whose
+conflict branch clearing archived_at is exactly what makes a re-seed revive a
+reserved name. The thirteenth is [Generator.ClosureQuery] above, and it is the
+one statement in this module with a recursive term.
 
 # include_archived actually includes archived rows
 

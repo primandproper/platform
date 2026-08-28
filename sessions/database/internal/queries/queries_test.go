@@ -52,16 +52,19 @@ func TestRender_MatchesTheCommittedFiles(T *testing.T) {
 // emitted here and not executed is SQL nobody checks the other way round: sqlc
 // would be reading a statement the backend does not run.
 //
-// Six, and there is no seventh hiding: this table has no filtered list to page
+// Nine, and there is no tenth hiding: this table has no filtered list to page
 // in two directions and no archive to stamp, because it carries neither the
 // convention triple nor anything a cursor could walk that a sweeper does not
-// eventually delete.
+// eventually delete. The enumeration below is unpaged for that reason and for
+// one of its own — see heldRead.
 func TestRender_EmitsTheStatementsTheBackendExecutes(T *testing.T) {
 	T.Parallel()
 
 	want := []string{
 		"CreateSession", "GetSession", "UpdateSession",
-		"SessionExists", "DeleteSession", "SweepSessions",
+		"SessionExists", "DeleteSession",
+		"ListSessionsForPrincipal", "DeleteSessionForPrincipal", "DeleteSessionsForPrincipal",
+		"SweepSessions",
 	}
 
 	for _, d := range everyDialect {
@@ -280,6 +283,153 @@ func TestRead_ProjectsARecordRatherThanARow(T *testing.T) {
 			get := statement(t, Render(d), "GetSession")
 
 			test.StrNotContains(t, get, ExpiresAtColumn, test.Sprintf("dialect %q", d))
+		}
+	})
+}
+
+// TestHeldStatements_KeyOnTheWholeHolder is the test that would fail if a
+// revocation ever reached across tenants or across people.
+//
+// Each of the three is keyed on the scope and the principal together, and the
+// two failures a missing half produces are the ones nothing else here would
+// catch: without the scope, a revocation reaches every tenant that spells an
+// identifier the same way; without the principal, it signs out everybody in the
+// tenant. Both are working SQL.
+func TestHeldStatements_KeyOnTheWholeHolder(T *testing.T) {
+	T.Parallel()
+
+	held := []string{"ListSessionsForPrincipal", "DeleteSessionForPrincipal", "DeleteSessionsForPrincipal"}
+
+	for _, d := range everyDialect {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			for _, name := range held {
+				rendered := statement(t, Render(d), name)
+
+				for _, column := range AttributionColumns {
+					test.StrContains(t, rendered, column+" = sqlc.arg("+column+")",
+						test.Sprintf("%s does not bind %s", name, column))
+				}
+			}
+		})
+	}
+}
+
+// TestHeldRevocations_DifferInTheirIDPredicate pins the one thing that
+// separates the three revocation shapes, since they are otherwise the same
+// statement and a swap between them would still run.
+func TestHeldRevocations_DifferInTheirIDPredicate(T *testing.T) {
+	T.Parallel()
+
+	// Revoking one session names it, and inclusively: the row that goes is the
+	// one the caller asked about.
+	T.Run("the single revocation matches the identifier", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range everyDialect {
+			one := statement(t, Render(d), "DeleteSessionForPrincipal")
+
+			test.StrContains(t, one, querygen.IDColumn+" = sqlc.arg("+querygen.IDColumn+")",
+				test.Sprintf("dialect %q", d))
+		}
+	})
+
+	// The bulk revocation excludes one, through an argument that may be unset —
+	// which is what lets "sign out everywhere" and "sign out my other devices"
+	// be one statement rather than two that could disagree about what "every
+	// session I hold" means.
+	T.Run("the bulk revocation excludes an optional identifier", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range everyDialect {
+			all := statement(t, Render(d), "DeleteSessionsForPrincipal")
+
+			test.StrContains(t, all, querygen.IDColumn+" <> COALESCE(sqlc.narg("+KeptSessionArg+"), '')",
+				test.Sprintf("dialect %q", d))
+			test.StrNotContains(t, all, querygen.IDColumn+" = sqlc.arg", test.Sprintf("dialect %q", d))
+		}
+	})
+}
+
+// TestHeldRead_IsUnpagedAndUnfiltered covers the two things the enumeration
+// deliberately does not do.
+//
+// A page of a person's sessions would be a "sign out everywhere" that acted on
+// the rows the reader happened to be looking at, and a predicate on expires_at
+// would be the server's stored deadline deciding what a person is shown while
+// the store decides what a request may use — two clocks, one of which is
+// answering requests with sessions the other has hidden.
+func TestHeldRead_IsUnpagedAndUnfiltered(T *testing.T) {
+	T.Parallel()
+
+	for _, d := range everyDialect {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			list := statement(t, Render(d), "ListSessionsForPrincipal")
+
+			test.StrNotContains(t, list, ExpiresAtColumn)
+			test.StrNotContains(t, list, "LIMIT")
+			test.StrNotContains(t, list, "filtered_count")
+			test.StrContains(t, list, "ORDER BY sessions."+querygen.CreatedAtColumn+" DESC")
+		})
+	}
+}
+
+// TestListedColumns_CarryTheIdentifier is the projection half of the same
+// point.
+//
+// An enumeration that came back without identifiers would be a list a person
+// could read and not act on: the identifier is what a revocation is aimed at,
+// and what IsCurrent is decided by. It is the one read here that projects the
+// id, precisely because it is the one the caller did not ask with.
+func TestListedColumns_CarryTheIdentifier(t *testing.T) {
+	t.Parallel()
+
+	test.True(t, slices.Contains(ListedColumns, querygen.IDColumn))
+	test.False(t, slices.Contains(ListedColumns, ExpiresAtColumn))
+
+	for _, column := range AttributionColumns {
+		test.False(t, slices.Contains(ListedColumns, column),
+			test.Sprintf("%s is echoed back to a caller who bound it", column))
+	}
+}
+
+// TestUpdateColumns_NeverAssignTheAttribution is the structural half of "a
+// session does not change hands".
+//
+// Who holds a session and what it was established from are facts about its
+// establishment, so no update can move them: a touch that reassigned a
+// principal would be a session changing hands with no row deleted, which is the
+// one thing a revocation surface cannot survive.
+func TestUpdateColumns_NeverAssignTheAttribution(T *testing.T) {
+	T.Parallel()
+
+	immutable := append(slices.Clone(AttributionColumns),
+		DeviceNameColumn, IPAddressColumn, UserAgentColumn, LoginMethodColumn)
+
+	T.Run("the assignable set leaves them out", func(t *testing.T) {
+		t.Parallel()
+
+		for _, column := range immutable {
+			test.False(t, slices.Contains(UpdateColumns, column), test.Sprintf("column %q", column))
+		}
+	})
+
+	T.Run("and so does every dialect's statement", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range everyDialect {
+			update := statement(t, Render(d), "UpdateSession")
+
+			where := strings.Index(update, "WHERE")
+			must.GreaterEq(t, 0, where, must.Sprintf("the %s update has no WHERE clause", d))
+
+			for _, column := range immutable {
+				test.StrNotContains(t, update[:where], column,
+					test.Sprintf("dialect %q, column %q", d, column))
+			}
 		}
 	})
 }

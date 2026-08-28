@@ -302,10 +302,11 @@ func TestResolver_Seed(T *testing.T) {
 		test.SliceEmpty(t, roles)
 	})
 
-	// Exercises the chunked multi-row inserts. maxBatchRows is 100, so this
-	// spans several batches and would catch an off-by-one in the placeholder
-	// numbering that a small policy hides.
-	T.Run("handles a policy larger than one insert batch", func(t *testing.T) {
+	// The grants are written one statement each, so what this exercises is the
+	// one place a batch still reaches the server whole: the name lookup binds
+	// every permission in the policy as a single set, which is a placeholder
+	// expansion on two of the three dialects.
+	T.Run("handles a policy of a few hundred permissions", func(t *testing.T) {
 		t.Parallel()
 
 		const permCount = 250

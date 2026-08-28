@@ -15,6 +15,7 @@ import (
 	tracingnoop "github.com/primandproper/platform-go/v13/observability/tracing/noop"
 	"github.com/primandproper/platform-go/v13/sessions"
 	"github.com/primandproper/platform-go/v13/sessions/database/migrations"
+	"github.com/primandproper/platform-go/v13/tenancy"
 
 	"github.com/shoenig/test/must"
 )
@@ -125,14 +126,28 @@ func newTestBackend(t *testing.T, opts ...Option) (*Backend[principal], *fakeClo
 	return backend, c
 }
 
-// testRecord is one live record, stamped at the clock's current instant.
+// testRecord is one live record, stamped at the clock's current instant and
+// held by nobody — the global scope and the empty principal, which is what
+// Store.New writes.
 func testRecord(c *fakeClock, userID string) *sessions.Record[principal] {
+	return testHeldRecord(c, sessions.Holder{Scope: tenancy.Global()}, sessions.Metadata{}, userID)
+}
+
+// testHeldRecord is the same record attributed to somebody.
+func testHeldRecord(
+	c *fakeClock,
+	holder sessions.Holder,
+	metadata sessions.Metadata,
+	userID string,
+) *sessions.Record[principal] {
 	now := c.Now().UTC().Truncate(time.Microsecond)
 
 	return &sessions.Record[principal]{
 		CreatedAt:  now,
 		LastSeenAt: now,
 		Data:       &principal{UserID: userID},
+		Holder:     holder,
+		Metadata:   metadata,
 		Version:    1,
 	}
 }

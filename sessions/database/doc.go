@@ -52,6 +52,21 @@ against the store's policy, so that both backends answer the question
 identically — and so that clock skew between a writer and a reader cannot hide a
 live session.
 
+scope and principal are who holds the session, and they are what makes this the
+only backend that can answer "which sessions does this person hold, and end the
+ones that are not this one". The pair is indexed together and every statement in
+that surface binds both: a revocation missing the scope reaches every tenant
+that spells an identifier the same way, and one missing the principal signs out
+everybody in the tenant. Neither has a column default, and scope's absence is
+the deliberate one — the empty string is tenancy.Global(), so a default would
+hand the global scope to a write that forgot the column.
+
+The device metadata sits beside them and appears in no UPDATE either, for
+created_at's reason one step out: it describes the moment a session was
+established, and a recorded device that moved under a user would describe
+nothing at all. A renewal carries both across by writing a fresh row from the
+record it read.
+
 created_at appears in no UPDATE. It anchors the absolute timeout, and leaving it
 out of the statement makes "an update never extends a session's total lifetime"
 structural rather than a rule somebody has to remember.

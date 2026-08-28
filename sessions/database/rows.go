@@ -21,6 +21,8 @@ type row struct {
 	createdAt  time.Time
 	lastSeenAt time.Time
 	expiresAt  time.Time
+	holder     sessions.Holder
+	metadata   sessions.Metadata
 	id         string
 	data       []byte
 	version    int64
@@ -41,6 +43,8 @@ func (b *Backend[T]) row(
 	r := &row{
 		createdAt:  record.CreatedAt.UTC(),
 		lastSeenAt: record.LastSeenAt.UTC(),
+		holder:     record.Holder,
+		metadata:   record.Metadata,
 		// Stamped from this backend's clock rather than from the store's, since
 		// the interface passes a duration. It feeds the sweeper and nothing
 		// else — whether a session is live is decided from the two anchors
@@ -72,12 +76,18 @@ func (b *Backend[T]) row(
 // create renders the row as the create's arguments.
 func (r *row) create() sessionsdb.CreateSessionParams {
 	return sessionsdb.CreateSessionParams{
-		ID:         r.id,
-		Data:       r.data,
-		CreatedAt:  r.createdAt,
-		LastSeenAt: r.lastSeenAt,
-		ExpiresAt:  r.expiresAt,
-		Version:    r.version,
+		ID:          r.id,
+		Scope:       r.holder.Scope,
+		Principal:   r.holder.Principal,
+		Data:        r.data,
+		DeviceName:  r.metadata.DeviceName,
+		IPAddress:   r.metadata.IPAddress,
+		UserAgent:   r.metadata.UserAgent,
+		LoginMethod: r.metadata.LoginMethod,
+		CreatedAt:   r.createdAt,
+		LastSeenAt:  r.lastSeenAt,
+		ExpiresAt:   r.expiresAt,
+		Version:     r.version,
 	}
 }
 
@@ -87,6 +97,12 @@ func (r *row) create() sessionsdb.CreateSessionParams {
 // the absolute timeout is not something an update can move, and it is left out
 // of the SET list rather than passed and ignored — see the update statement in
 // sessions/database/internal/queries.
+//
+// So are the holder and the metadata, one step further out. A session that
+// changed hands, or whose recorded device moved, without a row being deleted
+// would be one nobody could reason about from a security page — so an update
+// cannot express either, and a renewal carries them across by writing a fresh
+// row from the record it read.
 func (r *row) update() sessionsdb.UpdateSessionParams {
 	return sessionsdb.UpdateSessionParams{
 		ID:         r.id,

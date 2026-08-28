@@ -40,6 +40,31 @@ var (
 	// errors.ErrEmptyInputParameter, so a caller may check either.
 	ErrIDRequired = platformerrors.Wrap(platformerrors.ErrEmptyInputParameter, "empty session identifier")
 
+	// ErrPrincipalRequired indicates a call that had to name whose sessions it
+	// was about and did not. It wraps errors.ErrEmptyInputParameter, so a
+	// caller may check either.
+	//
+	// The empty principal is a session held by nobody — what Store.New
+	// establishes — and it is refused here rather than matched, because a list
+	// or a revocation over every anonymous session in a scope is not the
+	// question anybody meant to ask.
+	ErrPrincipalRequired = platformerrors.Wrap(platformerrors.ErrEmptyInputParameter, "empty session principal")
+
+	// ErrNoPrincipalIndex indicates a store whose backend cannot answer which
+	// sessions a principal holds.
+	//
+	// It is a property of the backend rather than a misuse: sessions/cache is
+	// a key-value store, which answers what is under a key and cannot answer
+	// which keys belong to a person without a second structure beside it — and
+	// a second structure recording which sessions are live is a second thing
+	// that can disagree with the first about a revocation. sessions/database
+	// has the index, because a table can carry the column.
+	//
+	// A deployment that needs "sign out my other devices" therefore needs the
+	// database backend, and finds that out from this error rather than from a
+	// list that comes back empty.
+	ErrNoPrincipalIndex = platformerrors.New("session backend keeps no principal index")
+
 	// ErrNilBackend indicates NewStore was called without a backend. It wraps
 	// errors.ErrNilInputParameter, so a caller may check either.
 	ErrNilBackend = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil session backend")

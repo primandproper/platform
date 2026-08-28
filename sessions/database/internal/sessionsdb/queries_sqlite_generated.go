@@ -9,12 +9,20 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	"github.com/primandproper/platform-go/v13/tenancy"
 )
 
 const createSessionSQLite = `
 INSERT OR IGNORE INTO {{prefix}}sessions (
 	id,
+	scope,
+	principal,
 	data,
+	device_name,
+	ip_address,
+	user_agent,
+	login_method,
 	created_at,
 	last_seen_at,
 	expires_at,
@@ -25,19 +33,56 @@ INSERT OR IGNORE INTO {{prefix}}sessions (
 	?3,
 	?4,
 	?5,
-	?6
+	?6,
+	?7,
+	?8,
+	?9,
+	?10,
+	?11,
+	?12
 )`
 
 const deleteSessionSQLite = `DELETE FROM {{prefix}}sessions
 WHERE id = ?1`
 
+const deleteSessionForPrincipalSQLite = `DELETE FROM {{prefix}}sessions
+WHERE id = ?1
+	AND scope = ?2
+	AND principal = ?3`
+
+const deleteSessionsForPrincipalSQLite = `DELETE FROM {{prefix}}sessions
+WHERE scope = ?1
+	AND principal = ?2
+	AND id <> COALESCE(?3, '')`
+
 const getSessionSQLite = `SELECT
+	{{prefix}}sessions.scope,
+	{{prefix}}sessions.principal,
 	{{prefix}}sessions.data,
+	{{prefix}}sessions.device_name,
+	{{prefix}}sessions.ip_address,
+	{{prefix}}sessions.user_agent,
+	{{prefix}}sessions.login_method,
 	{{prefix}}sessions.created_at,
 	{{prefix}}sessions.last_seen_at,
 	{{prefix}}sessions.version
 FROM {{prefix}}sessions
 WHERE {{prefix}}sessions.id = ?1`
+
+const listSessionsForPrincipalSQLite = `SELECT
+	{{prefix}}sessions.id,
+	{{prefix}}sessions.data,
+	{{prefix}}sessions.device_name,
+	{{prefix}}sessions.ip_address,
+	{{prefix}}sessions.user_agent,
+	{{prefix}}sessions.login_method,
+	{{prefix}}sessions.created_at,
+	{{prefix}}sessions.last_seen_at,
+	{{prefix}}sessions.version
+FROM {{prefix}}sessions
+WHERE {{prefix}}sessions.scope = ?1
+	AND {{prefix}}sessions.principal = ?2
+ORDER BY {{prefix}}sessions.created_at DESC, {{prefix}}sessions.id DESC`
 
 const sessionExistsSQLite = `SELECT EXISTS (
 	SELECT {{prefix}}sessions.id
@@ -57,24 +102,30 @@ WHERE id = ?5`
 
 // sqliteQueries answers every query in Querier against sqlite.
 type sqliteQueries struct {
-	createSession string
-	deleteSession string
-	getSession    string
-	sessionExists string
-	sweepSessions string
-	updateSession string
+	createSession              string
+	deleteSession              string
+	deleteSessionForPrincipal  string
+	deleteSessionsForPrincipal string
+	getSession                 string
+	listSessionsForPrincipal   string
+	sessionExists              string
+	sweepSessions              string
+	updateSession              string
 }
 
 // newSQLite returns the sqlite querier with prefix substituted into every
 // table name the analyzer identified.
 func newSQLite(prefix string) *sqliteQueries {
 	return &sqliteQueries{
-		createSession: strings.ReplaceAll(createSessionSQLite, prefixMarker, prefix),
-		deleteSession: strings.ReplaceAll(deleteSessionSQLite, prefixMarker, prefix),
-		getSession:    strings.ReplaceAll(getSessionSQLite, prefixMarker, prefix),
-		sessionExists: strings.ReplaceAll(sessionExistsSQLite, prefixMarker, prefix),
-		sweepSessions: strings.ReplaceAll(sweepSessionsSQLite, prefixMarker, prefix),
-		updateSession: strings.ReplaceAll(updateSessionSQLite, prefixMarker, prefix),
+		createSession:              strings.ReplaceAll(createSessionSQLite, prefixMarker, prefix),
+		deleteSession:              strings.ReplaceAll(deleteSessionSQLite, prefixMarker, prefix),
+		deleteSessionForPrincipal:  strings.ReplaceAll(deleteSessionForPrincipalSQLite, prefixMarker, prefix),
+		deleteSessionsForPrincipal: strings.ReplaceAll(deleteSessionsForPrincipalSQLite, prefixMarker, prefix),
+		getSession:                 strings.ReplaceAll(getSessionSQLite, prefixMarker, prefix),
+		listSessionsForPrincipal:   strings.ReplaceAll(listSessionsForPrincipalSQLite, prefixMarker, prefix),
+		sessionExists:              strings.ReplaceAll(sessionExistsSQLite, prefixMarker, prefix),
+		sweepSessions:              strings.ReplaceAll(sweepSessionsSQLite, prefixMarker, prefix),
+		updateSession:              strings.ReplaceAll(updateSessionSQLite, prefixMarker, prefix),
 	}
 }
 
@@ -102,7 +153,13 @@ func timeText(t time.Time) string {
 func (q *sqliteQueries) CreateSession(ctx context.Context, db DBTX, arg CreateSessionParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.createSession,
 		arg.ID,
+		arg.Scope,
+		arg.Principal,
 		arg.Data,
+		arg.DeviceName,
+		arg.IPAddress,
+		arg.UserAgent,
+		arg.LoginMethod,
 		timeText(arg.CreatedAt),
 		timeText(arg.LastSeenAt),
 		timeText(arg.ExpiresAt),
@@ -127,6 +184,34 @@ func (q *sqliteQueries) DeleteSession(ctx context.Context, db DBTX, arg DeleteSe
 	return result.RowsAffected()
 }
 
+// DeleteSessionForPrincipal runs the :execrows query against sqlite.
+func (q *sqliteQueries) DeleteSessionForPrincipal(ctx context.Context, db DBTX, arg DeleteSessionForPrincipalParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.deleteSessionForPrincipal,
+		arg.ID,
+		arg.Scope,
+		arg.Principal,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// DeleteSessionsForPrincipal runs the :execrows query against sqlite.
+func (q *sqliteQueries) DeleteSessionsForPrincipal(ctx context.Context, db DBTX, arg DeleteSessionsForPrincipalParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.deleteSessionsForPrincipal,
+		arg.Scope,
+		arg.Principal,
+		arg.KeptSessionID,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // GetSession runs the :one query against sqlite.
 func (q *sqliteQueries) GetSession(ctx context.Context, db DBTX, arg GetSessionParams) (GetSessionRow, error) {
 	row := db.QueryRowContext(ctx, q.getSession,
@@ -136,13 +221,60 @@ func (q *sqliteQueries) GetSession(ctx context.Context, db DBTX, arg GetSessionP
 	var i GetSessionRow
 
 	err := row.Scan(
+		&i.Scope,
+		&i.Principal,
 		&i.Data,
+		&i.DeviceName,
+		&i.IPAddress,
+		&i.UserAgent,
+		&i.LoginMethod,
 		&i.CreatedAt,
 		&i.LastSeenAt,
 		&i.Version,
 	)
 
 	return i, err
+}
+
+// ListSessionsForPrincipal runs the :many query against sqlite.
+func (q *sqliteQueries) ListSessionsForPrincipal(ctx context.Context, db DBTX, arg ListSessionsForPrincipalParams) ([]ListSessionsForPrincipalRow, error) {
+	rows, err := db.QueryContext(ctx, q.listSessionsForPrincipal,
+		arg.Scope,
+		arg.Principal,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var items []ListSessionsForPrincipalRow
+
+	for rows.Next() {
+		var i ListSessionsForPrincipalRow
+
+		if err := rows.Scan(
+			&i.ID,
+			&i.Data,
+			&i.DeviceName,
+			&i.IPAddress,
+			&i.UserAgent,
+			&i.LoginMethod,
+			&i.CreatedAt,
+			&i.LastSeenAt,
+			&i.Version,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(items, i)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
 }
 
 // SessionExists runs the :one query against sqlite.
@@ -196,25 +328,62 @@ func (q *sqliteQueries) UpdateSession(ctx context.Context, db DBTX, arg UpdateSe
 // transposition at run time.
 var (
 	_ = struct {
-		ID         string
-		Data       []byte
-		CreatedAt  time.Time
-		LastSeenAt time.Time
-		ExpiresAt  time.Time
-		Version    int64
+		ID          string
+		Scope       tenancy.Scope
+		Principal   string
+		Data        []byte
+		DeviceName  string
+		IPAddress   string
+		UserAgent   string
+		LoginMethod string
+		CreatedAt   time.Time
+		LastSeenAt  time.Time
+		ExpiresAt   time.Time
+		Version     int64
 	}(CreateSessionParams{})
 	_ = struct {
 		ID string
 	}(DeleteSessionParams{})
 	_ = struct {
+		ID        string
+		Scope     tenancy.Scope
+		Principal string
+	}(DeleteSessionForPrincipalParams{})
+	_ = struct {
+		Scope         tenancy.Scope
+		Principal     string
+		KeptSessionID *string
+	}(DeleteSessionsForPrincipalParams{})
+	_ = struct {
 		ID string
 	}(GetSessionParams{})
 	_ = struct {
-		Data       []byte
-		CreatedAt  time.Time
-		LastSeenAt time.Time
-		Version    int64
+		Scope       tenancy.Scope
+		Principal   string
+		Data        []byte
+		DeviceName  string
+		IPAddress   string
+		UserAgent   string
+		LoginMethod string
+		CreatedAt   time.Time
+		LastSeenAt  time.Time
+		Version     int64
 	}(GetSessionRow{})
+	_ = struct {
+		Scope     tenancy.Scope
+		Principal string
+	}(ListSessionsForPrincipalParams{})
+	_ = struct {
+		ID          string
+		Data        []byte
+		DeviceName  string
+		IPAddress   string
+		UserAgent   string
+		LoginMethod string
+		CreatedAt   time.Time
+		LastSeenAt  time.Time
+		Version     int64
+	}(ListSessionsForPrincipalRow{})
 	_ = struct {
 		ID string
 	}(SessionExistsParams{})

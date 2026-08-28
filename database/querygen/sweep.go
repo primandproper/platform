@@ -5,7 +5,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/primandproper/platform-go/v13/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 )
 
@@ -21,22 +20,6 @@ import (
 // rather than a key.
 var ErrUnpredicatedStatement = platformerrors.New("statement selects rows by nothing")
 
-// ErrUnorderedSweep indicates a bounded statement that names no ordering.
-//
-// A LIMIT without an ORDER BY takes whichever rows the server produced first,
-// which is a set that may differ between two runs of the same statement against
-// the same rows. For a read that is a page nobody can walk; for a write it is a
-// sweep that can pass over the oldest row forever while newer ones behind it are
-// collected. The ordering is what makes "the next N" mean something, so it is
-// required rather than defaulted — this package has no basis for choosing which
-// column a caller's sweep should drain in.
-var ErrUnorderedSweep = platformerrors.New("bounded statement names no ordering")
-
-// sweepAlias names the derived table MySQL's bounded writes read their keys
-// through. It is not a table in any schema this module ships, and it never
-// reaches a caller: nothing binds it and nothing projects it outward.
-const sweepAlias = "bounded"
-
 // Sweep is what a bounded scan lists and the order it drains rows in.
 //
 // It is the shape a background pass over a table has, and it is not the paged
@@ -49,7 +32,7 @@ const sweepAlias = "bounded"
 // are most overdue and a limit that says how much to do in one pass.
 type Sweep struct {
 	// Order is the columns the scan walks, most significant first. It is
-	// required — see [ErrUnorderedSweep].
+	// required — see [ErrUnorderedBoundedStatement].
 	//
 	// The convention the sweeps in this module follow is the column the
 	// deadline lives in, then the id: the most overdue rows first, and a
@@ -64,15 +47,6 @@ type Sweep struct {
 	// the id and nothing else, and that one is [Generator.SweepDeleteQuery] or
 	// [Generator.SweepUpdateQuery] rather than a scan a caller loops over.
 	Projection []string
-}
-
-// order returns the terms this sweep walks, refusing one that names none.
-func (s Sweep) order(table string) []Order {
-	if len(s.Order) == 0 {
-		panic(platformerrors.Wrapf(ErrUnorderedSweep, "querygen: table %q", table))
-	}
-
-	return s.Order
 }
 
 // SweepQuery renders the bounded read a background pass runs: the rows a
@@ -97,14 +71,14 @@ func (s Sweep) order(table string) []Order {
 // them too.
 //
 // A sweep with no [Match] is [ErrUnpredicatedStatement], and one whose [Sweep]
-// names no ordering is [ErrUnorderedSweep].
+// names no ordering is [ErrUnorderedBoundedStatement].
 //
 // name must be unique across the consumer's whole sqlc package, as every
 // [QueryAnnotation].Name must.
 func (g *Generator) SweepQuery(name, table string, columns []string, sweep Sweep, matches ...Match) *Query {
 	return &Query{
 		Annotation: QueryAnnotation{Name: name, Type: ManyType},
-		Content:    g.sweepStatement(table, columns, sweep.Projection, sweep.order(table), matches),
+		Content:    g.sweepStatement(table, columns, sweep.Projection, sweep.Order, matches),
 	}
 }
 
@@ -119,11 +93,12 @@ func (g *Generator) SweepQuery(name, table string, columns []string, sweep Sweep
 // asking about.
 //
 // The rows are named through a subquery rather than by a LIMIT on the DELETE
-// itself, because two of the three dialects have no such clause and the one that
-// does spells it differently again. What the subquery is, is
-// [Generator.SweepQuery]'s statement projecting the id — the same predicates,
-// the same ordering, the same limit clause — so the rows this deletes are the
-// rows that read would have returned.
+// itself. Two of the three dialects have no such clause; the third, MySQL, does,
+// and this shape declines it — see boundedWriteForm for what each server
+// accepts. What the subquery is, is [Generator.SweepQuery]'s statement
+// projecting the id — the same predicates, the same ordering, the same limit
+// clause — so the rows this deletes are the rows that read would have returned,
+// and that identity is worth more here than one dialect's cheaper grammar.
 //
 // It carries no archived predicate of its own, exactly as
 // [Generator.DeleteQuery] carries none: an erasure runs against a subject who
@@ -134,6 +109,21 @@ func (g *Generator) SweepQuery(name, table string, columns []string, sweep Sweep
 // It is annotated :execrows because the count is the answer: a sweep reports how
 // much it collected, and a pass that came back full is a pass that is not
 // keeping up.
+//
+// # This or the prune
+//
+// [Generator.PruneQuery] is the other bounded delete here, and the two are not
+// interchangeable. This one addresses rows by id, respects archived_at wherever
+// the column list carries it, and renders the same scan a read and an update
+// also render from. The prune addresses rows by any key — an id or every column
+// of a natural key — never excludes an archived row, and renders MySQL's native
+// bound and a Postgres lock clause that this shape has nowhere to put.
+//
+// So: a pass over a soft-deleting table whose rows a caller could also be
+// listing takes this one; a retention pass over an append-only table, or one
+// keyed on something that is not an id, takes the prune. The package comment's
+// "Choosing between the prune and the sweep" works through the reapers this
+// module already has.
 //
 // name must be unique across the consumer's whole sqlc package, as every
 // [QueryAnnotation].Name must.
@@ -211,6 +201,11 @@ func (g *Generator) assignments(columns, updateColumns, nullable []string) []str
 // the archived clause where the column list carries archived_at, then one per
 // match, and no id predicate — a sweep addresses a set, so a statement keyed on
 // the row's own id would be a sweep of exactly one row.
+//
+// All three sweeps render through here, which is what puts the ordering check on
+// the writes as well as on the read: a bounded DELETE that names no order is the
+// same non-deterministic set as a bounded SELECT that names none, and the write
+// is the one nobody can inspect afterwards.
 func (g *Generator) sweepStatement(table string, columns, projection []string, order []Order, matches []Match) string {
 	mustIdentifier("table name", table)
 
@@ -225,6 +220,8 @@ func (g *Generator) sweepStatement(table string, columns, projection []string, o
 	if len(projection) == 0 {
 		projection = columns
 	}
+
+	order = boundedOrder(table, order)
 
 	return fmt.Sprintf("SELECT\n\t%s\nFROM %s\nWHERE %s%s\n%s",
 		strings.Join(QualifyAll(table, projection), ",\n\t"),
@@ -255,13 +252,14 @@ func (g *Generator) sweepPredicates(table string, columns []string, matches []Ma
 // target and the subquery's table and calls it ambiguous, which is a compile
 // error rather than a wrong answer, but only on the one dialect.
 //
-// MySQL is the shape that differs. It refuses a subquery reading the table being
-// written (ER_UPDATE_TABLE_USED) and accepts the identical rows once they have
-// been materialized through a derived table, so its rendering wraps the scan in
-// one. The other two take the scan directly. Both spellings select the same rows
-// in the same order, and neither is reachable from the other's dialect: the
-// [Generator] carries the dialect, so a Postgres statement cannot acquire the
-// wrapper or a MySQL one lose it.
+// MySQL is the shape that differs, and which spelling it gets is not a choice
+// made here: the accepted forms are boundedWriteForm's, and this shape takes
+// materializedSubquery on the dialect that refuses selfReferencingSubquery
+// because its predicate is one scan a read, a delete and an update all render
+// from — the third spelling, nativeBound, has no scan in it for the read to be.
+// Both forms name the same rows in the same order, and neither is reachable
+// from the other's dialect: the [Generator] carries the dialect, so a Postgres
+// statement cannot acquire the wrapper or a MySQL one lose it.
 func (g *Generator) sweepKeyPredicate(table string, columns []string, order []Order, matches []Match) string {
 	if !slices.Contains(columns, IDColumn) {
 		panic(platformerrors.Wrapf(ErrMissingIDColumn, "querygen: table %q", table))
@@ -269,7 +267,7 @@ func (g *Generator) sweepKeyPredicate(table string, columns []string, order []Or
 
 	scan := g.sweepStatement(table, columns, []string{IDColumn}, order, matches)
 
-	if g.dialect == dialect.MySQL {
+	if !g.boundedWriteForms().has(selfReferencingSubquery) {
 		return fmt.Sprintf("%s IN (\n\tSELECT %s\n\tFROM (\n%s\n\t) AS %s\n)",
 			Qualify(table, IDColumn),
 			Qualify(sweepAlias, IDColumn),

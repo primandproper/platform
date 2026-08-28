@@ -149,7 +149,14 @@ func (b *Backend[T]) Load(ctx context.Context, id string) (*sessions.Record[T], 
 		// against a UTC now.
 		CreatedAt:  found.CreatedAt.UTC(),
 		LastSeenAt: found.LastSeenAt.UTC(),
-		Version:    int(found.Version),
+		Holder:     sessions.Holder{Scope: found.Scope, Principal: found.Principal},
+		Metadata: sessions.Metadata{
+			DeviceName:  found.DeviceName,
+			IPAddress:   found.IPAddress,
+			UserAgent:   found.UserAgent,
+			LoginMethod: found.LoginMethod,
+		},
+		Version: int(found.Version),
 	}
 
 	// A NULL payload is a session that was established without one, and comes

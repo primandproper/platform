@@ -11,6 +11,7 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/sessions"
 	sessionsmock "github.com/primandproper/platform-go/v13/sessions/mock"
+	"github.com/primandproper/platform-go/v13/tenancy"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -37,6 +38,56 @@ func TestNewManager(T *testing.T) {
 
 		_, err := NewManager[principal](store, nil)
 		test.ErrorIs(t, err, ErrNilCookieManager)
+	})
+}
+
+func TestManager_IssueFor(T *testing.T) {
+	T.Parallel()
+
+	T.Run("establishes a session that names its holder", func(t *testing.T) {
+		t.Parallel()
+
+		manager, _ := newTestManager(t)
+		res := httptest.NewRecorder()
+
+		holder := sessions.Holder{Scope: tenancy.Of("acct_1"), Principal: "u_1"}
+		metadata := sessions.Metadata{
+			DeviceName:  "laptop",
+			IPAddress:   "203.0.113.4",
+			UserAgent:   "Mozilla/5.0",
+			LoginMethod: "passkey",
+		}
+
+		session, err := manager.IssueFor(t.Context(), res, holder, metadata, &principal{UserID: "u_1"})
+		must.NoError(t, err)
+
+		cookie := sessionCookie(t, res)
+		must.NotNil(t, cookie)
+		test.StrNotContains(t, cookie.Value, session.ID)
+
+		test.EqOp(t, holder, session.Holder)
+		test.EqOp(t, metadata, session.Metadata)
+
+		// And it is still the holder's on the next request, which is the read
+		// every middleware makes.
+		read, err := manager.Load(t.Context(), requestWithCookies(t, res))
+		must.NoError(t, err)
+		test.EqOp(t, holder, read.Holder)
+		test.EqOp(t, metadata, read.Metadata)
+	})
+
+	// A refused holder must leave no session behind and no cookie set — the
+	// store refuses before writing, and there is then nothing to write out.
+	T.Run("refuses a holder that names nobody", func(t *testing.T) {
+		t.Parallel()
+
+		manager, _ := newTestManager(t)
+		res := httptest.NewRecorder()
+
+		_, err := manager.IssueFor(t.Context(), res,
+			sessions.Holder{Scope: tenancy.Global()}, sessions.Metadata{}, nil)
+		test.ErrorIs(t, err, sessions.ErrPrincipalRequired)
+		test.Nil(t, sessionCookie(t, res))
 	})
 }
 
