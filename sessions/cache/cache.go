@@ -156,6 +156,41 @@ func (b *Backend[T]) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// ListHeld reports ErrNoPrincipalIndex: a cache cannot answer it.
+//
+// A key-value store answers "what is under this key". "Which keys belong to
+// this person" needs a second structure — a set per principal, maintained
+// beside the records and expiring with them — and that structure is a second
+// account of which sessions are live. The moment the two disagree, a
+// revocation removes a session the index still lists or lists one the store no
+// longer holds, which is exactly the failure a list-and-revoke surface exists
+// to prevent. So this backend does not keep one, and says so.
+//
+// The answer for a deployment that needs the surface is sessions/database,
+// where the index is a column on the row it describes and cannot disagree with
+// it. This is not a degradation to work around: it is which backend the
+// requirement chooses.
+func (b *Backend[T]) ListHeld(_ context.Context, _ sessions.Holder) ([]*sessions.Identified[T], error) {
+	return nil, platformerrors.Wrap(sessions.ErrNoPrincipalIndex, "listing a principal's sessions")
+}
+
+// DeleteHeld reports ErrNoPrincipalIndex. See ListHeld.
+//
+// It is refused rather than answered by loading the record and comparing its
+// holder, which this backend could do. A revocation surface that could remove
+// one named session but could not enumerate them is one whose "sign out my
+// other devices" button has nothing to name, and a partial surface here would
+// have to be discovered a method at a time. One answer for all three is the
+// answer a caller can act on.
+func (b *Backend[T]) DeleteHeld(_ context.Context, _ sessions.Holder, _ string) (int, error) {
+	return 0, platformerrors.Wrap(sessions.ErrNoPrincipalIndex, "revoking a session")
+}
+
+// DeleteAllHeld reports ErrNoPrincipalIndex. See ListHeld.
+func (b *Backend[T]) DeleteAllHeld(_ context.Context, _ sessions.Holder, _ string) (int, error) {
+	return 0, platformerrors.Wrap(sessions.ErrNoPrincipalIndex, "revoking a principal's sessions")
+}
+
 // Close releases the cache.
 func (b *Backend[T]) Close() error {
 	return b.cache.Close()

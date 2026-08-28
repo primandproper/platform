@@ -90,6 +90,43 @@ func (m *Manager[T]) Issue(
 	return session, nil
 }
 
+// IssueFor establishes a session held by somebody and writes its cookie to res.
+//
+// It is Issue for the sign-in that knows who signed in, which is every sign-in
+// — Issue's own documentation says to call it only after authenticating. The
+// difference is that the session this establishes is one the holder can find
+// again: it appears in sessions.Store.List and it can be revoked from there, so
+// "sign out my other devices" reaches it.
+//
+// The metadata is the caller's to assemble, and deliberately not read off the
+// request here. Whether the address a session should record is the socket's or
+// the one a forwarded-for header claims depends on what sits in front of the
+// application, and a helper that guessed would be guessing about the one field
+// a person uses to decide whether to revoke a session.
+func (m *Manager[T]) IssueFor(
+	ctx context.Context,
+	res http.ResponseWriter,
+	holder sessions.Holder,
+	metadata sessions.Metadata,
+	data *T,
+) (*sessions.Session[T], error) {
+	ctx, op := m.o11y.Begin(ctx)
+	defer op.End()
+
+	session, err := m.store.NewFor(ctx, holder, metadata, data)
+	if err != nil {
+		return nil, op.Error(err, "establishing session")
+	}
+
+	if err = m.write(ctx, res, session); err != nil {
+		m.discard(ctx, op, session.ID)
+
+		return nil, op.Error(err, "writing session cookie")
+	}
+
+	return session, nil
+}
+
 // Load reads the session named by req's cookie.
 //
 // A request with no session cookie, or one carrying a value that does not

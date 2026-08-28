@@ -30,14 +30,29 @@ var _ sessions.Store[any] = &StoreMock[any]{}
 //			GetFunc: func(ctx context.Context, id string) (*sessions.Session[T], error) {
 //				panic("mock out the Get method")
 //			},
+//			ListFunc: func(ctx context.Context, holder sessions.Holder, currentID string) ([]*sessions.Session[T], error) {
+//				panic("mock out the List method")
+//			},
 //			NewFunc: func(ctx context.Context, data *T) (*sessions.Session[T], error) {
 //				panic("mock out the New method")
+//			},
+//			NewForFunc: func(ctx context.Context, holder sessions.Holder, metadata sessions.Metadata, data *T) (*sessions.Session[T], error) {
+//				panic("mock out the NewFor method")
 //			},
 //			PolicyFunc: func() sessions.Policy {
 //				panic("mock out the Policy method")
 //			},
 //			RenewFunc: func(ctx context.Context, oldID string) (string, error) {
 //				panic("mock out the Renew method")
+//			},
+//			RevokeFunc: func(ctx context.Context, holder sessions.Holder, id string) error {
+//				panic("mock out the Revoke method")
+//			},
+//			RevokeAllFunc: func(ctx context.Context, holder sessions.Holder) (int, error) {
+//				panic("mock out the RevokeAll method")
+//			},
+//			RevokeAllExceptFunc: func(ctx context.Context, holder sessions.Holder, keepID string) (int, error) {
+//				panic("mock out the RevokeAllExcept method")
 //			},
 //			SaveFunc: func(ctx context.Context, id string, data *T) error {
 //				panic("mock out the Save method")
@@ -58,14 +73,29 @@ type StoreMock[T any] struct {
 	// GetFunc mocks the Get method.
 	GetFunc func(ctx context.Context, id string) (*sessions.Session[T], error)
 
+	// ListFunc mocks the List method.
+	ListFunc func(ctx context.Context, holder sessions.Holder, currentID string) ([]*sessions.Session[T], error)
+
 	// NewFunc mocks the New method.
 	NewFunc func(ctx context.Context, data *T) (*sessions.Session[T], error)
+
+	// NewForFunc mocks the NewFor method.
+	NewForFunc func(ctx context.Context, holder sessions.Holder, metadata sessions.Metadata, data *T) (*sessions.Session[T], error)
 
 	// PolicyFunc mocks the Policy method.
 	PolicyFunc func() sessions.Policy
 
 	// RenewFunc mocks the Renew method.
 	RenewFunc func(ctx context.Context, oldID string) (string, error)
+
+	// RevokeFunc mocks the Revoke method.
+	RevokeFunc func(ctx context.Context, holder sessions.Holder, id string) error
+
+	// RevokeAllFunc mocks the RevokeAll method.
+	RevokeAllFunc func(ctx context.Context, holder sessions.Holder) (int, error)
+
+	// RevokeAllExceptFunc mocks the RevokeAllExcept method.
+	RevokeAllExceptFunc func(ctx context.Context, holder sessions.Holder, keepID string) (int, error)
 
 	// SaveFunc mocks the Save method.
 	SaveFunc func(ctx context.Context, id string, data *T) error
@@ -89,10 +119,30 @@ type StoreMock[T any] struct {
 			// ID is the id argument value.
 			ID string
 		}
+		// List holds details about calls to the List method.
+		List []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Holder is the holder argument value.
+			Holder sessions.Holder
+			// CurrentID is the currentID argument value.
+			CurrentID string
+		}
 		// New holds details about calls to the New method.
 		New []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Data is the data argument value.
+			Data *T
+		}
+		// NewFor holds details about calls to the NewFor method.
+		NewFor []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Holder is the holder argument value.
+			Holder sessions.Holder
+			// Metadata is the metadata argument value.
+			Metadata sessions.Metadata
 			// Data is the data argument value.
 			Data *T
 		}
@@ -106,6 +156,31 @@ type StoreMock[T any] struct {
 			// OldID is the oldID argument value.
 			OldID string
 		}
+		// Revoke holds details about calls to the Revoke method.
+		Revoke []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Holder is the holder argument value.
+			Holder sessions.Holder
+			// ID is the id argument value.
+			ID string
+		}
+		// RevokeAll holds details about calls to the RevokeAll method.
+		RevokeAll []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Holder is the holder argument value.
+			Holder sessions.Holder
+		}
+		// RevokeAllExcept holds details about calls to the RevokeAllExcept method.
+		RevokeAllExcept []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Holder is the holder argument value.
+			Holder sessions.Holder
+			// KeepID is the keepID argument value.
+			KeepID string
+		}
 		// Save holds details about calls to the Save method.
 		Save []struct {
 			// Ctx is the ctx argument value.
@@ -116,13 +191,18 @@ type StoreMock[T any] struct {
 			Data *T
 		}
 	}
-	lockClose  sync.RWMutex
-	lockDelete sync.RWMutex
-	lockGet    sync.RWMutex
-	lockNew    sync.RWMutex
-	lockPolicy sync.RWMutex
-	lockRenew  sync.RWMutex
-	lockSave   sync.RWMutex
+	lockClose           sync.RWMutex
+	lockDelete          sync.RWMutex
+	lockGet             sync.RWMutex
+	lockList            sync.RWMutex
+	lockNew             sync.RWMutex
+	lockNewFor          sync.RWMutex
+	lockPolicy          sync.RWMutex
+	lockRenew           sync.RWMutex
+	lockRevoke          sync.RWMutex
+	lockRevokeAll       sync.RWMutex
+	lockRevokeAllExcept sync.RWMutex
+	lockSave            sync.RWMutex
 }
 
 // Close calls CloseFunc.
@@ -224,6 +304,46 @@ func (mock *StoreMock[T]) GetCalls() []struct {
 	return calls
 }
 
+// List calls ListFunc.
+func (mock *StoreMock[T]) List(ctx context.Context, holder sessions.Holder, currentID string) ([]*sessions.Session[T], error) {
+	if mock.ListFunc == nil {
+		panic("StoreMock.ListFunc: method is nil but Store.List was just called")
+	}
+	callInfo := struct {
+		Ctx       context.Context
+		Holder    sessions.Holder
+		CurrentID string
+	}{
+		Ctx:       ctx,
+		Holder:    holder,
+		CurrentID: currentID,
+	}
+	mock.lockList.Lock()
+	mock.calls.List = append(mock.calls.List, callInfo)
+	mock.lockList.Unlock()
+	return mock.ListFunc(ctx, holder, currentID)
+}
+
+// ListCalls gets all the calls that were made to List.
+// Check the length with:
+//
+//	len(mockedStore.ListCalls())
+func (mock *StoreMock[T]) ListCalls() []struct {
+	Ctx       context.Context
+	Holder    sessions.Holder
+	CurrentID string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		Holder    sessions.Holder
+		CurrentID string
+	}
+	mock.lockList.RLock()
+	calls = mock.calls.List
+	mock.lockList.RUnlock()
+	return calls
+}
+
 // New calls NewFunc.
 func (mock *StoreMock[T]) New(ctx context.Context, data *T) (*sessions.Session[T], error) {
 	if mock.NewFunc == nil {
@@ -257,6 +377,50 @@ func (mock *StoreMock[T]) NewCalls() []struct {
 	mock.lockNew.RLock()
 	calls = mock.calls.New
 	mock.lockNew.RUnlock()
+	return calls
+}
+
+// NewFor calls NewForFunc.
+func (mock *StoreMock[T]) NewFor(ctx context.Context, holder sessions.Holder, metadata sessions.Metadata, data *T) (*sessions.Session[T], error) {
+	if mock.NewForFunc == nil {
+		panic("StoreMock.NewForFunc: method is nil but Store.NewFor was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		Holder   sessions.Holder
+		Metadata sessions.Metadata
+		Data     *T
+	}{
+		Ctx:      ctx,
+		Holder:   holder,
+		Metadata: metadata,
+		Data:     data,
+	}
+	mock.lockNewFor.Lock()
+	mock.calls.NewFor = append(mock.calls.NewFor, callInfo)
+	mock.lockNewFor.Unlock()
+	return mock.NewForFunc(ctx, holder, metadata, data)
+}
+
+// NewForCalls gets all the calls that were made to NewFor.
+// Check the length with:
+//
+//	len(mockedStore.NewForCalls())
+func (mock *StoreMock[T]) NewForCalls() []struct {
+	Ctx      context.Context
+	Holder   sessions.Holder
+	Metadata sessions.Metadata
+	Data     *T
+} {
+	var calls []struct {
+		Ctx      context.Context
+		Holder   sessions.Holder
+		Metadata sessions.Metadata
+		Data     *T
+	}
+	mock.lockNewFor.RLock()
+	calls = mock.calls.NewFor
+	mock.lockNewFor.RUnlock()
 	return calls
 }
 
@@ -323,6 +487,122 @@ func (mock *StoreMock[T]) RenewCalls() []struct {
 	return calls
 }
 
+// Revoke calls RevokeFunc.
+func (mock *StoreMock[T]) Revoke(ctx context.Context, holder sessions.Holder, id string) error {
+	if mock.RevokeFunc == nil {
+		panic("StoreMock.RevokeFunc: method is nil but Store.Revoke was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Holder sessions.Holder
+		ID     string
+	}{
+		Ctx:    ctx,
+		Holder: holder,
+		ID:     id,
+	}
+	mock.lockRevoke.Lock()
+	mock.calls.Revoke = append(mock.calls.Revoke, callInfo)
+	mock.lockRevoke.Unlock()
+	return mock.RevokeFunc(ctx, holder, id)
+}
+
+// RevokeCalls gets all the calls that were made to Revoke.
+// Check the length with:
+//
+//	len(mockedStore.RevokeCalls())
+func (mock *StoreMock[T]) RevokeCalls() []struct {
+	Ctx    context.Context
+	Holder sessions.Holder
+	ID     string
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Holder sessions.Holder
+		ID     string
+	}
+	mock.lockRevoke.RLock()
+	calls = mock.calls.Revoke
+	mock.lockRevoke.RUnlock()
+	return calls
+}
+
+// RevokeAll calls RevokeAllFunc.
+func (mock *StoreMock[T]) RevokeAll(ctx context.Context, holder sessions.Holder) (int, error) {
+	if mock.RevokeAllFunc == nil {
+		panic("StoreMock.RevokeAllFunc: method is nil but Store.RevokeAll was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Holder sessions.Holder
+	}{
+		Ctx:    ctx,
+		Holder: holder,
+	}
+	mock.lockRevokeAll.Lock()
+	mock.calls.RevokeAll = append(mock.calls.RevokeAll, callInfo)
+	mock.lockRevokeAll.Unlock()
+	return mock.RevokeAllFunc(ctx, holder)
+}
+
+// RevokeAllCalls gets all the calls that were made to RevokeAll.
+// Check the length with:
+//
+//	len(mockedStore.RevokeAllCalls())
+func (mock *StoreMock[T]) RevokeAllCalls() []struct {
+	Ctx    context.Context
+	Holder sessions.Holder
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Holder sessions.Holder
+	}
+	mock.lockRevokeAll.RLock()
+	calls = mock.calls.RevokeAll
+	mock.lockRevokeAll.RUnlock()
+	return calls
+}
+
+// RevokeAllExcept calls RevokeAllExceptFunc.
+func (mock *StoreMock[T]) RevokeAllExcept(ctx context.Context, holder sessions.Holder, keepID string) (int, error) {
+	if mock.RevokeAllExceptFunc == nil {
+		panic("StoreMock.RevokeAllExceptFunc: method is nil but Store.RevokeAllExcept was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Holder sessions.Holder
+		KeepID string
+	}{
+		Ctx:    ctx,
+		Holder: holder,
+		KeepID: keepID,
+	}
+	mock.lockRevokeAllExcept.Lock()
+	mock.calls.RevokeAllExcept = append(mock.calls.RevokeAllExcept, callInfo)
+	mock.lockRevokeAllExcept.Unlock()
+	return mock.RevokeAllExceptFunc(ctx, holder, keepID)
+}
+
+// RevokeAllExceptCalls gets all the calls that were made to RevokeAllExcept.
+// Check the length with:
+//
+//	len(mockedStore.RevokeAllExceptCalls())
+func (mock *StoreMock[T]) RevokeAllExceptCalls() []struct {
+	Ctx    context.Context
+	Holder sessions.Holder
+	KeepID string
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Holder sessions.Holder
+		KeepID string
+	}
+	mock.lockRevokeAllExcept.RLock()
+	calls = mock.calls.RevokeAllExcept
+	mock.lockRevokeAllExcept.RUnlock()
+	return calls
+}
+
 // Save calls SaveFunc.
 func (mock *StoreMock[T]) Save(ctx context.Context, id string, data *T) error {
 	if mock.SaveFunc == nil {
@@ -382,6 +662,15 @@ var _ sessions.Backend[any] = &BackendMock[any]{}
 //			DeleteFunc: func(ctx context.Context, id string) error {
 //				panic("mock out the Delete method")
 //			},
+//			DeleteAllHeldFunc: func(ctx context.Context, holder sessions.Holder, keepID string) (int, error) {
+//				panic("mock out the DeleteAllHeld method")
+//			},
+//			DeleteHeldFunc: func(ctx context.Context, holder sessions.Holder, id string) (int, error) {
+//				panic("mock out the DeleteHeld method")
+//			},
+//			ListHeldFunc: func(ctx context.Context, holder sessions.Holder) ([]*sessions.Identified[T], error) {
+//				panic("mock out the ListHeld method")
+//			},
 //			LoadFunc: func(ctx context.Context, id string) (*sessions.Record[T], error) {
 //				panic("mock out the Load method")
 //			},
@@ -406,6 +695,15 @@ type BackendMock[T any] struct {
 
 	// DeleteFunc mocks the Delete method.
 	DeleteFunc func(ctx context.Context, id string) error
+
+	// DeleteAllHeldFunc mocks the DeleteAllHeld method.
+	DeleteAllHeldFunc func(ctx context.Context, holder sessions.Holder, keepID string) (int, error)
+
+	// DeleteHeldFunc mocks the DeleteHeld method.
+	DeleteHeldFunc func(ctx context.Context, holder sessions.Holder, id string) (int, error)
+
+	// ListHeldFunc mocks the ListHeld method.
+	ListHeldFunc func(ctx context.Context, holder sessions.Holder) ([]*sessions.Identified[T], error)
 
 	// LoadFunc mocks the Load method.
 	LoadFunc func(ctx context.Context, id string) (*sessions.Record[T], error)
@@ -439,6 +737,31 @@ type BackendMock[T any] struct {
 			// ID is the id argument value.
 			ID string
 		}
+		// DeleteAllHeld holds details about calls to the DeleteAllHeld method.
+		DeleteAllHeld []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Holder is the holder argument value.
+			Holder sessions.Holder
+			// KeepID is the keepID argument value.
+			KeepID string
+		}
+		// DeleteHeld holds details about calls to the DeleteHeld method.
+		DeleteHeld []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Holder is the holder argument value.
+			Holder sessions.Holder
+			// ID is the id argument value.
+			ID string
+		}
+		// ListHeld holds details about calls to the ListHeld method.
+		ListHeld []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Holder is the holder argument value.
+			Holder sessions.Holder
+		}
 		// Load holds details about calls to the Load method.
 		Load []struct {
 			// Ctx is the ctx argument value.
@@ -471,12 +794,15 @@ type BackendMock[T any] struct {
 			TTL time.Duration
 		}
 	}
-	lockClose  sync.RWMutex
-	lockCreate sync.RWMutex
-	lockDelete sync.RWMutex
-	lockLoad   sync.RWMutex
-	lockRename sync.RWMutex
-	lockUpdate sync.RWMutex
+	lockClose         sync.RWMutex
+	lockCreate        sync.RWMutex
+	lockDelete        sync.RWMutex
+	lockDeleteAllHeld sync.RWMutex
+	lockDeleteHeld    sync.RWMutex
+	lockListHeld      sync.RWMutex
+	lockLoad          sync.RWMutex
+	lockRename        sync.RWMutex
+	lockUpdate        sync.RWMutex
 }
 
 // Close calls CloseFunc.
@@ -583,6 +909,122 @@ func (mock *BackendMock[T]) DeleteCalls() []struct {
 	mock.lockDelete.RLock()
 	calls = mock.calls.Delete
 	mock.lockDelete.RUnlock()
+	return calls
+}
+
+// DeleteAllHeld calls DeleteAllHeldFunc.
+func (mock *BackendMock[T]) DeleteAllHeld(ctx context.Context, holder sessions.Holder, keepID string) (int, error) {
+	if mock.DeleteAllHeldFunc == nil {
+		panic("BackendMock.DeleteAllHeldFunc: method is nil but Backend.DeleteAllHeld was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Holder sessions.Holder
+		KeepID string
+	}{
+		Ctx:    ctx,
+		Holder: holder,
+		KeepID: keepID,
+	}
+	mock.lockDeleteAllHeld.Lock()
+	mock.calls.DeleteAllHeld = append(mock.calls.DeleteAllHeld, callInfo)
+	mock.lockDeleteAllHeld.Unlock()
+	return mock.DeleteAllHeldFunc(ctx, holder, keepID)
+}
+
+// DeleteAllHeldCalls gets all the calls that were made to DeleteAllHeld.
+// Check the length with:
+//
+//	len(mockedBackend.DeleteAllHeldCalls())
+func (mock *BackendMock[T]) DeleteAllHeldCalls() []struct {
+	Ctx    context.Context
+	Holder sessions.Holder
+	KeepID string
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Holder sessions.Holder
+		KeepID string
+	}
+	mock.lockDeleteAllHeld.RLock()
+	calls = mock.calls.DeleteAllHeld
+	mock.lockDeleteAllHeld.RUnlock()
+	return calls
+}
+
+// DeleteHeld calls DeleteHeldFunc.
+func (mock *BackendMock[T]) DeleteHeld(ctx context.Context, holder sessions.Holder, id string) (int, error) {
+	if mock.DeleteHeldFunc == nil {
+		panic("BackendMock.DeleteHeldFunc: method is nil but Backend.DeleteHeld was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Holder sessions.Holder
+		ID     string
+	}{
+		Ctx:    ctx,
+		Holder: holder,
+		ID:     id,
+	}
+	mock.lockDeleteHeld.Lock()
+	mock.calls.DeleteHeld = append(mock.calls.DeleteHeld, callInfo)
+	mock.lockDeleteHeld.Unlock()
+	return mock.DeleteHeldFunc(ctx, holder, id)
+}
+
+// DeleteHeldCalls gets all the calls that were made to DeleteHeld.
+// Check the length with:
+//
+//	len(mockedBackend.DeleteHeldCalls())
+func (mock *BackendMock[T]) DeleteHeldCalls() []struct {
+	Ctx    context.Context
+	Holder sessions.Holder
+	ID     string
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Holder sessions.Holder
+		ID     string
+	}
+	mock.lockDeleteHeld.RLock()
+	calls = mock.calls.DeleteHeld
+	mock.lockDeleteHeld.RUnlock()
+	return calls
+}
+
+// ListHeld calls ListHeldFunc.
+func (mock *BackendMock[T]) ListHeld(ctx context.Context, holder sessions.Holder) ([]*sessions.Identified[T], error) {
+	if mock.ListHeldFunc == nil {
+		panic("BackendMock.ListHeldFunc: method is nil but Backend.ListHeld was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Holder sessions.Holder
+	}{
+		Ctx:    ctx,
+		Holder: holder,
+	}
+	mock.lockListHeld.Lock()
+	mock.calls.ListHeld = append(mock.calls.ListHeld, callInfo)
+	mock.lockListHeld.Unlock()
+	return mock.ListHeldFunc(ctx, holder)
+}
+
+// ListHeldCalls gets all the calls that were made to ListHeld.
+// Check the length with:
+//
+//	len(mockedBackend.ListHeldCalls())
+func (mock *BackendMock[T]) ListHeldCalls() []struct {
+	Ctx    context.Context
+	Holder sessions.Holder
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Holder sessions.Holder
+	}
+	mock.lockListHeld.RLock()
+	calls = mock.calls.ListHeld
+	mock.lockListHeld.RUnlock()
 	return calls
 }
 

@@ -3,14 +3,26 @@
 -- name: CreateSession :execrows
 INSERT OR IGNORE INTO sessions (
 	id,
+	scope,
+	principal,
 	data,
+	device_name,
+	ip_address,
+	user_agent,
+	login_method,
 	created_at,
 	last_seen_at,
 	expires_at,
 	version
 ) VALUES (
 	sqlc.arg(id),
+	sqlc.arg(scope),
+	sqlc.arg(principal),
 	sqlc.narg(data),
+	sqlc.arg(device_name),
+	sqlc.arg(ip_address),
+	sqlc.arg(user_agent),
+	sqlc.arg(login_method),
 	sqlc.arg(created_at),
 	sqlc.arg(last_seen_at),
 	sqlc.arg(expires_at),
@@ -19,7 +31,13 @@ INSERT OR IGNORE INTO sessions (
 
 -- name: GetSession :one
 SELECT
+	sessions.scope,
+	sessions.principal,
 	sessions.data,
+	sessions.device_name,
+	sessions.ip_address,
+	sessions.user_agent,
+	sessions.login_method,
 	sessions.created_at,
 	sessions.last_seen_at,
 	sessions.version
@@ -44,6 +62,34 @@ SELECT EXISTS (
 -- name: DeleteSession :execrows
 DELETE FROM sessions
 WHERE id = sqlc.arg(id);
+
+-- name: ListSessionsForPrincipal :many
+SELECT
+	sessions.id,
+	sessions.data,
+	sessions.device_name,
+	sessions.ip_address,
+	sessions.user_agent,
+	sessions.login_method,
+	sessions.created_at,
+	sessions.last_seen_at,
+	sessions.version
+FROM sessions
+WHERE sessions.scope = sqlc.arg(scope)
+	AND sessions.principal = sqlc.arg(principal)
+ORDER BY sessions.created_at DESC, sessions.id DESC;
+
+-- name: DeleteSessionForPrincipal :execrows
+DELETE FROM sessions
+WHERE id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope)
+	AND principal = sqlc.arg(principal);
+
+-- name: DeleteSessionsForPrincipal :execrows
+DELETE FROM sessions
+WHERE scope = sqlc.arg(scope)
+	AND principal = sqlc.arg(principal)
+	AND id <> COALESCE(sqlc.narg(kept_session_id), '');
 
 -- name: SweepSessions :execrows
 DELETE FROM sessions

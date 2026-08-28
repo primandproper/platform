@@ -10,6 +10,7 @@ import (
 	"github.com/primandproper/platform-go/v13/database/mysql"
 	"github.com/primandproper/platform-go/v13/database/postgres"
 	"github.com/primandproper/platform-go/v13/sessions"
+	"github.com/primandproper/platform-go/v13/tenancy"
 	"github.com/primandproper/platform-go/v13/testutils/containers/mysqltest"
 	"github.com/primandproper/platform-go/v13/testutils/containers/pgtest"
 
@@ -157,6 +158,72 @@ func runDialectSuite(t *testing.T, client database.Client, d dialect.Dialect) {
 		c.advance(-2 * time.Hour)
 	})
 
+	// The enumeration and the two bulk revocations against a real server. The
+	// holder is unique to this subtest, which is what keeps it from reaching
+	// the rows every other subtest here wrote into the same table — the same
+	// property the statements give a consumer, exercised as the isolation this
+	// suite needs.
+	t.Run("enumerates and revokes a principal's sessions", func(t *testing.T) {
+		holder := sessions.Holder{Scope: tenancy.Of("acct_held"), Principal: "u_held"}
+		metadata := sessions.Metadata{
+			DeviceName:  "laptop",
+			IPAddress:   "203.0.113.4",
+			UserAgent:   "Mozilla/5.0",
+			LoginMethod: "passkey",
+		}
+
+		for _, id := range []string{"held-1", "held-2", "held-3"} {
+			must.NoError(t, backend.Create(ctx, id, testHeldRecord(c, holder, metadata, "u_held"), time.Hour))
+		}
+
+		// Somebody else's row, in the same table, to be left alone by all of it.
+		neighbor := sessions.Holder{Scope: tenancy.Of("acct_held"), Principal: "u_other"}
+		must.NoError(t, backend.Create(ctx, "held-other",
+			testHeldRecord(c, neighbor, metadata, "u_other"), time.Hour))
+
+		held, listErr := backend.ListHeld(ctx, holder)
+		must.NoError(t, listErr)
+		must.SliceLen(t, 3, held)
+		test.EqOp(t, metadata, held[0].Record.Metadata)
+		test.EqOp(t, holder, held[0].Record.Holder)
+
+		// Revoking one is keyed on the holder as well as the identifier, so a
+		// neighbor's row does not go.
+		affected, revokeErr := backend.DeleteHeld(ctx, holder, "held-other")
+		must.NoError(t, revokeErr)
+		test.EqOp(t, 0, affected)
+
+		affected, revokeErr = backend.DeleteHeld(ctx, holder, "held-1")
+		must.NoError(t, revokeErr)
+		test.EqOp(t, 1, affected)
+
+		// And the by-identifier path sees it immediately, which is the whole
+		// point of the control.
+		_, loadErr := backend.Load(ctx, "held-1")
+		test.ErrorIs(t, loadErr, sessions.ErrNotFound)
+
+		affected, revokeErr = backend.DeleteAllHeld(ctx, holder, "held-2")
+		must.NoError(t, revokeErr)
+		test.EqOp(t, 1, affected)
+
+		held, listErr = backend.ListHeld(ctx, holder)
+		must.NoError(t, listErr)
+		must.SliceLen(t, 1, held)
+		test.EqOp(t, "held-2", held[0].ID)
+
+		affected, revokeErr = backend.DeleteAllHeld(ctx, holder, "")
+		must.NoError(t, revokeErr)
+		test.EqOp(t, 1, affected)
+
+		held, listErr = backend.ListHeld(ctx, holder)
+		must.NoError(t, listErr)
+		test.SliceEmpty(t, held)
+
+		// The neighbor survived every one of them.
+		_, loadErr = backend.Load(ctx, "held-other")
+		must.NoError(t, loadErr)
+	})
+
 	t.Run("serves a whole session lifecycle under a store", func(t *testing.T) {
 		store, storeErr := sessions.NewStore(backend, sessions.WithClock(c), sessions.WithIdleTimeout(10*time.Minute))
 		must.NoError(t, storeErr)
@@ -181,6 +248,49 @@ func runDialectSuite(t *testing.T, client database.Client, d dialect.Dialect) {
 		must.NoError(t, store.Delete(ctx, renewed))
 
 		_, storeErr = store.Get(ctx, renewed)
+		test.ErrorIs(t, storeErr, sessions.ErrNotFound)
+	})
+
+	// The same lifecycle for a session somebody holds: established, listed
+	// beside its sibling, and revoked out from under the by-identifier path.
+	t.Run("lists and revokes through a store", func(t *testing.T) {
+		store, storeErr := sessions.NewStore(backend, sessions.WithClock(c))
+		must.NoError(t, storeErr)
+
+		holder := sessions.Holder{Scope: tenancy.Of("acct_store"), Principal: "u_store"}
+
+		current, storeErr := store.NewFor(ctx, holder,
+			sessions.Metadata{DeviceName: "laptop"}, &principal{UserID: "u_store"})
+		must.NoError(t, storeErr)
+
+		other, storeErr := store.NewFor(ctx, holder,
+			sessions.Metadata{DeviceName: "phone"}, &principal{UserID: "u_store"})
+		must.NoError(t, storeErr)
+
+		listed, storeErr := store.List(ctx, holder, current.ID)
+		must.NoError(t, storeErr)
+		must.SliceLen(t, 2, listed)
+
+		for _, session := range listed {
+			test.EqOp(t, session.ID == current.ID, session.IsCurrent,
+				test.Sprintf("session %q", session.ID))
+		}
+
+		revoked, storeErr := store.RevokeAllExcept(ctx, holder, current.ID)
+		must.NoError(t, storeErr)
+		test.EqOp(t, 1, revoked)
+
+		_, storeErr = store.Get(ctx, other.ID)
+		test.ErrorIs(t, storeErr, sessions.ErrNotFound)
+
+		_, storeErr = store.Get(ctx, current.ID)
+		must.NoError(t, storeErr)
+
+		revoked, storeErr = store.RevokeAll(ctx, holder)
+		must.NoError(t, storeErr)
+		test.EqOp(t, 1, revoked)
+
+		_, storeErr = store.Get(ctx, current.ID)
 		test.ErrorIs(t, storeErr, sessions.ErrNotFound)
 	})
 }

@@ -11,6 +11,7 @@ import (
 	cachemock "github.com/primandproper/platform-go/v13/cache/mock"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/sessions"
+	"github.com/primandproper/platform-go/v13/tenancy"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -326,6 +327,77 @@ func TestBackend_Close(T *testing.T) {
 		must.NoError(t, backend.Close())
 		test.True(t, closed)
 	})
+}
+
+// TestBackend_HasNoPrincipalIndex pins the capability this backend does not
+// have, and pins that it says so rather than answering with nothing.
+//
+// An empty list would be indistinguishable from "this person holds no
+// sessions", which is the one answer a security page must never invent: it
+// renders as "you are signed in nowhere else" to somebody who is.
+func TestBackend_HasNoPrincipalIndex(T *testing.T) {
+	T.Parallel()
+
+	holder := sessions.Holder{Scope: tenancy.Of("acct_1"), Principal: "u_1"}
+
+	T.Run("cannot enumerate", func(t *testing.T) {
+		t.Parallel()
+
+		held, err := newTestBackend(t).ListHeld(t.Context(), holder)
+		test.ErrorIs(t, err, sessions.ErrNoPrincipalIndex)
+		test.Nil(t, held)
+	})
+
+	T.Run("cannot revoke one", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := newTestBackend(t).DeleteHeld(t.Context(), holder, "s_1")
+		test.ErrorIs(t, err, sessions.ErrNoPrincipalIndex)
+	})
+
+	T.Run("cannot revoke a principal's sessions", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := newTestBackend(t).DeleteAllHeld(t.Context(), holder, "")
+		test.ErrorIs(t, err, sessions.ErrNoPrincipalIndex)
+	})
+
+	// And it reaches the caller through the Store, which is where they are: a
+	// consumer wiring the cache backend and reaching for the security page
+	// finds out here rather than from a list that came back empty.
+	T.Run("and the store reports it", func(t *testing.T) {
+		t.Parallel()
+
+		store, err := sessions.NewStore(newTestBackend(t))
+		must.NoError(t, err)
+
+		_, err = store.List(t.Context(), holder, "")
+		test.ErrorIs(t, err, sessions.ErrNoPrincipalIndex)
+
+		_, err = store.RevokeAll(t.Context(), holder)
+		test.ErrorIs(t, err, sessions.ErrNoPrincipalIndex)
+	})
+}
+
+// TestBackend_StoresTheHolder is the half a cache can do: the attribution
+// round-trips with the record, so the by-identifier read that every request
+// makes still answers who the session is for.
+func TestBackend_StoresTheHolder(t *testing.T) {
+	t.Parallel()
+
+	store, err := sessions.NewStore(newTestBackend(t))
+	must.NoError(t, err)
+
+	holder := sessions.Holder{Scope: tenancy.Of("acct_1"), Principal: "u_1"}
+	metadata := sessions.Metadata{DeviceName: "laptop", LoginMethod: "password"}
+
+	session, err := store.NewFor(t.Context(), holder, metadata, &principal{UserID: "u_1"})
+	must.NoError(t, err)
+
+	read, err := store.Get(t.Context(), session.ID)
+	must.NoError(t, err)
+	test.EqOp(t, holder, read.Holder)
+	test.EqOp(t, metadata, read.Metadata)
 }
 
 // The end-to-end property: a Store over this backend behaves like a session

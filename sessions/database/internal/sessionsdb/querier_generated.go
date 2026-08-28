@@ -37,8 +37,20 @@ type Querier interface {
 	// The count means different things on different engines; see the note
 	// on Querier.
 	DeleteSession(ctx context.Context, db DBTX, arg DeleteSessionParams) (int64, error)
+	// DeleteSessionForPrincipal runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	DeleteSessionForPrincipal(ctx context.Context, db DBTX, arg DeleteSessionForPrincipalParams) (int64, error)
+	// DeleteSessionsForPrincipal runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	DeleteSessionsForPrincipal(ctx context.Context, db DBTX, arg DeleteSessionsForPrincipalParams) (int64, error)
 	// GetSession runs the :one query.
 	GetSession(ctx context.Context, db DBTX, arg GetSessionParams) (GetSessionRow, error)
+	// ListSessionsForPrincipal runs the :many query.
+	ListSessionsForPrincipal(ctx context.Context, db DBTX, arg ListSessionsForPrincipalParams) ([]ListSessionsForPrincipalRow, error)
 	// SessionExists runs the :one query.
 	SessionExists(ctx context.Context, db DBTX, arg SessionExistsParams) (SessionExistsRow, error)
 	// SweepSessions runs the :execrows query.

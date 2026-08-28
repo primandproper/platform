@@ -4,6 +4,7 @@ import (
 	"context"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -204,6 +205,77 @@ func (b *fakeBackend[T]) Delete(_ context.Context, id string) error {
 	delete(b.entries, id)
 
 	return nil
+}
+
+func (b *fakeBackend[T]) ListHeld(_ context.Context, holder Holder) ([]*Identified[T], error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if err := b.enter("ListHeld"); err != nil {
+		return nil, err
+	}
+
+	var held []*Identified[T]
+	for id, e := range b.entries {
+		if e.record.Holder != holder {
+			continue
+		}
+
+		record := *e.record
+		held = append(held, &Identified[T]{Record: &record, ID: id})
+	}
+
+	// Newest first, as the real backend's ORDER BY delivers them, so a test
+	// asserting on the order is asserting about the store rather than about a
+	// map's iteration.
+	slices.SortStableFunc(held, func(a, c *Identified[T]) int {
+		if order := c.Record.CreatedAt.Compare(a.Record.CreatedAt); order != 0 {
+			return order
+		}
+
+		return strings.Compare(c.ID, a.ID)
+	})
+
+	return held, nil
+}
+
+func (b *fakeBackend[T]) DeleteHeld(_ context.Context, holder Holder, id string) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if err := b.enter("DeleteHeld"); err != nil {
+		return 0, err
+	}
+
+	e, ok := b.entries[id]
+	if !ok || e.record.Holder != holder {
+		return 0, nil
+	}
+
+	delete(b.entries, id)
+
+	return 1, nil
+}
+
+func (b *fakeBackend[T]) DeleteAllHeld(_ context.Context, holder Holder, keepID string) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if err := b.enter("DeleteAllHeld"); err != nil {
+		return 0, err
+	}
+
+	var removed int
+	for id, e := range b.entries {
+		if e.record.Holder != holder || (keepID != "" && id == keepID) {
+			continue
+		}
+
+		delete(b.entries, id)
+		removed++
+	}
+
+	return removed, nil
 }
 
 func (b *fakeBackend[T]) Close() error {
