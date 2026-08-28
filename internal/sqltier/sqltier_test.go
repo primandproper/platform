@@ -59,33 +59,31 @@ type ruling struct {
 // same sentence in every case, and a per-package copy of it would be a place for
 // a real reason to hide.
 var rulings = map[string]ruling{
-	// The tier itself. identitydb is what sqlc-gen-unison emitted from
-	// identity's corpus, which is what every port below is a port onto;
-	// settingsdb is the same pipeline for a package that was written on it
-	// rather than ported onto it.
-	"identity/internal/identitydb": {tier: unison},
-	"settings/internal/settingsdb": {tier: unison},
+	// The tier itself. Each of these is what sqlc-gen-unison emitted from its
+	// package's corpus, which is what every port below is a port onto.
+	"authentication/oauth2server/database/internal/oauth2serverdb": {tier: unison},
+	"dataprivacy/internal/dataprivacydb":                           {tier: unison},
+	"identity/internal/identitydb":                                 {tier: unison},
+	"saga/internal/sagadb":                                         {tier: unison},
+	"sessions/database/internal/sessionsdb":                        {tier: unison},
+	"webhooks/internal/webhooksdb":                                 {tier: unison},
+	"cryptography/shredding/internal/shreddingdb":                  {tier: unison},
+	"authentication/webauthn/database/internal/webauthndb":         {tier: unison},
+	"settings/internal/settingsdb":                                 {tier: unison},
 
 	// Still composing SQL in Go. Each of these is a tracked port onto the
 	// corpus; nothing about the list is a decision, which is why none of them
 	// carries a reason.
-	"audit":                                {tier: porting},
-	"authentication/oauth2server/database": {tier: porting},
-	"authentication/webauthn/database":     {tier: porting},
-	"authorization/database":               {tier: porting},
-	"cryptography/shredding":               {tier: porting},
-	"dataprivacy":                          {tier: porting},
-	"dataprivacy/auditerasure":             {tier: porting},
-	"identity":                             {tier: porting},
-	"metering":                             {tier: porting},
-	"operations":                           {tier: porting},
-	"outbox":                               {tier: porting},
-	"retention":                            {tier: porting},
-	"saga":                                 {tier: porting},
-	"sessions/database":                    {tier: porting},
-	"timers":                               {tier: porting},
-	"webhooks":                             {tier: porting},
-	"workqueue":                            {tier: porting},
+	"audit":                        {tier: porting},
+	"authentication/passwordreset": {tier: porting},
+	"authorization/database":       {tier: porting},
+	"dataprivacy/auditerasure":     {tier: porting},
+	"metering":                     {tier: porting},
+	"operations":                   {tier: porting},
+	"outbox":                       {tier: porting},
+	"retention":                    {tier: porting},
+	"timers":                       {tier: porting},
+	"workqueue":                    {tier: porting},
 
 	// Not table SQL. The corpus is a set of statements checked against a schema
 	// this module ships, and none of these is one.
@@ -94,7 +92,9 @@ var rulings = map[string]ruling{
 	"database/migrate":              {tier: exempt, why: "asks a connection which schema it resolves to; goose owns the bookkeeping table and ships its DDL"},
 	"database/mysql/tableaccess":    {tier: exempt, why: "DCL and catalog introspection: sqlc has no spelling for CREATE USER or GRANT, and information_schema is not in any schema this module ships"},
 	"database/postgres/tableaccess": {tier: exempt, why: "DCL and catalog introspection: sqlc has no spelling for CREATE USER or GRANT, and pg_roles is not in any schema this module ships"},
+	"webhooks/internal/queries":     {tier: exempt, why: "a corpus source rather than a store: the statements here are rendered into the committed .sql that sqlc checks and unison emits from, and the eleven this package writes out in full are the shapes database/querygen's doc rules out of it"},
 	"database/querygen":             {tier: exempt, why: "the generator: its SQL literals are the statements a corpus is rendered from, not statements it executes"},
+	"saga/internal/queries":         {tier: exempt, why: "a corpus source on database/querygen's own terms: the statements it holds are rendered into saga's canonical .sql and executed from the generated package, never from here"},
 	"distributedlock/postgres":      {tier: exempt, why: "advisory-lock function calls; the lock is a number the server holds for a session, with no table, schema or projection"},
 	"search/vector/pgvector":        {tier: exempt, why: "the index table's name, dimension and metadata column are configuration, so its DDL is issued at run time and nothing committed is left for sqlc to check a statement against"},
 	"testutils/containers/pgtest":   {tier: exempt, why: "the schemas and databases a container test isolates itself with, created and dropped by the harness rather than by a store"},
@@ -102,6 +102,7 @@ var rulings = map[string]ruling{
 	// Ruled on for holding no SQL. Recorded rather than left absent, so a
 	// statement appearing here later is a failing test rather than a silence.
 	"filtering": {tier: none, why: "supplies the argument names a rendered statement binds and the conversions that bind them; the keyword a survey counted is a word in a comment"},
+	"identity":  {tier: none, why: "the store the tier was built for, and the first to finish: its statements are rendered by identity/internal/queries and executed through the querier above, so the package that used to compose them holds none"},
 }
 
 // TestEverySQLPackageIsClassified is the entry this file exists to make

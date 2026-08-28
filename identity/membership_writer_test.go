@@ -48,6 +48,20 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 
 		err = store.SetDefaultAccount(t.Context(), testScope, owner.ID, "not-an-account")
 		must.ErrorIs(t, err, ErrMembershipNotFound)
+
+		// Setting the default a second time is not the membership going
+		// missing. It matters on MySQL, whose :execrows count is rows *changed*
+		// rather than rows matched — the statement stamps last_updated_at from
+		// the server's clock, so a write that assigns the flag it already held
+		// still changes the row and still counts.
+		must.NoError(t, store.SetDefaultAccount(t.Context(), testScope, owner.ID, second.ID))
+
+		again, err := store.ListMembershipsForUser(t.Context(), testScope, owner.ID)
+		must.NoError(t, err)
+		must.SliceLen(t, 2, again)
+		test.EqOp(t, second.ID, again[0].BelongsToAccount)
+		test.True(t, again[0].DefaultAccount)
+		test.False(t, again[1].DefaultAccount)
 	})
 
 	t.Run("replaces roles rather than merging them", func(t *testing.T) {
@@ -184,6 +198,45 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 			store.RemoveMembership(t.Context(), testScope, member.ID, defaultAccountID),
 			ErrMembershipNotFound,
 		)
+	})
+
+	t.Run("leaves a user with nothing when their only membership is removed", func(t *testing.T) {
+		t.Parallel()
+
+		// The removal clears the default flag and then archives, in that
+		// order, because the clear reaches live rows only. What is observable
+		// is the pair of it: the user has no membership and no default, and a
+		// rejoin makes the revived membership their default again because it
+		// is once more their first live one.
+		store := env.newStore(t)
+		owner := createUser(t, store, newUser("ada"))
+		account := createAccountFor(t, store, owner, "Acme")
+		member := registerInto(t, store, newUser("brian"), account.ID)
+
+		must.NoError(t, store.RemoveMembership(t.Context(), testScope, member.ID, account.ID))
+
+		memberships, err := store.ListMembershipsForUser(t.Context(), testScope, member.ID)
+		must.NoError(t, err)
+		test.SliceEmpty(t, memberships)
+
+		_, err = store.GetPrincipal(t.Context(), testScope, member.ID, "")
+		must.ErrorIs(t, err, ErrNoDefaultAccount)
+
+		// Rejoining converges onto the archived row rather than inserting a
+		// second one, and it is their first live membership again.
+		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
+			return store.CreateMembership(ctx, q, &Membership{
+				Scope:            testScope,
+				BelongsToUser:    member.ID,
+				BelongsToAccount: account.ID,
+				Roles:            []string{"account_member"},
+			})
+		}))
+
+		rejoined, err := store.ListMembershipsForUser(t.Context(), testScope, member.ID)
+		must.NoError(t, err)
+		must.SliceLen(t, 1, rejoined)
+		test.True(t, rejoined[0].DefaultAccount)
 	})
 
 	t.Run("transfers ownership and keeps the old owner on", func(t *testing.T) {

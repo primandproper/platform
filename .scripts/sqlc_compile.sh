@@ -26,8 +26,15 @@ SQLC_VERSION="$(cat "${PROJECT_ROOT}/.sqlc-version")"
 # Each package's directory holds one <dialect>_generated.sql per dialect it claims, and
 # its `-schema <dialect>` mode prints the DDL those queries are read against.
 COMPONENTS=(
+  "./dataprivacy ./internal/queriesgen internal/queries"
   "./identity ./internal/queriesgen internal/queries"
   "./settings ./internal/queriesgen internal/queries"
+  "./authentication/webauthn/database ./internal/queriesgen internal/queries"
+  "./cryptography/shredding ./internal/queriesgen internal/queries"
+  "./webhooks ./internal/queriesgen internal/queries"
+  "./authentication/oauth2server/database ./internal/queriesgen internal/queries"
+  "./saga ./internal/queriesgen internal/queries"
+  "./sessions/database ./internal/queriesgen internal/queries"
 )
 
 # The dialects checked, as "<dialect> <sqlc engine>". Every dialect

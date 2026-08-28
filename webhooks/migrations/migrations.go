@@ -142,6 +142,28 @@ func ValidatePrefix(prefix string) error {
 	return upgrade.ValidatePrefix(prefix)
 }
 
+// Tables lists every table this schema creates, rendered at the given prefix
+// and sorted.
+//
+// It is read from the DDL rather than declared beside it, so a table added to
+// the schema and to nothing else still appears — which is what makes it worth
+// cross-checking against the canonical names webhooks/internal/queries spells
+// for the statements. Neither list derives from the other, and that is where a
+// table added to one and not the other stops being invisible.
+//
+// It is not an ordering a caller can delete in. Foreign keys make deletion order
+// a fact about the schema — a dispatch references its delivery, and a
+// subscription its endpoint — so a consumer clearing these tables wants the
+// dialect's own way of ignoring the constraints rather than a sequence read off
+// this slice.
+func Tables(prefix string) ([]string, error) {
+	if err := schema.ValidatePrefix(prefix); err != nil {
+		return nil, err
+	}
+
+	return schema.Tables(prefix), nil
+}
+
 // SQL renders the same DDL as Statements, joined back into one migration body.
 // It is what you hand to database/migrate's WithGeneratedMigration, so the
 // tables are created by the consumer's own migration run instead of being

@@ -77,27 +77,36 @@ func TestNewStore(T *testing.T) {
 		test.Nil(t, store)
 	})
 
-	T.Run("names the tables under the configured prefix", func(t *testing.T) {
+	// The prefix reaches the generated querier and nothing else, so what a
+	// namespace means is asserted where it is decided — in which set of tables
+	// the rows land — rather than against a string field the store used to
+	// hold. A store built against a prefix nobody migrated fails every query
+	// while passing any naming assertion.
+	T.Run("writes to the tables under the configured prefix", func(t *testing.T) {
 		t.Parallel()
 
+		ctx := t.Context()
 		client := newTestClient(t)
 		createTables(t, client, dialect.SQLite, "tenant")
 
-		store, err := NewStore(&Config{TablePrefix: "tenant"}, client)
+		namespaced, err := NewStore(&Config{TablePrefix: "tenant"}, client)
 		must.NoError(t, err)
 
-		test.EqOp(t, "tenant_oauth2_clients", store.clients)
-		test.EqOp(t, "tenant_oauth2_authorization_codes", store.codes)
-		test.EqOp(t, "tenant_oauth2_access_tokens", store.access)
-		test.EqOp(t, "tenant_oauth2_refresh_tokens", store.refresh)
+		plain, err := NewStore(&Config{}, client)
+		must.NoError(t, err)
 
-		// The prefixed tables are real, not just named: a store built against a
-		// prefix nobody migrated would pass every naming assertion and fail
-		// every query.
-		must.NoError(t, store.CreateClient(t.Context(), &oauth2server.Client{
+		must.NoError(t, namespaced.CreateClient(ctx, &oauth2server.Client{
 			CreatedAt: time.Now().UTC(),
 			ID:        "prefixed",
 		}))
+
+		got, err := namespaced.GetClient(ctx, "prefixed")
+		must.NoError(t, err)
+		test.EqOp(t, "prefixed", got.ID)
+
+		// And the plain store cannot see it, which is what a namespace is for.
+		_, err = plain.GetClient(ctx, "prefixed")
+		test.ErrorIs(t, err, oauth2server.ErrNotFound)
 	})
 }
 
@@ -209,5 +218,36 @@ func TestStore_Sweep(T *testing.T) {
 		swept, err := store.Sweep(ctx, time.Now().UTC())
 		must.NoError(t, err)
 		test.EqOp(t, int64(4), swept)
+	})
+}
+
+// A store built on the row conversions reports their failures through its own
+// methods, which is what says the descriptions in rows.go reach an operator
+// rather than only a unit test.
+func TestStore_DecodeFailureSurfaces(T *testing.T) {
+	T.Parallel()
+
+	T.Run("names the column an operator has to go and look at", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, store := t.Context(), newTestStore(t)
+
+		must.NoError(t, store.CreateClient(ctx, &oauth2server.Client{
+			CreatedAt: time.Now().UTC(),
+			ID:        "corruptible",
+			Scopes:    []string{"read"},
+		}))
+
+		// Reached through the client rather than the store, because the store
+		// has no statement that writes a column this way — which is the point:
+		// what it protects against is a row somebody else put there.
+		_, err := store.db.Writer().ExecContext(ctx,
+			"UPDATE oauth2_clients SET scopes = ? WHERE id = ?", "not json", "corruptible")
+		must.NoError(t, err)
+
+		got, err := store.GetClient(ctx, "corruptible")
+		must.Error(t, err)
+		test.Nil(t, got)
+		test.StrContains(t, err.Error(), "decoding registered scopes")
 	})
 }

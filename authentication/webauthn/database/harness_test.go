@@ -55,7 +55,20 @@ func (c *testClientConfig) GetMaxOpenConns() int {
 
 func (c *testClientConfig) GetConnMaxLifetime() time.Duration { return time.Minute }
 
-// fakeClock is a Clock whose time only moves when a test moves it.
+// fakeClock is a Clock whose reading only moves when a test moves it, ticking
+// on whatever the ambient time package provides.
+//
+// It starts at the wall clock's current second rather than at a fixed date, and
+// that is load-bearing rather than incidental. The sweep compares against the
+// *server's* clock, so a deadline stamped from a fixed date in the past would
+// be expired the moment it was written and a test could not tell a working
+// sweep from one that deletes everything. Anchoring here means a test says how
+// far a row's deadline is from now by moving this clock before the write.
+//
+// The truncation to a whole second is the SQLite half of the same agreement:
+// that engine stores a bound time as the text CURRENT_TIMESTAMP writes, which
+// is second-granular, so a fractional anchor would make the deadline read back
+// differ from the one stamped.
 type fakeClock struct {
 	now time.Time
 	mu  sync.Mutex
@@ -64,7 +77,7 @@ type fakeClock struct {
 var _ clock.Clock = (*fakeClock)(nil)
 
 func newFakeClock() *fakeClock {
-	return &fakeClock{now: time.Date(2026, time.August, 13, 12, 0, 0, 0, time.UTC)}
+	return &fakeClock{now: time.Now().UTC().Truncate(time.Second)}
 }
 
 func (c *fakeClock) Now() time.Time {
@@ -76,7 +89,12 @@ func (c *fakeClock) Now() time.Time {
 
 func (c *fakeClock) Since(t time.Time) time.Duration                  { return c.Now().Sub(t) }
 func (c *fakeClock) Sleep(ctx context.Context, _ time.Duration) error { return ctx.Err() }
-func (c *fakeClock) NewTicker(_ time.Duration) clock.Ticker           { panic("not used") }
+
+// NewTicker delegates to the wall clock, which inside a testing/synctest bubble
+// is the bubble's own: the sweeper's tick is what a test advances with
+// time.Sleep, while the deadline it stamps is what this clock's reading decides.
+// Keeping the two separate is what lets one test drive both.
+func (c *fakeClock) NewTicker(d time.Duration) clock.Ticker { return clock.NewClock().NewTicker(d) }
 
 func (c *fakeClock) advance(d time.Duration) {
 	c.mu.Lock()

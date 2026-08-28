@@ -195,6 +195,37 @@ const (
 	// is a column this comparand cannot speak for, because an unset argument
 	// would then name a row.
 	OptionalArgument
+	// AtMostArgument compares the column against a bound ceiling: `column <=
+	// sqlc.arg(name)`, or `column > sqlc.arg(name)` under [Match.Exclude].
+	//
+	// It is [CurrentTime]'s bound sibling — the horizon a caller computed
+	// rather than the one the server reads off its own clock — and it is what a
+	// retention sweep is keyed on: everything recorded before this instant,
+	// everything sequenced at or below this number. The clock form cannot
+	// express either, because the horizon a sweep runs to is now less a window
+	// the configuration carries, and interval arithmetic is the arithmetic the
+	// three dialects spell three ways.
+	//
+	// So the subtraction happens in Go and arrives bound, which is the same
+	// thing a filter window's created_before already does. The skew that
+	// introduces is the application's clock against the server's, and it is
+	// bounded by the window: a cutoff a second early deletes a row a second
+	// early, against a horizon measured in days.
+	//
+	// It is also the comparand for a deadline the application stamped from a
+	// clock it was handed, where [CurrentTime] would be the wrong clock rather
+	// than merely the inexpressible one: a deadline written as now-plus-a-TTL
+	// from an injected clock, compared against the server's, is two clocks
+	// deciding one row — and under a test clock that only moves when a test
+	// moves it, the two are years apart. Binding the same clock's reading puts
+	// the comparison back inside one clock, which is the property CurrentTime's
+	// doc asks for rather than an exception to it.
+	//
+	// The boundary is inclusive on the doomed side, for [CurrentTime]'s reason
+	// — that is the reading which leaves no value at which a row is neither
+	// past the horizon nor short of it — and Exclude is its complement rather
+	// than a different question.
+	AtMostArgument
 )
 
 // String names the comparand, for the panic messages the misuse checks raise.
@@ -210,6 +241,8 @@ func (c Comparand) String() string {
 		return "the current time"
 	case OptionalArgument:
 		return "an optional bound argument"
+	case AtMostArgument:
+		return "a bound ceiling"
 	default:
 		return fmt.Sprintf("unknown comparand %d", int(c))
 	}
@@ -218,7 +251,7 @@ func (c Comparand) String() string {
 // binds reports whether this comparand takes an argument from the caller, which
 // is what decides whether [Match.Arg] means anything.
 func (c Comparand) binds() bool {
-	return c == BoundArgument || c == OptionalArgument
+	return c == BoundArgument || c == OptionalArgument || c == AtMostArgument
 }
 
 // operator returns the comparison this match renders for the comparands whose

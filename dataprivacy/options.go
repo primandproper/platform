@@ -132,7 +132,7 @@ type SQLStoreOption func(*SQLStore)
 func WithTablePrefix(prefix string) SQLStoreOption {
 	return func(s *SQLStore) {
 		if prefix != "" {
-			s.tables = newTables(prefix)
+			s.prefix = prefix
 		}
 	}
 }

@@ -212,14 +212,16 @@ func TestSQLStoreOptions(T *testing.T) {
 	T.Run("WithTablePrefix", func(t *testing.T) {
 		t.Parallel()
 
-		s := &SQLStore{tables: newTables(DefaultTablePrefix)}
+		s := &SQLStore{prefix: DefaultTablePrefix}
 
 		WithTablePrefix("acme_hook")(s)
-		test.EqOp(t, "acme_hook_webhooks_dispatches", s.tables.dispatches)
+		test.EqOp(t, "acme_hook", s.prefix)
 
-		// An empty prefix would render tables named "_dispatches".
+		// An empty prefix would render tables named "_dispatches", so it is
+		// ignored rather than applied — a caller passing one has not asked for
+		// the default, they have passed nothing.
 		WithTablePrefix("")(s)
-		test.EqOp(t, "acme_hook_webhooks_dispatches", s.tables.dispatches)
+		test.EqOp(t, "acme_hook", s.prefix)
 	})
 }
 

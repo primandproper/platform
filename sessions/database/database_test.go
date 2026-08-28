@@ -1,8 +1,6 @@
 package database
 
 import (
-	"context"
-	stderrors "errors"
 	"testing"
 	"time"
 
@@ -10,6 +8,7 @@ import (
 	"github.com/primandproper/platform-go/v13/encoding"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/sessions"
+	"github.com/primandproper/platform-go/v13/sessions/database/internal/sessionsdb"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -45,12 +44,48 @@ func TestNewBackend(T *testing.T) {
 		must.Error(t, err)
 	})
 
+	// The dialect is never configured, so it cannot disagree with the client it
+	// was paired with. What it selects is which of the generated package's three
+	// statement sets the querier holds, and the only way to see that from here
+	// is that a statement runs against this client at all.
 	T.Run("takes its dialect from the client", func(t *testing.T) {
 		t.Parallel()
 
 		backend, err := NewBackend[principal](&Config{}, newTestClient(t))
 		must.NoError(t, err)
-		test.EqOp(t, dialect.SQLite, backend.dialect)
+		must.NotNil(t, backend.q)
+
+		must.NoError(t, backend.Create(t.Context(), "id-1", testRecord(newFakeClock(), "u_1"), time.Hour))
+	})
+}
+
+// TestSessionsdbDialect covers the mapping between this module's dialect names
+// and the generated package's, including the arm NewBackend can never reach: it
+// rejects a dialect d.Valid() declines before this is called, so the failure
+// this names is the module learning a dialect the querier was not generated
+// for.
+func TestSessionsdbDialect(T *testing.T) {
+	T.Parallel()
+
+	T.Run("maps every dialect the module supports", func(t *testing.T) {
+		t.Parallel()
+
+		for d, want := range map[dialect.Dialect]sessionsdb.Dialect{
+			dialect.Postgres: sessionsdb.DialectPostgreSQL,
+			dialect.MySQL:    sessionsdb.DialectMySQL,
+			dialect.SQLite:   sessionsdb.DialectSQLite,
+		} {
+			got, err := sessionsdbDialect(d)
+			must.NoError(t, err, must.Sprintf("dialect %q", d))
+			test.EqOp(t, want, got, test.Sprintf("dialect %q", d))
+		}
+	})
+
+	T.Run("refuses a dialect it was not generated for", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := sessionsdbDialect(dialect.Dialect("oracle"))
+		test.ErrorIs(t, err, dialect.ErrUnsupported)
 	})
 }
 
@@ -71,6 +106,34 @@ func TestBackend_Load(T *testing.T) {
 		test.EqOp(t, want.LastSeenAt, got.LastSeenAt)
 		test.EqOp(t, want.Version, got.Version)
 		test.EqOp(t, "u_1", got.Data.UserID)
+	})
+
+	// SQLite has no date type, so the generated querier binds a timestamp as the
+	// text that engine's own CURRENT_TIMESTAMP writes — whole seconds. A
+	// sub-second stamp therefore comes back truncated here and unchanged on the
+	// other two, and truncation is downward, so every deadline computed from
+	// these lands at most a second early rather than a second late.
+	T.Run("round-trips a sub-second stamp at this engine's resolution", func(t *testing.T) {
+		t.Parallel()
+
+		backend, c := newTestBackend(t)
+
+		want := testRecord(c, "u_1")
+		want.CreatedAt = want.CreatedAt.Add(500 * time.Millisecond)
+		want.LastSeenAt = want.LastSeenAt.Add(750 * time.Millisecond)
+
+		must.NoError(t, backend.Create(t.Context(), "id-1", want, time.Hour))
+
+		got, err := backend.Load(t.Context(), "id-1")
+		must.NoError(t, err)
+
+		test.EqOp(t, want.CreatedAt.Truncate(time.Second), got.CreatedAt)
+		test.EqOp(t, want.LastSeenAt.Truncate(time.Second), got.LastSeenAt)
+
+		// Never later than what went in, which is the direction that cannot
+		// keep a session alive past a deadline it should have missed.
+		test.False(t, got.CreatedAt.After(want.CreatedAt))
+		test.False(t, got.LastSeenAt.After(want.LastSeenAt))
 	})
 
 	T.Run("reports a missing row as a missing session", func(t *testing.T) {
@@ -421,9 +484,14 @@ func TestBackend_TablePrefix(T *testing.T) {
 
 		backend, err := NewBackend[principal](&Config{TablePrefix: "ddb"}, client, WithClock(newFakeClock()))
 		must.NoError(t, err)
-		test.EqOp(t, "ddb_sessions", backend.table)
 
 		must.NoError(t, backend.Create(t.Context(), "id-1", testRecord(newFakeClock(), "u_1"), time.Hour))
+
+		// The prefix reached the statements: the namespaced table is where the
+		// row landed, and the unprefixed one below is empty.
+		got, loadErr := backend.Load(t.Context(), "id-1")
+		must.NoError(t, loadErr)
+		test.EqOp(t, "u_1", got.Data.UserID)
 
 		// Written to ddb_sessions and nowhere else, so an application sharing a
 		// database cannot read another's sessions by accident.
@@ -481,39 +549,5 @@ func TestBackend_UnderAStore(T *testing.T) {
 
 		_, err = store.Get(t.Context(), session.ID)
 		test.ErrorIs(t, err, sessions.ErrIdleTimeout)
-	})
-}
-
-// exec is the one helper the tests reach into, so its contract is worth
-// pinning: a statement that affects nothing reports zero rather than an error.
-func TestBackend_exec(T *testing.T) {
-	T.Parallel()
-
-	T.Run("reports rows affected", func(t *testing.T) {
-		t.Parallel()
-
-		backend, c := newTestBackend(t)
-
-		must.NoError(t, backend.Create(t.Context(), "id-1", testRecord(c, "u_1"), time.Hour))
-
-		affected, err := backend.exec(t.Context(), backend.db.Writer(),
-			"DELETE FROM sessions WHERE id = ?", []any{"id-1"})
-		must.NoError(t, err)
-		test.EqOp(t, int64(1), affected)
-
-		affected, err = backend.exec(t.Context(), backend.db.Writer(),
-			"DELETE FROM sessions WHERE id = ?", []any{"id-1"})
-		must.NoError(t, err)
-		test.EqOp(t, int64(0), affected)
-	})
-
-	T.Run("surfaces a statement failure", func(t *testing.T) {
-		t.Parallel()
-
-		backend, _ := newTestBackend(t)
-
-		_, err := backend.exec(t.Context(), backend.db.Writer(), "SELEKT 1", nil)
-		must.Error(t, err)
-		test.False(t, stderrors.Is(err, context.Canceled))
 	})
 }

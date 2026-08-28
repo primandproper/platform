@@ -369,21 +369,20 @@ func TestSQLStoreOptions(T *testing.T) {
 	T.Run("WithTablePrefix", func(t *testing.T) {
 		t.Parallel()
 
-		s := &SQLStore{tables: newTables(DefaultTablePrefix)}
+		s := &SQLStore{prefix: DefaultTablePrefix}
 
 		WithTablePrefix("custom")(s)
-		test.EqOp(t, "custom", s.tables.prefix())
-		test.EqOp(t, "custom_dataprivacy_requests", s.tables.requests)
+		test.EqOp(t, "custom", s.prefix)
 
-		// An empty prefix would render a table named "_requests".
+		// An empty prefix would render a table named "_dataprivacy_requests".
 		WithTablePrefix("")(s)
-		test.EqOp(t, "custom", s.tables.prefix())
+		test.EqOp(t, "custom", s.prefix)
 	})
 
 	T.Run("observability options", func(t *testing.T) {
 		t.Parallel()
 
-		s := &SQLStore{tables: newTables(DefaultTablePrefix)}
+		s := &SQLStore{prefix: DefaultTablePrefix}
 
 		WithStoreLogger(loggingnoop.NewLogger())(s)
 		test.NotNil(t, s.logger)

@@ -126,14 +126,21 @@ func runDialectSuite(t *testing.T, client database.Client, d dialect.Dialect) {
 		test.EqOp(t, int64(1), winners.Load())
 	})
 
-	// The comparison the sweeper turns on. It is a real temporal comparison
-	// here and a string comparison on SQLite, so a server run is the only place
-	// the former is checked.
+	// The comparison the sweeper turns on, which is between a bound deadline
+	// and the server's own clock. On SQLite both sides are text the generated
+	// querier renders in one shape; here they are real temporal types, and a
+	// server run is the only place a deadline this application wrote is
+	// compared against a clock it does not own.
+	//
+	// So what makes a row expired is the deadline it was stamped with rather
+	// than where the store's clock has since got to: sweep-short is written by
+	// a clock two hours behind the server, sweep-long at the server's own time.
 	t.Run("sweeps only what is past its deadline", func(t *testing.T) {
+		c.advance(-2 * time.Hour)
 		must.NoError(t, store.Save(ctx, testSession("sweep-short"), time.Minute))
-		must.NoError(t, store.Save(ctx, testSession("sweep-long"), 48*time.Hour))
 
 		c.advance(2 * time.Hour)
+		must.NoError(t, store.Save(ctx, testSession("sweep-long"), 48*time.Hour))
 
 		swept, sweepErr := store.Sweep(ctx)
 		must.NoError(t, sweepErr)
@@ -144,8 +151,6 @@ func runDialectSuite(t *testing.T, client database.Client, d dialect.Dialect) {
 
 		_, consumeErr = store.Consume(ctx, "sweep-long")
 		must.NoError(t, consumeErr)
-
-		c.advance(-2 * time.Hour)
 	})
 
 	// A prefix is not decoration: it renders a second table, and both the DDL

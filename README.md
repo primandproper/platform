@@ -94,6 +94,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 |------------------|-------------------------------------|--------------------------------|
 | `authentication` | Password hashing, TOTP, tokens      | argon2, totp, tokens           |
 | `authentication/webauthn` | Passkey registration & login, with ceremony state that outlives one replica | database, cache |
+| `authentication/passwordreset` | Password reset tokens: digest at rest, single use enforced by the store | postgres, mysql, sqlite |
 | `sessions`       | Server-side sessions over cookies   | cache, database (+ http)       |
 | `authorization`  | Role/permission policy, enforcement | static (default), database     |
 | `links`          | Signed, expiring, single-use action links | cache + distributedlock  |

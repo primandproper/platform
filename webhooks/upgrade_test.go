@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/primandproper/platform-go/v13/database"
 	"github.com/primandproper/platform-go/v13/database/ddl"
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	"github.com/primandproper/platform-go/v13/webhooks/migrations"
@@ -120,9 +121,9 @@ func runUpgradeSuite(t *testing.T, env *storeEnv) {
 	t.Run("migrates flat subscriptions into rows", func(t *testing.T) {
 		t.Parallel()
 
-		prefix := migrateLegacy(t, env)
+		client, prefix := migrateLegacy(t, env)
 
-		store, err := NewSQLStore(env.client, WithTablePrefix(prefix))
+		store, err := NewSQLStore(client, WithTablePrefix(prefix))
 		must.NoError(t, err)
 
 		got, err := store.GetEndpoint(t.Context(), testScope, "legacy-endpoint")
@@ -162,20 +163,20 @@ func runUpgradeSuite(t *testing.T, env *storeEnv) {
 	t.Run("migrated subscriptions still resolve for fan-out", func(t *testing.T) {
 		t.Parallel()
 
-		prefix := migrateLegacy(t, env)
+		client, prefix := migrateLegacy(t, env)
 
-		store, err := NewSQLStore(env.client, WithTablePrefix(prefix))
+		store, err := NewSQLStore(client, WithTablePrefix(prefix))
 		must.NoError(t, err)
 
-		test.Eq(t, []string{"legacy-endpoint"}, idsOf(endpointsFor(t, env, store, orderCreated)))
+		test.Eq(t, []string{"legacy-endpoint"}, idsOf(endpointsFor(t, store, orderCreated)))
 	})
 
 	t.Run("a migrated subscription can be archived on its own", func(t *testing.T) {
 		t.Parallel()
 
-		prefix := migrateLegacy(t, env)
+		client, prefix := migrateLegacy(t, env)
 
-		store, err := NewSQLStore(env.client, WithTablePrefix(prefix))
+		store, err := NewSQLStore(client, WithTablePrefix(prefix))
 		must.NoError(t, err)
 
 		got, err := store.GetEndpoint(t.Context(), testScope, "legacy-endpoint")
@@ -189,7 +190,7 @@ func runUpgradeSuite(t *testing.T, env *storeEnv) {
 		must.NoError(t, err)
 
 		test.Eq(t, []EventType{orderUpdated}, after.EventTypes())
-		test.SliceEmpty(t, endpointsFor(t, env, store, orderCreated))
+		test.SliceEmpty(t, endpointsFor(t, store, orderCreated))
 
 		// And the row is still readable, which is the point of archiving it.
 		archived, err := store.GetSubscription(t.Context(), testScope, retired.ID)
@@ -200,17 +201,18 @@ func runUpgradeSuite(t *testing.T, env *storeEnv) {
 
 // migrateLegacy creates the shipped-as-it-was schema under a fresh prefix, seeds
 // it with an endpoint and two flat subscription rows, and runs the upgrade.
-func migrateLegacy(t *testing.T, env *storeEnv) string {
+func migrateLegacy(t *testing.T, env *storeEnv) (client database.Client, prefix string) {
 	t.Helper()
 
-	prefix := fmt.Sprintf("wh_legacy_%d", prefixCounter.Add(1))
+	client = env.clientFor(t)
+	prefix = fmt.Sprintf("wh_legacy_%d", prefixCounter.Add(1))
 	qualified := ddl.Qualify(prefix)
 
 	body, ok := legacySchema[env.dialect]
 	must.True(t, ok, must.Sprintf("no legacy schema for dialect %q", env.dialect))
 
 	for _, stmt := range dialect.SplitStatements(strings.ReplaceAll(body, ddl.Placeholder, qualified)) {
-		_, err := env.client.Writer().ExecContext(t.Context(), stmt)
+		_, err := client.Writer().ExecContext(t.Context(), stmt)
 		must.NoError(t, err, must.Sprintf("executing %q", stmt))
 	}
 
@@ -226,27 +228,27 @@ func migrateLegacy(t *testing.T, env *storeEnv) string {
 			continue
 		}
 
-		_, execErr := env.client.Writer().ExecContext(t.Context(), stmt)
+		_, execErr := client.Writer().ExecContext(t.Context(), stmt)
 		must.NoError(t, execErr, must.Sprintf("executing %q", stmt))
 	}
 
-	seedLegacyRows(t, env, qualified)
+	seedLegacyRows(t, env, client, qualified)
 
 	upgrades, err := migrations.UpgradeStatements(env.dialect, prefix)
 	must.NoError(t, err)
 	must.SliceNotEmpty(t, upgrades)
 
 	for _, stmt := range upgrades {
-		_, execErr := env.client.Writer().ExecContext(t.Context(), stmt)
+		_, execErr := client.Writer().ExecContext(t.Context(), stmt)
 		must.NoError(t, execErr, must.Sprintf("executing %q", stmt))
 	}
 
-	return prefix
+	return client, prefix
 }
 
 // seedLegacyRows writes one endpoint and its two flat subscriptions, in the
 // columns the old schema had.
-func seedLegacyRows(t *testing.T, env *storeEnv, qualified string) {
+func seedLegacyRows(t *testing.T, env *storeEnv, client database.Client, qualified string) {
 	t.Helper()
 
 	d := env.dialect
@@ -256,7 +258,7 @@ func seedLegacyRows(t *testing.T, env *storeEnv, qualified string) {
 		qualified, d.Placeholders(1, 7),
 	)
 
-	_, err := env.client.Writer().ExecContext(t.Context(), endpoint,
+	_, err := client.Writer().ExecContext(t.Context(), endpoint,
 		"legacy-endpoint", testScope, "https://93.184.216.34/hooks/legacy", DefaultContentType,
 		[]byte("legacy-secret"), []byte("{}"), legacyEndpointCreatedAt,
 	)
@@ -268,7 +270,7 @@ func seedLegacyRows(t *testing.T, env *storeEnv, qualified string) {
 			qualified, d.Placeholders(1, 2),
 		)
 
-		_, subErr := env.client.Writer().ExecContext(t.Context(), subscription, "legacy-endpoint", eventType.String())
+		_, subErr := client.Writer().ExecContext(t.Context(), subscription, "legacy-endpoint", eventType.String())
 		must.NoError(t, subErr)
 	}
 }
