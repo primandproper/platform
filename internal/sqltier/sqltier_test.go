@@ -73,7 +73,6 @@ var rulings = map[string]ruling{
 	"cryptography/shredding":               {tier: porting},
 	"dataprivacy":                          {tier: porting},
 	"dataprivacy/auditerasure":             {tier: porting},
-	"identity":                             {tier: porting},
 	"metering":                             {tier: porting},
 	"operations":                           {tier: porting},
 	"outbox":                               {tier: porting},
@@ -99,6 +98,7 @@ var rulings = map[string]ruling{
 	// Ruled on for holding no SQL. Recorded rather than left absent, so a
 	// statement appearing here later is a failing test rather than a silence.
 	"filtering": {tier: none, why: "supplies the argument names a rendered statement binds and the conversions that bind them; the keyword a survey counted is a word in a comment"},
+	"identity":  {tier: none, why: "the store the tier was built for, and the first to finish: its statements are rendered by identity/internal/queries and executed through the querier above, so the package that used to compose them holds none"},
 }
 
 // TestEverySQLPackageIsClassified is the entry this file exists to make

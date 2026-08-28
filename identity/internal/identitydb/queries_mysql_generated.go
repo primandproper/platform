@@ -29,11 +29,47 @@ WHERE archived_at IS NULL
 	AND id = ?
 	AND scope = ?`
 
+const archiveMembershipMySQL = `UPDATE {{prefix}}identity_memberships SET
+	archived_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND scope = ?
+	AND belongs_to_user = ?
+	AND belongs_to_account = ?`
+
+const archiveMembershipsForAccountMySQL = `UPDATE {{prefix}}identity_memberships SET
+	archived_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND scope = ?
+	AND belongs_to_account = ?`
+
+const archiveMembershipsForUserMySQL = `UPDATE {{prefix}}identity_memberships SET
+	archived_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND scope = ?
+	AND belongs_to_user = ?`
+
 const archiveUserMySQL = `UPDATE {{prefix}}identity_users SET
 	archived_at = CURRENT_TIMESTAMP(6)
 WHERE archived_at IS NULL
 	AND id = ?
 	AND scope = ?`
+
+const clearMembershipDefaultAccountsForAccountMySQL = `UPDATE {{prefix}}identity_memberships SET
+	default_account = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND scope = ?
+	AND belongs_to_account = ?
+	AND default_account <> ?`
+
+const clearMembershipDefaultAccountsForUserMySQL = `UPDATE {{prefix}}identity_memberships SET
+	default_account = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND scope = ?
+	AND belongs_to_user = ?
+	AND default_account <> ?
+	AND belongs_to_account <> COALESCE(?, '')`
 
 const countSearchUsersByUsernameMySQL = `SELECT COUNT(*)
 FROM {{prefix}}identity_users
@@ -242,6 +278,15 @@ WHERE {{prefix}}identity_memberships.archived_at IS NULL
 	AND {{prefix}}identity_memberships.scope = ?
 	AND {{prefix}}identity_memberships.belongs_to_user = ?
 	AND {{prefix}}identity_memberships.belongs_to_account = ?`
+
+const getMembershipIdforUserMySQL = `SELECT
+	{{prefix}}identity_memberships.id
+FROM {{prefix}}identity_memberships
+WHERE {{prefix}}identity_memberships.archived_at IS NULL
+	AND {{prefix}}identity_memberships.scope = ?
+	AND {{prefix}}identity_memberships.belongs_to_user = ?
+ORDER BY {{prefix}}identity_memberships.id ASC
+LIMIT 1`
 
 const getOwnedAccountIdforUserMySQL = `SELECT
 	{{prefix}}identity_accounts.id
@@ -1371,6 +1416,20 @@ WHERE archived_at IS NULL
 	AND id = ?
 	AND scope = ?`
 
+const recordUserPrivacyPolicyAgreementMySQL = `UPDATE {{prefix}}identity_users SET
+	last_accepted_privacy_policy = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?`
+
+const recordUserTermsOfServiceAgreementMySQL = `UPDATE {{prefix}}identity_users SET
+	last_accepted_terms_of_service = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?`
+
 const searchUsersByUsernameMySQL = `SELECT
 	{{prefix}}identity_users.id,
 	{{prefix}}identity_users.scope,
@@ -1442,6 +1501,14 @@ const setAccountPaymentProcessorCustomerIDMySQL = `UPDATE {{prefix}}identity_acc
 WHERE archived_at IS NULL
 	AND id = ?
 	AND scope = ?`
+
+const setMembershipDefaultAccountMySQL = `UPDATE {{prefix}}identity_memberships SET
+	default_account = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND scope = ?
+	AND belongs_to_user = ?
+	AND belongs_to_account = ?`
 
 const setUserEmailAddressVerificationTokenMySQL = `UPDATE {{prefix}}identity_users SET
 	email_address_verification_token = ?,
@@ -1536,142 +1603,160 @@ ON DUPLICATE KEY UPDATE
 
 // mysqlQueries answers every query in Querier against mysql.
 type mysqlQueries struct {
-	answerInvitation                     string
-	archiveAccount                       string
-	archiveUser                          string
-	countSearchUsersByUsername           string
-	createAccount                        string
-	createInvitation                     string
-	createUser                           string
-	deleteInvitationRoles                string
-	deleteMembershipRoles                string
-	deleteUserRoles                      string
-	eraseUser                            string
-	getAccount                           string
-	getAccountCreatedAt                  string
-	getInvitation                        string
-	getInvitationCreatedAt               string
-	getMembershipByUserAndAccount        string
-	getMembershipFallbackAccountID       string
-	getMembershipIdbyUserAndAccount      string
-	getOwnedAccountIdforUser             string
-	getUser                              string
-	getUserByEmailAddress                string
-	getUserByEmailVerificationToken      string
-	getUserByUsername                    string
-	getUserCreatedAt                     string
-	getUserIdbyEmailAddress              string
-	getUserIdbyUsername                  string
-	insertInvitationRole                 string
-	insertMembershipRole                 string
-	insertUserRole                       string
-	listAccountMembers                   string
-	listAccountMembersDescending         string
-	listAccounts                         string
-	listAccountsDescending               string
-	listAccountsForUser                  string
-	listAccountsForUserDescending        string
-	listInvitationRolesByInvitationIDs   string
-	listInvitations                      string
-	listInvitationsByFromUser            string
-	listInvitationsByFromUserDescending  string
-	listInvitationsByToEmail             string
-	listInvitationsByToEmailDescending   string
-	listInvitationsDescending            string
-	listMembershipRolesByMembershipIDs   string
-	listMembershipsForUser               string
-	listUserRolesByUserIDs               string
-	listUsers                            string
-	listUsersByIDs                       string
-	listUsersDescending                  string
-	markAccountBillingSynced             string
-	markUserEmailAddressVerified         string
-	markUserTwoFactorSecretVerified      string
-	recordAccountSubscription            string
-	searchUsersByUsername                string
-	searchUsersByUsernameDescending      string
-	setAccountBillingStatus              string
-	setAccountPaymentProcessorCustomerID string
-	setUserEmailAddressVerificationToken string
-	setUserRequiresPasswordChange        string
-	transferAccountOwnership             string
-	updateAccount                        string
-	updateUser                           string
-	updateUserAccountStatus              string
-	updateUserPassword                   string
-	updateUserTwoFactorSecret            string
-	upsertMembership                     string
+	answerInvitation                         string
+	archiveAccount                           string
+	archiveMembership                        string
+	archiveMembershipsForAccount             string
+	archiveMembershipsForUser                string
+	archiveUser                              string
+	clearMembershipDefaultAccountsForAccount string
+	clearMembershipDefaultAccountsForUser    string
+	countSearchUsersByUsername               string
+	createAccount                            string
+	createInvitation                         string
+	createUser                               string
+	deleteInvitationRoles                    string
+	deleteMembershipRoles                    string
+	deleteUserRoles                          string
+	eraseUser                                string
+	getAccount                               string
+	getAccountCreatedAt                      string
+	getInvitation                            string
+	getInvitationCreatedAt                   string
+	getMembershipByUserAndAccount            string
+	getMembershipFallbackAccountID           string
+	getMembershipIdbyUserAndAccount          string
+	getMembershipIdforUser                   string
+	getOwnedAccountIdforUser                 string
+	getUser                                  string
+	getUserByEmailAddress                    string
+	getUserByEmailVerificationToken          string
+	getUserByUsername                        string
+	getUserCreatedAt                         string
+	getUserIdbyEmailAddress                  string
+	getUserIdbyUsername                      string
+	insertInvitationRole                     string
+	insertMembershipRole                     string
+	insertUserRole                           string
+	listAccountMembers                       string
+	listAccountMembersDescending             string
+	listAccounts                             string
+	listAccountsDescending                   string
+	listAccountsForUser                      string
+	listAccountsForUserDescending            string
+	listInvitationRolesByInvitationIDs       string
+	listInvitations                          string
+	listInvitationsByFromUser                string
+	listInvitationsByFromUserDescending      string
+	listInvitationsByToEmail                 string
+	listInvitationsByToEmailDescending       string
+	listInvitationsDescending                string
+	listMembershipRolesByMembershipIDs       string
+	listMembershipsForUser                   string
+	listUserRolesByUserIDs                   string
+	listUsers                                string
+	listUsersByIDs                           string
+	listUsersDescending                      string
+	markAccountBillingSynced                 string
+	markUserEmailAddressVerified             string
+	markUserTwoFactorSecretVerified          string
+	recordAccountSubscription                string
+	recordUserPrivacyPolicyAgreement         string
+	recordUserTermsOfServiceAgreement        string
+	searchUsersByUsername                    string
+	searchUsersByUsernameDescending          string
+	setAccountBillingStatus                  string
+	setAccountPaymentProcessorCustomerID     string
+	setMembershipDefaultAccount              string
+	setUserEmailAddressVerificationToken     string
+	setUserRequiresPasswordChange            string
+	transferAccountOwnership                 string
+	updateAccount                            string
+	updateUser                               string
+	updateUserAccountStatus                  string
+	updateUserPassword                       string
+	updateUserTwoFactorSecret                string
+	upsertMembership                         string
 }
 
 // newMySQL returns the mysql querier with prefix substituted into every
 // table name the analyzer identified.
 func newMySQL(prefix string) *mysqlQueries {
 	return &mysqlQueries{
-		answerInvitation:                     strings.ReplaceAll(answerInvitationMySQL, prefixMarker, prefix),
-		archiveAccount:                       strings.ReplaceAll(archiveAccountMySQL, prefixMarker, prefix),
-		archiveUser:                          strings.ReplaceAll(archiveUserMySQL, prefixMarker, prefix),
-		countSearchUsersByUsername:           strings.ReplaceAll(countSearchUsersByUsernameMySQL, prefixMarker, prefix),
-		createAccount:                        strings.ReplaceAll(createAccountMySQL, prefixMarker, prefix),
-		createInvitation:                     strings.ReplaceAll(createInvitationMySQL, prefixMarker, prefix),
-		createUser:                           strings.ReplaceAll(createUserMySQL, prefixMarker, prefix),
-		deleteInvitationRoles:                strings.ReplaceAll(deleteInvitationRolesMySQL, prefixMarker, prefix),
-		deleteMembershipRoles:                strings.ReplaceAll(deleteMembershipRolesMySQL, prefixMarker, prefix),
-		deleteUserRoles:                      strings.ReplaceAll(deleteUserRolesMySQL, prefixMarker, prefix),
-		eraseUser:                            strings.ReplaceAll(eraseUserMySQL, prefixMarker, prefix),
-		getAccount:                           strings.ReplaceAll(getAccountMySQL, prefixMarker, prefix),
-		getAccountCreatedAt:                  strings.ReplaceAll(getAccountCreatedAtMySQL, prefixMarker, prefix),
-		getInvitation:                        strings.ReplaceAll(getInvitationMySQL, prefixMarker, prefix),
-		getInvitationCreatedAt:               strings.ReplaceAll(getInvitationCreatedAtMySQL, prefixMarker, prefix),
-		getMembershipByUserAndAccount:        strings.ReplaceAll(getMembershipByUserAndAccountMySQL, prefixMarker, prefix),
-		getMembershipFallbackAccountID:       strings.ReplaceAll(getMembershipFallbackAccountIDMySQL, prefixMarker, prefix),
-		getMembershipIdbyUserAndAccount:      strings.ReplaceAll(getMembershipIdbyUserAndAccountMySQL, prefixMarker, prefix),
-		getOwnedAccountIdforUser:             strings.ReplaceAll(getOwnedAccountIdforUserMySQL, prefixMarker, prefix),
-		getUser:                              strings.ReplaceAll(getUserMySQL, prefixMarker, prefix),
-		getUserByEmailAddress:                strings.ReplaceAll(getUserByEmailAddressMySQL, prefixMarker, prefix),
-		getUserByEmailVerificationToken:      strings.ReplaceAll(getUserByEmailVerificationTokenMySQL, prefixMarker, prefix),
-		getUserByUsername:                    strings.ReplaceAll(getUserByUsernameMySQL, prefixMarker, prefix),
-		getUserCreatedAt:                     strings.ReplaceAll(getUserCreatedAtMySQL, prefixMarker, prefix),
-		getUserIdbyEmailAddress:              strings.ReplaceAll(getUserIdbyEmailAddressMySQL, prefixMarker, prefix),
-		getUserIdbyUsername:                  strings.ReplaceAll(getUserIdbyUsernameMySQL, prefixMarker, prefix),
-		insertInvitationRole:                 strings.ReplaceAll(insertInvitationRoleMySQL, prefixMarker, prefix),
-		insertMembershipRole:                 strings.ReplaceAll(insertMembershipRoleMySQL, prefixMarker, prefix),
-		insertUserRole:                       strings.ReplaceAll(insertUserRoleMySQL, prefixMarker, prefix),
-		listAccountMembers:                   strings.ReplaceAll(listAccountMembersMySQL, prefixMarker, prefix),
-		listAccountMembersDescending:         strings.ReplaceAll(listAccountMembersDescendingMySQL, prefixMarker, prefix),
-		listAccounts:                         strings.ReplaceAll(listAccountsMySQL, prefixMarker, prefix),
-		listAccountsDescending:               strings.ReplaceAll(listAccountsDescendingMySQL, prefixMarker, prefix),
-		listAccountsForUser:                  strings.ReplaceAll(listAccountsForUserMySQL, prefixMarker, prefix),
-		listAccountsForUserDescending:        strings.ReplaceAll(listAccountsForUserDescendingMySQL, prefixMarker, prefix),
-		listInvitationRolesByInvitationIDs:   strings.ReplaceAll(listInvitationRolesByInvitationIDsMySQL, prefixMarker, prefix),
-		listInvitations:                      strings.ReplaceAll(listInvitationsMySQL, prefixMarker, prefix),
-		listInvitationsByFromUser:            strings.ReplaceAll(listInvitationsByFromUserMySQL, prefixMarker, prefix),
-		listInvitationsByFromUserDescending:  strings.ReplaceAll(listInvitationsByFromUserDescendingMySQL, prefixMarker, prefix),
-		listInvitationsByToEmail:             strings.ReplaceAll(listInvitationsByToEmailMySQL, prefixMarker, prefix),
-		listInvitationsByToEmailDescending:   strings.ReplaceAll(listInvitationsByToEmailDescendingMySQL, prefixMarker, prefix),
-		listInvitationsDescending:            strings.ReplaceAll(listInvitationsDescendingMySQL, prefixMarker, prefix),
-		listMembershipRolesByMembershipIDs:   strings.ReplaceAll(listMembershipRolesByMembershipIDsMySQL, prefixMarker, prefix),
-		listMembershipsForUser:               strings.ReplaceAll(listMembershipsForUserMySQL, prefixMarker, prefix),
-		listUserRolesByUserIDs:               strings.ReplaceAll(listUserRolesByUserIDsMySQL, prefixMarker, prefix),
-		listUsers:                            strings.ReplaceAll(listUsersMySQL, prefixMarker, prefix),
-		listUsersByIDs:                       strings.ReplaceAll(listUsersByIDsMySQL, prefixMarker, prefix),
-		listUsersDescending:                  strings.ReplaceAll(listUsersDescendingMySQL, prefixMarker, prefix),
-		markAccountBillingSynced:             strings.ReplaceAll(markAccountBillingSyncedMySQL, prefixMarker, prefix),
-		markUserEmailAddressVerified:         strings.ReplaceAll(markUserEmailAddressVerifiedMySQL, prefixMarker, prefix),
-		markUserTwoFactorSecretVerified:      strings.ReplaceAll(markUserTwoFactorSecretVerifiedMySQL, prefixMarker, prefix),
-		recordAccountSubscription:            strings.ReplaceAll(recordAccountSubscriptionMySQL, prefixMarker, prefix),
-		searchUsersByUsername:                strings.ReplaceAll(searchUsersByUsernameMySQL, prefixMarker, prefix),
-		searchUsersByUsernameDescending:      strings.ReplaceAll(searchUsersByUsernameDescendingMySQL, prefixMarker, prefix),
-		setAccountBillingStatus:              strings.ReplaceAll(setAccountBillingStatusMySQL, prefixMarker, prefix),
-		setAccountPaymentProcessorCustomerID: strings.ReplaceAll(setAccountPaymentProcessorCustomerIDMySQL, prefixMarker, prefix),
-		setUserEmailAddressVerificationToken: strings.ReplaceAll(setUserEmailAddressVerificationTokenMySQL, prefixMarker, prefix),
-		setUserRequiresPasswordChange:        strings.ReplaceAll(setUserRequiresPasswordChangeMySQL, prefixMarker, prefix),
-		transferAccountOwnership:             strings.ReplaceAll(transferAccountOwnershipMySQL, prefixMarker, prefix),
-		updateAccount:                        strings.ReplaceAll(updateAccountMySQL, prefixMarker, prefix),
-		updateUser:                           strings.ReplaceAll(updateUserMySQL, prefixMarker, prefix),
-		updateUserAccountStatus:              strings.ReplaceAll(updateUserAccountStatusMySQL, prefixMarker, prefix),
-		updateUserPassword:                   strings.ReplaceAll(updateUserPasswordMySQL, prefixMarker, prefix),
-		updateUserTwoFactorSecret:            strings.ReplaceAll(updateUserTwoFactorSecretMySQL, prefixMarker, prefix),
-		upsertMembership:                     strings.ReplaceAll(upsertMembershipMySQL, prefixMarker, prefix),
+		answerInvitation:                         strings.ReplaceAll(answerInvitationMySQL, prefixMarker, prefix),
+		archiveAccount:                           strings.ReplaceAll(archiveAccountMySQL, prefixMarker, prefix),
+		archiveMembership:                        strings.ReplaceAll(archiveMembershipMySQL, prefixMarker, prefix),
+		archiveMembershipsForAccount:             strings.ReplaceAll(archiveMembershipsForAccountMySQL, prefixMarker, prefix),
+		archiveMembershipsForUser:                strings.ReplaceAll(archiveMembershipsForUserMySQL, prefixMarker, prefix),
+		archiveUser:                              strings.ReplaceAll(archiveUserMySQL, prefixMarker, prefix),
+		clearMembershipDefaultAccountsForAccount: strings.ReplaceAll(clearMembershipDefaultAccountsForAccountMySQL, prefixMarker, prefix),
+		clearMembershipDefaultAccountsForUser:    strings.ReplaceAll(clearMembershipDefaultAccountsForUserMySQL, prefixMarker, prefix),
+		countSearchUsersByUsername:               strings.ReplaceAll(countSearchUsersByUsernameMySQL, prefixMarker, prefix),
+		createAccount:                            strings.ReplaceAll(createAccountMySQL, prefixMarker, prefix),
+		createInvitation:                         strings.ReplaceAll(createInvitationMySQL, prefixMarker, prefix),
+		createUser:                               strings.ReplaceAll(createUserMySQL, prefixMarker, prefix),
+		deleteInvitationRoles:                    strings.ReplaceAll(deleteInvitationRolesMySQL, prefixMarker, prefix),
+		deleteMembershipRoles:                    strings.ReplaceAll(deleteMembershipRolesMySQL, prefixMarker, prefix),
+		deleteUserRoles:                          strings.ReplaceAll(deleteUserRolesMySQL, prefixMarker, prefix),
+		eraseUser:                                strings.ReplaceAll(eraseUserMySQL, prefixMarker, prefix),
+		getAccount:                               strings.ReplaceAll(getAccountMySQL, prefixMarker, prefix),
+		getAccountCreatedAt:                      strings.ReplaceAll(getAccountCreatedAtMySQL, prefixMarker, prefix),
+		getInvitation:                            strings.ReplaceAll(getInvitationMySQL, prefixMarker, prefix),
+		getInvitationCreatedAt:                   strings.ReplaceAll(getInvitationCreatedAtMySQL, prefixMarker, prefix),
+		getMembershipByUserAndAccount:            strings.ReplaceAll(getMembershipByUserAndAccountMySQL, prefixMarker, prefix),
+		getMembershipFallbackAccountID:           strings.ReplaceAll(getMembershipFallbackAccountIDMySQL, prefixMarker, prefix),
+		getMembershipIdbyUserAndAccount:          strings.ReplaceAll(getMembershipIdbyUserAndAccountMySQL, prefixMarker, prefix),
+		getMembershipIdforUser:                   strings.ReplaceAll(getMembershipIdforUserMySQL, prefixMarker, prefix),
+		getOwnedAccountIdforUser:                 strings.ReplaceAll(getOwnedAccountIdforUserMySQL, prefixMarker, prefix),
+		getUser:                                  strings.ReplaceAll(getUserMySQL, prefixMarker, prefix),
+		getUserByEmailAddress:                    strings.ReplaceAll(getUserByEmailAddressMySQL, prefixMarker, prefix),
+		getUserByEmailVerificationToken:          strings.ReplaceAll(getUserByEmailVerificationTokenMySQL, prefixMarker, prefix),
+		getUserByUsername:                        strings.ReplaceAll(getUserByUsernameMySQL, prefixMarker, prefix),
+		getUserCreatedAt:                         strings.ReplaceAll(getUserCreatedAtMySQL, prefixMarker, prefix),
+		getUserIdbyEmailAddress:                  strings.ReplaceAll(getUserIdbyEmailAddressMySQL, prefixMarker, prefix),
+		getUserIdbyUsername:                      strings.ReplaceAll(getUserIdbyUsernameMySQL, prefixMarker, prefix),
+		insertInvitationRole:                     strings.ReplaceAll(insertInvitationRoleMySQL, prefixMarker, prefix),
+		insertMembershipRole:                     strings.ReplaceAll(insertMembershipRoleMySQL, prefixMarker, prefix),
+		insertUserRole:                           strings.ReplaceAll(insertUserRoleMySQL, prefixMarker, prefix),
+		listAccountMembers:                       strings.ReplaceAll(listAccountMembersMySQL, prefixMarker, prefix),
+		listAccountMembersDescending:             strings.ReplaceAll(listAccountMembersDescendingMySQL, prefixMarker, prefix),
+		listAccounts:                             strings.ReplaceAll(listAccountsMySQL, prefixMarker, prefix),
+		listAccountsDescending:                   strings.ReplaceAll(listAccountsDescendingMySQL, prefixMarker, prefix),
+		listAccountsForUser:                      strings.ReplaceAll(listAccountsForUserMySQL, prefixMarker, prefix),
+		listAccountsForUserDescending:            strings.ReplaceAll(listAccountsForUserDescendingMySQL, prefixMarker, prefix),
+		listInvitationRolesByInvitationIDs:       strings.ReplaceAll(listInvitationRolesByInvitationIDsMySQL, prefixMarker, prefix),
+		listInvitations:                          strings.ReplaceAll(listInvitationsMySQL, prefixMarker, prefix),
+		listInvitationsByFromUser:                strings.ReplaceAll(listInvitationsByFromUserMySQL, prefixMarker, prefix),
+		listInvitationsByFromUserDescending:      strings.ReplaceAll(listInvitationsByFromUserDescendingMySQL, prefixMarker, prefix),
+		listInvitationsByToEmail:                 strings.ReplaceAll(listInvitationsByToEmailMySQL, prefixMarker, prefix),
+		listInvitationsByToEmailDescending:       strings.ReplaceAll(listInvitationsByToEmailDescendingMySQL, prefixMarker, prefix),
+		listInvitationsDescending:                strings.ReplaceAll(listInvitationsDescendingMySQL, prefixMarker, prefix),
+		listMembershipRolesByMembershipIDs:       strings.ReplaceAll(listMembershipRolesByMembershipIDsMySQL, prefixMarker, prefix),
+		listMembershipsForUser:                   strings.ReplaceAll(listMembershipsForUserMySQL, prefixMarker, prefix),
+		listUserRolesByUserIDs:                   strings.ReplaceAll(listUserRolesByUserIDsMySQL, prefixMarker, prefix),
+		listUsers:                                strings.ReplaceAll(listUsersMySQL, prefixMarker, prefix),
+		listUsersByIDs:                           strings.ReplaceAll(listUsersByIDsMySQL, prefixMarker, prefix),
+		listUsersDescending:                      strings.ReplaceAll(listUsersDescendingMySQL, prefixMarker, prefix),
+		markAccountBillingSynced:                 strings.ReplaceAll(markAccountBillingSyncedMySQL, prefixMarker, prefix),
+		markUserEmailAddressVerified:             strings.ReplaceAll(markUserEmailAddressVerifiedMySQL, prefixMarker, prefix),
+		markUserTwoFactorSecretVerified:          strings.ReplaceAll(markUserTwoFactorSecretVerifiedMySQL, prefixMarker, prefix),
+		recordAccountSubscription:                strings.ReplaceAll(recordAccountSubscriptionMySQL, prefixMarker, prefix),
+		recordUserPrivacyPolicyAgreement:         strings.ReplaceAll(recordUserPrivacyPolicyAgreementMySQL, prefixMarker, prefix),
+		recordUserTermsOfServiceAgreement:        strings.ReplaceAll(recordUserTermsOfServiceAgreementMySQL, prefixMarker, prefix),
+		searchUsersByUsername:                    strings.ReplaceAll(searchUsersByUsernameMySQL, prefixMarker, prefix),
+		searchUsersByUsernameDescending:          strings.ReplaceAll(searchUsersByUsernameDescendingMySQL, prefixMarker, prefix),
+		setAccountBillingStatus:                  strings.ReplaceAll(setAccountBillingStatusMySQL, prefixMarker, prefix),
+		setAccountPaymentProcessorCustomerID:     strings.ReplaceAll(setAccountPaymentProcessorCustomerIDMySQL, prefixMarker, prefix),
+		setMembershipDefaultAccount:              strings.ReplaceAll(setMembershipDefaultAccountMySQL, prefixMarker, prefix),
+		setUserEmailAddressVerificationToken:     strings.ReplaceAll(setUserEmailAddressVerificationTokenMySQL, prefixMarker, prefix),
+		setUserRequiresPasswordChange:            strings.ReplaceAll(setUserRequiresPasswordChangeMySQL, prefixMarker, prefix),
+		transferAccountOwnership:                 strings.ReplaceAll(transferAccountOwnershipMySQL, prefixMarker, prefix),
+		updateAccount:                            strings.ReplaceAll(updateAccountMySQL, prefixMarker, prefix),
+		updateUser:                               strings.ReplaceAll(updateUserMySQL, prefixMarker, prefix),
+		updateUserAccountStatus:                  strings.ReplaceAll(updateUserAccountStatusMySQL, prefixMarker, prefix),
+		updateUserPassword:                       strings.ReplaceAll(updateUserPasswordMySQL, prefixMarker, prefix),
+		updateUserTwoFactorSecret:                strings.ReplaceAll(updateUserTwoFactorSecretMySQL, prefixMarker, prefix),
+		upsertMembership:                         strings.ReplaceAll(upsertMembershipMySQL, prefixMarker, prefix),
 	}
 }
 
@@ -1705,11 +1790,82 @@ func (q *mysqlQueries) ArchiveAccount(ctx context.Context, db DBTX, arg ArchiveA
 	return result.RowsAffected()
 }
 
+// ArchiveMembership runs the :execrows query against mysql.
+func (q *mysqlQueries) ArchiveMembership(ctx context.Context, db DBTX, arg ArchiveMembershipParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.archiveMembership,
+		arg.Scope,
+		arg.BelongsToUser,
+		arg.BelongsToAccount,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// ArchiveMembershipsForAccount runs the :execrows query against mysql.
+func (q *mysqlQueries) ArchiveMembershipsForAccount(ctx context.Context, db DBTX, arg ArchiveMembershipsForAccountParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.archiveMembershipsForAccount,
+		arg.Scope,
+		arg.BelongsToAccount,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// ArchiveMembershipsForUser runs the :execrows query against mysql.
+func (q *mysqlQueries) ArchiveMembershipsForUser(ctx context.Context, db DBTX, arg ArchiveMembershipsForUserParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.archiveMembershipsForUser,
+		arg.Scope,
+		arg.BelongsToUser,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // ArchiveUser runs the :execrows query against mysql.
 func (q *mysqlQueries) ArchiveUser(ctx context.Context, db DBTX, arg ArchiveUserParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.archiveUser,
 		arg.ID,
 		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// ClearMembershipDefaultAccountsForAccount runs the :execrows query against mysql.
+func (q *mysqlQueries) ClearMembershipDefaultAccountsForAccount(ctx context.Context, db DBTX, arg ClearMembershipDefaultAccountsForAccountParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.clearMembershipDefaultAccountsForAccount,
+		arg.DefaultAccount,
+		arg.Scope,
+		arg.BelongsToAccount,
+		arg.DefaultAccount,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// ClearMembershipDefaultAccountsForUser runs the :execrows query against mysql.
+func (q *mysqlQueries) ClearMembershipDefaultAccountsForUser(ctx context.Context, db DBTX, arg ClearMembershipDefaultAccountsForUserParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.clearMembershipDefaultAccountsForUser,
+		arg.DefaultAccount,
+		arg.Scope,
+		arg.BelongsToUser,
+		arg.DefaultAccount,
+		arg.ExceptAccountID,
 	)
 	if err != nil {
 		return 0, err
@@ -1994,6 +2150,22 @@ func (q *mysqlQueries) GetMembershipIDByUserAndAccount(ctx context.Context, db D
 	)
 
 	var i GetMembershipIDByUserAndAccountRow
+
+	err := row.Scan(
+		&i.ID,
+	)
+
+	return i, err
+}
+
+// GetMembershipIDForUser runs the :one query against mysql.
+func (q *mysqlQueries) GetMembershipIDForUser(ctx context.Context, db DBTX, arg GetMembershipIDForUserParams) (GetMembershipIDForUserRow, error) {
+	row := db.QueryRowContext(ctx, q.getMembershipIdforUser,
+		arg.Scope,
+		arg.BelongsToUser,
+	)
+
+	var i GetMembershipIDForUserRow
 
 	err := row.Scan(
 		&i.ID,
@@ -3492,6 +3664,34 @@ func (q *mysqlQueries) RecordAccountSubscription(ctx context.Context, db DBTX, a
 	return result.RowsAffected()
 }
 
+// RecordUserPrivacyPolicyAgreement runs the :execrows query against mysql.
+func (q *mysqlQueries) RecordUserPrivacyPolicyAgreement(ctx context.Context, db DBTX, arg RecordUserPrivacyPolicyAgreementParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.recordUserPrivacyPolicyAgreement,
+		arg.LastAcceptedPrivacyPolicy,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// RecordUserTermsOfServiceAgreement runs the :execrows query against mysql.
+func (q *mysqlQueries) RecordUserTermsOfServiceAgreement(ctx context.Context, db DBTX, arg RecordUserTermsOfServiceAgreementParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.recordUserTermsOfServiceAgreement,
+		arg.LastAcceptedTermsOfService,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // SearchUsersByUsername runs the :many query against mysql.
 func (q *mysqlQueries) SearchUsersByUsername(ctx context.Context, db DBTX, arg SearchUsersByUsernameParams) ([]SearchUsersByUsernameRow, error) {
 	rows, err := db.QueryContext(ctx, q.searchUsersByUsername,
@@ -3621,6 +3821,21 @@ func (q *mysqlQueries) SetAccountPaymentProcessorCustomerID(ctx context.Context,
 		arg.PaymentProcessorCustomerID,
 		arg.ID,
 		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// SetMembershipDefaultAccount runs the :execrows query against mysql.
+func (q *mysqlQueries) SetMembershipDefaultAccount(ctx context.Context, db DBTX, arg SetMembershipDefaultAccountParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.setMembershipDefaultAccount,
+		arg.DefaultAccount,
+		arg.Scope,
+		arg.BelongsToUser,
+		arg.BelongsToAccount,
 	)
 	if err != nil {
 		return 0, err
@@ -3791,9 +4006,33 @@ var (
 		Scope tenancy.Scope
 	}(ArchiveAccountParams{})
 	_ = struct {
+		Scope            tenancy.Scope
+		BelongsToUser    string
+		BelongsToAccount string
+	}(ArchiveMembershipParams{})
+	_ = struct {
+		Scope            tenancy.Scope
+		BelongsToAccount string
+	}(ArchiveMembershipsForAccountParams{})
+	_ = struct {
+		Scope         tenancy.Scope
+		BelongsToUser string
+	}(ArchiveMembershipsForUserParams{})
+	_ = struct {
 		ID    string
 		Scope tenancy.Scope
 	}(ArchiveUserParams{})
+	_ = struct {
+		DefaultAccount   bool
+		Scope            tenancy.Scope
+		BelongsToAccount string
+	}(ClearMembershipDefaultAccountsForAccountParams{})
+	_ = struct {
+		DefaultAccount  bool
+		Scope           tenancy.Scope
+		BelongsToUser   string
+		ExceptAccountID *string
+	}(ClearMembershipDefaultAccountsForUserParams{})
 	_ = struct {
 		Scope          tenancy.Scope
 		UsernamePrefix string
@@ -3952,6 +4191,13 @@ var (
 	_ = struct {
 		ID string
 	}(GetMembershipIDByUserAndAccountRow{})
+	_ = struct {
+		Scope         tenancy.Scope
+		BelongsToUser string
+	}(GetMembershipIDForUserParams{})
+	_ = struct {
+		ID string
+	}(GetMembershipIDForUserRow{})
 	_ = struct {
 		Scope       tenancy.Scope
 		OwnerUserID string
@@ -4647,6 +4893,16 @@ var (
 		Scope                       tenancy.Scope
 	}(RecordAccountSubscriptionParams{})
 	_ = struct {
+		LastAcceptedPrivacyPolicy *time.Time
+		ID                        string
+		Scope                     tenancy.Scope
+	}(RecordUserPrivacyPolicyAgreementParams{})
+	_ = struct {
+		LastAcceptedTermsOfService *time.Time
+		ID                         string
+		Scope                      tenancy.Scope
+	}(RecordUserTermsOfServiceAgreementParams{})
+	_ = struct {
 		Scope          tenancy.Scope
 		UsernamePrefix string
 		PageCursor     *string
@@ -4712,6 +4968,12 @@ var (
 		ID                         string
 		Scope                      tenancy.Scope
 	}(SetAccountPaymentProcessorCustomerIDParams{})
+	_ = struct {
+		DefaultAccount   bool
+		Scope            tenancy.Scope
+		BelongsToUser    string
+		BelongsToAccount string
+	}(SetMembershipDefaultAccountParams{})
 	_ = struct {
 		EmailAddressVerificationToken string
 		ID                            string

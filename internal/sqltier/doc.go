@@ -25,14 +25,19 @@ Four answers, and each is checked rather than recorded:
 	exempt   the SQL is not table SQL, so the corpus has nothing to say about
 	         it — a catalog read, a DCL grant, an advisory lock, a table whose
 	         DDL is a runtime product of configuration
-	none     the package holds no SQL at all, and is named because a survey
-	         once said it did
+	none     the package holds no SQL at all, and is named because something
+	         once said it did — a survey that counted a keyword in a comment,
+	         or a port that finished
 
-The last one earns its place because a survey counted a keyword in a comment.
-Recording "this package holds no SQL" as an assertion rather than as an absence
-is what stops the next survey from re-deriving the same false positive, and what
-turns a package that later grows a statement into a failing test rather than an
-unnoticed thirteenth store.
+The last one earns its place twice over. A survey counted a keyword in a
+comment, and recording "this package holds no SQL" as an assertion rather than
+as an absence is what stops the next survey from re-deriving the same false
+positive. A finished port ends in the same place from the other direction: the
+store's statements are in a corpus and its own package composes none, so the
+entry that said it was porting would otherwise simply disappear, and the store
+that grew a hand-built statement back would look like a package nobody had ever
+ruled on. Either way, a statement appearing there later is a failing test rather
+than a silence.
 
 Discovery is deliberately crude: the test parses every non-test Go file in the
 module and asks whether any string literal opens with a SQL statement keyword in
