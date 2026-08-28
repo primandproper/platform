@@ -56,6 +56,7 @@ COMPONENTS=(
   "identity postgres mysql sqlite"
   "authentication/oauth2server/database postgres mysql sqlite"
   "authentication/webauthn/database postgres mysql sqlite"
+  "authorization/database postgres mysql sqlite"
   "cryptography/shredding postgres mysql sqlite"
   "dataprivacy postgres mysql sqlite"
   "notifications postgres mysql sqlite"

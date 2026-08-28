@@ -38,6 +38,7 @@ COMPONENTS=(
   "./identity ./internal/queriesgen internal/queries postgres mysql sqlite"
   "./authentication/oauth2server/database ./internal/queriesgen internal/queries postgres mysql sqlite"
   "./authentication/webauthn/database ./internal/queriesgen internal/queries postgres mysql sqlite"
+  "./authorization/database ./internal/queriesgen internal/queries postgres mysql sqlite"
   "./cryptography/shredding ./internal/queriesgen internal/queries postgres mysql sqlite"
   "./dataprivacy ./internal/queriesgen internal/queries postgres mysql sqlite"
   "./notifications ./internal/queriesgen internal/queries postgres mysql sqlite"

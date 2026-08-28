@@ -544,6 +544,13 @@ func runDialect(t *testing.T, ctx context.Context, d dialect.Dialect, db *sql.DB
 	t.Run("the prune suite", func(t *testing.T) {
 		runPruneSuite(t, ctx, d, db)
 	})
+
+	// And the recursive closure, whose two properties are behavioral in their
+	// entirety — a cycle that terminates and an archived row that stops the
+	// walk — see closure_containers_test.go.
+	t.Run("the closure suite", func(t *testing.T) {
+		runClosureSuite(t, ctx, d, db)
+	})
 }
 
 // prepare asks the server to plan the statement, which is the cheapest way to

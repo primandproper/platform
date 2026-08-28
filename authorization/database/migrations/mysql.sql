@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS {{PREFIX}}authz_roles (
     id              VARCHAR(191) NOT NULL PRIMARY KEY,
     name            VARCHAR(191) NOT NULL,
-    description     TEXT,
+    description     VARCHAR(1024) NOT NULL DEFAULT '',
     created_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     last_updated_at DATETIME(6),
     archived_at     DATETIME(6),
@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}authz_roles (
 CREATE TABLE IF NOT EXISTS {{PREFIX}}authz_permissions (
     id              VARCHAR(191) NOT NULL PRIMARY KEY,
     name            VARCHAR(191) NOT NULL,
-    description     TEXT,
+    description     VARCHAR(1024) NOT NULL DEFAULT '',
     created_at      DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     last_updated_at DATETIME(6),
     archived_at     DATETIME(6),

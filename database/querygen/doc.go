@@ -150,6 +150,40 @@ which is what the id and archived predicates are derived from, so a table
 carrying an id it does not key on leaves the column out of that list and names it
 in [Read.Projection].
 
+# The recursive one
+
+[Generator.ClosureQuery] is the only shape here that is not a statement over a
+fixed number of rows. It seeds from a bound set, walks an [Edge] — a mapping
+table read in one direction — to whatever depth the data has, and reads through
+a second edge into the table the answer comes out of:
+
+	resolve := querygen.For(dialect.Postgres).ClosureQuery(
+		"ResolvePermissionsForRoles", "authz_roles", roleColumns,
+		&querygen.Closure{
+			Alias:      "role_closure",
+			Walk:       querygen.Edge{Table: "authz_role_hierarchy", From: "child_role_id", To: "parent_role_id"},
+			Reach:      querygen.Edge{Table: "authz_role_permissions", From: "role_id", To: "permission_id"},
+			Table:      "authz_permissions",
+			Columns:    permissionColumns,
+			Projection: []string{"name"},
+		},
+		querygen.SetKey{Column: "name", Arg: "role_names"})
+
+It is a shape rather than a statement a consumer writes out, which is the
+opposite ruling from the one operations and saga got, and the reason is that its
+two properties are the whole of its correctness and neither is visible in a diff
+of the SQL. UNION rather than UNION ALL is what makes it terminate on a cycle a
+hand-edited table can hold, and the archived predicate at every join rather than
+only at the seed is what stops an archived intermediate row from going on
+granting what it reached. Both are rendered unconditionally, so a corpus holding
+one and not the other is not something anybody can write — where an authored
+statement is one where a reviewer has to notice.
+
+The archived predicates come off the two column lists exactly as they do
+everywhere else here. The edges carry none, and cannot: a mapping table has no
+column list, because an edge is live exactly when the rows at both of its ends
+are.
+
 # Guarded writes
 
 The update is not only the conventional whole-row one. It assigns the columns it
@@ -851,20 +885,7 @@ its own. That it holds none is recorded as an assertion rather than left as an
 absence, because an absence goes on reading true after the package stops
 deserving it.
 
-The remaining two are ports rather than exemptions.
-
-authorization/database owns four tables and builds thirteen statements over
-them, which a survey counting functions that return a query and its arguments
-read as zero: these return the query alone, and their arguments are assembled at
-the call site. Roles and permissions carry the convention triple, so the reads
-and the writes over them are this package's ordinary shapes, and the shapes the
-survey found missing have since landed: the mapping rows between them are the
-id-less child tables [Generator.DeleteQuery] and [Generator.InsertQuery] now
-serve, and the seed's lookups over a bound set are [Generator.SetReadQuery]. What
-the port still waits on is the resolution query, a recursive closure — a shape
-this package cannot render at all. sqlc is not the obstacle; it analyzes that
-query on all three engines, binding the role names through ANY on Postgres and
-sqlc.slice on the other two.
+The remaining one is a port rather than an exemption.
 
 dataprivacy/auditerasure owns no table. Its three statements — two deletes of a
 subject's audit scopes and the count of what the hash chain will not let go of —
@@ -883,6 +904,18 @@ the column they assign rather than by the status they came from — which is the
 same substitution [Generator.UpdateQuery] made for identity's field-specific
 writes: a builder whose branches are the cases becomes one statement per case,
 each of them checked.
+
+authorization/database is on it too, and it is the one port that added a shape
+rather than reusing them. A survey counting functions that return a query and
+its arguments read it as zero builders; it had thirteen, which returned the
+query alone and assembled the arguments at each call site. Twelve of its
+fourteen statements turned out to be shapes that already existed — the mapping
+rows between its tables are the id-less child tables [Generator.DeleteQuery] and
+[Generator.InsertQuery] serve, its seed's lookups are [Generator.SetReadQuery],
+and its two named tables converge through [Generator.UpsertQuery], whose
+conflict branch clearing archived_at is exactly what makes a re-seed revive a
+reserved name. The thirteenth is [Generator.ClosureQuery] above, and it is the
+one statement in this module with a recursive term.
 
 # include_archived actually includes archived rows
 
