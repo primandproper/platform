@@ -331,11 +331,7 @@ func (g *Generator) unsetArgument(argument string) string {
 // is the treatment the URL parameter already gets. A MySQL query handed a zero
 // returns no rows, which is loud, rather than a page of some other size.
 func (g *Generator) limitClause() string {
-	if g.dialect == dialect.MySQL {
-		return "LIMIT " + g.dialect.Placeholder(1)
-	}
-
-	return fmt.Sprintf("LIMIT COALESCE(sqlc.narg(%s), %d)", LimitArg, filtering.DefaultQueryFilterLimit)
+	return g.boundedLimit(fmt.Sprintf("COALESCE(sqlc.narg(%s), %d)", LimitArg, filtering.DefaultQueryFilterLimit))
 }
 
 // setPredicate matches a column against a bound set of values.
@@ -444,29 +440,6 @@ func (g *Generator) insertedValue(column string) string {
 	return "EXCLUDED." + column
 }
 
-// pruneLimitClause renders the cap one prune pass runs under.
-//
-// It is limitClause's sibling and differs from it in the one way that matters:
-// the argument is required. A page size left unset is a page of the
-// conventional size, which is a reasonable thing for a list to decide on its
-// caller's behalf; a cap left unset is the unbounded DELETE the whole shape
-// exists to make unspellable, and there is no number this package could pick
-// that would be right for a table it knows nothing about.
-//
-// The name is [LimitArg] on the dialects that can carry one, because "how many
-// rows may this statement touch" is one question however the statement got
-// there, and a second name for it would be a second thing a caller has to know.
-// MySQL takes a placeholder after LIMIT and nothing else — not a COALESCE and
-// not a named reference — so its cap is the bare marker limitClause's comment
-// describes, and everything downstream still records it under LimitArg.
-func (g *Generator) pruneLimitClause() string {
-	if g.dialect == dialect.MySQL {
-		return "LIMIT " + g.dialect.Placeholder(1)
-	}
-
-	return fmt.Sprintf("LIMIT sqlc.arg(%s)", LimitArg)
-}
-
 // boundedDelete renders a capped delete whole: the third place the three
 // dialects disagree about a statement's shape rather than about an expression
 // inside one, and the widest of the three disagreements.
@@ -481,19 +454,20 @@ func (g *Generator) pruneLimitClause() string {
 // comparison a compound key renders are all documented on Generator.PruneQuery,
 // which is the shape a reader arrives from.
 //
-// What each of them cannot do is the other one. MySQL refuses a subquery over
-// the table being deleted from (ER_UPDATE_TABLE_USED); Postgres has no DELETE …
-// LIMIT to parse, and SQLite's exists only under a compile-time option, which
-// makes it a run-time failure rather than one a generator would see. So the two
-// arms are a divergence in what the dialects will accept rather than a choice
-// between two workable spellings.
+// Which arm a dialect gets is decided by boundedWriteForms rather than here, and
+// only one half of that decision is forced: Postgres and SQLite have nothing but
+// the doomed subquery, while MySQL accepts both the native bound and the
+// materialized subquery Generator.sweepKeyPredicate renders. This shape takes
+// the native one — see Generator.PruneQuery for what that trades away — so the
+// condition below is "is the cheap arm on offer" rather than "is there anything
+// else that would parse".
 func (g *Generator) boundedDelete(table string, prune Prune, matches []Match) string {
-	if g.dialect == dialect.MySQL {
+	if g.boundedWriteForms().has(nativeBound) {
 		return fmt.Sprintf("DELETE FROM %s\nWHERE %s%s\n%s;",
 			table,
 			joinPredicates(g.matchPredicates(table, false, matches), "\t"),
 			listOrderClause("", prune.Order),
-			g.pruneLimitClause(),
+			g.capClause(),
 		)
 	}
 
@@ -501,13 +475,13 @@ func (g *Generator) boundedDelete(table string, prune Prune, matches []Match) st
 		"SELECT " + strings.Join(QualifyAll(doomedAlias, prune.Key), ", "),
 		fmt.Sprintf("FROM %s AS %s", table, doomedAlias),
 		"WHERE " + joinPredicates(g.matchPredicates(doomedAlias, true, matches), "\t\t"),
+		// Both of these are unconditional. A prune that names no ordering is
+		// refused before it reaches a rendering, for
+		// ErrUnorderedBoundedStatement's reason, and one that names no cap is
+		// the statement the whole shape exists to make unspellable.
+		"ORDER BY " + orderTerms(doomedAlias, prune.Order),
+		g.capClause(),
 	}
-
-	if terms := orderTerms(doomedAlias, prune.Order); terms != "" {
-		capped = append(capped, "ORDER BY "+terms)
-	}
-
-	capped = append(capped, g.pruneLimitClause())
 
 	// The lock is Postgres's alone. SQLite has no FOR UPDATE and needs none —
 	// one writer at a time is its storage model, so there is no second pruner

@@ -135,7 +135,10 @@ func TestGenerator_PruneQuery(T *testing.T) {
 		// value on none of them.
 		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.SQLite} {
 			pair := For(d).PruneQuery("ReapItems", "workqueue_items",
-				Prune{Key: []string{"queue_name", "item_key"}},
+				Prune{
+					Key:   []string{"queue_name", "item_key"},
+					Order: []Order{{Column: "queue_name"}, {Column: "item_key"}},
+				},
 				Match{Column: "completed_at", Against: NoValue, Exclude: true}).Content
 
 			test.StrContains(t, pair, "WHERE (queue_name, item_key) IN (", test.Sprintf("dialect %q", d))
@@ -148,17 +151,33 @@ func TestGenerator_PruneQuery(T *testing.T) {
 		}
 	})
 
-	T.Run("orders only where the caller named an order", func(t *testing.T) {
+	T.Run("refuses a prune that names no ordering", func(t *testing.T) {
 		t.Parallel()
 
-		// An unordered pass takes whichever matched rows the planner reached
-		// first, which costs a horizon sweep nothing: every row it could have
-		// taken instead is still past the horizon next time.
+		// The same refusal the sweeps carry, raised from the same place. An
+		// unordered pass takes whichever matched rows the planner reached first,
+		// which is a set that can differ between two runs and a lock order no
+		// other writer on the table shares.
 		for _, d := range everyDialect() {
-			content := For(d).PruneQuery("PruneSweepings", sweepingsTable,
-				Prune{Key: []string{IDColumn}}, pastHorizon()).Content
+			err := recovered(func() {
+				For(d).PruneQuery("PruneSweepings", sweepingsTable,
+					Prune{Key: []string{IDColumn}}, pastHorizon())
+			})
 
-			test.StrNotContains(t, content, "ORDER BY", test.Sprintf("dialect %q", d))
+			must.ErrorIs(t, err, ErrUnorderedBoundedStatement, must.Sprintf("dialect %q", d))
+			test.StrContains(t, err.Error(), sweepingsTable, test.Sprintf("dialect %q", d))
+		}
+	})
+
+	T.Run("orders every rendering", func(t *testing.T) {
+		t.Parallel()
+
+		// The ordering reaches all three arms, MySQL's native bound included,
+		// where it sits on the DELETE rather than on a capped read.
+		for _, d := range everyDialect() {
+			content := For(d).PruneQuery("PruneSweepings", sweepingsTable, oldestFirst(), pastHorizon()).Content
+
+			test.EqOp(t, 1, strings.Count(content, "ORDER BY "), test.Sprintf("dialect %q", d))
 		}
 	})
 
