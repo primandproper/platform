@@ -213,7 +213,7 @@ func (g *Generator) prefixSearchPredicates(table string, columns []string, colum
 		predicates = append(predicates, Qualify(table, ArchivedAtColumn)+" IS NULL")
 	}
 
-	predicates = append(predicates, matchPredicates(table, true, matches)...)
+	predicates = append(predicates, g.matchPredicates(table, true, matches)...)
 
 	return append(predicates, g.prefixCondition(table, column))
 }

@@ -99,6 +99,11 @@ rendered per dialect and table prefix, and hands to database/migrate's
 WithGeneratedMigration so nothing is copied into a consumer's repository. See
 that package for why no numbered migration file ships.
 
+That package also answers which tables exist, at your prefix, through its Tables
+function — the list is complete and read from the DDL, so a between-tests
+TRUNCATE, a backup policy or a privacy inventory names every one of them without
+anybody copying seven names out of the schema.
+
 # What a consumer still writes
 
 The service layer, and that is the point of the split. Registration policy —
@@ -161,8 +166,36 @@ the row it comes back as is generated rather than paired to a Scan by eye. The
 username prefix search is a rendered pair the same way: the page and the count
 beside it, which is the one read here whose statement is not a filtered list.
 
-What remains hand-written is what querygen does not yet emit — the billing
-update's conditional SET.
+The batched reads come from the same place, and they were the last reads that
+did not. A page's rows point at users — "created by" — and a page of users,
+memberships or invitations has roles hanging off it; read one key at a time
+that is a round trip per row, and the loop converting rows is where that shape
+arrives without anybody choosing it. Each is a read keyed on a bound set, which
+querygen renders as a bound array on Postgres and a placeholder expansion on
+the other two, under one Go signature. What each still owes its caller is the
+empty batch, answered before the query rather than by it.
+
+The two writes whose guards are not equalities came the same way once querygen
+learned to say them: the two-factor verification, which stamps a proof only
+where a secret exists and has not been proven, and the collision check behind
+ErrUsernameTaken, which excludes the row being updated through an argument a
+registration simply does not send. Both were hand-built for exactly as long as a
+predicate meant "this column equals a bound value".
+
+What remains hand-written is six builders and the runtime binder they render
+through, and they are worth counting by shape rather than by name, because a
+shape is what the port still owes a generator. One is a predicate querygen has
+no form for: the default-flag clear, whose predicate excludes the membership
+being set rather than matching one. One is an update whose SET list is chosen
+per call, the agreements a registration accepts in a single statement. The last
+four are membership statements addressed by the (user, account) pair — an
+archival, a default set, a count of what is live — and the archive-by-side,
+whose column is chosen per call because one statement ends a user's memberships
+and an account's. The DELETEs used to be on this list and are not any more: the
+erasure and both halves of a role-set rewrite are querygen.Generator.DeleteQuery
+and InsertQuery statements now, one insert per role in place of the multi-row
+VALUES list whose shape was the caller's cardinality and which sqlc therefore
+could never check.
 */
 package identity
 

@@ -174,6 +174,38 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		must.ErrorIs(t, err, ErrInvitationNotFound)
 	})
 
+	t.Run("refuses acceptance by a user from another directory", func(t *testing.T) {
+		t.Parallel()
+
+		store, _, _, account, invitation := newInvitedStore(t)
+
+		// The link is a bearer credential, and the id presented alongside it is
+		// whatever the caller says. A neighbor's id satisfies the membership's
+		// foreign key exactly as a local one does.
+		neighbor := newUser("eve")
+		neighbor.Scope = otherScope
+		createUser(t, store, neighbor)
+
+		err := inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
+			_, acceptErr := store.AcceptInvitation(ctx, q, testScope, invitation.ID, "tok-secret", neighbor.ID, "")
+
+			return acceptErr
+		})
+		must.ErrorIs(t, err, ErrUserNotFound)
+
+		// The answer and the membership are one transaction, so refusing the
+		// membership leaves the invitation pending rather than accepted by
+		// somebody who never joined.
+		read, err := store.GetInvitation(t.Context(), testScope, invitation.ID)
+		must.NoError(t, err)
+		test.EqOp(t, InvitationPending, read.Status)
+		test.Nil(t, read.ToUser)
+
+		members, err := store.ListAccountMembers(t.Context(), testScope, account.ID, nil)
+		must.NoError(t, err)
+		must.SliceLen(t, 1, members.Data)
+	})
+
 	t.Run("refuses to accept without an accepting user", func(t *testing.T) {
 		t.Parallel()
 

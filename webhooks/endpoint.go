@@ -32,7 +32,22 @@ var (
 
 	// ErrNoEvents indicates an endpoint subscribing to nothing, which is never
 	// what the registrant meant.
+	//
+	// It is raised for an endpoint whose every subscription is archived as well as
+	// for one that named none: both describe a subscriber that will never receive
+	// anything, and registering one is a mistake rather than a way to park an
+	// endpoint. Disabled is how an endpoint is parked.
 	ErrNoEvents = platformerrors.New("webhook endpoint subscribes to no events")
+
+	// ErrUnknownSubscription indicates a subscription ID that names nothing in
+	// the scope that asked — including one that exists under another scope's
+	// endpoint, which is the same answer as far as this scope is concerned.
+	ErrUnknownSubscription = platformerrors.New("unknown webhook subscription")
+
+	// ErrEmptyEventType indicates a subscription carrying no event type. It is
+	// distinct from ErrUnknownEventType: nothing was named at all, so no catalog
+	// lookup could have failed.
+	ErrEmptyEventType = platformerrors.Wrap(platformerrors.ErrEmptyInputParameter, "webhook subscription names no event type")
 )
 
 // reservedHeaders are the headers this package sets on every request. An
@@ -214,11 +229,16 @@ func (e *Endpoint) Validate(ctx context.Context, catalog Catalog, checkURL URLCh
 		return ErrNoSigningSecret
 	}
 
-	if len(e.Events) == 0 {
+	events := e.EventTypes()
+	if len(events) == 0 {
 		return ErrNoEvents
 	}
 
-	for _, event := range e.Events {
+	for _, event := range events {
+		if event == "" {
+			return ErrEmptyEventType
+		}
+
 		if !catalog.Known(event) {
 			return platformerrors.Wrapf(ErrUnknownEventType, "event type %q", event)
 		}

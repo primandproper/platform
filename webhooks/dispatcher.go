@@ -28,6 +28,12 @@ type Dispatcher interface {
 	// carries. Validation is not optional and not separable: an unvalidated
 	// endpoint is an SSRF target.
 	Register(ctx context.Context, endpoint *Endpoint) error
+	// Subscribe adds one event type to one of the scope's endpoints, gating on the
+	// catalog, and returns the subscription.
+	Subscribe(ctx context.Context, scope tenancy.Scope, endpointID string, eventType EventType) (*Subscription, error)
+	// Unsubscribe retires one of the scope's subscriptions by ID, leaving the
+	// endpoint and its other subscriptions alone.
+	Unsubscribe(ctx context.Context, scope tenancy.Scope, subscriptionID string) error
 }
 
 var _ Dispatcher = (*StoreDispatcher)(nil)
@@ -121,6 +127,88 @@ func (d *StoreDispatcher) Register(ctx context.Context, endpoint *Endpoint) erro
 
 	if err := d.store.SaveEndpoint(ctx, endpoint); err != nil {
 		return op.Error(err, "saving webhook endpoint")
+	}
+
+	return nil
+}
+
+// Subscribe adds one event type to an existing endpoint, without rewriting the
+// rest of its subscriptions.
+//
+// It goes through the dispatcher rather than straight to the Store for the
+// reason Register does: the catalog gate lives here. A subscription to an event
+// type nothing publishes is accepted silently by any storage layer and produces
+// an endpoint that never fires, with no signal explaining why — which is the
+// failure the catalog exists to turn into an error at the moment somebody can
+// still fix the typo.
+//
+// It is idempotent on the (endpoint, event type) pair. Subscribing to something
+// the endpoint already receives returns the existing subscription, and
+// re-subscribing to one that was archived revives it, keeping its ID.
+func (d *StoreDispatcher) Subscribe(ctx context.Context, scope tenancy.Scope, endpointID string, eventType EventType) (*Subscription, error) {
+	ctx, op := d.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(endpointIDKey, endpointID),
+		observability.WithValue(eventTypeKey, eventType.String()),
+	)
+	defer op.End()
+
+	if err := scope.Validate(); err != nil {
+		return nil, op.Error(err, "subscribing webhook endpoint %q", endpointID)
+	}
+
+	if endpointID == "" {
+		return nil, op.Error(platformerrors.ErrInvalidIDProvided, "subscribing webhook endpoint")
+	}
+
+	if eventType == "" {
+		return nil, op.Error(ErrEmptyEventType, "subscribing webhook endpoint %q", endpointID)
+	}
+
+	if !d.catalog.Known(eventType) {
+		return nil, op.Error(
+			platformerrors.Wrapf(ErrUnknownEventType, "event type %q", eventType),
+			"subscribing webhook endpoint %q", endpointID,
+		)
+	}
+
+	subscription, err := d.store.AddSubscription(ctx, scope, endpointID, eventType)
+	if err != nil {
+		return nil, op.Error(err, "subscribing webhook endpoint %q to %q", endpointID, eventType)
+	}
+
+	op.Set(subscriptionIDKey, subscription.ID)
+
+	return subscription, nil
+}
+
+// Unsubscribe retires one subscription, named by its own ID.
+//
+// This is the operation a flat event list has no form for. Against one, "stop
+// sending me order.created" is a rewrite of the whole set — which loses when the
+// subscription ended, has nothing for the request that asked to name, and
+// silently reverts any concurrent edit of the same endpoint.
+//
+// There is no catalog gate here, and there should not be: an event type can be
+// removed from an application's catalog, and the subscriptions to it are exactly
+// what somebody then needs to be able to retire.
+func (d *StoreDispatcher) Unsubscribe(ctx context.Context, scope tenancy.Scope, subscriptionID string) error {
+	ctx, op := d.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(subscriptionIDKey, subscriptionID),
+	)
+	defer op.End()
+
+	if err := scope.Validate(); err != nil {
+		return op.Error(err, "unsubscribing webhook subscription %q", subscriptionID)
+	}
+
+	if subscriptionID == "" {
+		return op.Error(platformerrors.ErrInvalidIDProvided, "unsubscribing webhook subscription")
+	}
+
+	if err := d.store.ArchiveSubscription(ctx, scope, subscriptionID); err != nil {
+		return op.Error(err, "unsubscribing webhook subscription %q", subscriptionID)
 	}
 
 	return nil

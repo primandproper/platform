@@ -112,6 +112,13 @@ func (s *SQLStore) ListUsers(ctx context.Context, scope tenancy.Scope, filter *f
 }
 
 // ListUsersByIDs reads a batch of the scope's users in one query.
+//
+// Archived users are among them, and that is the read's purpose rather than an
+// oversight: a caller hydrating references is naming users that other rows
+// already point at, and hiding a soft-deleted one turns "created by a departed
+// colleague" into "created by nobody". The statement says so by being rendered
+// from a column list without archived_at in it, while still projecting the
+// column — see identity/internal/queries.
 func (s *SQLStore) ListUsersByIDs(ctx context.Context, scope tenancy.Scope, userIDs []string) ([]*User, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
@@ -120,20 +127,25 @@ func (s *SQLStore) ListUsersByIDs(ctx context.Context, scope tenancy.Scope, user
 		return nil, op.Error(err, "reading identity users by ID")
 	}
 
-	// An empty batch is an empty answer without a query. An IN () is a syntax
-	// error in two of the three dialects and would match nothing in the third,
-	// so the caller's empty slice would be a driver error on Postgres and a
-	// working empty page on SQLite — the kind of difference that only shows up
-	// in production.
+	// An empty batch is an empty answer without a query: the statement the
+	// corpus carries has no rendering of an empty set, and sending one anyway
+	// is a round trip whose answer was known before it left — see
+	// querygen.Generator.SetReadQuery, which documents the contract this keeps.
 	if len(userIDs) == 0 {
 		return []*User{}, nil
 	}
 
-	query, args := s.tables.buildSelectUsersByIDs(s.dialect, scope, userIDs)
-
-	users, err := database.ScanAll(ctx, s.client.Reader(), "identity user", query, args, scanUser)
+	rows, err := s.q.ListUsersByIDs(ctx, s.client.Reader(), identitydb.ListUsersByIDsParams{
+		Scope: scope,
+		IDs:   userIDs,
+	})
 	if err != nil {
 		return nil, op.Error(err, "reading identity users by ID")
+	}
+
+	users := make([]*User, 0, len(rows))
+	for i := range rows {
+		users = append(users, userFromBatchRow(&rows[i]))
 	}
 
 	if err = s.hydrateUsers(ctx, s.client.Reader(), users); err != nil {

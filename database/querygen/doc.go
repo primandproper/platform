@@ -19,10 +19,10 @@ and the fragment methods is text, to be written to a .sql file and fed to sqlc
 alongside the schema. Nothing here assembles a query per request, and none of it
 reads a schema.
 
-Its second consumer is a driver — see "The same statements, executed" below.
-That is the same text with the argument references rewritten into bind markers,
-not a second rendering of it: the semantics a filtered read has are subtle
-enough that two copies of them would be two chances to get them wrong.
+There is one consumer, and it is that pipeline: render the corpus, check it with
+sqlc, execute the querier sqlc-gen-unison generates from it. Nothing here renders
+a statement for a driver, and a store executing SQL this package never emitted is
+a store outside the guarantee — see "Porting a store onto this package" below.
 
 # What a caller supplies
 
@@ -81,8 +81,10 @@ guessed from another, so they are written down here:
 	Cursor                   cursor             page_cursor
 	MaxResponseSize          limit              result_limit
 
-The bulk stamp binds one argument that is not a filter field at all: ids, the
-list of row ids to mark as indexed.
+Two statements bind an argument that is not a filter field at all: ids, a whole
+set bound at once — the rows the bulk stamp marks as indexed, and the keys a
+batched read answers for. A [SetKey] can name it something else where the set is
+not of ids.
 
 One filter field binds nothing, and its absence from that table is the point.
 SortBy names a direction, and a direction is which way the ORDER BY runs and
@@ -97,68 +99,34 @@ The keyset position is page_cursor rather than cursor because CURSOR is a
 reserved word in MySQL — see filtering's own constants for why the name moved
 rather than the dialect being special-cased. MySQL is also the one dialect whose
 page size is bound through no name at all: its grammar takes a bare placeholder
-after LIMIT, so the emitted SQL spells the marker directly and [Bound.Args]
-still reports it as result_limit.
+after LIMIT, so the emitted SQL spells the marker directly and the generated
+parameter is still named for result_limit — see identity's unison.yaml, where
+the name converges.
 
-# The same statements, executed
+# The keyed variants
 
-Not everything that wants these statements wants to generate them. A store that
-serves many tables from one implementation knows its table and columns at
-construction rather than at build time, and there is no .sql file to write.
+[Generator.StandardCRUD] emits the set a conventional table gets: keyed on the
+row's own id and, where the caller named one, on an ownership column. A store's
+corpus is that set plus the statements its own reads need — a get keyed on a
+natural key, a list keyed on a reference, an update guarded by the value it is
+replacing, a read that projects one column.
 
-What such a caller needs is the argument references spelled as bind markers
-instead of sqlc references, and that is the only thing the [Bound] methods
-change. Each of them calls the statement function [Generator.StandardCRUD]
-calls and rewrites the references in what comes back — the same rewrite sqlc
-performs on these statements before its generated code hands one to a driver.
-So there is no second rendering to drift from the first: the archived toggle
-admits rows the same way, the counts omit the cursor the same way, the
-last_updated_at bounds admit NULL the same way, because there is one of each
-and both consumers read it.
-
-	get := querygen.For(dialect.Postgres).BoundGet("widgets", columns,
-		querygen.Match{Column: querygen.BelongsToAccountColumn})
-
-	args, err := get.Bind(map[string]any{
-		querygen.IDColumn:               id,
-		querygen.BelongsToAccountColumn: account,
-	})
-
-A [Bound] holds the statement and the names its placeholders stand for, so it is
-rendered once and bound per execution. [Match] adds an equality predicate on a
-column — a tenancy scope, an owner, the reference a child row hangs off — and
-[Generator.BindFilter] fills in the filter arguments, which is the mapping
-between filtering.QueryFilter's fields and the argument names above.
-
-Two things about arguments are worth knowing before reading Bound.Args. A name
-can appear more than once: the filter predicates are rendered once and spliced
-into the SELECT and into both counts, so on the dialects whose markers are
-positional the same value is bound once per appearance, while Postgres numbers
-its markers and binds it once. Markers are numbered where they appear in the
-finished statement, which is what makes a spliced fragment come out right. And a bound value is not always what the Go field holds — SQLite stores
-timestamps as text and compares them as text, so BindFilter hands it the shape
-time.DateTime spells rather than a time, and MySQL's LIMIT cannot
-coalesce so BindFilter supplies the default the other two coalesce to. Both are
-in BindFilter rather than in a caller for the same reason the SQL is here.
-
-# The canonical form of a keyed variant
-
-A store rendering [Bound] statements with [Match] values executes statements the
-standard set does not contain — a get keyed on a natural key, a list keyed on a
-reference, an update guarded by a status. Left there, the corpus sqlc checks and
-the set the store runs differ by exactly those variants: sqlc proves statements
-nobody executes while the store executes statements sqlc never saw, and the gap
-is invisible until one of them drifts.
-
-So every [Bound] method has a Query form beside it — [Generator.GetQuery],
-[Generator.ReadQuery], [Generator.ExistsQuery], [Generator.ListQueries],
-[Generator.UpdateQuery] and [Generator.ArchiveQuery] — which is the same
-statement in the sqlc spelling, named and annotated for a query file:
+[Generator.InsertQuery], [Generator.GetQuery], [Generator.ReadQuery],
+[Generator.ExistsQuery], [Generator.ListQueries], [Generator.UpdateQuery] and
+[Generator.ArchiveQuery] render those, each named and annotated for a query
+file:
 
 	list := querygen.For(dialect.Postgres).ListQueries(
 		"ListInvitationsByFromUser", "identity_invitations", columns,
 		querygen.Match{Column: "scope"},
 		querygen.Match{Column: "from_user"})
+
+Each calls the statement function StandardCRUD calls, with the matches where
+WithOwnership's column goes, so a variant is the standard statement with more
+predicates rather than a second rendering of one. The filter window, the archived
+toggle, the cursor and the two counts are the same code path: a keyed read
+filters exactly as an unkeyed one does because there is nothing that could make
+it not.
 
 The list is the one of them that is plural, because a paged list is two
 statements: ListInvitationsByFromUser and ListInvitationsByFromUserDescending,
@@ -167,19 +135,20 @@ one call is what keeps a corpus from carrying only the direction somebody
 happened to think of — a store answering sortBy=desc with an ascending page is
 not a failure any test of the ascending statement can see.
 
-Each calls the statement function its [Bound] counterpart calls, so the checked
-text and the executed text are the same text by construction. A consumer renders
-its variants into the canonical .sql through these and executes the methods sqlc
-generates from it, which is what closes the gap rather than narrowing it.
+[Match] is the predicate — a tenancy scope, an owner, the reference a child row
+hangs off — and it is a column name rather than finished SQL, because the
+statements it lands in render it more than once. A list carries its predicates in
+the SELECT and again in each of the two count subqueries beside it; a caller
+handing over finished SQL would have to know how many times its argument was
+about to appear. A [Match] can also exclude rather than include, for the read
+looking for another row like this one.
 
-[Generator.ReadQuery] and [Generator.BoundRead] are the pair the standard get
-cannot express: a [Read] says what the SELECT lists, and — where the key admits
-more than one row — the column whose order decides which one answers. The
-column list stays the table's shape, which is what the id and archived
-predicates are derived from, so a table carrying an id it does not key on leaves
-the column out of that list and names it in [Read.Projection]. A [Match] can
-also exclude rather than include, for the read looking for another row like this
-one.
+[Generator.ReadQuery] is the one the standard get cannot express: a [Read] says
+what the SELECT lists and — where the key admits more than one row — the column
+whose order decides which one answers. The column list stays the table's shape,
+which is what the id and archived predicates are derived from, so a table
+carrying an id it does not key on leaves the column out of that list and names it
+in [Read.Projection].
 
 # Guarded writes
 
@@ -192,8 +161,8 @@ every one of them.
 What turns a field-specific write into a safe one is a predicate naming the
 value the row must still hold:
 
-	update := querygen.For(dialect.Postgres).BoundUpdate("accounts", columns,
-		[]string{"owner_user_id"}, nil,
+	update := querygen.For(dialect.Postgres).UpdateQuery("TransferAccount",
+		"accounts", columns, []string{"owner_user_id"}, nil,
 		querygen.Match{Column: "scope"},
 		querygen.Match{Column: "owner_user_id", Arg: "current_owner_user_id"})
 
@@ -201,11 +170,73 @@ Two concurrent transfers there cannot both succeed: the second finds the owner
 already moved, matches nothing, and its row count says so. That is the whole
 mechanism, and it needs the guard and the assignment to be two arguments —
 [Match.Arg] is what separates them, since both halves are the same column and
-one name would set it to the value it was requiring it to already hold.
+one name would set it to the value it was requiring it to already hold. The
+statement is annotated :execrows for that reason: the count is the answer.
 
-[Generator.UpdateQuery] is the canonical form of the same statement, so a
-guarded write joins the checked corpus rather than living only in the running
-store, the way every keyed variant above does.
+# What a predicate compares against
+
+Not every guard is an equality against a value the caller has. A write that must
+happen exactly once guards on the stamp recording that it already did, and a
+caller has no value to bind for "has not happened yet"; a token is spent while it
+is still live, and the value that decides is the server's clock. [Match.Against]
+names what the column is compared against, and the closed set of answers is
+[Comparand]:
+
+	verify := querygen.For(dialect.Postgres).UpdateQuery(
+		"MarkUserTwoFactorSecretVerified", "users", columns,
+		[]string{"two_factor_secret_verified_at"}, nullable,
+		querygen.Match{Column: "scope"},
+		querygen.Match{Column: "two_factor_secret", Against: querygen.EmptyString, Exclude: true},
+		querygen.Match{Column: "two_factor_secret_verified_at", Against: querygen.NoValue})
+
+A secret that exists and has not been proven — and a replayed verification
+matches nothing, writes nothing, and reports the zero rows its caller reads as
+"not there" rather than moving the timestamp forward.
+
+[Comparand] holds five members. [BoundArgument] is the zero value and the
+equality every keyed read wants. [NoValue] is IS NULL, which is how this module
+records that something has not happened yet — an unredeemed token, an unproven
+secret, a key not yet shredded. [EmptyString] is the sentinel a TEXT NOT NULL
+column holds when it holds nothing, so its excluded form is "this fact exists".
+[CurrentTime] is the server's clock, which is the expiry sweep uninverted and the
+still-live guard inverted. [OptionalArgument] is the equality a caller may leave
+unset.
+
+[Match.Exclude] inverts all five rather than only the first, and every inversion
+is a complement: IS NULL against IS NOT NULL, the empty-string equality against
+the not-empty guard, "at or before now" against "after now". So the sweep that
+collects expired rows and the guard that refuses to spend them are one Match
+with one bool between them, and there is no second spelling of the boundary to
+disagree with the first.
+
+Three of the five bind nothing at all, and that is what makes them guards rather
+than predicates: the value compared against belongs to the statement, so there is
+no argument a caller could leave unset to relax it. Naming a [Match.Arg] beside
+one of them is [ErrArgumentlessMatch] rather than a field quietly ignored.
+
+The presence-conditional predicate is the fifth, and it is one static statement
+rather than SQL assembled per call:
+
+	free := querygen.For(dialect.Postgres).ReadQuery(
+		"GetUserIDByUsername", "users", nil,
+		querygen.Read{Projection: []string{querygen.IDColumn}},
+		querygen.Match{Column: "username"},
+		querygen.Match{Column: "scope"},
+		querygen.Match{
+			Column:  querygen.IDColumn,
+			Against: querygen.OptionalArgument,
+			Arg:     "except_user_id",
+			Exclude: true,
+		})
+
+That renders
+
+	id <> COALESCE(sqlc.narg(except_user_id), '')
+
+which excludes the row being updated when the caller names one and excludes an
+id no row has when it does not — so the collision check a user's own profile
+save runs and the one a registration runs are the same checked statement. It
+rests on the same fact [Generator.CursorCondition] rests on: no id is empty.
 
 # Reads that cross a junction
 
@@ -260,7 +291,7 @@ direction wants.
 
 # Tables with no id
 
-[Generator.StandardCRUD] requires an id column and the [Bound] methods do not,
+[Generator.StandardCRUD] requires an id column and the keyed forms above do not,
 and the asymmetry is the one place the two halves of this package genuinely
 disagree about what a table has to look like.
 
@@ -272,11 +303,12 @@ table whose primary key is (subject_type, subject_id) addresses one exactly by
 naming both — which is what [Match] has always been for, an equality predicate on
 a column, bound rather than interpolated. So the id predicate is rendered when
 the column list has an id and not when it does not, exactly as the archived_at
-predicate is, and [Generator.BoundGet], [Generator.BoundExists],
-[Generator.BoundUpdate] and [Generator.BoundArchive] key a row on whatever it
+predicate is, and [Generator.GetQuery], [Generator.ExistsQuery],
+[Generator.UpdateQuery] and [Generator.ArchiveQuery] key a row on whatever it
 actually keys on:
 
-	get := querygen.For(dialect.Postgres).BoundGet("shredding_subject_keys", columns,
+	get := querygen.For(dialect.Postgres).GetQuery("GetSubjectKey",
+		"shredding_subject_keys", columns,
 		querygen.Match{Column: "subject_type"},
 		querygen.Match{Column: "subject_id"})
 
@@ -287,23 +319,71 @@ enforcing one live key per subject, and so the difference between a shred that
 works and one leaving half the ciphertext readable — metering_totals on
 (subject, meter, period_start), and scheduled_timers on (timer_set, timer_key).
 
-What that costs is worth stating rather than discovering. Those four execute
-[Bound] statements and render no canonical .sql, so nothing about them passes
-through sqlc: the projection and the placeholders stop being hand-maintained,
-because this package renders both, but the statements are never checked against
-the schema at build time the way a generated one is. A column renamed in a
-migration is a runtime error on those four tables and a failed generate
-everywhere else, and the only thing that catches it first is their own container
-tests. That is a narrower guarantee than the rest of this package offers, and it
-is a gap in those four packages rather than in what this one can express — the
-Query forms above render exactly these statements for a corpus, keyed on
-whatever the table keys on.
+[Generator.InsertQuery] is here for the same table rather than for variety. An
+INSERT keys on nothing, so it is the one statement such a table wants unchanged
+from the standard set while wanting every other one keyed on its natural key —
+and StandardCRUD, which would otherwise have emitted it, cannot serve the table
+at all because of the list beside it. Without InsertQuery a natural-key corpus
+would be five statements sqlc checks and a sixth nobody could render.
 
 A statement that keys on nothing at all — no id in the column list and no [Match]
 — is [ErrUnaddressableRow] rather than a statement whose WHERE clause is the
 archived predicate alone. Reading one row by reading all of them is not a
 degenerate read; it is a different query, and archiving through one empties a
 table.
+
+# The writes those tables are written with
+
+A table with no id could be read and updated long before it could be created or
+destroyed. [Generator.StandardCRUD] is where the create lived, and StandardCRUD
+refuses a table with no id outright, so a child row keyed on its parent —
+(membership_id, role), (user_id, role) — had no emitted insert at all; and
+nothing here rendered a DELETE, so the hard deletes stayed hand-written in the
+one place a consumer least wants hand-written SQL, the erasure a
+right-to-be-forgotten request runs.
+
+Three statements close that, and all three are corpus forms — named, annotated,
+rendered into a .sql — with no [Bound] counterpart:
+
+	roles := querygen.For(dialect.Postgres)
+
+	insert := roles.InsertQuery("InsertMembershipRole", "membership_roles",
+		[]string{"membership_id", "role"}, nil)
+
+	clear := roles.DeleteQuery("DeleteMembershipRoles", "membership_roles",
+		[]string{"membership_id", "role"},
+		querygen.Match{Column: "membership_id"})
+
+[Generator.InsertQuery] is the create with the id requirement lifted off it,
+which is the only thing StandardCRUD's version had that an INSERT does not need
+— the id is required there because the list pages by keyset over it, and an
+insert has no list. A set of child rows is written one statement per element
+rather than one statement with a VALUES list assembled per call: the multi-row
+form's shape is the caller's cardinality, so it has no static text for sqlc to
+check or for this package to emit, and the cardinalities are single-digit inside
+a transaction the parent's write already opened.
+
+[Generator.DeleteQuery] is the single-row machinery with a different verb. It
+keys on the column list and the matches exactly as the get, the update and the
+archive do, refuses [ErrUnaddressableRow] the same way, and is annotated
+:execrows because the count is the answer. What it does not render is the
+archived predicate, and that absence is the point: an erasure runs against a
+subject who was archived first, and a role set is cleared whether or not its
+parent has been, so a delete excluding archived rows would be the one write
+unable to reach the rows it exists for. Its key need not name a single row —
+clearing every grant a membership holds is one statement keyed on the membership
+— which is the other half of what separates it from the archive.
+
+[Generator.InsertIgnoreQuery] is the third shape, and it is not an upsert whose
+conflict branch is empty: [ErrDegenerateUpsert] refuses that, correctly, because
+an upsert that assigns nothing is an INSERT failing on its second call. This one
+neither fails nor converges. The row already there wins, unchanged, and the
+count says so — which is what a key mint wants, since the loser of a race
+between two replicas has generated a key it must throw away. The key is the
+conflict target under the upsert's rule, and the three dialects spell the shape
+three ways: Postgres appends ON CONFLICT (…) DO NOTHING, MySQL and SQLite take a
+modifier before INTO and name no target, so MySQL's skips a collision on any
+unique key rather than on the one named — the same caveat the upsert carries.
 
 # The prefix search
 
@@ -343,6 +423,57 @@ leaves whatever wildcard somebody typed a wildcard, so a prefix of "%" returns
 every row — which reads as a working search returning too much rather than as a
 bug.
 
+# The batched read
+
+Every N+1 read has the same shape underneath: a page of rows, and a second table
+holding what hangs off each of them. Read one key at a time it is thirty round
+trips returning two rows each — a roster page whose members' roles are fetched
+inside the loop that converts rows. [Generator.SetReadQuery] is that read done
+once:
+
+	roles := querygen.For(dialect.Postgres).SetReadQuery(
+		"ListMembershipRolesByMembershipIDs", "identity_membership_roles",
+		[]string{"membership_id", "role"},
+		querygen.Read{Order: "role"},
+		querygen.SetKey{Column: "membership_id"})
+
+The set is one argument on Postgres, which has arrays, and a sqlc.slice
+expansion on the other two, which do not — the same divergence the bulk stamp
+carries, and the same []string on either side of it. What the caller writes does
+not move.
+
+Three things about it are the statement's rather than a caller's.
+
+The ordering is the keyed column's, so a consumer walks the rows once and sees
+one key's rows together. [Read.Order] is the tie-break inside a group rather
+than the order of the page.
+
+The set is rendered after every [Match], and that is a requirement rather than a
+layout choice: an expanded set is a run of bare markers, SQLite numbers a bare
+marker one past the highest it has seen, and an argument bound after one
+collides with an element of the set — matching nothing, quietly. Rendering it
+last is what keeps one argument order right on all three engines.
+
+And the empty batch is the caller's to answer before the query runs. There is no
+text to emit for a zero-length set — `IN ()` is a syntax error on two dialects —
+so what an empty slice does is a convention of whatever generated the Go, and
+the conventional answer is a NULL that matches no row. That is a round trip
+whose answer was known before it was sent, on a path whose whole purpose is
+saving round trips. Nothing here can enforce the contract, because the arity is
+the caller's and this package emits text.
+
+Whether archived rows come back is decided the way every other predicate here is
+decided — by the column list. A read whose columns carry archived_at excludes
+them; a hydration read naming rows that other rows already point at hands over a
+column list without it, and keeps them, because hiding a soft-deleted user turns
+"created by a departed colleague" into "created by nobody".
+
+It is corpus-only like everything else here — rendered into a consumer's .sql,
+checked by sqlc, and executed through the method sqlc generates — but for this
+shape that was never going to be a choice: a set reference has no fixed number
+of markers, because sqlc expands it per call, so the statement's arity belongs
+to the values and only the generated method can hold it.
+
 # The table registry
 
 Some of what a consumer needs per table is not a query. The TRUNCATE an
@@ -370,6 +501,130 @@ Two sources, one list. A consumer reading that list does not have to know which
 tables came from where, and a table moving from one source to the other does not
 change what comes out.
 
+The convention for a package in this module that ships a schema, which identity
+is the worked example of: its generator registers every table it owns — the whole
+list, not the subset [Generator.StandardCRUD] happens to emit for — and its
+migrations subpackage exports a Tables(prefix) beside SQL and Statements for the
+consumer half. The two halves answer the same question for different callers.
+This one is for a generator binary reading back what it generated across
+schemas, at the canonical unprefixed names; Tables is for the consumer, at
+theirs, and reads the DDL, so neither depends on the other staying in step by
+anybody's memory.
+
+# Porting a store onto this package
+
+There is one runtime tier, and every store that owns SQL is on it or is on its
+way onto it. A store does not render statements for a driver; it renders a
+corpus, sqlc checks the corpus against the schema, and sqlc-gen-unison generates
+the typed querier the store calls. A column renamed in a migration is then a
+failed generate rather than a runtime error, on every table, in all three
+dialects.
+
+identity is the worked example, and the shape a new store copies is four pieces:
+
+	<pkg>/internal/queries      the schema as data: table names, each table's
+	                            columns in projection order, and the subsets a
+	                            write may assign — spelled once, because the
+	                            corpus and the store both read them
+	<pkg>/internal/queriesgen   a main that renders that data through this
+	                            package into one .sql per dialect, and prints
+	                            the DDL sqlc reads them against
+	<pkg>/unison.yaml           the dialect roster, the generated package's
+	                            name, and the type overrides
+	<pkg>/internal/<pkg>db      the generated querier, committed
+
+The rendered .sql is committed and nothing imports it: it exists so `sqlc
+compile` can check it with no database running, and so the generated-files job
+can diff it. `make generate` writes it, through a go:generate line on the
+package; `make unison` renders the per-dialect schema beside it and runs the
+emitter over the pair. Its script names the components it walks, and a new store
+is a line in that list.
+
+What a store writes by hand is which statements it wants, in the internal
+queries package: [Generator.StandardCRUD] for a table whose reads are the
+conventional set, and the keyed forms above for everything else. What it does not
+write is SQL.
+
+# The packages that are not on this tier
+
+The registry's problem has a larger version one level up. One tier executes this
+module's SQL: a package renders its statements into a canonical .sql, sqlc checks
+them against that package's own schema on each dialect it serves, and the store
+executes the querier the generator emits. Every package here that owns tables is
+on that tier or is being ported onto it — and "every package" is a claim about a
+set, which is checkable only if the exceptions to it are named. An exemption nobody wrote
+down is indistinguishable from a package somebody missed: both look like a
+package that simply never comes up. The reader who notices reconstructs the list
+by grepping the module for SELECT, which is a survey with a shelf life of one
+branch, and the survey that produced this section had to do exactly that.
+
+So the boundary is stated here, and internal/sqltier is where a build checks it
+is still where this says: it walks the module for the packages holding SQL and
+fails on one no ruling covers, in either direction — a package that grew a
+statement and a ruling that outlived one.
+
+Four packages hold SQL that is not table SQL, and a corpus has nothing to say
+about any of it:
+
+  - database/postgres/tableaccess and database/mysql/tableaccess create users,
+    grant privileges, and read the server's own catalogs. sqlc generates queries
+    against a schema; it has no spelling for CREATE USER or GRANT, and pg_roles
+    is not in any schema this module ships. Each is single-dialect because its
+    statements are, rather than because nobody reached the other two.
+
+  - distributedlock/postgres calls pg_try_advisory_lock and its siblings. The
+    lock is a number the server holds for a session: no table, no schema, and no
+    projection for a generator to type.
+
+  - database/migrate asks a connection which schema its search path resolves to,
+    so migrations of one schema serialize against each other rather than against
+    the whole server. goose owns the bookkeeping table and ships its DDL; this
+    package owns one session-scoped question.
+
+search/vector/pgvector is exempt for a different reason, and the reason is not
+the one that looked likely. Its operators were worth checking rather than
+assuming, and sqlc accepts them: `embedding <=> $1::vector` parses, generates,
+and comes back typed as interface{} on both sides, because a vector is an
+extension type the analyzer resolves nothing for — and a column type override
+reaches the stored column while leaving the distance an ANN search exists to
+return untyped. That alone would only weaken the guarantee. What removes it is
+that the index table is a runtime product of configuration: its name, its
+dimension, and its metadata column's name are all values a caller supplies, and
+the manager issues the CREATE TABLE itself at startup. There is no committed DDL
+for sqlc to check a statement against, and no fixed column name for a statement
+to project.
+
+filtering holds no SQL at all. It was surveyed at one keyword and the keyword is
+a word in a comment: what the package supplies is the argument names a rendered
+statement binds — the seven above — and the conversions that bind them, which is
+why every statement here says created_after rather than inventing a spelling of
+its own. That it holds none is recorded as an assertion rather than left as an
+absence, because an absence goes on reading true after the package stops
+deserving it.
+
+The remaining two are ports rather than exemptions.
+
+authorization/database owns four tables and builds thirteen statements over
+them, which a survey counting functions that return a query and its arguments
+read as zero: these return the query alone, and their arguments are assembled at
+the call site. Roles and permissions carry the convention triple, so the reads
+and the writes over them are this package's ordinary shapes, and the shapes the
+survey found missing have since landed: the mapping rows between them are the
+id-less child tables [Generator.DeleteQuery] and [Generator.InsertQuery] now
+serve, and the seed's lookups over a bound set are [Generator.SetReadQuery]. What
+the port still waits on is the resolution query, a recursive closure — a shape
+this package cannot render at all. sqlc is not the obstacle; it analyzes that
+query on all three engines, binding the role names through ANY on Postgres and
+sqlc.slice on the other two.
+
+dataprivacy/auditerasure owns no table. Its three statements — two deletes of a
+subject's audit scopes and the count of what the hash chain will not let go of —
+address the audit log's tables, which the audit package ships the migrations
+for. So they belong in that package's corpus rather than in one of its own: a
+second corpus over somebody else's schema would be a second place a column
+rename has to be noticed. It ports when the audit log does — the delete shape it
+was waiting on is [Generator.DeleteQuery] now.
+
 # include_archived actually includes archived rows
 
 A filtered list's WHERE clause is FilterConditions in its entirety, not an
@@ -391,22 +646,27 @@ of the difference is a handful of expressions: the case-insensitive substring
 match, the pattern a prefix search's LIKE binds, the byte-ordered comparison the
 reindex scan walks, the sentinel an unset time bound coalesces to, the precision
 the current time is stored at, the nullable boolean the archived toggle binds,
-the page-size clause, and the set membership the bulk stamp keys on. They live
+the page-size clause, and the set membership the bulk stamp and the batched read
+key on. They live
 together in generator.go, as
 unexported methods, so that what this package assumes about a server is one
 screen rather than a grep for casts. The statement shapes those land in, the
 query names, and which queries a column list justifies are the same on all
 three.
 
-The upsert is the exception, and it is the only one. An INSERT that has to
-converge rather than fail on a second call is two grammars rather than one
-grammar with a substituted expression: Postgres and SQLite name the conflict
-target and read the incoming row through the EXCLUDED alias, and MySQL names no
-target at all — its ON DUPLICATE KEY UPDATE fires on whichever unique key was
-violated — and spells the incoming value VALUES(column). Both halves are in
-generator.go with the rest, so the one-screen property survives; what a
-consumer sees is still one query name with one signature, rendered per dialect
-by [Generator.UpsertQuery].
+Two statements are the exception, and both are an INSERT that has to do
+something about a row already there — which is the one thing the three engines
+never agreed on. An upsert is two grammars rather than one grammar with a
+substituted expression: Postgres and SQLite name the conflict target and read
+the incoming row through the EXCLUDED alias, and MySQL names no target at all —
+its ON DUPLICATE KEY UPDATE fires on whichever unique key was violated — and
+spells the incoming value VALUES(column). The insert-ignore divides them
+differently again: Postgres alone has no modifier for it and takes a trailing ON
+CONFLICT … DO NOTHING, while MySQL and SQLite each spell it before INTO, as
+INSERT IGNORE and INSERT OR IGNORE. Every half of both is in generator.go with
+the rest, so the one-screen property survives; what a consumer sees is still one
+query name with one signature, rendered per dialect by
+[Generator.UpsertQuery] and [Generator.InsertIgnoreQuery].
 
 The set is closed at the type. [For] takes a dialect.Dialect and rejects one
 outside dialect.Valid rather than emitting a plausible default, and the dialect
@@ -420,9 +680,10 @@ What a consumer sees is one set of sqlc methods with one set of signatures
 whichever dialect generated them, so the application code above them is written
 once. Two exceptions, both from sqlc's own inference rather than from anything
 here: the archived toggle carries a ::boolean on Postgres and cannot elsewhere,
-because MySQL and SQLite have no boolean type to cast to; and the bulk stamp's
-id set is a bound array on Postgres and a sqlc.slice expansion on the other two,
-which changes what reaches the server and not the []string a caller passes.
+because MySQL and SQLite have no boolean type to cast to; and a bound set — the
+bulk stamp's ids, a batched read's keys — is an array on Postgres and a
+sqlc.slice expansion on the other two, which changes what reaches the server and
+not the []string a caller passes.
 
 # What each dialect asks of a schema
 

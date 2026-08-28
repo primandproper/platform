@@ -76,22 +76,52 @@ func (s StandardQuery) String() string {
 // page in a sensible order. A composite key is not a cursor, so there is nothing
 // useful to emit for a table that has none.
 //
-// The Bound methods carry no such requirement. A store knows what it keys on,
-// and says so with Match values; a table whose primary key is (subject_type,
-// subject_id) passes two of them and addresses a row exactly. What it does not
-// get is a paged list — see the package comment.
+// The keyed Query forms carry no such requirement. A corpus knows what its
+// tables key on, and says so with Match values; a table whose primary key is
+// (subject_type, subject_id) passes two of them and addresses a row exactly.
+// What it does not get is a paged list — see the package comment.
 var ErrMissingIDColumn = platformerrors.New("column set has no id column")
 
 // ErrUnaddressableRow indicates a single-row statement with nothing to key on:
 // no id column, no ownership column, and no Match. The statement it would
 // otherwise render is one whose WHERE clause is the archived predicate and
 // nothing else, which reads one row from a table by reading all of them, and
-// updates or archives every row in it.
+// updates or archives every row in it. The hard delete has not even that much —
+// it renders no archived predicate — so what it would otherwise be is a
+// truncate.
 //
 // It is a programming error rather than a caller's — nothing on a request path
 // decides which columns a statement keys on — so it panics like the rest of this
 // package's misuse.
+//
+// A guard counts as something said about which rows, and that is deliberate
+// rather than an oversight in the check. A sweep — every live row past its
+// deadline, archived in one statement — keys on the clock and on nothing a
+// caller binds, and it is a statement somebody means: expiring sessions is not a
+// single-row write that forgot its key. So a lone Match{Against: CurrentTime}
+// renders, and what the check still refuses is a statement that says nothing at
+// all about which rows it is for.
+//
+// The corollary is worth stating, because it is the one way a guard can widen
+// rather than narrow. A lone Match{Column: ArchivedAtColumn, Against: NoValue}
+// says exactly what the archived predicate already said, so the statement it
+// renders is the whole-table write this error is named for, and nothing here
+// will stop it. A guard is a narrowing only when it narrows.
 var ErrUnaddressableRow = platformerrors.New("single-row statement keys on nothing")
+
+// ErrArgumentlessMatch indicates a Match naming an argument its comparand has
+// nowhere to put: an Arg beside IS NULL, beside the empty-string guard, or
+// beside a clock comparison, none of which bind anything.
+//
+// It is a panic rather than a silently ignored field because the two readings a
+// caller could have had are both wrong in a way nothing downstream would report.
+// A caller who meant `column = sqlc.arg(other)` and reached for NoValue gets a
+// statement with one fewer argument than they are about to bind, which sqlc
+// turns into a params struct missing a field; a caller who meant the guard and
+// named an argument out of habit has written a name that no marker will ever
+// carry, which is a name their argument map can hold forever without anything
+// noticing.
+var ErrArgumentlessMatch = platformerrors.New("match names an argument its comparand cannot bind")
 
 // ErrDuplicateQueryName indicates two emitted queries sharing a name. sqlc turns
 // a query name into a Go method name across a whole package, so a duplicate is a
@@ -295,8 +325,8 @@ func (g *Generator) StandardCRUD(table string, columns []string, opts ...Option)
 	updateColumns := ForUpdate(columns, notUpdatable...)
 
 	queries := []*Query{
-		s.query(GetQuery, OneType, getStatement(table, columns, s.ownership, Read{})),
-		s.query(ExistsQuery, OneType, existsStatement(table, columns, s.ownership)),
+		s.query(GetQuery, OneType, g.getStatement(table, columns, s.ownership, Read{})),
+		s.query(ExistsQuery, OneType, g.existsStatement(table, columns, s.ownership)),
 		s.query(ListQuery, ManyType, g.listStatement(table, columns, s.ownership, nil, Ascending)),
 		s.descendingQuery(ListQuery, ManyType, g.listStatement(table, columns, s.ownership, nil, Descending)),
 	}
@@ -408,17 +438,12 @@ func binding(column string, nullable []string) string {
 	return fmt.Sprintf("sqlc.arg(%s)", column)
 }
 
+// createStatement renders the plain insert: the standard create, the statement
+// Generator.InsertQuery names, and the first half of the upsert. It is
+// insertStatement with no modifier — see insert.go, where the ignoring form
+// takes the one modifier there is.
 func createStatement(table string, insertColumns, nullable []string) string {
-	values := make([]string, 0, len(insertColumns))
-	for _, column := range insertColumns {
-		values = append(values, binding(column, nullable))
-	}
-
-	return fmt.Sprintf("INSERT INTO %s (\n\t%s\n) VALUES (\n\t%s\n);",
-		table,
-		strings.Join(insertColumns, ",\n\t"),
-		strings.Join(values, ",\n\t"),
-	)
+	return insertStatement("", table, insertColumns, nullable)
 }
 
 // getStatement renders the read of one row: what read projects, from table,
@@ -429,11 +454,11 @@ func createStatement(table string, insertColumns, nullable []string) string {
 // SELECT lists. The two are the same list for the standard get and differ for
 // every keyed read that returns one column, or that projects an id it does not
 // key on.
-func getStatement(table string, columns []string, ownership string, read Read, extra ...Match) string {
+func (g *Generator) getStatement(table string, columns []string, ownership string, read Read, extra ...Match) string {
 	return fmt.Sprintf("SELECT\n\t%s\nFROM %s\nWHERE %s%s;",
 		strings.Join(QualifyAll(table, read.projecting(columns)), ",\n\t"),
 		table,
-		joinPredicates(singleRowPredicates(table, columns, ownership, true, extra...), "\t"),
+		joinPredicates(g.singleRowPredicates(table, columns, ownership, true, extra...), "\t"),
 		orderClause(table, read.Order),
 	)
 }
@@ -452,11 +477,11 @@ func orderClause(table, column string) string {
 	return fmt.Sprintf("\nORDER BY %s ASC\nLIMIT 1", Qualify(table, column))
 }
 
-func existsStatement(table string, columns []string, ownership string, extra ...Match) string {
+func (g *Generator) existsStatement(table string, columns []string, ownership string, extra ...Match) string {
 	return fmt.Sprintf("SELECT EXISTS (\n\tSELECT %s\n\tFROM %s\n\tWHERE %s\n);",
 		existsProjection(table, columns),
 		table,
-		joinPredicates(singleRowPredicates(table, columns, ownership, true, extra...), "\t\t"),
+		joinPredicates(g.singleRowPredicates(table, columns, ownership, true, extra...), "\t\t"),
 	)
 }
 
@@ -488,11 +513,11 @@ func existsProjection(table string, columns []string) string {
 func (g *Generator) listStatement(table string, columns []string, ownership string, junction *Junction, direction Direction, extra ...Match) string {
 	var conditions []string
 	if ownership != "" {
-		conditions = append(conditions, equalityPredicate(table, ownership, true))
+		conditions = append(conditions, g.equalityPredicate(table, ownership, true))
 	}
 
-	conditions = append(conditions, matchPredicates(table, true, extra)...)
-	conditions = append(conditions, junction.conditions()...)
+	conditions = append(conditions, g.matchPredicates(table, true, extra)...)
+	conditions = append(conditions, junction.conditions(g)...)
 
 	joins := junction.joins(table)
 
@@ -519,7 +544,7 @@ func (g *Generator) updateStatement(table string, columns, updateColumns []strin
 	return fmt.Sprintf("UPDATE %s SET\n\t%s\nWHERE %s;",
 		table,
 		strings.Join(assignments, ",\n\t"),
-		joinPredicates(singleRowPredicates(table, columns, ownership, false, extra...), "\t"),
+		joinPredicates(g.singleRowPredicates(table, columns, ownership, false, extra...), "\t"),
 	)
 }
 
@@ -532,7 +557,7 @@ func (g *Generator) archiveStatement(table string, columns []string, ownership s
 	return fmt.Sprintf("UPDATE %s SET\n\t%s = %s\nWHERE %s;",
 		table,
 		ArchivedAtColumn, g.storedNow(),
-		joinPredicates(singleRowPredicates(table, columns, ownership, false, extra...), "\t"),
+		joinPredicates(g.singleRowPredicates(table, columns, ownership, false, extra...), "\t"),
 	)
 }
 
@@ -560,34 +585,52 @@ func (g *Generator) archiveStatement(table string, columns []string, ownership s
 //
 // qualified is false for the UPDATE statements, whose SET clause cannot carry a
 // table qualifier and whose WHERE therefore does not either.
-func singleRowPredicates(table string, columns []string, ownership string, qualified bool, extra ...Match) []string {
-	keyed := slices.Contains(columns, IDColumn) || ownership != "" || len(extra) > 0
-	if !keyed {
+func (g *Generator) singleRowPredicates(table string, columns []string, ownership string, qualified bool, extra ...Match) []string {
+	keyed := g.keyPredicates(table, columns, ownership, qualified, extra)
+
+	if !slices.Contains(columns, ArchivedAtColumn) {
+		return keyed
+	}
+
+	name := ArchivedAtColumn
+	if qualified {
+		name = Qualify(table, ArchivedAtColumn)
+	}
+
+	return append([]string{name + " IS NULL"}, keyed...)
+}
+
+// keyPredicates is the half of singleRowPredicates that addresses a row: the id
+// where the column list has one, the ownership column where the caller named
+// one, and one predicate per Match.
+//
+// It is separate because the hard delete keys on exactly this and takes no
+// archived predicate — deleting an archived row is still deleting it, and an
+// erasure runs against a subject who was archived first, so a statement that
+// excluded them would be the one write that cannot reach the rows it exists
+// for. See deleteStatement.
+//
+// The refusal is here rather than one level up for the same reason. A statement
+// keying on nothing is unaddressable whether or not the table soft-deletes:
+// what the archived predicate would add is a filter over every row, not a key,
+// and a DELETE carrying it alone empties the live half of the table instead of
+// all of it.
+func (g *Generator) keyPredicates(table string, columns []string, ownership string, qualified bool, extra []Match) []string {
+	if !slices.Contains(columns, IDColumn) && ownership == "" && len(extra) == 0 {
 		panic(platformerrors.Wrapf(ErrUnaddressableRow, "querygen: table %q", table))
 	}
 
 	var predicates []string
 
-	if slices.Contains(columns, ArchivedAtColumn) {
-		name := ArchivedAtColumn
-		if qualified {
-			name = Qualify(table, ArchivedAtColumn)
-		}
-
-		predicates = append(predicates, name+" IS NULL")
-	}
-
 	if slices.Contains(columns, IDColumn) {
-		predicates = append(predicates, equalityPredicate(table, IDColumn, qualified))
+		predicates = append(predicates, g.equalityPredicate(table, IDColumn, qualified))
 	}
 
 	if ownership != "" {
-		predicates = append(predicates, equalityPredicate(table, ownership, qualified))
+		predicates = append(predicates, g.equalityPredicate(table, ownership, qualified))
 	}
 
-	predicates = append(predicates, matchPredicates(table, qualified, extra)...)
-
-	return predicates
+	return append(predicates, g.matchPredicates(table, qualified, extra)...)
 }
 
 // equalityPredicate matches a column against a bound argument. It is the one
@@ -595,44 +638,82 @@ func singleRowPredicates(table string, columns []string, ownership string, quali
 // WithOwnership names or one of the Match columns a bound statement adds — the
 // two say the same thing about a row and there is no version of this that is
 // right for one and wrong for the other.
-func equalityPredicate(table, column string, qualified bool) string {
-	return matchPredicate(table, Match{Column: column}, qualified)
+func (g *Generator) equalityPredicate(table, column string, qualified bool) string {
+	return g.matchPredicate(table, Match{Column: column}, qualified)
 }
 
-// matchPredicate renders one match: the column against its bound argument,
-// equal or unequal.
+// matchPredicate renders one match: the column against whatever its comparand
+// says, in the operator Exclude chooses.
 //
-// The excluded form binds the same argument under the same name as the included
-// one, so a caller assembling an argument map keys on the column either way and
-// nothing downstream has to know which operator the statement carries. The
-// argument name is the column's unless the match names another — see Match.Arg,
-// which is what a guard naming a column the same statement assigns needs.
-func matchPredicate(table string, match Match, qualified bool) string {
+// The excluded form of a bound match binds the same argument under the same name
+// as the included one, so a caller assembling an argument map keys on the column
+// either way and nothing downstream has to know which operator the statement
+// carries. The argument name is the column's unless the match names another —
+// see Match.Arg, which is what a guard naming a column the same statement
+// assigns needs.
+//
+// The guard comparands render no argument at all, which is what makes them
+// guards: the value the predicate compares against belongs to the statement, so
+// there is nothing a caller could pass that would relax it. Exclude complements
+// each of them rather than switching between unrelated questions — see
+// Match.Exclude — so there is one rendering of the boundary per comparand and
+// not one per direction.
+//
+// It hangs off Generator for the clock, which is the one comparand the three
+// dialects do not spell identically. Routing it through storedNow keeps that
+// divergence on generator.go's one screen, and keeps a statement's comparisons
+// asking for the time in the units its assignments write it in.
+func (g *Generator) matchPredicate(table string, match Match, qualified bool) string {
+	if match.Arg != "" && !match.Against.binds() {
+		panic(platformerrors.Wrapf(ErrArgumentlessMatch,
+			"querygen: column %q is compared against %s and names argument %q",
+			match.Column, match.Against, match.Arg))
+	}
+
 	name := match.Column
 	if qualified {
 		name = Qualify(table, match.Column)
 	}
 
-	operator := "="
-	if match.Exclude {
-		operator = "<>"
-	}
+	switch match.Against {
+	case NoValue:
+		if match.Exclude {
+			return name + " IS NOT NULL"
+		}
 
-	return fmt.Sprintf("%s %s sqlc.arg(%s)", name, operator, match.argument())
+		return name + " IS NULL"
+	case EmptyString:
+		return fmt.Sprintf("%s %s ''", name, match.operator())
+	case CurrentTime:
+		// The complement of "at or before now" is "strictly after now", so the
+		// two forms partition the rows rather than overlapping at the instant a
+		// deadline falls on.
+		operator := "<="
+		if match.Exclude {
+			operator = ">"
+		}
+
+		return fmt.Sprintf("%s %s %s", name, operator, g.storedNow())
+	case OptionalArgument:
+		return fmt.Sprintf("%s %s COALESCE(sqlc.narg(%s), '')", name, match.operator(), match.argument())
+	// BoundArgument, which is the zero value and every keyed read's comparand.
+	default:
+		return fmt.Sprintf("%s %s sqlc.arg(%s)", name, match.operator(), match.argument())
+	}
 }
 
-// matchPredicates renders one equality predicate per match.
+// matchPredicates renders one predicate per match.
 //
-// The matches are the dimensions a bound caller adds beyond the row's own id — a
-// tenancy scope column, or the owner the sqlc path expresses through
-// WithOwnership. They go through equalityPredicate like every other predicate
-// here, so a bound statement and a generated one filter a row the same way, and
-// a caller can add a tenancy scope column without this package knowing what a
-// tenancy scope is.
-func matchPredicates(table string, qualified bool, matches []Match) []string {
+// The matches are the dimensions a caller adds beyond the row's own id — a
+// tenancy scope column, the owner the sqlc path expresses through
+// WithOwnership, the guards a write puts its correctness on. They all go through
+// matchPredicate, so a keyed read and a guarded write filter a row the same way,
+// and a caller can add a tenancy scope column without this package knowing what
+// a tenancy scope is.
+func (g *Generator) matchPredicates(table string, qualified bool, matches []Match) []string {
 	predicates := make([]string, 0, len(matches))
 	for i := range matches {
-		predicates = append(predicates, matchPredicate(table, matches[i], qualified))
+		predicates = append(predicates, g.matchPredicate(table, matches[i], qualified))
 	}
 
 	return predicates

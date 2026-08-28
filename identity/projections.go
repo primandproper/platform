@@ -1,23 +1,16 @@
 package identity
 
-import (
-	"database/sql"
-	"time"
-
-	"github.com/primandproper/platform-go/v13/database"
-)
-
-// The scan side of the column lists in identity/internal/queries.
+// What a page of rows is, once the generated package has answered.
 //
-// Each entity has an "aux" type holding the nullable columns the domain type
-// carries as pointers, a targets method producing the destinations for one
-// Scan, and an apply method converting them onto the value.
-//
-// What is left here is the scan side of the statements querygen does not render
-// — the sign-in reads, the batch read by id, the membership reads keyed on the
-// (user, account) pair. Everything the generated package answers converts
-// through identity/rows.go instead, where a renamed column is a compile error
-// rather than a scan that lands one column to the left.
+// This file used to be the scan side of the column lists in
+// identity/internal/queries: an "aux" type per entity holding the nullable
+// columns, a targets method producing the destinations for one Scan, and an
+// apply method converting them onto the value. Every statement that needed one
+// is generated now — the batch read by id was the last of them — so what is
+// left is the shape a page arrives in rather than the pairing of a projection
+// with a list of scan targets. A row becomes a domain value in
+// identity/rows.go, where a renamed column is a compile error rather than a
+// scan that lands one column to the left.
 
 // pageRow is one row of a rendered list query: the value, and the two counts
 // the statement carries beside it.
@@ -68,71 +61,4 @@ func pageValues[T any](rows []pageRow[T]) []*T {
 	}
 
 	return values
-}
-
-// timePtr turns a nullable timestamp column into the *time.Time the domain
-// types carry — utcPtr's normalization, for the nullable-column input shape;
-// utcPtr carries the rationale.
-func timePtr(nt sql.NullTime) *time.Time {
-	if !nt.Valid {
-		return nil
-	}
-
-	return utcPtr(&nt.Time)
-}
-
-// userAux holds the user columns that the User carries as pointers or
-// as a named type.
-type userAux struct {
-	status        string
-	passwordAt    sql.NullTime
-	twoFactorAt   sql.NullTime
-	emailAt       sql.NullTime
-	termsAt       sql.NullTime
-	privacyAt     sql.NullTime
-	lastUpdatedAt sql.NullTime
-	archivedAt    sql.NullTime
-}
-
-// targets returns one destination per column of queries.Users.Columns, in order.
-func (a *userAux) targets(u *User) []any {
-	return []any{
-		&u.ID, &u.Scope, &u.Username, &u.EmailAddress,
-		&u.FirstName, &u.LastName,
-		&u.HashedPassword, &u.RequiresPasswordChange, &a.passwordAt,
-		&u.TwoFactorSecret, &a.twoFactorAt,
-		&a.emailAt, &u.EmailAddressVerificationToken,
-		&a.status, &u.AccountStatusExplanation,
-		&a.termsAt, &a.privacyAt,
-		&u.CreatedAt, &a.lastUpdatedAt, &a.archivedAt,
-	}
-}
-
-// apply converts what targets scanned onto the User.
-func (a *userAux) apply(u *User) {
-	u.CreatedAt = u.CreatedAt.UTC()
-	u.AccountStatus = AccountStatus(a.status)
-	u.PasswordLastChangedAt = timePtr(a.passwordAt)
-	u.TwoFactorSecretVerifiedAt = timePtr(a.twoFactorAt)
-	u.EmailAddressVerifiedAt = timePtr(a.emailAt)
-	u.LastAcceptedTermsOfService = timePtr(a.termsAt)
-	u.LastAcceptedPrivacyPolicy = timePtr(a.privacyAt)
-	u.LastUpdatedAt = timePtr(a.lastUpdatedAt)
-	u.ArchivedAt = timePtr(a.archivedAt)
-}
-
-// scanUser projects one row of queries.Users.Columns.
-func scanUser(scanner database.Scanner) (*User, error) {
-	var (
-		user User
-		aux  userAux
-	)
-
-	if err := scanner.Scan(aux.targets(&user)...); err != nil {
-		return nil, err
-	}
-
-	aux.apply(&user)
-
-	return &user, nil
 }

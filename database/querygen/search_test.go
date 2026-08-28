@@ -214,7 +214,7 @@ func TestGenerator_PrefixSearchQueries_BindsEveryArgument(T *testing.T) {
 				sql, args := bindArguments(d, query.Content)
 
 				test.StrNotContains(t, sql, "sqlc.")
-				assertMarkersMatchArgs(t, d, Bound{SQL: sql, Args: args})
+				assertMarkersMatchArgs(t, d, sql, args)
 			}
 		})
 	}

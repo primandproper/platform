@@ -34,12 +34,10 @@ fi
 
 # unison, installed unconditionally at the pin — a pin nothing enforces is a
 # version number in a file — into the gitignored artifacts/ rather than onto
-# the developer's PATH. The rename exists because the upstream command lives at
-# cmd/main and `go install` names a binary for its package directory; it goes
-# away when upstream moves the command to cmd/unison.
+# the developer's PATH. The command lives at cmd/unison, so `go install` names
+# the binary for its package directory and there is nothing to rename.
 mkdir -p "${BIN_DIR}"
-GOBIN="${BIN_DIR}" go install "github.com/primandproper/sqlc-gen-unison/cmd/main@v${UNISON_VERSION}"
-mv "${BIN_DIR}/main" "${UNISON}"
+GOBIN="${BIN_DIR}" go install "github.com/primandproper/sqlc-gen-unison/cmd/unison@v${UNISON_VERSION}"
 
 # The components generated, as "<package dir>". Each holds a unison.yaml, and
 # its per-dialect schema files are rendered first, from the package's own

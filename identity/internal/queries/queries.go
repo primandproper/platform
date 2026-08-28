@@ -17,6 +17,28 @@ const (
 	InvitationRolesTable = "identity_invitation_roles"
 )
 
+// TableNames is every table identity owns, in the order the DDL creates them.
+//
+// Seven rather than the four declared below as [Table] values: the three role
+// tables carry no columns worth describing here and are written by hand-rendered
+// DELETE/INSERT pairs, but a table nothing generates queries for is still a
+// table with rows in it. That is the distinction the querygen registry is built
+// around, and this is the list [Render] feeds it — see the comment there.
+//
+// identity/migrations is where a consumer gets these names rendered at their
+// prefix. This list is the canonical spelling, and migrations.Tables reads the
+// DDL, so the two are cross-checked against each other in this package's tests
+// rather than one being derived from the other.
+var TableNames = []string{
+	UsersTable,
+	UserRolesTable,
+	AccountsTable,
+	MembershipsTable,
+	MembershipRolesTable,
+	InvitationsTable,
+	InvitationRolesTable,
+}
+
 // ScopeColumn is the tenancy dimension every table here carries and every
 // statement is keyed on. It is a column, not a convention: an unscoped read of
 // this schema is not expressible, because there is no statement that omits it.
@@ -40,6 +62,24 @@ const (
 	UserEmailVerificationTokenColumn = "email_address_verification_token"
 )
 
+// The role tables' columns. Each of the three is a child set of one parent row
+// — a user, a membership, an invitation — keyed on that parent and carrying one
+// role per row, with no id, no scope and no timestamps of its own — see
+// [RoleTable]. RoleColumn is the grant itself, and the second half of every
+// role table's primary key; the owner column is the first.
+//
+// They carry no scope because they are not read on their own: a role row is
+// reached through the parent whose id it names, and that parent is scoped. What
+// keys the batched reads below is the parent column, which is why each is
+// spelled here rather than at the store — the read that binds it and the write
+// that assigns it are two files.
+const (
+	UserRoleOwnerColumn       = "user_id"
+	MembershipRoleOwnerColumn = "membership_id"
+	InvitationRoleOwnerColumn = "invitation_id"
+	RoleColumn                = "role"
+)
+
 // The two columns a membership is keyed on, unique on the pair live and
 // archived alike. Together they are the row's natural key — one live membership
 // per (user, account) pair — which is why every membership statement addresses
@@ -58,6 +98,55 @@ const (
 	MembershipAccountColumn = querygen.BelongsToAccountColumn
 	MembershipDefaultColumn = "default_account"
 )
+
+// RoleTable is one of the three tables a role grant lands in, and it is not a
+// [Table]: it has no id, no scope, no convention triple, and no standard query
+// of any kind. What it has is a parent, a grant, and the two writes that
+// rewrite a role set wholesale.
+//
+// It is a type of its own rather than a Table with most of its fields empty,
+// because every one of those fields decides something for a table that has a
+// caller reading it on its own — and none of these does. A grant is read
+// through its parent, filtered by nothing, and archived by the parent being
+// archived; see identity/migrations on why the triple is absent from the
+// schema too.
+type RoleTable struct {
+	// Name is the canonical, unprefixed table name.
+	Name string
+	// OwnerColumn is the parent the grant hangs off.
+	OwnerColumn string
+	// Singular names the entity the two statement names are built from:
+	// InsertUserRole and DeleteUserRoles.
+	Singular string
+}
+
+// Columns is the whole of the row, which is also its primary key.
+func (t *RoleTable) Columns() []string {
+	return []string{t.OwnerColumn, RoleColumn}
+}
+
+// The three of them, in the order the emitted .sql lists their statements.
+var (
+	// UserRoles is the roles a user holds outside any account — operator,
+	// support, service administrator.
+	UserRoles = RoleTable{Name: UserRolesTable, OwnerColumn: UserRoleOwnerColumn, Singular: "User"}
+	// MembershipRoles is what a member may do inside one account.
+	MembershipRoles = RoleTable{
+		Name:        MembershipRolesTable,
+		OwnerColumn: MembershipRoleOwnerColumn,
+		Singular:    "Membership",
+	}
+	// InvitationRoles is what an invitation promises, fixed at invitation time
+	// so that what somebody was invited to is what they get.
+	InvitationRoles = RoleTable{
+		Name:        InvitationRolesTable,
+		OwnerColumn: InvitationRoleOwnerColumn,
+		Singular:    "Invitation",
+	}
+)
+
+// RoleTables is the three of them, in the order Render emits their statements.
+var RoleTables = []*RoleTable{&UserRoles, &MembershipRoles, &InvitationRoles}
 
 // The columns the field-specific writes assign, and the arguments the guarded
 // ones compare against.
@@ -94,6 +183,13 @@ const (
 	currentOwnerUserIDArg            = "current_" + ownerUserIDColumn
 	currentInvitationStatusArg       = "current_" + InvitationStatusColumn
 )
+
+// exceptUserIDArg is the argument the collision checks exclude a row through:
+// the id of the user being updated, absent when there is not one yet.
+//
+// It is the one argument in this schema whose absence is meaningful rather than
+// a caller forgetting to bind it — see uniquenessChecks.
+const exceptUserIDArg = "except_user_id"
 
 // EmailAddressVerifiedAtColumn is the proof a user's address is reachable.
 //
@@ -287,6 +383,16 @@ var Emitted = []*Table{&Users, &Accounts, &Invitations}
 func Render(d dialect.Dialect) string {
 	g := querygen.For(d)
 
+	// Every table identity owns, not the three the loop below emits for.
+	// StandardCRUD registers what it emits, which leaves memberships and the
+	// three role tables out — and those are tables with rows in them, so a
+	// consumer reading the registry back to truncate a database would miss four
+	// of seven. Registering the whole list here is what keeps that list fed by
+	// the tables existing rather than by what currently produces their SQL: the
+	// role tables are due to join Emitted, and nothing about this line has to
+	// change when they do.
+	querygen.RegisterTable(TableNames...)
+
 	var rendered []*querygen.Query
 	for _, table := range Emitted {
 		rendered = append(rendered, g.StandardCRUD(table.Name, table.Columns, table.Options()...)...)
@@ -295,10 +401,15 @@ func Render(d dialect.Dialect) string {
 	rendered = append(rendered, keyedInvitationLists(g)...)
 	rendered = append(rendered, createdAtReads(g)...)
 	rendered = append(rendered, keyedUserReads(g)...)
+	rendered = append(rendered, uniquenessChecks(g)...)
+	rendered = append(rendered, keyedAccountReads(g)...)
 	rendered = append(rendered, keyedMembershipReads(g)...)
+	rendered = append(rendered, batchedReads(g)...)
 	rendered = append(rendered, junctionLists(g)...)
 	rendered = append(rendered, usernamePrefixSearch(g)...)
 	rendered = append(rendered, fieldWrites(g)...)
+	rendered = append(rendered, userErasure(g))
+	rendered = append(rendered, roleWrites(g)...)
 	rendered = append(rendered, membershipUpsert(g))
 
 	return querygen.RenderFile(rendered)
@@ -357,6 +468,59 @@ func membershipUpsert(g *querygen.Generator) *querygen.Query {
 	)
 }
 
+// userErasure is the one statement in this schema that destroys a row rather
+// than stamping it: the hard DELETE a right-to-be-forgotten request runs.
+//
+// It is keyed on the id and the scope, and on nothing else. The archived
+// predicate every other single-row statement here carries would make this the
+// one write unable to reach the rows it exists for, since an erasure follows an
+// archival: dataprivacy hides the subject first and destroys them afterwards.
+// querygen's delete renders no such predicate — see [querygen.Generator.DeleteQuery].
+//
+// The user's memberships and every role hanging off them go with the row,
+// through ON DELETE CASCADE. That is the one place this schema asks the
+// database to finish a deletion, and it is deliberate: an erasure that left a
+// membership behind would leave the subject on the rosters of the accounts they
+// belonged to.
+func userErasure(g *querygen.Generator) *querygen.Query {
+	return g.DeleteQuery("EraseUser", UsersTable, Users.Columns, querygen.Match{Column: ScopeColumn})
+}
+
+// roleWrites is the pair of statements each of the three role tables needs: the
+// clear that empties an owner's grants, and the insert that writes one back.
+//
+// Together they are how a role set is replaced wholesale rather than diffed.
+// Diffing means reading the current set first and computing two statements from
+// it, which is three round trips to express "these are the roles now" and a
+// read-modify-write besides.
+//
+// The insert is one statement per role rather than one multi-row INSERT per
+// call. The multi-row form was assembled per call from the caller's cardinality,
+// so it had no static text — nothing for sqlc to check and nothing for this
+// package to emit, which is the same objection that retired the conditional
+// billing SET. What replaces it costs a round trip per role, inside the
+// transaction the parent's write already opened, at the cardinalities a role set
+// actually has.
+//
+// Neither statement is scoped, and neither can be: a role table carries no scope
+// column, because a grant is reached only through the parent whose own
+// statements are all keyed on one. The owner id these bind is a value the store
+// read back from a scoped statement.
+func roleWrites(g *querygen.Generator) []*querygen.Query {
+	rendered := make([]*querygen.Query, 0, len(RoleTables)*2)
+
+	for _, table := range RoleTables {
+		owner := querygen.Match{Column: table.OwnerColumn}
+
+		rendered = append(rendered,
+			g.DeleteQuery("Delete"+table.Singular+"Roles", table.Name, table.Columns(), owner),
+			g.InsertQuery("Insert"+table.Singular+"Role", table.Name, table.Columns(), nil),
+		)
+	}
+
+	return rendered
+}
+
 // fieldWrites is the writes that assign one fact about a row rather than the
 // row, plus the three that guard the assignment on the value being replaced.
 //
@@ -405,6 +569,18 @@ func fieldWrites(g *querygen.Generator) []*querygen.Query {
 		// re-enrolling.
 		g.UpdateQuery("UpdateUserTwoFactorSecret", UsersTable, Users.Columns,
 			[]string{twoFactorColumn, twoFactorVerifiedAtColumn}, Users.Nullable, scope),
+
+		// The proof that a secret was exercised, guarded on there being a
+		// secret and on its not having been proven already. Neither conjunct
+		// is an equality against a value the caller holds: one is the
+		// not-empty sentinel and the other is IS NULL, and together they are
+		// what makes a replayed verification write nothing and report zero
+		// rows rather than move the timestamp forward.
+		g.UpdateQuery("MarkUserTwoFactorSecretVerified", UsersTable, Users.Columns,
+			[]string{twoFactorVerifiedAtColumn}, Users.Nullable,
+			scope,
+			querygen.Match{Column: twoFactorColumn, Against: querygen.EmptyString, Exclude: true},
+			querygen.Match{Column: twoFactorVerifiedAtColumn, Against: querygen.NoValue}),
 
 		g.UpdateQuery("SetUserEmailAddressVerificationToken", UsersTable, Users.Columns,
 			[]string{UserEmailVerificationTokenColumn}, Users.Nullable, scope),
@@ -530,6 +706,84 @@ func keyedUserReads(g *querygen.Generator) []*querygen.Query {
 	return rendered
 }
 
+// uniquenessChecks is the pair of collision reads CreateUser and UpdateUser run
+// before writing, so a taken handle reports ErrUsernameTaken or
+// ErrEmailAddressTaken rather than a driver's constraint violation.
+//
+// Two things about them are not the rest of this file's shape.
+//
+// Neither filters on archived_at, and that is the schema's requirement rather
+// than an omission. The unique indexes cover archived rows — freeing a username
+// when its owner is soft-deleted means a later registrant can take it, and every
+// audit row naming that handle then refers to two people — so a check that
+// skipped archived rows would report the handle free and hand the write to the
+// index, which is the driver error these reads exist to prevent. The column list
+// is empty for exactly that reason: querygen renders the archived predicate from
+// the column list, so a read that must see archived rows is a read rendered from
+// no columns at all, keyed entirely on its matches.
+//
+// And the row being updated is excluded through an argument the caller may
+// leave unset, which is what lets one statement serve both callers. A profile
+// save must not collide with itself; a registration has no id to exclude yet.
+// Under the presence-conditional comparand the absent argument coalesces to the
+// empty string and excludes an id no row has, so the statement a registration
+// runs is the statement a save runs, checked once.
+//
+// They are two named statements rather than one parameterized on the column, for
+// the reason keyedUserReads enumerates: a query name is a Go method name, and a
+// column is not a parameter of one.
+func uniquenessChecks(g *querygen.Generator) []*querygen.Query {
+	read := querygen.Read{Projection: []string{querygen.IDColumn}}
+
+	exceptID := querygen.Match{
+		Column:  querygen.IDColumn,
+		Against: querygen.OptionalArgument,
+		Arg:     exceptUserIDArg,
+		Exclude: true,
+	}
+
+	// Statement name to the column it keys on, in the order the file lists
+	// them — a map would lose that order, and the .sql is compared byte for
+	// byte against its committed copy.
+	named := [][2]string{
+		{"GetUserIDByUsername", UserUsernameColumn},
+		{"GetUserIDByEmailAddress", UserEmailAddressColumn},
+	}
+
+	rendered := make([]*querygen.Query, 0, len(named))
+	for i := range named {
+		rendered = append(rendered, g.ReadQuery(named[i][0], UsersTable, nil, read,
+			querygen.Match{Column: named[i][1]}, querygen.Match{Column: ScopeColumn}, exceptID))
+	}
+
+	return rendered
+}
+
+// keyedAccountReads is the one account read that keys on something other than
+// the id: an account the user owns.
+//
+// It is the guard behind ArchiveUser, and it is a read rather than an existence
+// check because the answer a caller needs is which account blocked. An owner
+// archived out from under their accounts leaves them live and owned by a user
+// every scoped read reports as absent, so the refusal has to name the account
+// whose ownership has to move first — the same sentence RemoveMembership's
+// refusal already carries, which can name it because it was handed it.
+//
+// A user may own several; the ordering is what makes "one of them" a row rather
+// than whichever one the planner reached first, so a refusal repeated against
+// an unchanged directory names the same account twice.
+func keyedAccountReads(g *querygen.Generator) []*querygen.Query {
+	return []*querygen.Query{
+		g.ReadQuery("GetOwnedAccountIDForUser", AccountsTable, Accounts.KeyedColumns(),
+			querygen.Read{
+				Projection: []string{querygen.IDColumn},
+				Order:      querygen.IDColumn,
+			},
+			querygen.Match{Column: ScopeColumn},
+			querygen.Match{Column: ownerUserIDColumn}),
+	}
+}
+
 // keyedMembershipReads is the three reads over the table that has no standard
 // queries at all: the membership itself, the id a revived one kept, and the
 // account a user falls back to when the default is being removed.
@@ -568,6 +822,65 @@ func keyedMembershipReads(g *querygen.Generator) []*querygen.Query {
 			},
 			scope, user, querygen.Match{Column: MembershipAccountColumn, Exclude: true}),
 	}
+}
+
+// batchedReads is the four reads that answer for a whole batch of keys at once:
+// the users a page's rows refer to, and the roles hanging off a page of users,
+// memberships or invitations.
+//
+// Each is the read a page would otherwise make one query at a time. A roster of
+// thirty members whose roles were fetched inside the loop that converts rows is
+// thirty round trips returning two rows each, and the loop is where that shape
+// arrives without anybody choosing it — which is why the batched form is the
+// one that exists rather than an optimization applied later.
+//
+// All four were hand-assembled IN lists until querygen learned the shape, and
+// they were the last reads in this package that no generator could render. The
+// store still owes them the one thing the statement cannot express: an empty
+// batch, answered without a query rather than sent as one whose answer is
+// already known — see querygen.Generator.SetReadQuery.
+func batchedReads(g *querygen.Generator) []*querygen.Query {
+	// The users a page's rows point at, read for hydration rather than as a
+	// listing: "who created each of these rows". The column list has no
+	// archived_at in it, which is how a statement says the archived predicate
+	// does not apply — hiding a soft-deleted user here turns "created by a
+	// departed colleague" into "created by nobody". The projection is still the
+	// whole table, archived_at included, so a caller can see that they are
+	// looking at one.
+	rendered := []*querygen.Query{
+		g.SetReadQuery("ListUsersByIDs", UsersTable,
+			Users.ColumnsExcept(querygen.ArchivedAtColumn),
+			querygen.Read{Projection: Users.Columns},
+			querygen.SetKey{Column: querygen.IDColumn},
+			querygen.Match{Column: ScopeColumn}),
+	}
+
+	// Statement name to the table and the parent column it keys on, in the
+	// order the file lists them. One named read each rather than one builder
+	// over a table parameter, for the reason keyedUserReads enumerates: a query
+	// name is a Go method name, and a method name is not a parameter.
+	//
+	// None carries a scope: a role table has no scope column, because the
+	// parent whose id keys the read is the scoped row. The store reaches these
+	// with ids it read through a scoped statement.
+	named := [][3]string{
+		{"ListUserRolesByUserIDs", UserRolesTable, UserRoleOwnerColumn},
+		{"ListMembershipRolesByMembershipIDs", MembershipRolesTable, MembershipRoleOwnerColumn},
+		{"ListInvitationRolesByInvitationIDs", InvitationRolesTable, InvitationRoleOwnerColumn},
+	}
+
+	for i := range named {
+		// Ordered by the parent and then by the role, which is what makes the
+		// roles of one owner arrive together and in a stable order — a set the
+		// caller compares against another set, or renders, should not come back
+		// in whichever order the planner found convenient.
+		rendered = append(rendered, g.SetReadQuery(named[i][0], named[i][1],
+			[]string{named[i][2], RoleColumn},
+			querygen.Read{Order: RoleColumn},
+			querygen.SetKey{Column: named[i][2]}))
+	}
+
+	return rendered
 }
 
 // junctionLists is the three reads that cross the membership junction: an

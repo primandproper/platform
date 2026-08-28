@@ -14,12 +14,12 @@ func updateQueryColumns() []string {
 	return []string{IDColumn, "scope", "owner", "name", CreatedAtColumn, LastUpdatedAtColumn, ArchivedAtColumn}
 }
 
-// TestGenerator_UpdateQuery_GuardedWrite pins the pairing for the guarded
-// field-specific write, on top of keyed_query_test.go's conventional pair: with
-// a Match.Arg separating the guard from its assignment, rewriting the Query's
-// argument references for a driver must still yield exactly the SQL BoundUpdate
-// executes — if the two ever render differently, a consumer's canonical .sql
-// would carry a guarded write that sqlc checked while the store ran another one.
+// TestGenerator_UpdateQuery_GuardedWrite pins the shape that turns a
+// field-specific write into a safe one: the guard names the value the row must
+// still hold, under an argument of its own, so the SET list and the WHERE are
+// two arguments rather than one. Under one name the statement would set the
+// column to the value it was requiring it to already hold — legal SQL that two
+// concurrent transfers both succeed at.
 func TestGenerator_UpdateQuery_GuardedWrite(T *testing.T) {
 	T.Parallel()
 
@@ -30,11 +30,11 @@ func TestGenerator_UpdateQuery_GuardedWrite(T *testing.T) {
 		{Column: "owner", Arg: "current_owner"},
 	}
 
-	for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite} {
+	for _, d := range everyDialect() {
 		T.Run(string(d), func(t *testing.T) {
 			t.Parallel()
 
-			q := For(d).UpdateQuery("TransferGadget", boundTable, columns, setColumns, nil, matches...)
+			q := For(d).UpdateQuery("TransferGadget", keyedTable, columns, setColumns, nil, matches...)
 
 			test.EqOp(t, "TransferGadget", q.Annotation.Name)
 
@@ -46,11 +46,12 @@ func TestGenerator_UpdateQuery_GuardedWrite(T *testing.T) {
 			test.StrContains(t, q.Content, "sqlc.arg(owner)")
 			test.StrContains(t, q.Content, "sqlc.arg(current_owner)")
 
-			bound := For(d).BoundUpdate(boundTable, columns, setColumns, nil, matches...)
+			// The two ends of the comparison are two arguments, in the order a
+			// driver takes them: the assignment, the id, then the predicates.
+			sql, args := bindQuery(d, q)
 
-			sql, args := bindArguments(d, q.Content)
-			test.EqOp(t, bound.SQL, sql)
-			test.Eq(t, bound.Args, args)
+			test.Eq(t, []string{"owner", IDColumn, "scope", "current_owner"}, args)
+			assertMarkersMatchArgs(t, d, sql, args)
 		})
 	}
 }
@@ -62,7 +63,7 @@ func TestGenerator_UpdateQuery_GuardedWrite(T *testing.T) {
 func TestGenerator_UpdateQuery_AssignsOnlyWhatItIsHanded(t *testing.T) {
 	t.Parallel()
 
-	q := For(dialect.Postgres).UpdateQuery("SetGadgetName", boundTable, updateQueryColumns(),
+	q := For(dialect.Postgres).UpdateQuery("SetGadgetName", keyedTable, updateQueryColumns(),
 		[]string{"name"}, nil, Match{Column: "scope"})
 
 	test.StrContains(t, q.Content, "name = sqlc.arg(name)")

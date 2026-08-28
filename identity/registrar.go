@@ -36,11 +36,11 @@ func (s *SQLStore) CreateUser(ctx context.Context, q database.Tx, user *User) er
 		Set(scopeKey, user.Scope.String()).
 		Set(usernameKey, user.Username)
 
-	if err := s.ensureUnique(ctx, q, usernameColumn, user.Scope, user.Username, "", ErrUsernameTaken); err != nil {
+	if err := s.ensureUsernameFree(ctx, q, user.Scope, user.Username, ""); err != nil {
 		return op.Error(err, "creating identity user")
 	}
 
-	if err := s.ensureUnique(ctx, q, emailAddressColumn, user.Scope, user.EmailAddress, "", ErrEmailAddressTaken); err != nil {
+	if err := s.ensureEmailAddressFree(ctx, q, user.Scope, user.EmailAddress, ""); err != nil {
 		return op.Error(err, "creating identity user")
 	}
 
@@ -61,7 +61,7 @@ func (s *SQLStore) CreateUser(ctx context.Context, q database.Tx, user *User) er
 	// That holds because the parameter is a database.Tx: the sentence used to
 	// be true only of a caller who had opened one, and nothing stopped a caller
 	// who had not.
-	if err := s.replaceRoles(ctx, q, s.tables.userRoles, userIDColumn, user.ID, user.ServiceRoles); err != nil {
+	if err := s.replaceRoles(ctx, q, s.userRoleWrites(), user.ID, user.ServiceRoles); err != nil {
 		return op.Error(err, "creating identity user")
 	}
 

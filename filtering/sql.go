@@ -109,10 +109,10 @@ type SQLArgs struct {
 //
 // A caller whose driver takes its arguments by name rather than a generated
 // struct by field keys these same values on the Arg constants above, which are
-// the names the emitted statements bind them under — database/querygen's
-// Bound.Bind takes exactly such a map. Building it is the caller's, because the
-// map a keyed read hands over carries its own match columns alongside these and
-// there is no version of it this package could hand back whole.
+// the names database/querygen's emitted statements bind them under. Building
+// that map is the caller's, because the one a keyed read hands over carries its
+// own match columns alongside these and there is no version of it this package
+// could hand back whole.
 //
 // ResultLimit is always valid. An absent page size becomes
 // DefaultQueryFilterLimit here rather than being left as a NULL for the
@@ -137,9 +137,9 @@ type SQLArgs struct {
 // The times are bound as timestamps, which is what a server with a timestamp
 // type takes. SQLite has neither a timestamp type nor a driver that speaks
 // time.Time, and its comparisons over a text column are lexicographic — so a
-// SQLite store binds through database/querygen's Generator.BindFilter, which
-// shapes a time for the dialect it was built for. Binding these values there
-// would produce a window that admits every row for every bound, which is
+// SQLite store binds its window through the generated querier, which shapes a
+// time for the dialect it was generated for. Binding these values there would
+// produce a window that admits every row for every bound, which is
 // indistinguishable from a caller who set no window at all.
 func ToSQLArgs(filter *QueryFilter) SQLArgs {
 	if filter == nil {
