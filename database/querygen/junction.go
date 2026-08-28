@@ -342,7 +342,7 @@ func (g *Generator) JunctionListAllQuery(name, table string, columns []string, j
 func (g *Generator) junctionListStatement(table string, columns []string, junction *Junction, direction Direction, matches ...Match) string {
 	mustJunctionList(table, columns, junction)
 
-	return g.listStatement(table, columns, "", junction, direction, matches...)
+	return g.listStatement(table, columns, "", junction, nil, direction, matches...)
 }
 
 // junctionListAllStatement is the unpaged statement.

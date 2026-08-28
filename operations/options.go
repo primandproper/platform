@@ -31,7 +31,7 @@ func WithStoreMetricsProvider(metricsProvider metrics.Provider) StoreOption {
 // namespace the migrations were rendered with; nothing here can check that, and
 // a mismatch surfaces as a missing table on the first query.
 func WithStoreTablePrefix(prefix string) StoreOption {
-	return func(s *SQLStore) { s.tables = newTables(prefix) }
+	return func(s *SQLStore) { s.tablePrefix = prefix }
 }
 
 // WithStoreNotifyChannel makes every write to an operation row emit a

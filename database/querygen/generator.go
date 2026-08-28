@@ -263,6 +263,45 @@ func (g *Generator) includeArchivedFlag() string {
 	return coalesced + " = true"
 }
 
+// unsetArgument renders "this optional narrowing was not supplied": the
+// argument compared against NULL, carrying whatever each analyzer needs in
+// order to give it a type.
+//
+// It is the other half of [OptionalNarrowing]'s predicate, and it exists as its
+// own expression for the same reason includeArchivedFlag does. sqlc types an
+// argument from its use, and an IS NULL is a use that says nothing: NULL has no
+// type, so the analyzer reaches the end of the expression knowing only that
+// something was compared to nothing. The equality beside it in the disjunction
+// does not rescue it — the analyzers resolve each reference where it stands —
+// and the symptom is reported somewhere else entirely, because a list's counts
+// are scalar subqueries whose alias is lost when an argument inside one cannot
+// be typed: `column "filtered_count" does not exist`, against a line whose alias
+// is right there. All three dialects report it, and all three take a cast.
+//
+// Only this arm is cast, and on MySQL that is load-bearing rather than tidiness.
+// A bound parameter is the weakest thing in MySQL's coercibility order, so the
+// equality arm's uncast reference adopts the column's collation, while a cast
+// one would carry the connection's and raise "illegal mix of collations" —
+// substringMatch carries the long form. Casting the arm that is only ever
+// compared against NULL is free of that, because nothing is being compared
+// against a column.
+//
+// The cast is to each dialect's text type, which is what makes this expression
+// speak for a text column and no other. The columns an optional narrowing suits
+// in this module are all text — an owner, a kind, a status — and a narrowing
+// over a number is a statement this package does not render.
+func (g *Generator) unsetArgument(argument string) string {
+	switch g.dialect {
+	case dialect.MySQL:
+		return fmt.Sprintf("CAST(sqlc.narg(%s) AS CHAR) IS NULL", argument)
+	case dialect.SQLite:
+		return fmt.Sprintf("CAST(sqlc.narg(%s) AS TEXT) IS NULL", argument)
+	// Postgres, which For has already narrowed the alternatives to.
+	default:
+		return fmt.Sprintf("sqlc.narg(%s)::text IS NULL", argument)
+	}
+}
+
 // limitClause renders the page-size clause a keyset walk ends on.
 //
 // Postgres and SQLite take an expression, so an absent page size coalesces to

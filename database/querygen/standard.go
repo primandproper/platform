@@ -327,8 +327,8 @@ func (g *Generator) StandardCRUD(table string, columns []string, opts ...Option)
 	queries := []*Query{
 		s.query(GetQuery, OneType, g.getStatement(table, columns, s.ownership, Read{})),
 		s.query(ExistsQuery, OneType, g.existsStatement(table, columns, s.ownership)),
-		s.query(ListQuery, ManyType, g.listStatement(table, columns, s.ownership, nil, Ascending)),
-		s.descendingQuery(ListQuery, ManyType, g.listStatement(table, columns, s.ownership, nil, Descending)),
+		s.query(ListQuery, ManyType, g.listStatement(table, columns, s.ownership, nil, nil, Ascending)),
+		s.descendingQuery(ListQuery, ManyType, g.listStatement(table, columns, s.ownership, nil, nil, Descending)),
 	}
 
 	// An INSERT with an empty column list is not a degenerate insert, it is a
@@ -510,13 +510,29 @@ func existsProjection(table string, columns []string) string {
 // ORDER BY are rendered from it together, because a walk whose ordering and
 // whose comparison disagree pages through an order its cursor does not name.
 // Nothing above here renders one without the other — see [Direction].
-func (g *Generator) listStatement(table string, columns []string, ownership string, junction *Junction, direction Direction, extra ...Match) string {
+func (g *Generator) listStatement(
+	table string,
+	columns []string,
+	ownership string,
+	junction *Junction,
+	key *SetKey,
+	direction Direction,
+	extra ...Match,
+) string {
 	var conditions []string
 	if ownership != "" {
 		conditions = append(conditions, g.equalityPredicate(table, ownership, true))
 	}
 
 	conditions = append(conditions, g.matchPredicates(table, true, extra)...)
+
+	// After every Match, for the reason SetReadQuery gives, and before the
+	// junction's own predicates, which are about the joined row rather than
+	// about which of this table's rows the caller asked for.
+	if key != nil {
+		conditions = append(conditions, g.setPredicate(Qualify(table, key.Column), key.argument()))
+	}
+
 	conditions = append(conditions, junction.conditions(g)...)
 
 	joins := junction.joins(table)
@@ -687,6 +703,12 @@ func (g *Generator) matchPredicate(table string, match Match, qualified bool) st
 		return fmt.Sprintf("%s %s %s", name, operator, g.storedNow())
 	case OptionalArgument:
 		return fmt.Sprintf("%s %s COALESCE(sqlc.narg(%s), '')", name, match.operator(), match.argument())
+	case OptionalNarrowing:
+		// Both arms name the same argument, so a caller binds one value; only
+		// the NULL test carries a cast, and Generator.unsetArgument says why
+		// that one needs it and why the equality must not have it.
+		return fmt.Sprintf("(%s OR %s %s sqlc.narg(%s))",
+			g.unsetArgument(match.argument()), name, match.operator(), match.argument())
 	case AtMostArgument:
 		// The complement of "at or below the ceiling" is "strictly above it",
 		// so the two forms partition the rows the way the clock's do rather

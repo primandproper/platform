@@ -3,13 +3,13 @@ package operations
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	stderrors "errors"
 	"strings"
 	"time"
 
 	"github.com/primandproper/platform-go/v13/charset"
 	"github.com/primandproper/platform-go/v13/database"
+	"github.com/primandproper/platform-go/v13/database/ddl"
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/filtering"
@@ -18,6 +18,7 @@ import (
 	"github.com/primandproper/platform-go/v13/observability/logging"
 	"github.com/primandproper/platform-go/v13/observability/metrics"
 	"github.com/primandproper/platform-go/v13/observability/tracing"
+	"github.com/primandproper/platform-go/v13/operations/internal/operationsdb"
 	"github.com/primandproper/platform-go/v13/operations/migrations"
 )
 
@@ -35,9 +36,13 @@ var _ Store = (*SQLStore)(nil)
 // It is exported, and returned by NewSQLStore, so a caller who has chosen SQL
 // storage can depend on that choice rather than on the Store seam every backing
 // shares.
+//
+// Every statement it runs comes from operations/internal/operationsdb, which is
+// what sqlc-gen-unison generated from the corpus in
+// operations/internal/queries. Nothing here composes SQL.
 type SQLStore struct {
 	client database.Client
-	tables *tables
+	q      operationsdb.Querier
 	o11y   observability.Observer
 
 	guardMissCounter metrics.Int64Counter
@@ -55,6 +60,7 @@ type SQLStore struct {
 	metricsProvider metrics.Provider
 
 	notifyChannel string
+	tablePrefix   string
 }
 
 // NewSQLStore builds a Store over the given database, which must speak Postgres.
@@ -75,14 +81,14 @@ func NewSQLStore(client database.Client, opts ...StoreOption) (*SQLStore, error)
 		return nil, err
 	}
 
-	s := &SQLStore{client: client, tables: newTables(DefaultTablePrefix)}
+	s := &SQLStore{client: client, tablePrefix: DefaultTablePrefix}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(s)
 		}
 	}
 
-	if err := migrations.ValidatePrefix(s.tables.prefix()); err != nil {
+	if err := migrations.ValidatePrefix(s.tablePrefix); err != nil {
 		return nil, err
 	}
 
@@ -94,11 +100,20 @@ func NewSQLStore(client database.Client, opts ...StoreOption) (*SQLStore, error)
 			"operations notify channel %q", s.notifyChannel)
 	}
 
+	// The generated querier, instantiated once the prefix is settled. The
+	// dialect is not a choice here the way it is for a three-dialect store:
+	// RequirePostgres has already refused everything else, and the generated
+	// package was generated for a roster of one.
+	q, err := operationsdb.New(operationsdb.DialectPostgreSQL, ddl.Qualify(s.tablePrefix))
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "building the operations querier")
+	}
+
+	s.q = q
+
 	s.o11y = observability.NewObserver(storeName, s.logger, s.tracerProvider)
 
 	mp := metrics.EnsureMetricsProvider(s.metricsProvider)
-
-	var err error
 
 	// Two counters, and only two. The Service and the Worker own the business
 	// totals — started, succeeded, failed — and a second name for the same event
@@ -145,15 +160,7 @@ func (s *SQLStore) Insert(ctx context.Context, q database.Tx, op *Operation) (*O
 		ownerKey:       op.Owner,
 	})
 
-	query, args := s.tables.buildInsert(&insertRow{
-		id:         op.ID,
-		kind:       op.Kind,
-		owner:      op.Owner,
-		countLabel: op.Progress.CountLabel,
-		request:    op.Request,
-	})
-
-	inserted, err := scanOperation(q.QueryRowContext(ctx, query, args...))
+	row, err := s.q.CreateOperation(ctx, q, createParams(op))
 	if err != nil {
 		if stderrors.Is(err, sql.ErrNoRows) {
 			// No rows means the conflict clause absorbed a collision, which
@@ -174,16 +181,16 @@ func (s *SQLStore) Insert(ctx context.Context, q database.Tx, op *Operation) (*O
 	// announces a row a listener cannot yet read. The enqueue that follows Start
 	// is the better signal anyway, and nothing subscribes to an operation whose
 	// ID it has not been handed yet.
-	return inserted, nil
+	shared := operationsdb.GetOperationRow(row)
+
+	return operationFromRow(&shared), nil
 }
 
 func (s *SQLStore) Get(ctx context.Context, id string) (*Operation, error) {
 	ctx, span := s.o11y.Begin(ctx, observability.WithValue(operationIDKey, id))
 	defer span.End()
 
-	query, args := s.tables.buildSelect(id)
-
-	op, err := scanOperation(s.client.Reader().QueryRowContext(ctx, query, args...))
+	row, err := s.q.GetOperation(ctx, s.client.Reader(), operationsdb.GetOperationParams{ID: id})
 	if err != nil {
 		if stderrors.Is(err, sql.ErrNoRows) {
 			// Attached to the span but not logged as an error. An operation ID
@@ -198,6 +205,8 @@ func (s *SQLStore) Get(ctx context.Context, id string) (*Operation, error) {
 		return nil, span.Error(err, "reading operation")
 	}
 
+	op := operationFromRow(&row)
+
 	span.Set(stateKey, string(op.State)).Set(kindKey, op.Kind).Set(revisionKey, op.Revision)
 
 	return op, nil
@@ -207,16 +216,22 @@ func (s *SQLStore) GetMany(ctx context.Context, ids []string) ([]*Operation, err
 	ctx, span := s.o11y.Begin(ctx, observability.WithValue(batchKey, len(ids)))
 	defer span.End()
 
+	// An empty batch is an empty answer without a query: the statement the
+	// corpus carries has no rendering of an empty set, and sending one anyway is
+	// a round trip whose answer was known before it left — see
+	// querygen.Generator.SetReadQuery, which documents the contract this keeps.
 	if len(ids) == 0 {
 		return nil, nil
 	}
 
-	query, args := s.tables.buildSelectMany(ids)
-
-	ops, err := scanOperations(ctx, s.client.Reader(), query, args)
+	rows, err := s.q.GetOperations(ctx, s.client.Reader(), operationsdb.GetOperationsParams{IDs: ids})
 	if err != nil {
 		return nil, span.Error(err, "reading operations")
 	}
+
+	ops := operationsFromRows(rows, func(r operationsdb.GetOperationsRow) operationsdb.GetOperationRow {
+		return operationsdb.GetOperationRow(r)
+	})
 
 	span.Set(resultCountKey, len(ops))
 
@@ -235,55 +250,57 @@ func (s *SQLStore) List(
 		span.SetValues(map[string]any{
 			ownerKey: scope.Owner,
 			kindKey:  scope.Kind,
-			stateKey: stateStrings(scope.States),
+			stateKey: strings.Join(stateStrings(scope.States), ","),
 		})
 	}
 
-	if filter == nil {
-		filter = filtering.DefaultQueryFilter()
+	filter, filterErr := pageFilter(filter)
+	if filterErr != nil {
+		// A sort direction filtering does not recognize. The filter is usable
+		// and ascending, so the page is still answerable and is still what a
+		// caller sending nothing would have got; what is not answerable is the
+		// direction they asked for, which is worth a line rather than a failed
+		// read. Whatever turned a request into this filter has reported it to
+		// whoever typed it.
+		span.Logger().Error("normalizing operations list filter", filterErr)
 	}
 
-	limit := int(filtering.DefaultQueryFilterLimit)
-	if filter.MaxResponseSize != nil && *filter.MaxResponseSize > 0 {
-		limit = int(*filter.MaxResponseSize)
-	}
-
-	var cursor string
-	if filter.Cursor != nil {
-		cursor = *filter.Cursor
-	}
+	span.Set(limitKey, int(*filter.MaxResponseSize))
 
 	// Ordering follows the filter rather than a package-local preference.
 	// filtering.DefaultQueryFilter asks for ascending, and a package that quietly
 	// reversed it would make this the one list endpoint in the module whose sort
-	// does not mean what the shared filter says it means. The reading of the
-	// field is filtering's — one home for it, so a store cannot come to differ
-	// from the generated statements about what "desc" is.
-	descending := filter.SortsDescending()
-
-	span.Set(limitKey, limit)
-
-	query, args := s.tables.buildList(scope, cursor, limit, descending)
-
-	ops, err := scanOperations(ctx, s.client.Reader(), query, args)
+	// does not mean what the shared filter says it means. A direction is
+	// statement text rather than a bound value, so the corpus carries the pair
+	// and the reading of the field is filtering's — one home for it, so a store
+	// cannot come to differ from the generated statements about what "desc" is.
+	listRows, err := sortedRows(filter,
+		func() ([]operationsdb.ListOperationsRow, error) {
+			return s.q.ListOperations(ctx, s.client.Reader(), listParams(scope, filter))
+		},
+		func() ([]operationsdb.ListOperationsDescendingRow, error) {
+			return s.q.ListOperationsDescending(ctx, s.client.Reader(),
+				operationsdb.ListOperationsDescendingParams(listParams(scope, filter)))
+		},
+		func(r operationsdb.ListOperationsDescendingRow) operationsdb.ListOperationsRow {
+			return operationsdb.ListOperationsRow(r)
+		})
 	if err != nil {
 		return nil, span.Error(err, "listing operations")
 	}
 
-	countQuery, countArgs := s.tables.buildCount(scope)
-
-	var total uint64
-	if err = s.client.Reader().QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
-		return nil, span.Error(err, "counting operations")
+	rows := make([]pageRow, 0, len(listRows))
+	for i := range listRows {
+		rows = append(rows, operationPageRow(&listRows[i]))
 	}
 
-	span.Set(resultCountKey, len(ops)).Set(resultTotalKey, total)
+	span.Set(resultCountKey, len(rows))
 
-	return filtering.NewQueryFilteredResult(
-		ops, uint64(len(ops)), total,
-		func(o *Operation) string { return o.ID },
-		filter,
-	), nil
+	// The cursor is the id, because the statement orders by it. A cursor naming
+	// a position in an order the query does not use is a page that skips rows
+	// and repeats others, with nothing reporting an error.
+	return filtering.Drain(rows, pageValue, pageCounts,
+		func(o *Operation) string { return o.ID }, filter), nil
 }
 
 func (s *SQLStore) Begin(ctx context.Context, id string, attempts int, lease time.Duration) (*Operation, error) {
@@ -293,9 +310,13 @@ func (s *SQLStore) Begin(ctx context.Context, id string, attempts int, lease tim
 	}))
 	defer span.End()
 
-	query, args := s.tables.buildBegin(id, attempts, lease.Microseconds())
-
-	op, err := scanOperation(s.client.Writer().QueryRowContext(ctx, query, args...))
+	row, err := s.q.BeginOperation(ctx, s.client.Writer(), operationsdb.BeginOperationParams{
+		RunningState:      string(StateRunning),
+		Attempts:          int64(attempts),
+		LeaseMicroseconds: lease.Microseconds(),
+		ID:                id,
+		ActiveStates:      activeStates(),
+	})
 	if err != nil {
 		if stderrors.Is(err, sql.ErrNoRows) {
 			// The guard did its job: the operation is gone, finished, or still
@@ -310,6 +331,9 @@ func (s *SQLStore) Begin(ctx context.Context, id string, attempts int, lease tim
 
 		return nil, span.Error(err, "beginning operation")
 	}
+
+	shared := operationsdb.GetOperationRow(row)
+	op := operationFromRow(&shared)
 
 	span.Set(kindKey, op.Kind).Set(revisionKey, op.Revision)
 	s.notify(ctx)
@@ -326,17 +350,22 @@ func (s *SQLStore) Progress(ctx context.Context, id string, progress Progress, l
 	}))
 	defer span.End()
 
-	query, args := s.tables.buildProgress(id, progressRow{
-		unitsTotal: progress.UnitsTotal,
-		unitsDone:  progress.UnitsDone,
-		unit:       charset.TruncateUTF8(progress.Unit, MaxMessageLength),
-		count:      progress.Count,
-		message:    charset.TruncateUTF8(progress.Message, MaxMessageLength),
-	}, lease.Microseconds())
+	var total *int64
+	if progress.UnitsTotal != nil {
+		widened := int64(*progress.UnitsTotal)
+		total = &widened
+	}
 
-	var ack Ack
-
-	err := s.client.Writer().QueryRowContext(ctx, query, args...).Scan(&ack.CancelRequested, &ack.Revision)
+	row, err := s.q.RecordOperationProgress(ctx, s.client.Writer(), operationsdb.RecordOperationProgressParams{
+		UnitsTotal:        total,
+		UnitsDone:         int64(progress.UnitsDone),
+		ProgressUnit:      charset.TruncateUTF8(progress.Unit, MaxMessageLength),
+		ProgressCount:     progress.Count,
+		ProgressMessage:   charset.TruncateUTF8(progress.Message, MaxMessageLength),
+		LeaseMicroseconds: lease.Microseconds(),
+		ID:                id,
+		RunningState:      string(StateRunning),
+	})
 	if err != nil {
 		if stderrors.Is(err, sql.ErrNoRows) {
 			// Not an error. The operation left the running state under this
@@ -353,7 +382,7 @@ func (s *SQLStore) Progress(ctx context.Context, id string, progress Progress, l
 		return Ack{}, span.Error(err, "recording operation progress")
 	}
 
-	ack.Held = true
+	ack := Ack{Revision: row.Revision, CancelRequested: row.CancelRequested, Held: true}
 
 	span.Set(revisionKey, ack.Revision).Set(cancelledKey, ack.CancelRequested)
 	s.notify(ctx)
@@ -386,51 +415,82 @@ func (s *SQLStore) Finish(
 			"%d bytes, limit %d", len(result.Detail), MaxResultDetailBytes), "finishing operation")
 	}
 
-	if opErr != nil {
-		truncated := *opErr
-		truncated.Message = charset.TruncateUTF8(truncated.Message, MaxMessageLength)
-		opErr = &truncated
+	params := operationsdb.FinishOperationParams{
+		State:        string(state),
+		ID:           id,
+		ActiveStates: activeStates(),
 	}
 
-	query, args := s.tables.buildFinish(finishRow{
-		id:           id,
-		state:        state,
-		result:       result,
-		opErr:        opErr,
-		unitsAllDone: unitsAllDone,
-	})
+	if result != nil {
+		params.ResultURI, params.ResultDetail = result.URI, result.Detail
+	}
 
-	return s.execExpectingRow(ctx, span, query, args, id, "finish", "finishing operation")
+	if opErr != nil {
+		params.ErrorCode = opErr.Code
+		params.ErrorMessage = charset.TruncateUTF8(opErr.Message, MaxMessageLength)
+		params.ErrorRetryable = opErr.Retryable
+	}
+
+	// Two statements rather than one with a conditional SET, because the SET
+	// list is the statement rather than an argument to it: raising units_done to
+	// the declared total is what a success that finished every unit without
+	// reporting the last one needs, and a run that stopped short must not have
+	// its counter completed for it.
+	affected, err := s.finishRows(ctx, &params, unitsAllDone)
+
+	return s.reportGuardedWrite(ctx, span, affected, err, id, "finish", "finishing operation")
+}
+
+// finishRows runs whichever of the two terminal writes the caller asked for.
+//
+// The params types are distinct and identical, which is the generated package
+// saying that these are two statements over one argument list; the conversion is
+// what makes a divergence between them a build failure here.
+func (s *SQLStore) finishRows(
+	ctx context.Context,
+	params *operationsdb.FinishOperationParams,
+	unitsAllDone bool,
+) (int64, error) {
+	if unitsAllDone {
+		return s.q.FinishOperationWithEveryUnitDone(ctx, s.client.Writer(),
+			operationsdb.FinishOperationWithEveryUnitDoneParams(*params))
+	}
+
+	return s.q.FinishOperation(ctx, s.client.Writer(), *params)
 }
 
 func (s *SQLStore) Release(ctx context.Context, id string, opErr *Error) error {
 	ctx, span := s.o11y.Begin(ctx, observability.WithValue(operationIDKey, id))
 	defer span.End()
 
-	var code, message string
-	if opErr != nil {
-		code, message = opErr.Code, charset.TruncateUTF8(opErr.Message, MaxMessageLength)
+	params := operationsdb.ReleaseOperationParams{
+		PendingState: string(StatePending),
+		ID:           id,
+		RunningState: string(StateRunning),
 	}
 
-	query, args := s.tables.buildRelease(id, code, message)
+	if opErr != nil {
+		params.ErrorCode = opErr.Code
+		params.ErrorMessage = charset.TruncateUTF8(opErr.Message, MaxMessageLength)
+	}
 
-	return s.execExpectingRow(ctx, span, query, args, id, "release", "releasing operation")
+	affected, err := s.q.ReleaseOperation(ctx, s.client.Writer(), params)
+
+	return s.reportGuardedWrite(ctx, span, affected, err, id, "release", "releasing operation")
 }
 
 func (s *SQLStore) RequestCancel(ctx context.Context, id string) (*Operation, error) {
 	ctx, span := s.o11y.Begin(ctx, observability.WithValue(operationIDKey, id))
 	defer span.End()
 
-	query, args := s.tables.buildRequestCancel(id)
-
-	result, err := s.client.Writer().ExecContext(ctx, query, args...)
+	affected, err := s.q.RequestOperationCancel(ctx, s.client.Writer(), operationsdb.RequestOperationCancelParams{
+		PendingState:   string(StatePending),
+		CancelledState: string(StateCancelled),
+		ID:             id,
+		ActiveStates:   activeStates(),
+	})
 	if err != nil {
 		return nil, span.Error(err, "requesting operation cancellation")
-	}
-
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return nil, span.Error(err, "reading operation cancellation result")
 	}
 
 	span.Set(rowsAffectedKey, affected)
@@ -454,12 +514,19 @@ func (s *SQLStore) Stranded(ctx context.Context, grace time.Duration, limit int)
 		return nil, nil
 	}
 
-	query, args := s.tables.buildSelectStranded(grace.Microseconds(), limit)
-
-	ops, err := scanOperations(ctx, s.client.Reader(), query, args)
+	rows, err := s.q.ListStrandedOperations(ctx, s.client.Reader(), operationsdb.ListStrandedOperationsParams{
+		PendingState:      string(StatePending),
+		GraceMicroseconds: grace.Microseconds(),
+		RunningState:      string(StateRunning),
+		StrandedLimit:     int64(limit),
+	})
 	if err != nil {
 		return nil, span.Error(err, "reading stranded operations")
 	}
+
+	ops := operationsFromRows(rows, func(r operationsdb.ListStrandedOperationsRow) operationsdb.GetOperationRow {
+		return operationsdb.GetOperationRow(r)
+	})
 
 	span.Set(resultCountKey, len(ops))
 
@@ -474,16 +541,13 @@ func (s *SQLStore) Reap(ctx context.Context, retention time.Duration, limit int)
 		return 0, nil
 	}
 
-	query, args := s.tables.buildReap(retention.Microseconds(), limit)
-
-	result, err := s.client.Writer().ExecContext(ctx, query, args...)
+	affected, err := s.q.ReapOperations(ctx, s.client.Writer(), operationsdb.ReapOperationsParams{
+		TerminalStates:        terminalStates(),
+		RetentionMicroseconds: retention.Microseconds(),
+		ReapLimit:             int64(limit),
+	})
 	if err != nil {
 		return 0, span.Error(err, "reaping operations")
-	}
-
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return 0, span.Error(err, "reading operation reap result")
 	}
 
 	span.Set(rowsAffectedKey, affected)
@@ -505,6 +569,10 @@ func (s *SQLStore) WithTransaction(ctx context.Context, fn func(q database.Tx) e
 // lost one costs a watcher its poll interval and costs the operation nothing.
 // Failing a progress flush because a notification did not go out would trade
 // something that matters for something that does not.
+//
+// It is the one statement this store runs that is not in the corpus, and it is
+// exempt for the reason database/dialect is: NOTIFY addresses a channel rather
+// than a table, so there is no schema for sqlc to check it against.
 func (s *SQLStore) notify(ctx context.Context) {
 	if s.notifyChannel == "" {
 		return
@@ -516,22 +584,29 @@ func (s *SQLStore) notify(ctx context.Context) {
 	}
 }
 
-// execExpectingRow runs a guarded UPDATE and wakes the watchers when it lands.
+// reportGuardedWrite says what a guarded write's row count meant, and wakes the
+// watchers when it landed.
 //
 // The guard's distinction matters more here than it looks. A finish that matches
 // no rows means the operation left the active set while the Runner was working —
 // finished by another worker after a lease lapsed, or cancelled outright — and
 // treating that as success would have the worker report a result the database
 // never recorded, to a client that will poll the row and see something else.
-func (s *SQLStore) execExpectingRow(
+//
+// The statement has already run by the time this is called, because an
+// :execrows method has no seam between running and reading the count. That is
+// the one narrowing against the hand-written path it replaced: a driver
+// declining to report a count arrives here as an error rather than as an
+// acknowledged unknown, and none of the drivers this package supports declines.
+func (s *SQLStore) reportGuardedWrite(
 	ctx context.Context,
 	span observability.Operation,
-	query string,
-	args []any,
+	affected int64,
+	err error,
 	id, operation, description string,
 ) error {
-	if err := s.guard.Exec(ctx, span, s.client.Writer(), query, args, id, operation, description); err != nil {
-		return err
+	if countErr := s.guard.Count(ctx, span, affected, err, id, operation, description); countErr != nil {
+		return countErr
 	}
 
 	s.notify(ctx)
@@ -539,103 +614,70 @@ func (s *SQLStore) execExpectingRow(
 	return nil
 }
 
-// stateStrings renders a state set for a span attribute. Spans take scalars and
-// strings, not []State, and the set a read was scoped to is the first thing
-// wanted when it comes back empty.
-func stateStrings(states []State) string {
-	rendered := make([]string, 0, len(states))
-	for _, state := range states {
-		rendered = append(rendered, string(state))
+// sortedRows runs whichever of the listing's two statements the filter's sort
+// direction names, and hands back the ascending statement's rows either way.
+//
+// A paged list is two statements, because a direction is which way the ORDER BY
+// runs and which way the cursor comparison points — statement text, not a bound
+// value. database/querygen emits the pair and filtering.QueryFilter.SortsDescending
+// picks between them; this is where the pick is made. A read that reached for
+// the ascending statement while holding a descending filter would answer in the
+// order the client did not ask for, and nothing about the rows that came back
+// would say so.
+//
+// The descending rows are converted rather than restated field by field, and the
+// conversion is the assertion: the two are one projection rendered twice, with
+// the walk reversed and nothing else changed, so the day they stop being
+// identical this stops building.
+func sortedRows[Ascending, Descending any](
+	filter *filtering.QueryFilter,
+	ascending func() ([]Ascending, error),
+	descending func() ([]Descending, error),
+	same func(Descending) Ascending,
+) ([]Ascending, error) {
+	if !filter.SortsDescending() {
+		return ascending()
 	}
 
-	return strings.Join(rendered, ",")
-}
-
-// scanOperations drains an operation projection.
-func scanOperations(
-	ctx context.Context,
-	q database.SQLQueryExecutor,
-	query string,
-	args []any,
-) ([]*Operation, error) {
-	return database.ScanAll(ctx, q, "operation", query, args, scanOperation)
-}
-
-// scanOperation reads one row of operationColumns.
-//
-// Result and Error are built here rather than stored as encoded structs, and
-// each is built only in the state it means something in. A succeeded operation
-// carrying an Error left over from a retried attempt, or a failed one carrying
-// a half-written Result, would be a row that contradicts itself — and the
-// contradiction would reach every client.
-func scanOperation(scanner database.Scanner) (*Operation, error) {
-	var (
-		op             Operation
-		state          string
-		request        []byte
-		resultDetail   []byte
-		unitsTotal     sql.NullInt64
-		resultURI      string
-		errorCode      string
-		errorMessage   string
-		errorRetryable bool
-		lastUpdatedAt  sql.NullTime
-		startedAt      sql.NullTime
-		finishedAt     sql.NullTime
-	)
-
-	if err := scanner.Scan(
-		&op.ID, &op.Kind, &state, &op.Owner, &request,
-		&unitsTotal, &op.Progress.UnitsDone, &op.Progress.Unit, &op.Progress.Count,
-		&op.Progress.CountLabel, &op.Progress.Message,
-		&resultURI, &resultDetail, &errorCode, &errorMessage, &errorRetryable,
-		&op.Revision, &op.Attempts, &op.CancelRequested, &op.CreatedAt, &lastUpdatedAt,
-		&startedAt, &finishedAt,
-	); err != nil {
+	rows, err := descending()
+	if err != nil {
 		return nil, err
 	}
 
-	op.State = State(state)
-	op.Done = op.State.Terminal()
-	op.CreatedAt = op.CreatedAt.UTC()
-
-	if lastUpdatedAt.Valid {
-		at := lastUpdatedAt.Time.UTC()
-		op.LastUpdatedAt = &at
+	page := make([]Ascending, 0, len(rows))
+	for i := range rows {
+		page = append(page, same(rows[i]))
 	}
 
-	if unitsTotal.Valid {
-		total := int(unitsTotal.Int64)
-		op.Progress.UnitsTotal = &total
+	return page, nil
+}
+
+// pageFilter is the filter a paged read runs under: a copy of the caller's,
+// normalized.
+//
+// The normalization is filtering's own, so a filter that did not arrive as query
+// parameters is held to the same rule as one that did: an absent or zero page
+// size becomes the shared default, an over-large one clamps to the shared
+// ceiling, and an absent direction is ascending. A zero reaching the statement
+// would be a page of no rows, which reads as an empty collection rather than as
+// a caller who sent nothing.
+//
+// The copy matters. Normalize writes those defaults back onto the filter it is
+// given, and a handler reusing one across two reads would otherwise find its
+// page size rewritten underneath it.
+//
+// The one error Normalize returns is an unrecognized sort direction, and it is
+// handed back rather than swallowed or raised. The filter comes back usable and
+// ascending either way — which is the page this store would have answered with
+// regardless, see filtering.QueryFilter.SortsDescending — so failing the read
+// would deny a caller the rows over the one part of their request that had a
+// sensible reading. The caller logs it instead.
+func pageFilter(filter *filtering.QueryFilter) (*filtering.QueryFilter, error) {
+	if filter == nil {
+		filter = filtering.DefaultQueryFilter()
 	}
 
-	if startedAt.Valid {
-		at := startedAt.Time.UTC()
-		op.StartedAt = &at
-	}
+	bounded := *filter
 
-	if finishedAt.Valid {
-		at := finishedAt.Time.UTC()
-		op.FinishedAt = &at
-	}
-
-	// Copied out of the driver's buffer. database/sql reuses the byte slice
-	// backing a []byte destination across Next calls, so a batch read would
-	// otherwise come back with every operation holding the last row's request.
-	if len(request) > 0 {
-		op.Request = json.RawMessage(append([]byte(nil), request...))
-	}
-
-	if op.State == StateSucceeded && (resultURI != "" || len(resultDetail) > 0) {
-		op.Result = &Result{URI: resultURI}
-		if len(resultDetail) > 0 {
-			op.Result.Detail = json.RawMessage(append([]byte(nil), resultDetail...))
-		}
-	}
-
-	if op.State == StateFailed && (errorCode != "" || errorMessage != "") {
-		op.Error = &Error{Code: errorCode, Message: errorMessage, Retryable: errorRetryable}
-	}
-
-	return &op, nil
+	return &bounded, bounded.Normalize()
 }

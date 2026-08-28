@@ -11,7 +11,9 @@ import (
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	"github.com/primandproper/platform-go/v13/database/postgres"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v13/filtering"
 	"github.com/primandproper/platform-go/v13/operations/migrations"
+	"github.com/primandproper/platform-go/v13/pointer"
 	"github.com/primandproper/platform-go/v13/testutils/containers/pgtest"
 	"github.com/primandproper/platform-go/v13/workqueue"
 	workqueuemigrations "github.com/primandproper/platform-go/v13/workqueue/migrations"
@@ -48,6 +50,16 @@ func (c *testClientConfig) GetConnMaxLifetime() time.Duration { return time.Minu
 // operations table and one work queue table, so they must not share a queue
 // name — one test's backlog would be another's.
 var queueCounter atomic.Uint64
+
+// descendingFilter is the page a client asks for with sortBy=desc. It is spelled
+// here rather than inline so the subtest reads as "the other direction" rather
+// than as a pointer to a package constant.
+func descendingFilter() *filtering.QueryFilter {
+	filter := filtering.DefaultQueryFilter()
+	filter.SortBy = filtering.SortDescending
+
+	return filter
+}
 
 // reapPrefix namespaces the tables the retention subtest works against. See
 // newHarnessIn.
@@ -695,6 +707,113 @@ func runOperationsSuite(t *testing.T, client database.Client) {
 		for _, op := range results.Data {
 			test.EqOp(t, owner, op.Owner)
 		}
+	})
+
+	// sortBy is promised on the wire and the corpus carries both directions of
+	// the listing. Nothing above the store can tell an ascending page answered
+	// under a descending filter from a correct one, so this is the only place
+	// the pick can be checked.
+	t.Run("a listing pages in the direction the filter asks for", func(t *testing.T) {
+		t.Parallel()
+
+		h := newHarness(t, client, func(r *Registry) {
+			must.NoError(t, Register(r, Definition[exportRequest]{Kind: "sorted", Run: noopRun[exportRequest]}))
+		})
+
+		owner := fmt.Sprintf("owner%d", queueCounter.Add(1))
+
+		var started []string
+
+		for range 3 {
+			op, err := h.svc.Start(t.Context(), "sorted", exportRequest{}, WithOwner(owner))
+			must.NoError(t, err)
+
+			started = append(started, op.ID)
+		}
+
+		ascending, err := h.svc.List(t.Context(), &ListScope{Owner: owner}, filtering.DefaultQueryFilter())
+		must.NoError(t, err)
+		must.SliceLen(t, len(started), ascending.Data)
+
+		descending, err := h.svc.List(t.Context(), &ListScope{Owner: owner}, descendingFilter())
+		must.NoError(t, err)
+		must.SliceLen(t, len(started), descending.Data)
+
+		for i, op := range ascending.Data {
+			test.EqOp(t, started[i], op.ID)
+			test.EqOp(t, started[len(started)-1-i], descending.Data[i].ID)
+		}
+	})
+
+	// The narrowings are two shapes — an absent owner or kind compares against
+	// nothing, an absent state set is every state — and the failure mode of
+	// getting either backwards is a query that runs and answers with the wrong
+	// set.
+	t.Run("a listing narrows by kind and by state", func(t *testing.T) {
+		t.Parallel()
+
+		h := newHarness(t, client, func(r *Registry) {
+			must.NoError(t, Register(r, Definition[exportRequest]{Kind: "narrowed", Run: noopRun[exportRequest]}))
+			must.NoError(t, Register(r, Definition[exportRequest]{Kind: "unnarrowed", Run: noopRun[exportRequest]}))
+		})
+
+		owner := fmt.Sprintf("owner%d", queueCounter.Add(1))
+
+		wanted, err := h.svc.Start(t.Context(), "narrowed", exportRequest{}, WithOwner(owner))
+		must.NoError(t, err)
+
+		_, err = h.svc.Start(t.Context(), "unnarrowed", exportRequest{}, WithOwner(owner))
+		must.NoError(t, err)
+
+		byKind, err := h.svc.List(t.Context(), &ListScope{Owner: owner, Kind: "narrowed"}, nil)
+		must.NoError(t, err)
+		must.SliceLen(t, 1, byKind.Data)
+		test.EqOp(t, wanted.ID, byKind.Data[0].ID)
+
+		// Both rows are pending and neither is terminal, so one set finds them
+		// both and the other finds neither.
+		pending, err := h.svc.List(t.Context(), &ListScope{Owner: owner, States: []State{StatePending}}, nil)
+		must.NoError(t, err)
+		test.SliceLen(t, 2, pending.Data)
+
+		terminal, err := h.svc.List(t.Context(),
+			&ListScope{Owner: owner, States: []State{StateSucceeded, StateFailed}}, nil)
+		must.NoError(t, err)
+		test.SliceLen(t, 0, terminal.Data)
+
+		// An unnarrowed listing is every state rather than none of them.
+		all, err := h.svc.List(t.Context(), &ListScope{Owner: owner}, nil)
+		must.NoError(t, err)
+		test.SliceLen(t, 2, all.Data)
+	})
+
+	// The filter window reached the old hand-built listing and was dropped on
+	// the floor, because the statement it bound into never carried one.
+	t.Run("a listing honors the created window", func(t *testing.T) {
+		t.Parallel()
+
+		h := newHarness(t, client, func(r *Registry) {
+			must.NoError(t, Register(r, Definition[exportRequest]{Kind: "windowed", Run: noopRun[exportRequest]}))
+		})
+
+		owner := fmt.Sprintf("owner%d", queueCounter.Add(1))
+
+		op, err := h.svc.Start(t.Context(), "windowed", exportRequest{}, WithOwner(owner))
+		must.NoError(t, err)
+
+		before := filtering.DefaultQueryFilter()
+		before.CreatedBefore = &op.CreatedAt
+
+		excluded, err := h.svc.List(t.Context(), &ListScope{Owner: owner}, before)
+		must.NoError(t, err)
+		test.SliceLen(t, 0, excluded.Data)
+
+		after := filtering.DefaultQueryFilter()
+		after.CreatedAfter = pointer.To(op.CreatedAt.Add(-time.Minute))
+
+		included, err := h.svc.List(t.Context(), &ListScope{Owner: owner}, after)
+		must.NoError(t, err)
+		test.SliceLen(t, 1, included.Data)
 	})
 
 	// Terminal rows go; in-flight ones stay, at any age, because that row is the

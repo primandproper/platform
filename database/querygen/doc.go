@@ -199,12 +199,13 @@ that something has not happened yet — an unredeemed token, an unproven secret,
 key not yet shredded. [EmptyString] is the sentinel a TEXT NOT NULL column holds
 when it holds nothing, so its excluded form is "this fact exists". [CurrentTime]
 is the server's clock, which is the expiry sweep uninverted and the still-live
-guard inverted. [OptionalArgument] is the equality a caller may leave unset. And
-[AtMostArgument] is the ceiling a caller computed — everything recorded before
-this instant, everything sequenced at or below this number — which is what a
-retention sweep is keyed on, since the horizon it runs to is now less a window
-the configuration carries and interval arithmetic is the arithmetic the three
-dialects spell three ways.
+guard inverted. [OptionalArgument] and [OptionalNarrowing] are the two readings
+of an equality a caller may leave unset, and they differ in what an absent
+argument means. And [AtMostArgument] is the ceiling a caller computed —
+everything recorded before this instant, everything sequenced at or below this
+number — which is what a retention sweep is keyed on, since the horizon it runs
+to is now less a window the configuration carries and interval arithmetic is the
+arithmetic the three dialects spell three ways.
 
 [Match.Exclude] inverts every one of them rather than only the first, and every
 inversion is a complement: IS NULL against IS NOT NULL, the empty-string equality
@@ -241,6 +242,22 @@ which excludes the row being updated when the caller names one and excludes an
 id no row has when it does not — so the collision check a user's own profile
 save runs and the one a registration runs are the same checked statement. It
 rests on the same fact [Generator.CursorCondition] rests on: no id is empty.
+
+[OptionalNarrowing] is the other reading, and it is the one a filter wants:
+
+	(sqlc.narg(owner)::text IS NULL OR t.owner = sqlc.narg(owner))
+
+An absent argument narrows nothing rather than narrowing to the sentinel, which
+is what "this owner's rows, or everybody's" needs. Read as [OptionalArgument]
+the same filter answers with the rows whose owner is the empty string, which is
+a query that runs and returns a set nobody asked for.
+
+Written as `owner = COALESCE(sqlc.narg(owner), owner)` it would mean the same
+thing and be unplannable, since the column appears on both sides and no index
+can serve it; the disjunction's second arm is an equality against a parameter,
+which a server planning with the value in hand walks an index for. Only the NULL
+test carries a cast, per dialect — Generator.unsetArgument says why that one
+needs one, and why the equality beside it must not have one.
 
 # Reads that cross a junction
 
@@ -557,6 +574,30 @@ shape that was never going to be a choice: a set reference has no fixed number
 of markers, because sqlc expands it per call, so the statement's arity belongs
 to the values and only the generated method can hold it.
 
+# The list narrowed by a set
+
+[Generator.SetListQueries] is that predicate inside a filtered page, for the
+read that narrows over a closed domain: an operation listing scoped to the
+failed and cancelled states, under the same window, cursor and pair of counts
+every other list here carries. The alternative is one statement per subset of
+the filters — eight for three optional narrowings, sixteen once each is emitted
+in both directions — and a store choosing between sixteen nominal row types
+converts rows to its own type sixteen times.
+
+It is Postgres's alone, and [ErrPositionalSetInList] is what it raises
+elsewhere. A list carries every predicate three times, once in the WHERE and
+once in each count subquery, and only an array-typed argument can be bound three
+times: the sqlc.slice expansion the other two dialects take is substituted at
+its first marker and leaves the other two standing. That is a fact about those
+engines rather than a decision here, and it is raised rather than degraded,
+because a list that had quietly stopped narrowing would be a list of everything.
+
+The set is required and the empty set matches nothing, exactly as it is for the
+batched read. What makes that workable is the shape's own precondition: the
+domains it suits are closed, so a caller whose filter is "any of them" binds the
+whole domain. A caller whose domain is not closed wants [OptionalNarrowing] on a
+single value instead.
+
 # The sweeps
 
 Everything above answers somebody: a page a caller is reading, a row a request
@@ -708,13 +749,34 @@ The rendered .sql is committed and nothing imports it: it exists so `sqlc
 compile` can check it with no database running, and so the generated-files job
 can diff it. `make generate` writes it, through a go:generate line on the
 package; `make unison` renders the per-dialect schema beside it and runs the
-emitter over the pair. Its script names the components it walks, and a new store
-is a line in that list.
+emitter over the pair. Both scripts name the components they walk and the
+dialects each one serves, and a new store is a line in each list.
+
+A roster of one is first class, and operations is the worked example of it. The
+roster is the keys of unison.yaml's schemas map, so a Postgres-only package
+renders a Postgres-only corpus and gets the same checked guarantee — with the
+added freedom that a shape cannot diverge across a roster it is alone in, which
+is what makes RETURNING available there and not elsewhere. What a single-dialect
+roster is not is an exemption from the tier.
 
 What a store writes by hand is which statements it wants, in the internal
 queries package: [Generator.StandardCRUD] for a table whose reads are the
-conventional set, and the keyed forms above for everything else. What it does not
-write is SQL.
+conventional set, and the keyed forms above for everything else.
+
+There is one class of statement that stays written out, and operations is where
+it landed. Everything here assigns a bound value — a column and the argument it
+takes, with last_updated_at stamped by convention — and a queue store's
+transitions do not: they assign expressions, a revision counter incremented, a
+lease horizon computed from a bound duration, a monotonic floor under a progress
+counter, a cancellation resolved by a CASE in the statement that requests it.
+Rendering those would mean an expression language in this package, which is the
+thing the closed [Comparand] set exists to refuse.
+
+So they are written out in that package's own internal queries package, as
+complete statements in the same committed corpus — checked by sqlc against the
+same schema, executed through the same generated querier. What such a statement
+gives up is a generator's guarantee that its predicates were derived rather than
+remembered. What it does not give up is the tier.
 
 Not every statement a store runs is a shape this package has, and a corpus is
 allowed to hold the rest. saga is the worked example of that half: its
