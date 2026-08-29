@@ -281,3 +281,122 @@ func TestGenerator_PruneQuery(T *testing.T) {
 		}
 	})
 }
+
+// TestGenerator_PruneQualifier is the answer a [Prune.Conditions] entry has to
+// have before it can be written, and the two arms give different ones.
+//
+// A condition qualified with the wrong name does not usually fail to parse. It
+// resolves against whatever other table the condition's own subquery names,
+// which is a predicate that runs, returns rows, and dooms the wrong ones — so
+// the name is asked for rather than assumed.
+func TestGenerator_PruneQualifier(T *testing.T) {
+	T.Parallel()
+
+	T.Run("names the alias where the bound is on a read", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.SQLite} {
+			test.EqOp(t, doomedAlias, For(d).PruneQualifier(sweepingsTable), test.Sprintf("dialect %q", d))
+		}
+	})
+
+	T.Run("names the table where the DELETE carries the bound", func(t *testing.T) {
+		t.Parallel()
+
+		// MySQL's arm has one occurrence of the table and nothing to alias.
+		test.EqOp(t, sweepingsTable, For(dialect.MySQL).PruneQualifier(sweepingsTable))
+	})
+
+	T.Run("refuses an identifier it cannot interpolate", func(t *testing.T) {
+		t.Parallel()
+
+		err := recovered(func() { For(dialect.MySQL).PruneQualifier("sweepings; DROP TABLE users") })
+
+		must.ErrorIs(t, err, dialect.ErrInvalidIdentifier)
+	})
+}
+
+// TestGenerator_PruneQuery_Conditions pins the one doom that is not a
+// comparison: a predicate the caller writes, rendered beside the ones [Match]
+// renders, in whichever arm the dialect takes.
+//
+// What it must not do is change the shape around it. The cap, the ordering, the
+// lock and the arm are the prune's on all three dialects whether or not a
+// condition rides along, because a caller sent away to write the whole statement
+// out is a caller writing down which of the three spellings their server takes.
+func TestGenerator_PruneQuery_Conditions(T *testing.T) {
+	T.Parallel()
+
+	// unspent is the shape metering's retention guard has: a correlated NOT
+	// EXISTS over a second table, qualified with whatever the arm calls the
+	// table being pruned.
+	unspent := func(g *Generator) Prune {
+		prune := oldestFirst()
+		prune.Conditions = []string{
+			"NOT EXISTS (SELECT 1 FROM ledgers l WHERE l.id = " +
+				Qualify(g.PruneQualifier(sweepingsTable), IDColumn) + ")",
+		}
+
+		return prune
+	}
+
+	T.Run("renders the condition beside the matches in the capped read", func(t *testing.T) {
+		t.Parallel()
+
+		g := For(dialect.Postgres)
+
+		test.EqOp(t, "DELETE FROM sweepings\n"+
+			"WHERE id IN (\n"+
+			"\tSELECT doomed.id\n"+
+			"\tFROM sweepings AS doomed\n"+
+			"\tWHERE doomed.recorded_at <= sqlc.arg(horizon)\n"+
+			"\t\tAND NOT EXISTS (SELECT 1 FROM ledgers l WHERE l.id = doomed.id)\n"+
+			"\tORDER BY doomed.recorded_at ASC\n"+
+			"\tLIMIT sqlc.arg(result_limit)\n"+
+			"\tFOR UPDATE SKIP LOCKED\n"+
+			");",
+			g.PruneQuery("PruneSweepings", sweepingsTable, unspent(g), pastHorizon()).Content)
+	})
+
+	T.Run("renders the condition beside the matches in the native bound", func(t *testing.T) {
+		t.Parallel()
+
+		g := For(dialect.MySQL)
+
+		test.EqOp(t, "DELETE FROM sweepings\n"+
+			"WHERE recorded_at <= sqlc.arg(horizon)\n"+
+			"\tAND NOT EXISTS (SELECT 1 FROM ledgers l WHERE l.id = sweepings.id)\n"+
+			"ORDER BY recorded_at ASC\n"+
+			"LIMIT ?;",
+			g.PruneQuery("PruneSweepings", sweepingsTable, unspent(g), pastHorizon()).Content)
+	})
+
+	T.Run("leaves the cap and the ordering where they were", func(t *testing.T) {
+		t.Parallel()
+
+		// The condition narrows what a pass dooms; it does not turn a bounded
+		// pass into an unbounded one.
+		for _, d := range everyDialect() {
+			g := For(d)
+			content := g.PruneQuery("PruneSweepings", sweepingsTable, unspent(g), pastHorizon()).Content
+
+			test.StrContains(t, content, "LIMIT", test.Sprintf("dialect %q", d))
+			test.StrContains(t, content, "ORDER BY", test.Sprintf("dialect %q", d))
+		}
+	})
+
+	T.Run("still refuses a prune whose only predicate is authored", func(t *testing.T) {
+		t.Parallel()
+
+		// What makes a pass a retention pass is a horizon this package can see.
+		// A condition is a narrowing beside one rather than a substitute for it.
+		for _, d := range everyDialect() {
+			g := For(d)
+
+			err := recovered(func() { g.PruneQuery("PruneSweepings", sweepingsTable, unspent(g)) })
+
+			must.ErrorIs(t, err, ErrDegeneratePrune, must.Sprintf("dialect %q", d))
+			test.StrContains(t, err.Error(), "no predicate", test.Sprintf("dialect %q", d))
+		}
+	})
+}

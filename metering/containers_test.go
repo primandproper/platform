@@ -23,15 +23,18 @@ const defaultMySQLImage = "mariadb:11"
 // real servers.
 //
 // It exists because the SQL that only a real server can validate is otherwise
-// merely rendered, never executed: numbered placeholders, SKIP LOCKED, MySQL's
-// ON DUPLICATE KEY spelling and its derived-table rewrite for the DELETE that
-// reads its own table, the partial indexes Postgres and SQLite have and MySQL
-// does not, GREATEST against real temporal types, and row-value IN lists across
-// three drivers.
+// merely checked, never executed: sqlc reads the corpus against the schema, and
+// a statement that parses and types is not yet a statement a server will run.
+// Row locks and SKIP LOCKED, the partial indexes Postgres and SQLite have and
+// MySQL does not, and the ordering a CASE over real temporal types produces are
+// all questions only a server answers.
 //
-// The upsert is the one this catches. Its conflict clause is spelled three
-// different ways for the same meaning, and SQLite accepts the form the other two
-// reject — so it can never tell us.
+// The retention pass is the one this catches. Its two arms are different
+// statements — MySQL caps the DELETE itself, the other two cap a read the
+// DELETE compares against — and the guard that keeps it off unflushed periods
+// is a correlated subquery over the second table, which is exactly the shape
+// MySQL refuses when it reads the table being deleted from. SQLite runs the arm
+// the other two run, so it can never tell us about MySQL's.
 func TestSQLStore_RealServers(T *testing.T) {
 	T.Parallel()
 

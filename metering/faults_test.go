@@ -147,7 +147,7 @@ func TestSQLStore_PartialFaults(T *testing.T) {
 		test.Error(t, err)
 	})
 
-	T.Run("ClaimFlushable reports a failed claim", func(t *testing.T) {
+	T.Run("ClaimFlushable reports a lost predicate column", func(t *testing.T) {
 		t.Parallel()
 
 		env := newSQLiteEnv(t)
@@ -155,8 +155,10 @@ func TestSQLStore_PartialFaults(T *testing.T) {
 
 		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
 
-		// Rename the column the claim writes, so the select finds rows and the
-		// update that leases them fails.
+		// The lease this pass takes is what claimed_until records, and the
+		// select that chooses the batch is what reads it: a total nobody holds
+		// has NULL there and one whose holder ran out of time has a lapsed
+		// value, and both are claimable.
 		_, err := env.client.Writer().ExecContext(t.Context(),
 			"ALTER TABLE "+prefix+"_metering_totals RENAME COLUMN claimed_until TO claimed_until_renamed")
 		must.NoError(t, err)
@@ -165,7 +167,7 @@ func TestSQLStore_PartialFaults(T *testing.T) {
 		test.Error(t, err)
 	})
 
-	T.Run("ClaimFlushable reports a failed re-read", func(t *testing.T) {
+	T.Run("ClaimFlushable reports a lost projection column", func(t *testing.T) {
 		t.Parallel()
 
 		env := newSQLiteEnv(t)
@@ -173,9 +175,11 @@ func TestSQLStore_PartialFaults(T *testing.T) {
 
 		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
 
-		// Rename a column only the projection reads, so the select and the claim
-		// both succeed and the re-read does not. The re-read exists so the
-		// attempt counts a flusher sees are the ones the claim just wrote.
+		// The claim reads whole rows rather than keys, so a column the
+		// projection names and the table no longer has fails the read. It reads
+		// whole rows because the lease that follows is keyed per row — the
+		// batch form it replaced needed a row-value IN list, whose arity is the
+		// caller's, and a re-read that carried no guard.
 		_, err := env.client.Writer().ExecContext(t.Context(),
 			"ALTER TABLE "+prefix+"_metering_totals RENAME COLUMN last_error TO last_error_renamed")
 		must.NoError(t, err)

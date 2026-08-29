@@ -838,7 +838,7 @@ func newSQLiteEnvFor(t *testing.T, store Store) *storeEnv {
 	s, ok := store.(*SQLStore)
 	must.True(t, ok)
 
-	return &storeEnv{client: s.client, dialect: s.dialect}
+	return &storeEnv{client: s.client, dialect: s.client.Dialect()}
 }
 
 // usageReporterIsSatisfied keeps the noop's interface conformance checked at

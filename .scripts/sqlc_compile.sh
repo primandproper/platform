@@ -41,6 +41,7 @@ COMPONENTS=(
   "./authorization/database ./internal/queriesgen internal/queries postgres mysql sqlite"
   "./cryptography/shredding ./internal/queriesgen internal/queries postgres mysql sqlite"
   "./dataprivacy ./internal/queriesgen internal/queries postgres mysql sqlite"
+  "./metering ./internal/queriesgen internal/queries postgres mysql sqlite"
   "./notifications ./internal/queriesgen internal/queries postgres mysql sqlite"
   "./saga ./internal/queriesgen internal/queries postgres mysql sqlite"
   "./sessions/database ./internal/queriesgen internal/queries postgres mysql sqlite"

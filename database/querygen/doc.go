@@ -452,7 +452,7 @@ middle — after which the next attempt starts from the beginning.
 	sweep := querygen.For(dialect.Postgres).PruneQuery(
 		"PruneMeteringEvents", "metering_events",
 		querygen.Prune{
-			Key:   []string{"idempotency_key"},
+			Key:   []string{"meter", "idempotency_key"},
 			Order: []querygen.Order{{Column: "recorded_at"}},
 		},
 		querygen.Match{Column: "recorded_at", Arg: "horizon", Against: querygen.AtMostArgument})
@@ -504,6 +504,19 @@ The horizon is a [Match] like any other predicate, and a prune handed none is
 archived predicate, for the hard delete's reason: the row is being destroyed
 rather than hidden, and a row archived a year ago is precisely the row a
 retention pass exists to remove.
+
+One doom is not a comparison at all, and [Prune.Conditions] is where it goes.
+metering may destroy an event row only once the period it was folded into owes
+the provider nothing, which is a correlated NOT EXISTS over a second table —
+an expression, and so a thing the closed [Comparand] set refuses. Sending that
+caller away to write the whole statement out would send them away to write down
+which of the three spellings above their server takes, which is the one fact
+this section exists to hold; so the predicate is theirs and the statement is
+still this one, cap, ordering, arm and count alike. A condition names the pruned
+table through [Generator.PruneQualifier], because the two arms call it different
+things — the alias where the bound is on a read, the table where the DELETE
+carries it — and a condition qualified with the wrong one resolves against its
+own subquery's table and dooms rows nobody chose.
 
 # The claim that is not here
 
@@ -741,13 +754,13 @@ The reapers this module already has, and which shape each takes:
     stamp for the confirmation windows that lapsed, and a bounded delete for the
     requests past retention — one scan, three statements, archived requests left
     alone.
-  - metering's ReapEvents is the prune. Its rows are addressed by the compound
-    natural key the events table is keyed on, (meter, idempotency_key), which is
-    the row-value comparison [Prune.Key] exists for. Its NOT EXISTS over the
-    totals table — the guard that keeps retention from destroying the evidence
-    behind an unflushed total — is not a [Match], so that statement is one of the
-    authored ones: written into metering's own corpus and checked by sqlc there,
-    the way the queue stores' expression writes are.
+  - metering's ReapEvents is the prune, and is already on it. Its rows are
+    addressed by the compound natural key the events table is keyed on, (meter,
+    idempotency_key), which is the row-value comparison [Prune.Key] exists for.
+    Its NOT EXISTS over the totals table — the guard that keeps retention from
+    destroying the evidence behind an unflushed total — is not a [Match], and it
+    is what [Prune.Conditions] was added for: the predicate is written out in
+    metering's own corpus and the three arms above are not.
   - outbox's reap is the prune. Its table carries no archived_at by design, so
     the sweep's one advantage does not apply, and a fleet of relays reaping
     concurrently is exactly what SKIP LOCKED is for.

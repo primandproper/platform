@@ -48,6 +48,35 @@ type Prune struct {
 	// order, because taking row locks in the order every other writer takes
 	// them is what keeps a pass out of a deadlock.
 	Order []Order
+	// Conditions are predicates this shape has no spelling for, rendered
+	// beside the ones [Match] renders and joined to them by AND.
+	//
+	// A doom is usually a horizon or an equality, which a Match says. metering's
+	// retention pass is the one that is not: an event row may be destroyed only
+	// once the period it was folded into owes the provider nothing, and that is
+	// a correlated NOT EXISTS over a second table rather than a comparison of a
+	// column against a value. Rendering it would need an expression language
+	// here, which the closed [Comparand] set exists to refuse — but the shape
+	// around it is a bounded delete like any other, and a caller sent away to
+	// write the whole statement out would be a caller writing down which of the
+	// three spellings their server takes.
+	//
+	// So the predicate is the caller's and the statement is still this one:
+	// same cap, same ordering, same per-dialect arm, same :execrows count the
+	// pass loops on. What a condition gives up is the guarantee that its
+	// predicate was derived rather than remembered, which is what every
+	// authored statement in a corpus gives up.
+	//
+	// They are rendered verbatim, so a condition naming a column of the pruned
+	// table qualifies it with [Generator.PruneQualifier] — which name that is,
+	// is the dialect's answer rather than the caller's, since one arm bounds a
+	// read of the table under an alias and the other bounds the DELETE itself.
+	//
+	// A condition is a narrowing beside the horizon rather than a substitute
+	// for one: a prune whose only predicates were authored is still
+	// [ErrDegeneratePrune], because what makes a pass a retention pass is a
+	// horizon this package can see.
+	Conditions []string
 }
 
 // PruneQuery renders the delete a retention pass runs: the rows its predicates
@@ -154,6 +183,31 @@ func (g *Generator) PruneQuery(name, table string, prune Prune, matches ...Match
 		Annotation: QueryAnnotation{Name: name, Type: ExecRowsType},
 		Content:    g.pruneStatement(table, prune, matches),
 	}
+}
+
+// PruneQualifier names the pruned table the way [Generator.PruneQuery]'s own
+// predicates name it on this dialect, so that a [Prune.Conditions] entry and
+// the predicates beside it address one table under one name.
+//
+// The two arms disagree about what that name is, and neither is a preference.
+// Where the bound goes on a read, the doomed rows are scanned under an alias —
+// SQLite resolves a bare column against both the DELETE's target and the
+// subquery's table and calls it ambiguous at run time — so a condition names
+// the alias. Where the DELETE carries the bound itself there is no second
+// occurrence of the table and nothing to alias, so a condition names the table.
+//
+// A condition that got this wrong would not usually fail to parse. It would
+// resolve against whatever other table the condition's own subquery names,
+// which is a predicate that runs, returns rows, and dooms the wrong ones — so
+// the name is asked for here rather than assumed there.
+func (g *Generator) PruneQualifier(table string) string {
+	mustIdentifier("table name", table)
+
+	if g.boundedWriteForms().has(nativeBound) {
+		return table
+	}
+
+	return doomedAlias
 }
 
 // pruneStatement checks what the two arms both assume — a key, a predicate, and
