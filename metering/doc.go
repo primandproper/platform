@@ -246,6 +246,28 @@ dialect, checked against this package's own DDL by sqlc, and executed through
 the querier sqlc-gen-unison generates from them. A column renamed in the
 migrations is then a failed `make unison` with no database running, rather than
 a runtime error on whichever of the three servers a deployment happens to run.
+
+# Event time on SQLite
+
+Postgres and MySQL store an event time to the microsecond. SQLite has no date
+type — a DATETIME column holds text, and a comparison between two of them
+compares two strings — so a bound time is written in the shape SQLite's own
+CURRENT_TIMESTAMP writes, which is whole seconds. Every instant this store binds
+is stored truncated down on that engine, and so is every instant it is compared
+against.
+
+Sum and Max do not notice: their arithmetic is over quantities, and the event
+time only decides how far forward last_occurred_at moves. AggregationLast is the
+one that does, because the event time is what decides which reading the period
+keeps. Two records inside one second are indistinguishable there, and the rule
+is that the first one folded in is the one that stands: a later arrival stamped
+inside a second already recorded — an at-least-once queue redelivering behind
+the reading that superseded it — leaves the total where it is rather than
+dragging it back. What it costs is the mirror of that, and it is bounded by the
+same second: where two genuine readings fall inside one second, the one folded
+in first is the one the period keeps until the next record arrives. A gauge
+sampled more than once a second is a reason to reach for Postgres or MySQL
+rather than SQLite.
 */
 package metering
 

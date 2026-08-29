@@ -64,6 +64,10 @@ type SQLStore struct {
 	// generated querier was built from it and the migrations are validated
 	// against it, not because anything here renders a name from it any more.
 	prefix string
+
+	// resolution is the finest interval an instant survives a round trip
+	// through this dialect at. See storedResolution.
+	resolution time.Duration
 }
 
 // NewSQLStore builds a Store over the given database.
@@ -86,8 +90,9 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	}
 
 	s := &SQLStore{
-		client: client,
-		prefix: DefaultTablePrefix,
+		client:     client,
+		prefix:     DefaultTablePrefix,
+		resolution: storedResolution(d),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -252,7 +257,7 @@ func (s *SQLStore) record(
 	// Grouped, so a thousand records for one subject and period cost one total
 	// update rather than a thousand. The in-process fold and the SQL fold are the
 	// same function, so the grouping cannot change the answer.
-	groups := groupEntries(accepted)
+	groups := groupEntries(accepted, s.resolution)
 	for i := range groups {
 		if err := s.fold(ctx, q, &groups[i], at); err != nil {
 			return RecordResult{}, op.Error(err, "folding metering usage into its total")
@@ -337,16 +342,13 @@ func (s *SQLStore) openTotal(
 	at time.Time,
 ) error {
 	_, err := s.q.InsertMeteringTotal(ctx, q, meteringdb.InsertMeteringTotalParams{
-		Subject:     subject,
-		Meter:       meter,
-		PeriodStart: bounds.Start.UTC(),
-		PeriodEnd:   bounds.End.UTC(),
-		Aggregation: string(aggregation),
-		Quantity:    0,
-		// Seeded at the window's start rather than at the zero time, so a
-		// last-aggregation meter's first record is always newer than what the
-		// row holds and the column never carries a year-one timestamp.
-		LastOccurredAt: bounds.Start.UTC(),
+		Subject:        subject,
+		Meter:          meter,
+		PeriodStart:    bounds.Start.UTC(),
+		PeriodEnd:      bounds.End.UTC(),
+		Aggregation:    string(aggregation),
+		Quantity:       0,
+		LastOccurredAt: seedLastOccurredAt(bounds),
 		NextFlush:      at.UTC(),
 		// Supplied rather than defaulted, because one of the three dialects
 		// takes no default on the column — see metering/internal/queries.
@@ -517,7 +519,20 @@ func (s *SQLStore) consume(
 
 	total := totalFrom((*meteringdb.SelectFlushableMeteringTotalsRow)(&row))
 
-	newer := !entry.OccurredAt.Before(total.LastOccurredAt)
+	// The instant this row will hold, which is the entry's brought down to what
+	// the dialect stores. The comparison below is against a value that has
+	// already been through that, so comparing the entry's own reading against it
+	// would be comparing two resolutions: on SQLite a record stamped a hundred
+	// milliseconds into a second the row already holds would read as strictly
+	// newer than a record stamped nine hundred, which is the redelivery that
+	// resets a gauge backwards.
+	occurred := entry.OccurredAt.UTC().Truncate(s.resolution)
+
+	// Strictly after, which is the comparison the fold statement makes against
+	// the column — see metering/internal/queries. This path decides in Go
+	// because it holds the lock, so the two have to agree about which record a
+	// tie goes to.
+	newer := occurred.After(total.LastOccurredAt)
 	projected := entry.Aggregation.Fold(total.Quantity, entry.Quantity, newer)
 
 	decision := newDecision(entry.Meter, behavior, projected, limit, entry.Bounds.End)
@@ -573,7 +588,7 @@ func (s *SQLStore) consume(
 	// to this table takes the other reading, because none of them holds a lock.
 	if _, err = s.q.ApplyMeteringConsume(ctx, q, meteringdb.ApplyMeteringConsumeParams{
 		Quantity:       projected,
-		LastOccurredAt: laterOf(total.LastOccurredAt, entry.OccurredAt),
+		LastOccurredAt: laterOf(total.LastOccurredAt, occurred),
 		LastUpdatedAt:  &stamped,
 		Subject:        entry.Subject,
 		Meter:          entry.Meter,
@@ -763,7 +778,7 @@ func (s *SQLStore) ReleaseFlush(ctx context.Context, total *Total, lastErr strin
 		"releasing metering flush lease")
 }
 
-func (s *SQLStore) ReapEvents(ctx context.Context, before time.Time, limit int) (int64, error) {
+func (s *SQLStore) ReapEvents(ctx context.Context, horizon time.Time, limit int) (int64, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(limitKey, limit))
 	defer op.End()
 
@@ -772,7 +787,7 @@ func (s *SQLStore) ReapEvents(ctx context.Context, before time.Time, limit int) 
 	}
 
 	reaped, err := s.q.PruneMeteringEvents(ctx, s.client.Writer(), meteringdb.PruneMeteringEventsParams{
-		Horizon:     before.UTC(),
+		Horizon:     horizon.UTC(),
 		ResultLimit: int64(limit),
 	})
 	if err != nil {
@@ -808,7 +823,11 @@ type entryGroup struct {
 // Order matters only for reproducibility: the statements a batch issues are the
 // same on every run, which is what makes a failing batch debuggable and a query
 // test assertable.
-func groupEntries(entries []Entry) []entryGroup {
+//
+// resolution is what the dialect stores an instant at, and it is an argument
+// rather than a constant because this fold has to answer what folding the same
+// records one at a time through the statements would — see storedResolution.
+func groupEntries(entries []Entry, resolution time.Duration) []entryGroup {
 	var (
 		order  []string
 		groups = map[string]*entryGroup{}
@@ -826,21 +845,26 @@ func groupEntries(entries []Entry) []entryGroup {
 				meter:       e.Meter,
 				aggregation: e.Aggregation,
 				bounds:      e.Bounds,
-				// Seeded at the window's start rather than the zero time, so a
-				// last-aggregation meter's first record is always "newer" and the
-				// column never holds a year-one timestamp for the fold to compare
-				// against.
-				lastOccurredAt: e.Bounds.Start,
+				// The seed the statement uses, so that folding a batch in
+				// process and folding it a record at a time are the same
+				// function down to which record a tie goes to.
+				lastOccurredAt: seedLastOccurredAt(e.Bounds),
 			}
 			groups[key] = group
 			order = append(order, key)
 		}
 
-		newer := !e.OccurredAt.Before(group.lastOccurredAt)
+		// Brought down to what the dialect stores before it is compared,
+		// because that is what the row will hold and what the statement folding
+		// these one at a time would compare. Two records a batch can tell apart
+		// and the store cannot are records the store cannot tell apart.
+		occurred := e.OccurredAt.UTC().Truncate(resolution)
+
+		newer := occurred.After(group.lastOccurredAt)
 		group.quantity = e.Aggregation.Fold(group.quantity, e.Quantity, newer)
 
 		if newer {
-			group.lastOccurredAt = e.OccurredAt
+			group.lastOccurredAt = occurred
 		}
 	}
 
@@ -872,6 +896,46 @@ func newDecision(meter string, behavior QuotaBehavior, projected, limit int64, r
 // overageOf is how far a total is past a limit, or zero when it is not.
 func overageOf(used, limit int64) int64 {
 	return max(0, used-limit)
+}
+
+// storedResolution is the finest interval an instant survives a round trip
+// through one of these engines at.
+//
+// SQLite has no date type: a DATETIME column holds text, and the generated
+// bindings write a bound time in the shape SQLite's own CURRENT_TIMESTAMP
+// writes, which is whole seconds. Postgres and MySQL keep microseconds — the
+// schema asks MySQL for DATETIME(6) rather than taking its second-granular
+// default, for exactly this reason.
+//
+// It is the one dialect fact this package holds outside its DDL, and it is here
+// because Consume is the one comparison this package makes in Go against a
+// value a server handed back. Every other one is the server's own, between two
+// values it truncated the same way — see metering/internal/queries.
+func storedResolution(d dialect.Dialect) time.Duration {
+	if d == dialect.SQLite {
+		return time.Second
+	}
+
+	return time.Microsecond
+}
+
+// seedLastOccurredAt is what a period's total holds before anything has been
+// folded into it: a floor, not a reading.
+//
+// It is a whole second below the window rather than at it, because every fold's
+// guard is strict and the seed therefore has to be strictly earlier than any
+// record the window can hold. On SQLite a bound time is stored truncated to the
+// second, so a record arriving in the window's first second is stored at the
+// window's start exactly; a second is that engine's resolution and so the
+// smallest step still strictly earlier on all three. Near the window rather
+// than at the zero time, so a total nothing has been recorded into does not
+// read back as year one. See metering/internal/queries.
+//
+// One home for it because two callers seed: the statement, through openTotal,
+// and the in-process fold a batch is grouped by. The two are the same function
+// only while they start from the same value.
+func seedLastOccurredAt(bounds Bounds) time.Time {
+	return bounds.Start.UTC().Add(-time.Second)
 }
 
 // laterOf is the newer of two instants, in UTC.

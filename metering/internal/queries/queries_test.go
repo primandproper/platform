@@ -262,8 +262,37 @@ func TestRender_FoldsInTheStatement(T *testing.T) {
 			// Guarded on the event time rather than applied unconditionally, so
 			// a record arriving late leaves the newer reading standing.
 			test.StrContains(t, statement(t, rendered, FoldLastTotalQuery),
-				"quantity = CASE WHEN sqlc.arg(last_occurred_at) >= last_occurred_at "+
+				"quantity = CASE WHEN last_occurred_at < sqlc.arg(last_occurred_at) "+
 					"THEN sqlc.arg(quantity) ELSE quantity END")
+		})
+	}
+}
+
+// TestRender_GuardsTheLastReadingStrictly pins the comparison the last fold's
+// quantity is guarded on, and pins it to the one the column itself moves on.
+//
+// The two are one condition because the row has to be one record's reading
+// under that record's time. An admitted tie is not the corner it reads as:
+// SQLite stores a bound time truncated to the whole second, so every record
+// inside one second compares equal to the column there, and a redelivery
+// stamped an hour late but inside a second already recorded would take the
+// quantity while the column kept the newer instant.
+func TestRender_GuardsTheLastReadingStrictly(T *testing.T) {
+	T.Parallel()
+
+	for _, d := range everyDialect {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			fold := statement(t, Render(d), FoldLastTotalQuery)
+
+			test.StrContains(t, fold, "CASE WHEN last_occurred_at < sqlc.arg(last_occurred_at) "+
+				"THEN sqlc.arg(quantity)")
+
+			// The equal case belongs to the row, on every dialect and in every
+			// spelling of it.
+			test.StrNotContains(t, fold, ">=")
+			test.StrNotContains(t, fold, "<=")
 		})
 	}
 }
