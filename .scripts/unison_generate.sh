@@ -70,6 +70,7 @@ COMPONENTS=(
   "outbox postgres mysql sqlite"
   "operations postgres"
   "timers postgres"
+  "workqueue postgres"
 )
 
 for component in "${COMPONENTS[@]}"; do

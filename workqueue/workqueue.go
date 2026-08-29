@@ -8,15 +8,20 @@ import (
 
 	"github.com/primandproper/platform-go/v13/batching"
 	"github.com/primandproper/platform-go/v13/database"
+	"github.com/primandproper/platform-go/v13/database/ddl"
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/internal/pgretry"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/observability/metrics"
+	"github.com/primandproper/platform-go/v13/workqueue/internal/workqueuedb"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
+
+// serviceName names the loggers, spans, and metrics this package emits.
+const serviceName = "workqueue"
 
 // Observability keys for this package's spans and log fields. Declared once so
 // that a field set on a span and the same field logged alongside it cannot
@@ -110,6 +115,11 @@ type Queue[K comparable] struct {
 	codec    KeyCodec[K]
 	o11y     observability.Observer
 
+	// q is the querier sqlc-gen-unison generated from
+	// workqueue/internal/queries. Nothing in this package composes SQL; see the
+	// package comment.
+	q workqueuedb.Querier
+
 	enqueuedCounter  metrics.Int64Counter
 	claimedCounter   metrics.Int64Counter
 	reclaimedCounter metrics.Int64Counter
@@ -193,12 +203,22 @@ func New[K comparable](
 		return nil, platformerrors.Wrapf(dialect.ErrInvalidIdentifier, "work queue notify channel %q", cfg.NotifyChannel)
 	}
 
+	// The generated querier, instantiated once the prefix is settled. The
+	// dialect is not a choice here the way it is for a three-dialect store:
+	// RequirePostgres has already refused everything else, and the generated
+	// package was generated for a roster of one.
+	querier, querierErr := workqueuedb.New(workqueuedb.DialectPostgreSQL, ddl.Qualify(cfg.TablePrefix))
+	if querierErr != nil {
+		return nil, platformerrors.Wrap(querierErr, "building the work queue querier")
+	}
+
 	var (
 		o   = newQueueOptions(opts)
 		err error
 	)
 
 	q := &Queue[K]{
+		q:      querier,
 		cfg:    *cfg,
 		client: client,
 		codec:  DefaultKeyCodec[K](),
@@ -517,33 +537,38 @@ func (q *Queue[K]) claim(ctx context.Context, limit int, lease time.Duration) ([
 func (q *Queue[K]) claimOnce(ctx context.Context, limit int, lease time.Duration) ([]Item[K], error) {
 	// The writer, not the reader: this is an UPDATE that happens to return rows,
 	// and a read replica would both fail it and lose every lease it handed out.
-	items, err := database.ScanAll(ctx, q.client.Writer(), "claimed work queue",
-		buildClaim(q.cfg.resolvedTable()),
-		[]any{q.cfg.Name, q.cfg.attemptCeiling(), limit, lease.Microseconds()},
-		func(scanner database.Scanner) (Item[K], error) {
-			var (
-				encoded string
-				item    Item[K]
-			)
-
-			if scanErr := scanner.Scan(&encoded, &item.Priority, &item.Attempts, &item.Reclaimed); scanErr != nil {
-				return item, platformerrors.Wrap(scanErr, "scanning claimed work queue item")
-			}
-
-			// A key that will not decode is the one failure here a caller cannot
-			// act on and must not be hidden: it means the table holds rows written
-			// under a different key type or codec, and every claim will keep
-			// leasing them. Failing the whole batch is the loud version of that,
-			// and the lease lapses on its own.
-			var decodeErr error
-			if item.Key, decodeErr = q.codec.DecodeKey(encoded); decodeErr != nil {
-				return item, platformerrors.Wrapf(decodeErr, "decoding claimed work queue key %q", encoded)
-			}
-
-			return item, nil
-		})
+	rows, err := q.q.ClaimDueItems(ctx, q.client.Writer(), workqueuedb.ClaimDueItemsParams{
+		QueueName:         q.cfg.Name,
+		AttemptCeiling:    int64(q.cfg.attemptCeiling()),
+		ClaimLimit:        int64(limit),
+		LeaseMicroseconds: lease.Microseconds(),
+	})
 	if err != nil {
 		return nil, platformerrors.Wrap(err, "leasing work queue items")
+	}
+
+	items := make([]Item[K], 0, len(rows))
+
+	for i := range rows {
+		item := Item[K]{
+			Priority:  int(rows[i].Priority),
+			Attempts:  int(rows[i].Attempts),
+			Reclaimed: rows[i].Reclaimed,
+		}
+
+		// A key that will not decode is the one failure here a caller cannot act
+		// on and must not be hidden: it means the table holds rows written under
+		// a different key type or codec, and every claim will keep leasing them.
+		// Failing the whole batch is the loud version of that, and the lease
+		// lapses on its own.
+		key, decodeErr := q.codec.DecodeKey(rows[i].ItemKey)
+		if decodeErr != nil {
+			return nil, platformerrors.Wrapf(decodeErr, "decoding claimed work queue key %q", rows[i].ItemKey)
+		}
+
+		item.Key = key
+
+		items = append(items, item)
 	}
 
 	return items, nil
@@ -564,15 +589,11 @@ func (q *Queue[K]) Complete(ctx context.Context, keys ...K) error {
 	ctx, op := q.o11y.Begin(ctx, observability.WithValue(itemCountKey, len(keys)))
 	defer op.End()
 
-	affected, err := q.writeKeys(ctx, "complete", keys, func(encoded []string) (string, []any) {
-		args := make([]any, 0, len(encoded)+1)
-		args = append(args, q.cfg.Name)
-
-		for _, key := range encoded {
-			args = append(args, key)
-		}
-
-		return buildComplete(q.cfg.resolvedTable(), len(encoded)), args
+	affected, err := q.writeKeys(ctx, "complete", keys, func(encoded []string) (int64, error) {
+		return q.q.CompleteItems(ctx, q.client.Writer(), workqueuedb.CompleteItemsParams{
+			QueueName: q.cfg.Name,
+			ItemKeys:  encoded,
+		})
 	})
 	if err != nil {
 		return op.Error(err, "completing work queue items")
@@ -605,15 +626,15 @@ func (q *Queue[K]) Release(ctx context.Context, delay time.Duration, cause error
 
 	delay = max(delay, 0)
 
-	affected, err := q.writeKeys(ctx, "release", keys, func(encoded []string) (string, []any) {
-		args := make([]any, 0, len(encoded)+3)
-		args = append(args, q.cfg.Name, delay.Microseconds(), pgretry.TruncateError(cause))
+	lastError := truncatedCause(cause)
 
-		for _, key := range encoded {
-			args = append(args, key)
-		}
-
-		return buildRelease(q.cfg.resolvedTable(), len(encoded)), args
+	affected, err := q.writeKeys(ctx, "release", keys, func(encoded []string) (int64, error) {
+		return q.q.ReleaseItems(ctx, q.client.Writer(), workqueuedb.ReleaseItemsParams{
+			QueueName:         q.cfg.Name,
+			DelayMicroseconds: delay.Microseconds(),
+			LastError:         lastError,
+			ItemKeys:          encoded,
+		})
 	})
 	if err != nil {
 		return op.Error(err, "releasing work queue items")
@@ -634,15 +655,11 @@ func (q *Queue[K]) Remove(ctx context.Context, keys ...K) error {
 	ctx, op := q.o11y.Begin(ctx, observability.WithValue(itemCountKey, len(keys)))
 	defer op.End()
 
-	affected, err := q.writeKeys(ctx, "remove", keys, func(encoded []string) (string, []any) {
-		args := make([]any, 0, len(encoded)+1)
-		args = append(args, q.cfg.Name)
-
-		for _, key := range encoded {
-			args = append(args, key)
-		}
-
-		return buildRemove(q.cfg.resolvedTable(), len(encoded)), args
+	affected, err := q.writeKeys(ctx, "remove", keys, func(encoded []string) (int64, error) {
+		return q.q.RemoveItems(ctx, q.client.Writer(), workqueuedb.RemoveItemsParams{
+			QueueName: q.cfg.Name,
+			ItemKeys:  encoded,
+		})
 	})
 	if err != nil {
 		return op.Error(err, "removing work queue items")
@@ -669,15 +686,18 @@ func (q *Queue[K]) Reap(ctx context.Context) (int64, error) {
 	var affected int64
 
 	err := q.retrier.Do(ctx, "reap", func() error {
-		res, execErr := q.client.Writer().ExecContext(ctx, buildReap(q.cfg.resolvedTable()),
-			q.cfg.Name, q.cfg.Retention.Microseconds(), q.cfg.ReapBatchSize)
+		var execErr error
+
+		affected, execErr = q.q.ReapCompletedItems(ctx, q.client.Writer(), workqueuedb.ReapCompletedItemsParams{
+			QueueName:             q.cfg.Name,
+			RetentionMicroseconds: q.cfg.Retention.Microseconds(),
+			ReapLimit:             int64(q.cfg.ReapBatchSize),
+		})
 		if execErr != nil {
 			return platformerrors.Wrap(execErr, "reaping completed work queue items")
 		}
 
-		affected, execErr = res.RowsAffected()
-
-		return execErr
+		return nil
 	})
 	if err != nil {
 		return 0, op.Error(err, "reaping work queue items")
@@ -703,19 +723,24 @@ func (q *Queue[K]) Stats(ctx context.Context) (Stats, error) {
 	ctx, op := q.o11y.Begin(ctx)
 	defer op.End()
 
-	var (
-		stats     Stats
-		oldestMic int64
-	)
-
-	if err := q.client.Reader().
-		QueryRowContext(ctx, buildStats(q.cfg.resolvedTable()), q.cfg.Name, q.cfg.attemptCeiling()).
-		Scan(&stats.Pending, &stats.Ready, &stats.Leased, &stats.Stalled, &stats.Completed, &oldestMic); err != nil {
+	row, err := q.q.ReadQueueStats(ctx, q.client.Reader(), workqueuedb.ReadQueueStatsParams{
+		QueueName:      q.cfg.Name,
+		AttemptCeiling: int64(q.cfg.attemptCeiling()),
+	})
+	if err != nil {
 		return Stats{}, op.Error(err, "reading work queue stats")
 	}
 
-	if oldestMic > 0 {
-		stats.OldestReadyAge = time.Duration(oldestMic) * time.Microsecond
+	stats := Stats{
+		Pending:   row.Pending,
+		Ready:     row.Ready,
+		Leased:    row.Leased,
+		Stalled:   row.Stalled,
+		Completed: row.Completed,
+	}
+
+	if row.OldestReadyMicroseconds > 0 {
+		stats.OldestReadyAge = time.Duration(row.OldestReadyMicroseconds) * time.Microsecond
 	}
 
 	oldestSeconds := int64(stats.OldestReadyAge.Seconds())
@@ -735,17 +760,19 @@ func (q *Queue[K]) Stats(ctx context.Context) (Stats, error) {
 }
 
 // writeKeys is the shape every keyed writer shares: encode the keys, hand the
-// encoded batch to build, run it with the retry wrapper, and report how many
+// encoded batch to write, run it with the retry wrapper, and report how many
 // rows it touched.
 //
-// The keys are sorted before the statement is built. That is the lock-ordering
+// The keys are sorted before they are bound. That is the lock-ordering
 // discipline, applied at the one place all three writers pass through, so a
-// fourth added later inherits it rather than having to remember it.
+// fourth added later inherits it rather than having to remember it — and the
+// batch crosses the seam as one bound array, so the statement's text does not
+// depend on how many keys are in it.
 func (q *Queue[K]) writeKeys(
 	ctx context.Context,
 	label string,
 	keys []K,
-	build func(encoded []string) (query string, args []any),
+	write func(encoded []string) (int64, error),
 ) (int64, error) {
 	if len(keys) == 0 {
 		return 0, nil
@@ -758,20 +785,34 @@ func (q *Queue[K]) writeKeys(
 
 	encoded = sortAndDedupe(encoded)
 
-	query, args := build(encoded)
-
 	var affected int64
 
 	err = q.retrier.Do(ctx, label, func() error {
-		res, execErr := q.client.Writer().ExecContext(ctx, query, args...)
-		if execErr != nil {
-			return execErr
-		}
+		var execErr error
 
-		affected, execErr = res.RowsAffected()
+		affected, execErr = write(encoded)
 
 		return execErr
 	})
 
 	return affected, err
+}
+
+// truncatedCause renders a release's cause as the nullable text the statement
+// binds. A plain hand-back has no error to record, and NULL is what "no error"
+// means in that column — an empty string would be a recorded failure with
+// nothing to say about itself.
+//
+// The bound is internal/pgretry's, not a second copy of it: what fits in a
+// last_error column is the same fact for every table in this module that has
+// one, and a pathological driver error bloating a row is the case it exists
+// for.
+func truncatedCause(cause error) *string {
+	if cause == nil {
+		return nil
+	}
+
+	truncated := platformerrors.TruncateError(cause, pgretry.MaxStoredErrLen)
+
+	return &truncated
 }

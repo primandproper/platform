@@ -10,7 +10,16 @@ import (
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/observability"
+	"github.com/primandproper/platform-go/v13/workqueue/internal/workqueuedb"
 )
+
+// encodedEntry is one row's worth of bound parameters, with the key already
+// rendered to its stored form.
+type encodedEntry struct {
+	key         string
+	priority    int
+	delayMicros int64
+}
 
 // enqueueFlushTimeout bounds one merged upsert. It is generous on purpose: the
 // batch's waiters have already given up their own deadlines to it, and an
@@ -120,6 +129,11 @@ func (q *Queue[K]) EnqueueKeys(ctx context.Context, keys ...K) error {
 }
 
 // upsert writes one merged batch.
+//
+// The rows arrive in primary-key order and one to a key, which is what the
+// batcher's merge is for — see newEnqueueBatcher — and the statement orders its
+// source rows again anyway, because that ordering is a property of the write
+// rather than a habit of its caller.
 func (q *Queue[K]) upsert(ctx context.Context, rows []encodedEntry) error {
 	if len(rows) == 0 {
 		return nil
@@ -127,10 +141,27 @@ func (q *Queue[K]) upsert(ctx context.Context, rows []encodedEntry) error {
 
 	q.enqueueBatchHist.Record(ctx, float64(len(rows)), q.attrs)
 
-	query, args := buildUpsert(q.cfg.resolvedTable(), q.cfg.Name, rows)
+	// Three parallel arrays rather than a tuple per row: the statement is one
+	// fixed text however large the batch is, and the nth element of each is one
+	// entry. See workqueue/internal/queries on the ordinality join that puts
+	// them back together.
+	keys := make([]string, 0, len(rows))
+	priorities := make([]int64, 0, len(rows))
+	delays := make([]int64, 0, len(rows))
+
+	for i := range rows {
+		keys = append(keys, rows[i].key)
+		priorities = append(priorities, int64(rows[i].priority))
+		delays = append(delays, rows[i].delayMicros)
+	}
 
 	if err := q.retrier.Do(ctx, "enqueue", func() error {
-		if _, execErr := q.client.Writer().ExecContext(ctx, query, args...); execErr != nil {
+		if execErr := q.q.EnqueueItems(ctx, q.client.Writer(), workqueuedb.EnqueueItemsParams{
+			QueueName:         q.cfg.Name,
+			ItemKeys:          keys,
+			Priorities:        priorities,
+			DelayMicroseconds: delays,
+		}); execErr != nil {
 			return platformerrors.Wrap(execErr, "upserting work queue items")
 		}
 

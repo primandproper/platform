@@ -124,3 +124,19 @@ func TestConfig_AttemptCeiling(T *testing.T) {
 		test.True(t, cfg.attemptCeiling() > 0)
 	})
 }
+
+func TestTableFor(T *testing.T) {
+	T.Parallel()
+
+	T.Run("an empty namespace renders the component's own name", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, "work_queue_items", tableFor(""))
+	})
+
+	T.Run("a namespace is separated by the renderer", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, "ddb_work_queue_items", tableFor("ddb"))
+	})
+}

@@ -182,8 +182,8 @@ func TestEnqueueBatcher(T *testing.T) {
 		test.EqOp(t, int64(20), batches[0][0].delayMicros)
 	})
 
-	// buildUpsert's lock ordering depends on this, so it is the batcher's job
-	// rather than a caller's.
+	// The enqueue statement's lock ordering depends on this, so it is the
+	// batcher's job rather than a caller's.
 	T.Run("a flushed batch is sorted by key", func(t *testing.T) {
 		t.Parallel()
 
