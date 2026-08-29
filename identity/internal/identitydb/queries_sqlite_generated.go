@@ -1389,6 +1389,13 @@ WHERE archived_at IS NULL
 	AND id = ?2
 	AND scope = ?3`
 
+const markUserEmailAddressUnverifiedSQLite = `UPDATE {{prefix}}identity_users SET
+	email_address_verified_at = ?1,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = ?2
+	AND scope = ?3`
+
 const markUserEmailAddressVerifiedSQLite = `UPDATE {{prefix}}identity_users SET
 	email_address_verified_at = ?1,
 	email_address_verification_token = ?2,
@@ -1512,10 +1519,11 @@ WHERE archived_at IS NULL
 
 const setUserEmailAddressVerificationTokenSQLite = `UPDATE {{prefix}}identity_users SET
 	email_address_verification_token = ?1,
+	email_address_verified_at = ?2,
 	last_updated_at = CURRENT_TIMESTAMP
 WHERE archived_at IS NULL
-	AND id = ?2
-	AND scope = ?3`
+	AND id = ?3
+	AND scope = ?4`
 
 const setUserRequiresPasswordChangeSQLite = `UPDATE {{prefix}}identity_users SET
 	requires_password_change = ?1,
@@ -1553,10 +1561,11 @@ const updateUserSQLite = `UPDATE {{prefix}}identity_users SET
 	first_name = ?3,
 	last_name = ?4,
 	email_address_verified_at = ?5,
+	email_address_verification_token = ?6,
 	last_updated_at = CURRENT_TIMESTAMP
 WHERE archived_at IS NULL
-	AND id = ?6
-	AND scope = ?7`
+	AND id = ?7
+	AND scope = ?8`
 
 const updateUserAccountStatusSQLite = `UPDATE {{prefix}}identity_users SET
 	account_status = ?1,
@@ -1658,6 +1667,7 @@ type sqliteQueries struct {
 	listUsersByIDs                           string
 	listUsersDescending                      string
 	markAccountBillingSynced                 string
+	markUserEmailAddressUnverified           string
 	markUserEmailAddressVerified             string
 	markUserTwoFactorSecretVerified          string
 	recordAccountSubscription                string
@@ -1738,6 +1748,7 @@ func newSQLite(prefix string) *sqliteQueries {
 		listUsersByIDs:                           strings.ReplaceAll(listUsersByIDsSQLite, prefixMarker, prefix),
 		listUsersDescending:                      strings.ReplaceAll(listUsersDescendingSQLite, prefixMarker, prefix),
 		markAccountBillingSynced:                 strings.ReplaceAll(markAccountBillingSyncedSQLite, prefixMarker, prefix),
+		markUserEmailAddressUnverified:           strings.ReplaceAll(markUserEmailAddressUnverifiedSQLite, prefixMarker, prefix),
 		markUserEmailAddressVerified:             strings.ReplaceAll(markUserEmailAddressVerifiedSQLite, prefixMarker, prefix),
 		markUserTwoFactorSecretVerified:          strings.ReplaceAll(markUserTwoFactorSecretVerifiedSQLite, prefixMarker, prefix),
 		recordAccountSubscription:                strings.ReplaceAll(recordAccountSubscriptionSQLite, prefixMarker, prefix),
@@ -3503,6 +3514,20 @@ func (q *sqliteQueries) MarkAccountBillingSynced(ctx context.Context, db DBTX, a
 	return result.RowsAffected()
 }
 
+// MarkUserEmailAddressUnverified runs the :execrows query against sqlite.
+func (q *sqliteQueries) MarkUserEmailAddressUnverified(ctx context.Context, db DBTX, arg MarkUserEmailAddressUnverifiedParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.markUserEmailAddressUnverified,
+		timeTextPtr(arg.EmailAddressVerifiedAt),
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // MarkUserEmailAddressVerified runs the :execrows query against sqlite.
 func (q *sqliteQueries) MarkUserEmailAddressVerified(ctx context.Context, db DBTX, arg MarkUserEmailAddressVerifiedParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.markUserEmailAddressVerified,
@@ -3732,6 +3757,7 @@ func (q *sqliteQueries) SetMembershipDefaultAccount(ctx context.Context, db DBTX
 func (q *sqliteQueries) SetUserEmailAddressVerificationToken(ctx context.Context, db DBTX, arg SetUserEmailAddressVerificationTokenParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.setUserEmailAddressVerificationToken,
 		arg.EmailAddressVerificationToken,
+		timeTextPtr(arg.EmailAddressVerifiedAt),
 		arg.ID,
 		arg.Scope,
 	)
@@ -3801,6 +3827,7 @@ func (q *sqliteQueries) UpdateUser(ctx context.Context, db DBTX, arg UpdateUserP
 		arg.FirstName,
 		arg.LastName,
 		timeTextPtr(arg.EmailAddressVerifiedAt),
+		arg.EmailAddressVerificationToken,
 		arg.ID,
 		arg.Scope,
 	)
@@ -4758,6 +4785,11 @@ var (
 		Scope                       tenancy.Scope
 	}(MarkAccountBillingSyncedParams{})
 	_ = struct {
+		EmailAddressVerifiedAt *time.Time
+		ID                     string
+		Scope                  tenancy.Scope
+	}(MarkUserEmailAddressUnverifiedParams{})
+	_ = struct {
 		EmailAddressVerifiedAt               *time.Time
 		EmailAddressVerificationToken        string
 		ID                                   string
@@ -4860,6 +4892,7 @@ var (
 	}(SetMembershipDefaultAccountParams{})
 	_ = struct {
 		EmailAddressVerificationToken string
+		EmailAddressVerifiedAt        *time.Time
 		ID                            string
 		Scope                         tenancy.Scope
 	}(SetUserEmailAddressVerificationTokenParams{})
@@ -4888,13 +4921,14 @@ var (
 		Scope             tenancy.Scope
 	}(UpdateAccountParams{})
 	_ = struct {
-		Username               string
-		EmailAddress           string
-		FirstName              string
-		LastName               string
-		EmailAddressVerifiedAt *time.Time
-		ID                     string
-		Scope                  tenancy.Scope
+		Username                      string
+		EmailAddress                  string
+		FirstName                     string
+		LastName                      string
+		EmailAddressVerifiedAt        *time.Time
+		EmailAddressVerificationToken string
+		ID                            string
+		Scope                         tenancy.Scope
 	}(UpdateUserParams{})
 	_ = struct {
 		AccountStatus            string

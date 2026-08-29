@@ -1073,6 +1073,13 @@ type MarkAccountBillingSyncedParams struct {
 	Scope                       tenancy.Scope
 }
 
+// MarkUserEmailAddressUnverifiedParams are the arguments to MarkUserEmailAddressUnverified.
+type MarkUserEmailAddressUnverifiedParams struct {
+	EmailAddressVerifiedAt *time.Time
+	ID                     string
+	Scope                  tenancy.Scope
+}
+
 // MarkUserEmailAddressVerifiedParams are the arguments to MarkUserEmailAddressVerified.
 type MarkUserEmailAddressVerifiedParams struct {
 	EmailAddressVerifiedAt               *time.Time
@@ -1201,6 +1208,7 @@ type SetMembershipDefaultAccountParams struct {
 // SetUserEmailAddressVerificationTokenParams are the arguments to SetUserEmailAddressVerificationToken.
 type SetUserEmailAddressVerificationTokenParams struct {
 	EmailAddressVerificationToken string
+	EmailAddressVerifiedAt        *time.Time
 	ID                            string
 	Scope                         tenancy.Scope
 }
@@ -1237,13 +1245,14 @@ type UpdateAccountParams struct {
 
 // UpdateUserParams are the arguments to UpdateUser.
 type UpdateUserParams struct {
-	Username               string
-	EmailAddress           string
-	FirstName              string
-	LastName               string
-	EmailAddressVerifiedAt *time.Time
-	ID                     string
-	Scope                  tenancy.Scope
+	Username                      string
+	EmailAddress                  string
+	FirstName                     string
+	LastName                      string
+	EmailAddressVerifiedAt        *time.Time
+	EmailAddressVerificationToken string
+	ID                            string
+	Scope                         tenancy.Scope
 }
 
 // UpdateUserAccountStatusParams are the arguments to UpdateUserAccountStatus.

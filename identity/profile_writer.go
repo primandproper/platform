@@ -17,7 +17,9 @@ import (
 // state, ownership, status — are listed on the interface.
 var _ ProfileWriter = (*SQLStore)(nil)
 
-// UpdateUser writes the user's profile and nothing else.
+// UpdateUser writes the user's profile and nothing else, plus the two
+// verification columns it has to decide rather than accept — see
+// profileUpdateParams.
 func (s *SQLStore) UpdateUser(ctx context.Context, user *User) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
@@ -61,8 +63,8 @@ func (s *SQLStore) UpdateUser(ctx context.Context, user *User) error {
 }
 
 // profileUpdateParams assembles what the profile update binds, deciding from the
-// row as it stands what email_address_verified_at should hold afterwards: what
-// it holds now if the address is unchanged, and nothing if it is not.
+// row as it stands what the two verification columns should hold afterwards:
+// what they hold now if the address is unchanged, and nothing if it is not.
 //
 // Changing an address has to clear the proof that went with it, or a user could
 // move to an address they have never proven and stay verified. That used to be
@@ -70,6 +72,14 @@ func (s *SQLStore) UpdateUser(ctx context.Context, user *User) error {
 // the same statement, and the statement querygen renders assigns columns rather
 // than computing them — so the comparison moves here, into the transaction the
 // update already ran in.
+//
+// The outstanding token clears with the stamp, in the same statement, because a
+// token is proof of nothing on its own: the column records that a link was
+// mailed, not which address it was mailed to. Leaving it live across an address
+// change is the front door onto the hole the stamp's clearing closes — the link
+// sent to the address being left behind comes back and verifies the address
+// being moved to, which nobody ever proved. A flow that means to verify the new
+// address mints a new link after the write, not before.
 //
 // What that costs is precise and worth stating: the CASE read the stored
 // address as part of the write, where this reads it a moment before. Another
@@ -85,12 +95,12 @@ func (s *SQLStore) profileUpdateParams(ctx context.Context, q database.Tx, user 
 		return identitydb.UpdateUserParams{}, err
 	}
 
-	verifiedAt := stored.EmailAddressVerifiedAt
+	verifiedAt, token := stored.EmailAddressVerifiedAt, stored.EmailAddressVerificationToken
 	if stored.EmailAddress != user.EmailAddress {
-		verifiedAt = nil
+		verifiedAt, token = nil, ""
 	}
 
-	return updateUserParams(user, verifiedAt), nil
+	return updateUserParams(user, verifiedAt, token), nil
 }
 
 // UpdateAccount writes the account's name and billing address.

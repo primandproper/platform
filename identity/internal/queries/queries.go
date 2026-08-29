@@ -218,10 +218,12 @@ const EmailAddressVerifiedAtColumn = "email_address_verified_at"
 //
 // Everything after last_name is either a credential, a proof, or a status, and
 // each is written by the method that owns it — which is why the standard update
-// assigns four profile columns and one derived fifth. email_address_verified_at
-// is updatable on purpose: moving an address has to clear the proof that went
-// with it, or a user could take an address they have never proven and stay
-// verified.
+// assigns four profile columns and two derived ones. email_address_verified_at
+// and email_address_verification_token are updatable on purpose, and as a pair:
+// moving an address has to clear the proof that went with it, or a user could
+// take an address they have never proven and stay verified — and it has to
+// clear the outstanding token in the same statement, or the link minted for the
+// address being left behind proves the one being moved to.
 var Users = Table{
 	Name:     UsersTable,
 	Singular: "User",
@@ -261,6 +263,7 @@ var Users = Table{
 		"first_name",
 		"last_name",
 		EmailAddressVerifiedAtColumn,
+		UserEmailVerificationTokenColumn,
 	},
 	Omitted: []querygen.StandardQuery{querygen.ExistsQuery},
 }
@@ -604,13 +607,30 @@ func fieldWrites(g *querygen.Generator) []*querygen.Query {
 			querygen.Match{Column: twoFactorColumn, Against: querygen.EmptyString, Exclude: true},
 			querygen.Match{Column: twoFactorVerifiedAtColumn, Against: querygen.NoValue}),
 
+		// Issuing a link drops the proof, for the reason enrolling a second
+		// factor drops its verification: the two columns are one state, and a
+		// row holding both says the address is proven and has an outstanding
+		// link at the same time. Which of the two a reader believes is then a
+		// question about which column it happened to look at.
 		g.UpdateQuery("SetUserEmailAddressVerificationToken", UsersTable, Users.Columns,
-			[]string{UserEmailVerificationTokenColumn}, Users.Nullable, scope),
+			[]string{UserEmailVerificationTokenColumn, EmailAddressVerifiedAtColumn}, Users.Nullable, scope),
 
 		g.UpdateQuery("MarkUserEmailAddressVerified", UsersTable, Users.Columns,
 			[]string{EmailAddressVerifiedAtColumn, UserEmailVerificationTokenColumn}, Users.Nullable,
 			scope,
 			querygen.Match{Column: UserEmailVerificationTokenColumn, Arg: currentEmailVerificationTokenArg}),
+
+		// The other direction, and the one nothing else can express: the proof
+		// comes off an address the user keeps. Unguarded on purpose — it is the
+		// safe direction, so an unverify that lost a race to another unverify
+		// has still left the row where the caller wanted it.
+		//
+		// It writes the proof alone rather than the pair. Any outstanding link
+		// was minted for this address, which has not changed, so burning it
+		// would cost the user a round trip to prove an address they are already
+		// being asked to prove.
+		g.UpdateQuery("MarkUserEmailAddressUnverified", UsersTable, Users.Columns,
+			[]string{EmailAddressVerifiedAtColumn}, Users.Nullable, scope),
 
 		g.UpdateQuery("UpdateUserAccountStatus", UsersTable, Users.Columns,
 			[]string{accountStatusColumn, accountStatusExplanationColumn}, Users.Nullable, scope),

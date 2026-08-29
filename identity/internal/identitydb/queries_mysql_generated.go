@@ -1389,6 +1389,13 @@ WHERE archived_at IS NULL
 	AND id = ?
 	AND scope = ?`
 
+const markUserEmailAddressUnverifiedMySQL = `UPDATE {{prefix}}identity_users SET
+	email_address_verified_at = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?`
+
 const markUserEmailAddressVerifiedMySQL = `UPDATE {{prefix}}identity_users SET
 	email_address_verified_at = ?,
 	email_address_verification_token = ?,
@@ -1512,6 +1519,7 @@ WHERE archived_at IS NULL
 
 const setUserEmailAddressVerificationTokenMySQL = `UPDATE {{prefix}}identity_users SET
 	email_address_verification_token = ?,
+	email_address_verified_at = ?,
 	last_updated_at = CURRENT_TIMESTAMP(6)
 WHERE archived_at IS NULL
 	AND id = ?
@@ -1553,6 +1561,7 @@ const updateUserMySQL = `UPDATE {{prefix}}identity_users SET
 	first_name = ?,
 	last_name = ?,
 	email_address_verified_at = ?,
+	email_address_verification_token = ?,
 	last_updated_at = CURRENT_TIMESTAMP(6)
 WHERE archived_at IS NULL
 	AND id = ?
@@ -1658,6 +1667,7 @@ type mysqlQueries struct {
 	listUsersByIDs                           string
 	listUsersDescending                      string
 	markAccountBillingSynced                 string
+	markUserEmailAddressUnverified           string
 	markUserEmailAddressVerified             string
 	markUserTwoFactorSecretVerified          string
 	recordAccountSubscription                string
@@ -1738,6 +1748,7 @@ func newMySQL(prefix string) *mysqlQueries {
 		listUsersByIDs:                           strings.ReplaceAll(listUsersByIDsMySQL, prefixMarker, prefix),
 		listUsersDescending:                      strings.ReplaceAll(listUsersDescendingMySQL, prefixMarker, prefix),
 		markAccountBillingSynced:                 strings.ReplaceAll(markAccountBillingSyncedMySQL, prefixMarker, prefix),
+		markUserEmailAddressUnverified:           strings.ReplaceAll(markUserEmailAddressUnverifiedMySQL, prefixMarker, prefix),
 		markUserEmailAddressVerified:             strings.ReplaceAll(markUserEmailAddressVerifiedMySQL, prefixMarker, prefix),
 		markUserTwoFactorSecretVerified:          strings.ReplaceAll(markUserTwoFactorSecretVerifiedMySQL, prefixMarker, prefix),
 		recordAccountSubscription:                strings.ReplaceAll(recordAccountSubscriptionMySQL, prefixMarker, prefix),
@@ -3618,6 +3629,20 @@ func (q *mysqlQueries) MarkAccountBillingSynced(ctx context.Context, db DBTX, ar
 	return result.RowsAffected()
 }
 
+// MarkUserEmailAddressUnverified runs the :execrows query against mysql.
+func (q *mysqlQueries) MarkUserEmailAddressUnverified(ctx context.Context, db DBTX, arg MarkUserEmailAddressUnverifiedParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.markUserEmailAddressUnverified,
+		arg.EmailAddressVerifiedAt,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // MarkUserEmailAddressVerified runs the :execrows query against mysql.
 func (q *mysqlQueries) MarkUserEmailAddressVerified(ctx context.Context, db DBTX, arg MarkUserEmailAddressVerifiedParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.markUserEmailAddressVerified,
@@ -3848,6 +3873,7 @@ func (q *mysqlQueries) SetMembershipDefaultAccount(ctx context.Context, db DBTX,
 func (q *mysqlQueries) SetUserEmailAddressVerificationToken(ctx context.Context, db DBTX, arg SetUserEmailAddressVerificationTokenParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.setUserEmailAddressVerificationToken,
 		arg.EmailAddressVerificationToken,
+		arg.EmailAddressVerifiedAt,
 		arg.ID,
 		arg.Scope,
 	)
@@ -3917,6 +3943,7 @@ func (q *mysqlQueries) UpdateUser(ctx context.Context, db DBTX, arg UpdateUserPa
 		arg.FirstName,
 		arg.LastName,
 		arg.EmailAddressVerifiedAt,
+		arg.EmailAddressVerificationToken,
 		arg.ID,
 		arg.Scope,
 	)
@@ -4874,6 +4901,11 @@ var (
 		Scope                       tenancy.Scope
 	}(MarkAccountBillingSyncedParams{})
 	_ = struct {
+		EmailAddressVerifiedAt *time.Time
+		ID                     string
+		Scope                  tenancy.Scope
+	}(MarkUserEmailAddressUnverifiedParams{})
+	_ = struct {
 		EmailAddressVerifiedAt               *time.Time
 		EmailAddressVerificationToken        string
 		ID                                   string
@@ -4976,6 +5008,7 @@ var (
 	}(SetMembershipDefaultAccountParams{})
 	_ = struct {
 		EmailAddressVerificationToken string
+		EmailAddressVerifiedAt        *time.Time
 		ID                            string
 		Scope                         tenancy.Scope
 	}(SetUserEmailAddressVerificationTokenParams{})
@@ -5004,13 +5037,14 @@ var (
 		Scope             tenancy.Scope
 	}(UpdateAccountParams{})
 	_ = struct {
-		Username               string
-		EmailAddress           string
-		FirstName              string
-		LastName               string
-		EmailAddressVerifiedAt *time.Time
-		ID                     string
-		Scope                  tenancy.Scope
+		Username                      string
+		EmailAddress                  string
+		FirstName                     string
+		LastName                      string
+		EmailAddressVerifiedAt        *time.Time
+		EmailAddressVerificationToken string
+		ID                            string
+		Scope                         tenancy.Scope
 	}(UpdateUserParams{})
 	_ = struct {
 		AccountStatus            string
