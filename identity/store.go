@@ -599,6 +599,11 @@ type BillingWriter interface {
 type InvitationStore interface {
 	// CreateInvitation writes an invitation. The ID is generated if it carries
 	// none, and CreatedAt is read back from the row — see Registrar.CreateUser.
+	//
+	// Note is the sender's message and is written here; StatusNote is the
+	// answer's and is not. An invitation carrying one at creation is refused
+	// with an error wrapping errors.ErrUnrecognizedInputValue, for the same
+	// reason one carrying a terminal status is: nothing has answered it yet.
 	CreateInvitation(ctx context.Context, invitation *Invitation) error
 
 	// GetInvitation reads one of the scope's live invitations by ID, for the
@@ -643,7 +648,11 @@ type InvitationStore interface {
 	// The accepting user must be a live user in the invitation's scope, and one
 	// who is not returns an error wrapping ErrUserNotFound rather than a
 	// membership spanning two directories.
-	AcceptInvitation(ctx context.Context, q database.Tx, scope tenancy.Scope, invitationID, token, acceptingUserID, note string) (*Membership, error)
+	//
+	// statusNote is why the answer went the way it did, and it lands in
+	// Invitation.StatusNote. The sender's Note is untouched — an invite email's
+	// message is still readable beside the acceptance that answered it.
+	AcceptInvitation(ctx context.Context, q database.Tx, scope tenancy.Scope, invitationID, token, acceptingUserID, statusNote string) (*Membership, error)
 
 	// SetInvitationStatus answers an invitation without producing a membership:
 	// rejection by the recipient, cancellation by the sender.
@@ -651,7 +660,10 @@ type InvitationStore interface {
 	// It refuses InvitationAccepted, returning ErrInvalidInvitationStatus —
 	// accepting is AcceptInvitation, and a status write that produced no
 	// membership would leave exactly the state that method exists to prevent.
-	SetInvitationStatus(ctx context.Context, scope tenancy.Scope, invitationID string, status InvitationStatus, note string) error
+	//
+	// statusNote is the answer's, and lands in Invitation.StatusNote beside a
+	// sender's Note it does not touch.
+	SetInvitationStatus(ctx context.Context, scope tenancy.Scope, invitationID string, status InvitationStatus, statusNote string) error
 }
 
 // Store is the whole persistence seam for the identity directory: every

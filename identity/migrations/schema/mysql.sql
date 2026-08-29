@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS identity_invitations (
     token              VARCHAR(255) NOT NULL,
     status             VARCHAR(32) NOT NULL,
     note               VARCHAR(1024) NOT NULL DEFAULT '',
+    status_note        VARCHAR(1024) NOT NULL DEFAULT '',
     expires_at         DATETIME(6) NOT NULL,
     created_at         DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     last_updated_at    DATETIME(6),

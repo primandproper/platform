@@ -32,18 +32,22 @@ const (
 // rows, rather than overwriting an acceptance with a rejection. It is one
 // function because both answers owe that guard, and a second construction of
 // these params is a second chance for one of them to be written without it.
+//
+// The note it carries is the answer's, and it lands in status_note. The
+// sender's note is not among these params at all, which is what keeps a reply
+// from erasing the message it is replying to.
 func answerInvitationParams(
 	scope tenancy.Scope,
 	invitationID string,
 	status InvitationStatus,
-	note string,
+	statusNote string,
 	toUser *string,
 ) identitydb.AnswerInvitationParams {
 	return identitydb.AnswerInvitationParams{
 		ID:            invitationID,
 		Scope:         scope,
 		Status:        status.String(),
-		Note:          note,
+		StatusNote:    statusNote,
 		ToUser:        toUser,
 		CurrentStatus: InvitationPending.String(),
 	}
@@ -69,6 +73,18 @@ func (s *SQLStore) CreateInvitation(ctx context.Context, invitation *Invitation)
 		// answered it, and would sit in a terminal state nobody sent.
 		return op.Error(
 			platformerrors.Wrapf(ErrInvalidInvitationStatus, "status %q at creation", invitation.Status),
+			"creating identity invitation",
+		)
+	}
+
+	if invitation.StatusNote != "" {
+		// The same objection as the one above, about the column the answer
+		// writes beside the status: nobody has answered a freshly created
+		// invitation, so there is no answer to explain. Refusing here is what
+		// makes "written by exactly the two status writes" true of status_note
+		// rather than merely usual.
+		return op.Error(
+			platformerrors.Wrap(platformerrors.ErrUnrecognizedInputValue, "invitation carries a status note at creation"),
 			"creating identity invitation",
 		)
 	}
@@ -393,7 +409,7 @@ func (s *SQLStore) AcceptInvitation(
 	ctx context.Context,
 	q database.Tx,
 	scope tenancy.Scope,
-	invitationID, token, acceptingUserID, note string,
+	invitationID, token, acceptingUserID, statusNote string,
 ) (*Membership, error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
@@ -432,7 +448,7 @@ func (s *SQLStore) AcceptInvitation(
 	// two clicks on one link produce one membership: the second finds nothing
 	// pending and stops here.
 	count, err := s.q.AnswerInvitation(ctx, q,
-		answerInvitationParams(scope, invitationID, InvitationAccepted, note, &acceptingUserID))
+		answerInvitationParams(scope, invitationID, InvitationAccepted, statusNote, &acceptingUserID))
 	if err = s.guardCount(ctx, count, err, ErrInvitationNotFound, "accepting identity invitation"); err != nil {
 		return nil, op.Error(err, "accepting identity invitation")
 	}
@@ -468,7 +484,7 @@ func (s *SQLStore) AcceptInvitation(
 }
 
 // SetInvitationStatus answers an invitation without producing a membership.
-func (s *SQLStore) SetInvitationStatus(ctx context.Context, scope tenancy.Scope, invitationID string, status InvitationStatus, note string) error {
+func (s *SQLStore) SetInvitationStatus(ctx context.Context, scope tenancy.Scope, invitationID string, status InvitationStatus, statusNote string) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(invitationIDKey, invitationID),
@@ -498,7 +514,7 @@ func (s *SQLStore) SetInvitationStatus(ctx context.Context, scope tenancy.Scope,
 	}
 
 	count, err := s.q.AnswerInvitation(ctx, s.client.Writer(),
-		answerInvitationParams(scope, invitationID, status, note, nil))
+		answerInvitationParams(scope, invitationID, status, statusNote, nil))
 	if err = s.guardCount(ctx, count, err, ErrInvitationNotFound, "setting identity invitation status"); err != nil {
 		return op.Error(err, "setting identity invitation status")
 	}
