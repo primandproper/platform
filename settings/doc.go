@@ -121,6 +121,13 @@ error, on every table, in all three dialects.
 
 The tables are settings/migrations' to create, at whatever prefix a consumer
 chooses. The platform ships no numbered migration file — see that package.
+
+# Where this package stops
+
+At the store. A settings API's routes, its request and response types, and who
+is allowed to write a definition as opposed to read one are an application's,
+and this package ships none of them. The module README's "Stores and Transports"
+section is where that line is drawn for the module as a whole.
 */
 package settings
 

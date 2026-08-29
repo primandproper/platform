@@ -318,6 +318,17 @@ distinction at the source.
 
 Spans cover Dispatch, each claim, and each delivery. A cycle that claims nothing
 is not traced: a root span every poll interval is noise.
+
+# Where this package stops
+
+Endpoint management is a store and no handlers: the routes a subscriber uses to
+register a URL, rotate its secret or retire it are an application's, over an
+application's types and its own authorization. Receiving somebody else's
+callbacks is the other case entirely, and webhooks/inbound does ship an
+http.Handler for it — the shape of a Stripe or GitHub payload is Stripe's or
+GitHub's, and no application has a say in it. The module README's "Stores and
+Transports" section is where that distinction is drawn for the module as a
+whole.
 */
 package webhooks
 
