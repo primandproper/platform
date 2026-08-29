@@ -67,6 +67,7 @@ COMPONENTS=(
   "sessions/database postgres mysql sqlite"
   "settings postgres mysql sqlite"
   "uploads/registry postgres mysql sqlite"
+  "waitlists postgres mysql sqlite"
   "webhooks postgres mysql sqlite"
   "outbox postgres mysql sqlite"
   "operations postgres"

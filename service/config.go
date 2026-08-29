@@ -94,6 +94,7 @@ import (
 	httpserver "github.com/primandproper/platform-go/v13/server/http"
 	settingscfg "github.com/primandproper/platform-go/v13/settings/config"
 	uploadscfg "github.com/primandproper/platform-go/v13/uploads/config"
+	waitlistscfg "github.com/primandproper/platform-go/v13/waitlists/config"
 	webhookscfg "github.com/primandproper/platform-go/v13/webhooks/config"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -163,6 +164,7 @@ type Config struct {
 	Settings             *settingscfg.Config        `env:",init" envPrefix:"SETTINGS_"               json:"settings,omitempty"             yaml:"settings,omitempty"`
 	Tokens               *tokenscfg.Config          `env:",init" envPrefix:"TOKENS_"                 json:"tokens,omitempty"               yaml:"tokens,omitempty"`
 	Uploads              *uploadscfg.Config         `env:",init" envPrefix:"UPLOADS_"                json:"uploads,omitempty"              yaml:"uploads,omitempty"`
+	Waitlists            *waitlistscfg.Config       `env:",init" envPrefix:"WAITLISTS_"              json:"waitlists,omitempty"            yaml:"waitlists,omitempty"`
 	Webhooks             *webhookscfg.Config        `env:",init" envPrefix:"WEBHOOKS_"               json:"webhooks,omitempty"             yaml:"webhooks,omitempty"`
 
 	// Name identifies the service. It is the name the HTTP server reports and
@@ -325,6 +327,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.Shredding),
 		validation.Field(&cfg.Tokens),
 		validation.Field(&cfg.Uploads),
+		validation.Field(&cfg.Waitlists),
 		validation.Field(&cfg.Webhooks),
 	)
 }

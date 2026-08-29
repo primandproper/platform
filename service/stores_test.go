@@ -23,6 +23,8 @@ import (
 	retentioncfg "github.com/primandproper/platform-go/v13/retention/config"
 	"github.com/primandproper/platform-go/v13/settings"
 	settingscfg "github.com/primandproper/platform-go/v13/settings/config"
+	"github.com/primandproper/platform-go/v13/waitlists"
+	waitlistscfg "github.com/primandproper/platform-go/v13/waitlists/config"
 
 	"github.com/caarlos0/env/v11"
 	"github.com/samber/do/v2"
@@ -53,7 +55,8 @@ func sqliteDatabase(t *testing.T) *databasecfg.Config {
 }
 
 // TestRegisterStores covers the subsystems the composition root reached last:
-// the identity, settings, and notifications stores, and the retention sweeper.
+// the identity, settings, notifications and waitlist stores, and the retention
+// sweeper.
 //
 // The reflection-driven tests above already assert that a field on Config is
 // validated and registers something. What they cannot say is that what it
@@ -71,6 +74,7 @@ func TestRegisterStores(T *testing.T) {
 			Identity:      &identitycfg.Config{TablePrefix: storePrefix},
 			Settings:      &settingscfg.Config{TablePrefix: storePrefix},
 			Notifications: &notificationscfg.Config{TablePrefix: storePrefix},
+			Waitlists:     &waitlistscfg.Config{TablePrefix: storePrefix},
 		}
 		must.NoError(t, cfg.ValidateWithContext(t.Context()))
 
@@ -83,6 +87,10 @@ func TestRegisterStores(T *testing.T) {
 		settingsStore, err := do.Invoke[settings.Store](i)
 		must.NoError(t, err)
 		test.NotNil(t, settingsStore)
+
+		waitlistStore, err := do.Invoke[waitlists.Store](i)
+		must.NoError(t, err)
+		test.NotNil(t, waitlistStore)
 
 		// The notifications store is registered under three keys, and the two
 		// interfaces are narrowings of the one concrete registration rather
@@ -111,12 +119,13 @@ func TestRegisterStores(T *testing.T) {
 			"IDENTITY_TABLE_PREFIX":        storePrefix,
 			"SETTINGS_TABLE_PREFIX":        storePrefix,
 			"NOTIFICATIONS_TABLE_PREFIX":   storePrefix,
+			"WAITLISTS_TABLE_PREFIX":       storePrefix,
 			"RETENTION_SWEEPER_BATCH_SIZE": "500",
 		}}))
 
 		must.NoError(t, cfg.ValidateWithContext(t.Context()))
 
-		test.Eq(t, []string{"Identity", "Notifications", "Retention", "Settings"}, present(t, cfg))
+		test.Eq(t, []string{"Identity", "Notifications", "Retention", "Settings", "Waitlists"}, present(t, cfg))
 	})
 
 	T.Run("builds the retention sweeper over the application's policies", func(t *testing.T) {

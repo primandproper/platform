@@ -46,6 +46,7 @@ import (
 	settingscfg "github.com/primandproper/platform-go/v13/settings/config"
 	uploadscfg "github.com/primandproper/platform-go/v13/uploads/config"
 	"github.com/primandproper/platform-go/v13/uploads/objectstorage"
+	waitlistscfg "github.com/primandproper/platform-go/v13/waitlists/config"
 	webhookscfg "github.com/primandproper/platform-go/v13/webhooks/config"
 
 	"github.com/samber/do/v2"
@@ -349,6 +350,14 @@ func registerDurableWorkflows(i do.Injector, cfg *Config) {
 		if cfg.Outbox != nil {
 			sagacfg.RegisterOutboxEventPublisher(i)
 		}
+	}
+
+	// A waitlist outlives the request that joined it — somebody signs up in
+	// March and is invited in June — which is what puts it in this tier rather
+	// than beside the settings store above.
+	if cfg.Waitlists != nil {
+		do.ProvideValue(i, cfg.Waitlists)
+		waitlistscfg.RegisterStore(i)
 	}
 
 	if cfg.Webhooks != nil {

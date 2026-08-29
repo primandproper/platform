@@ -49,6 +49,7 @@ COMPONENTS=(
   "./sessions/database ./internal/queriesgen internal/queries postgres mysql sqlite"
   "./settings ./internal/queriesgen internal/queries postgres mysql sqlite"
   "./uploads/registry ./internal/queriesgen internal/queries postgres mysql sqlite"
+  "./waitlists ./internal/queriesgen internal/queries postgres mysql sqlite"
   "./webhooks ./internal/queriesgen internal/queries postgres mysql sqlite"
   "./outbox ./internal/queriesgen internal/queries postgres mysql sqlite"
   "./operations ./internal/queriesgen internal/queries postgres"
