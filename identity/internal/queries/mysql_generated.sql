@@ -1356,6 +1356,23 @@ WHERE identity_memberships.archived_at IS NULL
 	AND identity_memberships.belongs_to_user = sqlc.arg(belongs_to_user)
 ORDER BY identity_memberships.default_account DESC, identity_memberships.belongs_to_account ASC;
 
+-- name: ListDefaultMembershipsForAccount :many
+SELECT
+	identity_memberships.id,
+	identity_memberships.scope,
+	identity_memberships.belongs_to_user,
+	identity_memberships.belongs_to_account,
+	identity_memberships.default_account,
+	identity_memberships.created_at,
+	identity_memberships.last_updated_at,
+	identity_memberships.archived_at
+FROM identity_memberships
+WHERE identity_memberships.archived_at IS NULL
+	AND identity_memberships.scope = sqlc.arg(scope)
+	AND identity_memberships.belongs_to_account = sqlc.arg(belongs_to_account)
+	AND identity_memberships.default_account = sqlc.arg(default_account)
+ORDER BY identity_memberships.belongs_to_user ASC;
+
 -- name: SearchUsersByUsername :many
 SELECT
 	identity_users.id,

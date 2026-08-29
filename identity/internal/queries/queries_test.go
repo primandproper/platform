@@ -101,8 +101,9 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 	// Every paged read appears twice, under its name and that name plus
 	// Descending: a sort direction is which way the ORDER BY runs and which way
 	// the cursor comparison points, so it is answered by a second statement
-	// rather than by a bound argument. The unpaged ListMembershipsForUser is
-	// the one list with a single entry, because it takes no filter to carry a
+	// rather than by a bound argument. The unpaged lists —
+	// ListMembershipsForUser and ListDefaultMembershipsForAccount — are the
+	// entries that appear once, because neither takes a filter to carry a
 	// direction, and the search's count is single for the same reason a count
 	// does not move as a caller pages.
 	want := []string{
@@ -121,6 +122,7 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 		"ListMembershipRolesByMembershipIDs", "ListInvitationRolesByInvitationIDs",
 		"ListAccountMembers", "ListAccountMembersDescending",
 		"ListAccountsForUser", "ListAccountsForUserDescending", "ListMembershipsForUser",
+		"ListDefaultMembershipsForAccount",
 		"SearchUsersByUsername", "SearchUsersByUsernameDescending", "CountSearchUsersByUsername",
 		"UpdateUserPassword", "SetUserRequiresPasswordChange", "UpdateUserTwoFactorSecret",
 		"MarkUserTwoFactorSecretVerified",

@@ -462,6 +462,11 @@ type MembershipWriter interface {
 	// and this package does not know what a role of yours means. A new owner who
 	// was already a member keeps the roles they had. Either way, granting them
 	// more is SetMembershipRoles.
+	//
+	// A minted membership is the new owner's default when it is the first they
+	// hold anywhere, which is the rule CreateMembership and AcceptInvitation
+	// apply to the memberships they mint. A new owner who already belongs
+	// somewhere keeps the default they chose.
 	TransferAccountOwnership(ctx context.Context, scope tenancy.Scope, accountID, newOwnerUserID string) error
 
 	// RemoveMembership ends a user's membership in an account.
@@ -532,6 +537,13 @@ type AdminWriter interface {
 
 	// ArchiveAccount soft-deletes an account and ends every membership in it, in
 	// one transaction.
+	//
+	// A member whose default account this was has their default moved to
+	// another live membership, which is what RemoveMembership does for the one
+	// member it removes: an account going away is that removal performed on
+	// everybody at once, and neither leaves a user with memberships and nowhere
+	// to land. A member who belonged to nothing else keeps no default, because
+	// there is no membership left to point at.
 	ArchiveAccount(ctx context.Context, scope tenancy.Scope, accountID string) error
 }
 

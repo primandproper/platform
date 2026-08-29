@@ -174,12 +174,28 @@ func (s *SQLStore) TransferAccountOwnership(ctx context.Context, scope tenancy.S
 		switch _, readErr := s.readMembership(ctx, q, scope, newOwnerUserID, accountID); {
 		case readErr == nil:
 		case errors.Is(readErr, ErrMembershipNotFound):
+			// A first membership is its holder's default, here as at the other
+			// two doors that mint one — see CreateMembership and
+			// AcceptInvitation. A transfer to somebody who belonged to nothing
+			// otherwise leaves them with a membership and nowhere to land, and
+			// the failure surfaces as ErrNoDefaultAccount at their next sign-in
+			// rather than at the transfer somebody else performed on them.
+			//
+			// It is the recipient's first membership anywhere that decides it,
+			// not their first in this account: an owner who already belongs to
+			// other accounts keeps the default they chose.
+			existing, existsErr := s.hasLiveMembership(ctx, q, scope, newOwnerUserID)
+			if existsErr != nil {
+				return existsErr
+			}
+
 			if err = s.writeMembership(ctx, q, &Membership{
 				ID:               newID(""),
 				Scope:            scope,
 				BelongsToUser:    newOwnerUserID,
 				BelongsToAccount: accountID,
 				Roles:            []string{},
+				DefaultAccount:   !existing,
 			}); err != nil {
 				return err
 			}
@@ -261,8 +277,14 @@ func (s *SQLStore) RemoveMembership(ctx context.Context, scope tenancy.Scope, us
 }
 
 // moveDefaultAccount points a user's default at another live membership, for
-// when the one being removed was it. A user with no memberships left keeps none,
-// which is the honest state rather than an invented one.
+// when the membership that just ended was it. A user with no memberships left
+// keeps none, which is the honest state rather than an invented one.
+//
+// Two writes end a membership and so two call this: RemoveMembership for the
+// one member it removes, and ArchiveAccount once per member the account it is
+// closing was the default of. It lives here rather than beside the second
+// because the first is where the rule is stated — see Store.RemoveMembership —
+// and one rule written twice is one that can come to differ.
 func (s *SQLStore) moveDefaultAccount(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
