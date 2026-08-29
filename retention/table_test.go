@@ -1,6 +1,7 @@
 package retention
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -100,13 +101,31 @@ func TestTable_buildDelete(T *testing.T) {
 	T.Run("mysql uses ORDER BY and LIMIT directly", func(t *testing.T) {
 		t.Parallel()
 
-		// Not a stylistic preference: MySQL refuses to read from the table it
-		// is deleting from in an IN subquery, so the portable form is not
-		// available there at all.
+		// Not a stylistic preference, and not the only spelling MySQL takes
+		// either: it refuses an IN subquery that scans the table being deleted
+		// from, and accepts the same rows through a derived table. The native
+		// bound is the cheaper of the two for a statement with no read to keep
+		// in step with, which is what a retention pass is.
 		query, _ := Table{Name: "widgets", Column: "expires_at"}.buildDelete(dialect.MySQL, cutoff, 10)
 
 		test.EqOp(t, "DELETE FROM widgets WHERE expires_at <= ? ORDER BY expires_at LIMIT ?", query)
 		test.StrNotContains(t, query, "SELECT")
+	})
+
+	T.Run("the arm is the dialect's own answer rather than a second copy of it", func(t *testing.T) {
+		t.Parallel()
+
+		// The comparison this package used to spell is dialect.SupportsWriteLimit,
+		// which database/querygen composes into the set of spellings a corpus may
+		// be rendered from. Two readings of one server's grammar is one that can
+		// drift, and the copy this replaced had: it read MySQL's refusal of an
+		// unmaterialized self-reference as a refusal of every bounded read.
+		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.MySQL, dialect.SQLite} {
+			query, _ := Table{Name: "widgets", Column: "created_at"}.buildDelete(d, cutoff, 10)
+
+			test.EqOp(t, d.SupportsWriteLimit(), !strings.Contains(query, "SELECT"),
+				test.Sprintf("dialect %q", d))
+		}
 	})
 
 	T.Run("the cutoff is bound as UTC", func(t *testing.T) {
