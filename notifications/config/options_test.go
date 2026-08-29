@@ -1,9 +1,9 @@
-package mobilecfg
+package notificationscfg
 
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/notifications/mobile"
+	"github.com/primandproper/platform-go/v13/notifications"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/observability/logging"
 	loggingnoop "github.com/primandproper/platform-go/v13/observability/logging/noop"
@@ -27,24 +27,13 @@ func TestOptions(T *testing.T) {
 			WithLogger(logger),
 			WithTracerProvider(tracerProvider),
 			WithMetricsProvider(metricsProvider),
-			WithSenderOptions(mobile.WithTokenInvalidator(nil)),
+			WithStoreOptions(notifications.WithTablePrefix("ddb")),
 		})
 
 		test.Eq(t, logger, o.logger)
 		test.Eq(t, tracerProvider, o.tracerProvider)
 		test.Eq(t, metricsProvider, o.metricsProvider)
-		test.SliceLen(t, 1, o.sender)
-	})
-
-	T.Run("WithSenderOptions accumulates across calls", func(t *testing.T) {
-		t.Parallel()
-
-		o := newOptions([]Option{
-			WithSenderOptions(mobile.WithTokenInvalidator(nil)),
-			WithSenderOptions(mobile.WithLogger(nil), mobile.WithTracerProvider(nil)),
-		})
-
-		test.SliceLen(t, 3, o.sender)
+		test.SliceLen(t, 1, o.store)
 	})
 
 	T.Run("nil options are ignored", func(t *testing.T) {
@@ -55,7 +44,18 @@ func TestOptions(T *testing.T) {
 		test.Nil(t, o.logger)
 		test.Nil(t, o.tracerProvider)
 		test.Nil(t, o.metricsProvider)
-		test.SliceEmpty(t, o.sender)
+		test.SliceEmpty(t, o.store)
+	})
+
+	T.Run("WithStoreOptions accumulates across calls", func(t *testing.T) {
+		t.Parallel()
+
+		o := newOptions([]Option{
+			WithStoreOptions(notifications.WithTablePrefix("one")),
+			WithStoreOptions(notifications.WithTablePrefix("two"), notifications.WithClock(nil)),
+		})
+
+		test.SliceLen(t, 3, o.store)
 	})
 
 	T.Run("WithPillars supplies every dependency this package takes", func(t *testing.T) {

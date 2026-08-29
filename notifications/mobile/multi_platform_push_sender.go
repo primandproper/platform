@@ -63,6 +63,19 @@ func NewMultiPlatformPushSender(
 	}
 }
 
+// TokenInvalidator returns the registry this sender prunes dead tokens from, or
+// nil when the feedback loop is open.
+//
+// It is exported because the unwired state is this package's quietest failure.
+// A sender with no invalidator behaves identically to one that has it right up
+// until a provider rejects a token, and then keeps addressing pushes to a
+// handset that no longer exists — indefinitely, while every send reports an
+// error nobody connects to a row anybody could delete. Nothing about the
+// sender's shape says which of the two a deployment built. This is how a boot
+// log or a health check answers that at startup, instead of the metrics
+// answering it six weeks later.
+func (s *MultiPlatformPushSender) TokenInvalidator() TokenInvalidator { return s.tokenInvalidator }
+
 // isNil reports whether v is nil, including a typed nil pointer held in an
 // interface.
 //

@@ -167,7 +167,7 @@ const (
 	accountStatusColumn            = "account_status"
 	accountStatusExplanationColumn = "account_status_explanation"
 	ownerUserIDColumn              = "owner_user_id"
-	invitationNoteColumn           = "note"
+	invitationStatusNoteColumn     = "status_note"
 	invitationToUserColumn         = "to_user"
 
 	// The two agreement stamps, one per statement. A document is accepted on
@@ -341,6 +341,7 @@ var Invitations = Table{
 		"token",
 		"status",
 		"note",
+		invitationStatusNoteColumn,
 		"expires_at",
 		querygen.CreatedAtColumn,
 		querygen.LastUpdatedAtColumn,
@@ -682,8 +683,13 @@ func fieldWrites(g *querygen.Generator) []*querygen.Query {
 		g.UpdateQuery("MarkAccountBillingSynced", AccountsTable, Accounts.Columns,
 			[]string{billingSyncedAtColumn}, Accounts.Nullable, scope),
 
+		// The answer writes its own note, never the sender's. `note` is the
+		// message the invitation was sent with — the one rendered into the
+		// email and shown beside the invitation afterwards — and a SET list
+		// naming it here would destroy that message every time somebody
+		// replied.
 		g.UpdateQuery("AnswerInvitation", InvitationsTable, Invitations.Columns,
-			[]string{InvitationStatusColumn, invitationNoteColumn, invitationToUserColumn},
+			[]string{InvitationStatusColumn, invitationStatusNoteColumn, invitationToUserColumn},
 			Invitations.Nullable,
 			scope,
 			querygen.Match{Column: InvitationStatusColumn, Arg: currentInvitationStatusArg}),
@@ -1023,11 +1029,17 @@ func batchedReads(g *querygen.Generator) []*querygen.Query {
 	return rendered
 }
 
-// junctionLists is the three reads that cross the membership junction: an
-// account's roster, the accounts a user belongs to, and a user's own
-// memberships.
+// junctionLists is the four unpaged-or-joined reads over the membership
+// junction: an account's roster, the accounts a user belongs to, a user's own
+// memberships, and the memberships that name one account as their default.
 //
-// They were the last statements identity ran that no generator could render,
+// The first two cross the junction; the last two are the same builder with no
+// join at all, which is what an unpaged list keyed on a match is here. They sit
+// together because a page of one table reached through another and a whole
+// answer over one table are the same statement with everything a page implies
+// removed — see [querygen.Generator.JunctionListAllQuery].
+//
+// The joined pair were the last statements identity ran that no generator could render,
 // because every other query here projects one table's columns and these span
 // two. That is what kept a hand-paired two-entity scanner alive after everything
 // single-table had been ported — a projection and a list of scan targets written
@@ -1089,7 +1101,25 @@ func junctionLists(g *querygen.Generator) []*querygen.Query {
 		},
 		scope, querygen.Match{Column: MembershipUserColumn})
 
-	return append(append(roster, forUser...), memberships)
+	// The members who land in one account, which is who archiving it is about
+	// to strand. The archival moves each of their defaults to another live
+	// membership, so the answer it needs is every one of these rows rather than
+	// a page of them — unpaged for the same reason the list above it is.
+	//
+	// The flag is a bound argument rather than a literal TRUE, the way every
+	// other predicate over it here is one: a value spelled into SQL text is a
+	// value that can disagree with the one the store binds.
+	//
+	// It orders by the member, so an archival that has to be repeated against
+	// an unchanged directory does the same work in the same order.
+	stranded := g.JunctionListAllQuery("ListDefaultMembershipsForAccount", MembershipsTable, Memberships.Columns,
+		nil,
+		[]querygen.Order{{Column: MembershipUserColumn}},
+		scope,
+		querygen.Match{Column: MembershipAccountColumn},
+		querygen.Match{Column: MembershipDefaultColumn})
+
+	return append(append(roster, forUser...), memberships, stranded)
 }
 
 // usernamePrefixSearch is the directory's search: the page of users whose

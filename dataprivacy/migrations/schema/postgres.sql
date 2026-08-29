@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS dataprivacy_requests (
     operation_id   TEXT NOT NULL DEFAULT '',
     subject_id     TEXT NOT NULL,
     subject_type   TEXT NOT NULL DEFAULT '',
-    subject_scope  TEXT NOT NULL DEFAULT '',
+    subject_scope  TEXT NOT NULL,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_updated_at TIMESTAMPTZ,
     archived_at     TIMESTAMPTZ,

@@ -15,7 +15,7 @@ import (
 
 const answerInvitationPostgreSQL = `UPDATE {{prefix}}identity_invitations SET
 	status = $1,
-	note = $2,
+	status_note = $2,
 	to_user = $3,
 	last_updated_at = CURRENT_TIMESTAMP
 WHERE archived_at IS NULL
@@ -124,6 +124,7 @@ const createInvitationPostgreSQL = `INSERT INTO {{prefix}}identity_invitations (
 	token,
 	status,
 	note,
+	status_note,
 	expires_at
 ) VALUES (
 	$1,
@@ -136,7 +137,8 @@ const createInvitationPostgreSQL = `INSERT INTO {{prefix}}identity_invitations (
 	$8,
 	$9,
 	$10,
-	$11
+	$11,
+	$12
 )`
 
 const createUserPostgreSQL = `
@@ -232,6 +234,7 @@ const getInvitationPostgreSQL = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -852,6 +855,22 @@ WHERE {{prefix}}identity_accounts.created_at > COALESCE($1, (SELECT CURRENT_TIME
 ORDER BY {{prefix}}identity_accounts.id DESC
 LIMIT COALESCE($9, 50)`
 
+const listDefaultMembershipsForAccountPostgreSQL = `SELECT
+	{{prefix}}identity_memberships.id,
+	{{prefix}}identity_memberships.scope,
+	{{prefix}}identity_memberships.belongs_to_user,
+	{{prefix}}identity_memberships.belongs_to_account,
+	{{prefix}}identity_memberships.default_account,
+	{{prefix}}identity_memberships.created_at,
+	{{prefix}}identity_memberships.last_updated_at,
+	{{prefix}}identity_memberships.archived_at
+FROM {{prefix}}identity_memberships
+WHERE {{prefix}}identity_memberships.archived_at IS NULL
+	AND {{prefix}}identity_memberships.scope = $1
+	AND {{prefix}}identity_memberships.belongs_to_account = $2
+	AND {{prefix}}identity_memberships.default_account = $3
+ORDER BY {{prefix}}identity_memberships.belongs_to_user ASC`
+
 const listInvitationRolesByInvitationIDsPostgreSQL = `SELECT
 	{{prefix}}identity_invitation_roles.invitation_id,
 	{{prefix}}identity_invitation_roles.role
@@ -870,6 +889,7 @@ const listInvitationsPostgreSQL = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -924,6 +944,7 @@ const listInvitationsByFromUserPostgreSQL = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -984,6 +1005,7 @@ const listInvitationsByFromUserDescendingPostgreSQL = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -1044,6 +1066,7 @@ const listInvitationsByToEmailPostgreSQL = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -1104,6 +1127,7 @@ const listInvitationsByToEmailDescendingPostgreSQL = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -1164,6 +1188,7 @@ const listInvitationsDescendingPostgreSQL = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -1653,6 +1678,7 @@ type postgresqlQueries struct {
 	listAccountsDescending                   string
 	listAccountsForUser                      string
 	listAccountsForUserDescending            string
+	listDefaultMembershipsForAccount         string
 	listInvitationRolesByInvitationIDs       string
 	listInvitations                          string
 	listInvitationsByFromUser                string
@@ -1734,6 +1760,7 @@ func newPostgreSQL(prefix string) *postgresqlQueries {
 		listAccountsDescending:                   strings.ReplaceAll(listAccountsDescendingPostgreSQL, prefixMarker, prefix),
 		listAccountsForUser:                      strings.ReplaceAll(listAccountsForUserPostgreSQL, prefixMarker, prefix),
 		listAccountsForUserDescending:            strings.ReplaceAll(listAccountsForUserDescendingPostgreSQL, prefixMarker, prefix),
+		listDefaultMembershipsForAccount:         strings.ReplaceAll(listDefaultMembershipsForAccountPostgreSQL, prefixMarker, prefix),
 		listInvitationRolesByInvitationIDs:       strings.ReplaceAll(listInvitationRolesByInvitationIDsPostgreSQL, prefixMarker, prefix),
 		listInvitations:                          strings.ReplaceAll(listInvitationsPostgreSQL, prefixMarker, prefix),
 		listInvitationsByFromUser:                strings.ReplaceAll(listInvitationsByFromUserPostgreSQL, prefixMarker, prefix),
@@ -1775,7 +1802,7 @@ func newPostgreSQL(prefix string) *postgresqlQueries {
 func (q *postgresqlQueries) AnswerInvitation(ctx context.Context, db DBTX, arg AnswerInvitationParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.answerInvitation,
 		arg.Status,
-		arg.Note,
+		arg.StatusNote,
 		arg.ToUser,
 		arg.ID,
 		arg.Scope,
@@ -1936,6 +1963,7 @@ func (q *postgresqlQueries) CreateInvitation(ctx context.Context, db DBTX, arg C
 		arg.Token,
 		arg.Status,
 		arg.Note,
+		arg.StatusNote,
 		arg.ExpiresAt,
 	)
 
@@ -2085,6 +2113,7 @@ func (q *postgresqlQueries) GetInvitation(ctx context.Context, db DBTX, arg GetI
 		&i.Token,
 		&i.Status,
 		&i.Note,
+		&i.StatusNote,
 		&i.ExpiresAt,
 		&i.CreatedAt,
 		&i.LastUpdatedAt,
@@ -2794,6 +2823,47 @@ func (q *postgresqlQueries) ListAccountsForUserDescending(ctx context.Context, d
 	return items, nil
 }
 
+// ListDefaultMembershipsForAccount runs the :many query against postgresql.
+func (q *postgresqlQueries) ListDefaultMembershipsForAccount(ctx context.Context, db DBTX, arg ListDefaultMembershipsForAccountParams) ([]ListDefaultMembershipsForAccountRow, error) {
+	rows, err := db.QueryContext(ctx, q.listDefaultMembershipsForAccount,
+		arg.Scope,
+		arg.BelongsToAccount,
+		arg.DefaultAccount,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var items []ListDefaultMembershipsForAccountRow
+
+	for rows.Next() {
+		var i ListDefaultMembershipsForAccountRow
+
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.BelongsToUser,
+			&i.BelongsToAccount,
+			&i.DefaultAccount,
+			&i.CreatedAt,
+			&i.LastUpdatedAt,
+			&i.ArchivedAt,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(items, i)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
 // ListInvitationRolesByInvitationIDs runs the :many query against postgresql.
 func (q *postgresqlQueries) ListInvitationRolesByInvitationIDs(ctx context.Context, db DBTX, arg ListInvitationRolesByInvitationIDsParams) ([]ListInvitationRolesByInvitationIDsRow, error) {
 	rows, err := db.QueryContext(ctx, q.listInvitationRolesByInvitationIDs,
@@ -2861,6 +2931,7 @@ func (q *postgresqlQueries) ListInvitations(ctx context.Context, db DBTX, arg Li
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -2917,6 +2988,7 @@ func (q *postgresqlQueries) ListInvitationsByFromUser(ctx context.Context, db DB
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -2973,6 +3045,7 @@ func (q *postgresqlQueries) ListInvitationsByFromUserDescending(ctx context.Cont
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3029,6 +3102,7 @@ func (q *postgresqlQueries) ListInvitationsByToEmail(ctx context.Context, db DBT
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3085,6 +3159,7 @@ func (q *postgresqlQueries) ListInvitationsByToEmailDescending(ctx context.Conte
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3139,6 +3214,7 @@ func (q *postgresqlQueries) ListInvitationsDescending(ctx context.Context, db DB
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3843,7 +3919,7 @@ func (q *postgresqlQueries) UpsertMembership(ctx context.Context, db DBTX, arg U
 var (
 	_ = struct {
 		Status        string
-		Note          string
+		StatusNote    string
 		ToUser        *string
 		ID            string
 		Scope         tenancy.Scope
@@ -3917,6 +3993,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 	}(CreateInvitationParams{})
 	_ = struct {
@@ -3997,6 +4074,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4412,6 +4490,21 @@ var (
 		TotalCount                  int64
 	}(ListAccountsForUserDescendingRow{})
 	_ = struct {
+		Scope            tenancy.Scope
+		BelongsToAccount string
+		DefaultAccount   bool
+	}(ListDefaultMembershipsForAccountParams{})
+	_ = struct {
+		ID               string
+		Scope            tenancy.Scope
+		BelongsToUser    string
+		BelongsToAccount string
+		DefaultAccount   bool
+		CreatedAt        time.Time
+		LastUpdatedAt    *time.Time
+		ArchivedAt       *time.Time
+	}(ListDefaultMembershipsForAccountRow{})
+	_ = struct {
 		IDs []string
 	}(ListInvitationRolesByInvitationIDsParams{})
 	_ = struct {
@@ -4439,6 +4532,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4469,6 +4563,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4499,6 +4594,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4529,6 +4625,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4559,6 +4656,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4587,6 +4685,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time

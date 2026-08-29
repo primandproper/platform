@@ -172,3 +172,24 @@ func TestMultiPlatformPushSender_TokenInvalidation(T *testing.T) {
 		test.SliceEmpty(t, invalidator.tokens)
 	})
 }
+
+func TestMultiPlatformPushSender_TokenInvalidatorAccessor(T *testing.T) {
+	T.Parallel()
+
+	T.Run("reports the wired invalidator", func(t *testing.T) {
+		t.Parallel()
+
+		invalidator := &recordingInvalidator{}
+		sender := NewMultiPlatformPushSender(nil, nil, WithTokenInvalidator(invalidator))
+
+		test.True(t, sender.TokenInvalidator() == TokenInvalidator(invalidator))
+	})
+
+	T.Run("reports an open loop as nil", func(t *testing.T) {
+		t.Parallel()
+
+		// The state this accessor exists to make visible: a sender that will
+		// classify dead tokens and prune nothing.
+		test.Nil(t, NewMultiPlatformPushSender(nil, nil).TokenInvalidator())
+	})
+}

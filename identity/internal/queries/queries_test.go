@@ -101,8 +101,9 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 	// Every paged read appears twice, under its name and that name plus
 	// Descending: a sort direction is which way the ORDER BY runs and which way
 	// the cursor comparison points, so it is answered by a second statement
-	// rather than by a bound argument. The unpaged ListMembershipsForUser is
-	// the one list with a single entry, because it takes no filter to carry a
+	// rather than by a bound argument. The unpaged lists —
+	// ListMembershipsForUser and ListDefaultMembershipsForAccount — are the
+	// entries that appear once, because neither takes a filter to carry a
 	// direction, and the search's count is single for the same reason a count
 	// does not move as a caller pages.
 	want := []string{
@@ -121,6 +122,7 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 		"ListMembershipRolesByMembershipIDs", "ListInvitationRolesByInvitationIDs",
 		"ListAccountMembers", "ListAccountMembersDescending",
 		"ListAccountsForUser", "ListAccountsForUserDescending", "ListMembershipsForUser",
+		"ListDefaultMembershipsForAccount",
 		"SearchUsersByUsername", "SearchUsersByUsernameDescending", "CountSearchUsersByUsername",
 		"UpdateUserPassword", "SetUserRequiresPasswordChange", "UpdateUserTwoFactorSecret",
 		"MarkUserTwoFactorSecretVerified",
@@ -616,7 +618,7 @@ func TestFieldWrites_NameRealColumns(t *testing.T) {
 			billingStatusColumn, subscriptionPlanIDColumn,
 			paymentProcessorCustomerIDColumn, billingSyncedAtColumn,
 		},
-		&Invitations: {InvitationStatusColumn, invitationNoteColumn, invitationToUserColumn},
+		&Invitations: {InvitationStatusColumn, invitationStatusNoteColumn, invitationToUserColumn},
 	}
 
 	for table, columns := range assigned {
@@ -822,6 +824,71 @@ func TestFieldWrites_BillingWritesAreEnumerated(T *testing.T) {
 			}
 
 			test.SliceLen(t, len(assigned), seen)
+		})
+	}
+}
+
+// TestAnswerInvitation_LeavesTheSendersNote pins the one thing about this
+// statement that no compiler and no dialect will report: which of the two note
+// columns it assigns.
+//
+// The two are written by two people at two moments — note by the sender at
+// creation, status_note by whoever answered — and a SET list naming the first
+// destroys the message the invite email was built from at the moment a roster
+// most wants to show it beside the answer. That is a silent loss: the write
+// succeeds, the row is valid, and the only evidence is a column that used to
+// hold something.
+//
+// The projection is checked from the other end, because a note stored and never
+// selected is the same loss one statement later: both columns come back out of
+// the read and out of both paged lists.
+func TestAnswerInvitation_LeavesTheSendersNote(T *testing.T) {
+	T.Parallel()
+
+	const senderNoteColumn = "note"
+
+	projecting := []string{
+		"GetInvitation",
+		"ListInvitationsByFromUser", "ListInvitationsByFromUserDescending",
+		"ListInvitationsByToEmail", "ListInvitationsByToEmailDescending",
+	}
+
+	for _, d := range everyDialect {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			var answered, projected []string
+
+			for statement := range strings.SplitSeq(Render(d), "-- name: ") {
+				name, _, _ := strings.Cut(statement, " ")
+
+				switch {
+				case name == "AnswerInvitation":
+					test.StrContains(t, statement,
+						invitationStatusNoteColumn+" = sqlc.arg("+invitationStatusNoteColumn+")")
+
+					// The sender's column is not in the SET list. Anchored on
+					// the leading tab an assignment is rendered with, because
+					// status_note ends in note and the statement legitimately
+					// names the one it does assign.
+					test.StrNotContains(t, statement, "\n\t"+senderNoteColumn+" = sqlc.")
+
+					answered = append(answered, name)
+
+				case slices.Contains(projecting, name):
+					for _, column := range []string{senderNoteColumn, invitationStatusNoteColumn} {
+						test.StrContains(t, statement, InvitationsTable+"."+column,
+							test.Sprintf("statement %q", name))
+					}
+
+					projected = append(projected, name)
+				}
+			}
+
+			// Without these the loops above pass for a rendering that emits
+			// none of the statements, which is the failure they exist to catch.
+			test.SliceLen(t, 1, answered)
+			test.SliceLen(t, len(projecting), projected)
 		})
 	}
 }

@@ -15,7 +15,7 @@ import (
 
 const answerInvitationSQLite = `UPDATE {{prefix}}identity_invitations SET
 	status = ?1,
-	note = ?2,
+	status_note = ?2,
 	to_user = ?3,
 	last_updated_at = CURRENT_TIMESTAMP
 WHERE archived_at IS NULL
@@ -124,6 +124,7 @@ const createInvitationSQLite = `INSERT INTO {{prefix}}identity_invitations (
 	token,
 	status,
 	note,
+	status_note,
 	expires_at
 ) VALUES (
 	?1,
@@ -136,7 +137,8 @@ const createInvitationSQLite = `INSERT INTO {{prefix}}identity_invitations (
 	?8,
 	?9,
 	?10,
-	?11
+	?11,
+	?12
 )`
 
 const createUserSQLite = `
@@ -232,6 +234,7 @@ const getInvitationSQLite = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -852,6 +855,22 @@ WHERE {{prefix}}identity_accounts.created_at > COALESCE(?1, (SELECT datetime(CUR
 ORDER BY {{prefix}}identity_accounts.id DESC
 LIMIT COALESCE(?9, 50)`
 
+const listDefaultMembershipsForAccountSQLite = `SELECT
+	{{prefix}}identity_memberships.id,
+	{{prefix}}identity_memberships.scope,
+	{{prefix}}identity_memberships.belongs_to_user,
+	{{prefix}}identity_memberships.belongs_to_account,
+	{{prefix}}identity_memberships.default_account,
+	{{prefix}}identity_memberships.created_at,
+	{{prefix}}identity_memberships.last_updated_at,
+	{{prefix}}identity_memberships.archived_at
+FROM {{prefix}}identity_memberships
+WHERE {{prefix}}identity_memberships.archived_at IS NULL
+	AND {{prefix}}identity_memberships.scope = ?1
+	AND {{prefix}}identity_memberships.belongs_to_account = ?2
+	AND {{prefix}}identity_memberships.default_account = ?3
+ORDER BY {{prefix}}identity_memberships.belongs_to_user ASC`
+
 const listInvitationRolesByInvitationIDsSQLite = `SELECT
 	{{prefix}}identity_invitation_roles.invitation_id,
 	{{prefix}}identity_invitation_roles.role
@@ -870,6 +889,7 @@ const listInvitationsSQLite = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -924,6 +944,7 @@ const listInvitationsByFromUserSQLite = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -984,6 +1005,7 @@ const listInvitationsByFromUserDescendingSQLite = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -1044,6 +1066,7 @@ const listInvitationsByToEmailSQLite = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -1104,6 +1127,7 @@ const listInvitationsByToEmailDescendingSQLite = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -1164,6 +1188,7 @@ const listInvitationsDescendingSQLite = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -1653,6 +1678,7 @@ type sqliteQueries struct {
 	listAccountsDescending                   string
 	listAccountsForUser                      string
 	listAccountsForUserDescending            string
+	listDefaultMembershipsForAccount         string
 	listInvitationRolesByInvitationIDs       string
 	listInvitations                          string
 	listInvitationsByFromUser                string
@@ -1734,6 +1760,7 @@ func newSQLite(prefix string) *sqliteQueries {
 		listAccountsDescending:                   strings.ReplaceAll(listAccountsDescendingSQLite, prefixMarker, prefix),
 		listAccountsForUser:                      strings.ReplaceAll(listAccountsForUserSQLite, prefixMarker, prefix),
 		listAccountsForUserDescending:            strings.ReplaceAll(listAccountsForUserDescendingSQLite, prefixMarker, prefix),
+		listDefaultMembershipsForAccount:         strings.ReplaceAll(listDefaultMembershipsForAccountSQLite, prefixMarker, prefix),
 		listInvitationRolesByInvitationIDs:       strings.ReplaceAll(listInvitationRolesByInvitationIDsSQLite, prefixMarker, prefix),
 		listInvitations:                          strings.ReplaceAll(listInvitationsSQLite, prefixMarker, prefix),
 		listInvitationsByFromUser:                strings.ReplaceAll(listInvitationsByFromUserSQLite, prefixMarker, prefix),
@@ -1805,7 +1832,7 @@ func timeTextPtr(t *time.Time) any {
 func (q *sqliteQueries) AnswerInvitation(ctx context.Context, db DBTX, arg AnswerInvitationParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.answerInvitation,
 		arg.Status,
-		arg.Note,
+		arg.StatusNote,
 		arg.ToUser,
 		arg.ID,
 		arg.Scope,
@@ -1966,6 +1993,7 @@ func (q *sqliteQueries) CreateInvitation(ctx context.Context, db DBTX, arg Creat
 		arg.Token,
 		arg.Status,
 		arg.Note,
+		arg.StatusNote,
 		timeText(arg.ExpiresAt),
 	)
 
@@ -2115,6 +2143,7 @@ func (q *sqliteQueries) GetInvitation(ctx context.Context, db DBTX, arg GetInvit
 		&i.Token,
 		&i.Status,
 		&i.Note,
+		&i.StatusNote,
 		&i.ExpiresAt,
 		&i.CreatedAt,
 		&i.LastUpdatedAt,
@@ -2824,6 +2853,47 @@ func (q *sqliteQueries) ListAccountsForUserDescending(ctx context.Context, db DB
 	return items, nil
 }
 
+// ListDefaultMembershipsForAccount runs the :many query against sqlite.
+func (q *sqliteQueries) ListDefaultMembershipsForAccount(ctx context.Context, db DBTX, arg ListDefaultMembershipsForAccountParams) ([]ListDefaultMembershipsForAccountRow, error) {
+	rows, err := db.QueryContext(ctx, q.listDefaultMembershipsForAccount,
+		arg.Scope,
+		arg.BelongsToAccount,
+		arg.DefaultAccount,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var items []ListDefaultMembershipsForAccountRow
+
+	for rows.Next() {
+		var i ListDefaultMembershipsForAccountRow
+
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.BelongsToUser,
+			&i.BelongsToAccount,
+			&i.DefaultAccount,
+			&i.CreatedAt,
+			&i.LastUpdatedAt,
+			&i.ArchivedAt,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(items, i)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
 // ListInvitationRolesByInvitationIDs runs the :many query against sqlite.
 func (q *sqliteQueries) ListInvitationRolesByInvitationIDs(ctx context.Context, db DBTX, arg ListInvitationRolesByInvitationIDsParams) ([]ListInvitationRolesByInvitationIDsRow, error) {
 	query := q.listInvitationRolesByInvitationIDs
@@ -2899,6 +2969,7 @@ func (q *sqliteQueries) ListInvitations(ctx context.Context, db DBTX, arg ListIn
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -2955,6 +3026,7 @@ func (q *sqliteQueries) ListInvitationsByFromUser(ctx context.Context, db DBTX, 
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3011,6 +3083,7 @@ func (q *sqliteQueries) ListInvitationsByFromUserDescending(ctx context.Context,
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3067,6 +3140,7 @@ func (q *sqliteQueries) ListInvitationsByToEmail(ctx context.Context, db DBTX, a
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3123,6 +3197,7 @@ func (q *sqliteQueries) ListInvitationsByToEmailDescending(ctx context.Context, 
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3177,6 +3252,7 @@ func (q *sqliteQueries) ListInvitationsDescending(ctx context.Context, db DBTX, 
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3906,7 +3982,7 @@ func (q *sqliteQueries) UpsertMembership(ctx context.Context, db DBTX, arg Upser
 var (
 	_ = struct {
 		Status        string
-		Note          string
+		StatusNote    string
 		ToUser        *string
 		ID            string
 		Scope         tenancy.Scope
@@ -3980,6 +4056,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 	}(CreateInvitationParams{})
 	_ = struct {
@@ -4060,6 +4137,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4475,6 +4553,21 @@ var (
 		TotalCount                  int64
 	}(ListAccountsForUserDescendingRow{})
 	_ = struct {
+		Scope            tenancy.Scope
+		BelongsToAccount string
+		DefaultAccount   bool
+	}(ListDefaultMembershipsForAccountParams{})
+	_ = struct {
+		ID               string
+		Scope            tenancy.Scope
+		BelongsToUser    string
+		BelongsToAccount string
+		DefaultAccount   bool
+		CreatedAt        time.Time
+		LastUpdatedAt    *time.Time
+		ArchivedAt       *time.Time
+	}(ListDefaultMembershipsForAccountRow{})
+	_ = struct {
 		IDs []string
 	}(ListInvitationRolesByInvitationIDsParams{})
 	_ = struct {
@@ -4502,6 +4595,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4532,6 +4626,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4562,6 +4657,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4592,6 +4688,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4622,6 +4719,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4650,6 +4748,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time

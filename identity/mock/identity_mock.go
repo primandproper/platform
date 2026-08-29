@@ -23,7 +23,7 @@ var _ identity.Store = &StoreMock{}
 //
 //		// make and configure a mocked identity.Store
 //		mockedStore := &StoreMock{
-//			AcceptInvitationFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, invitationID string, token string, acceptingUserID string, note string) (*identity.Membership, error) {
+//			AcceptInvitationFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, invitationID string, token string, acceptingUserID string, statusNote string) (*identity.Membership, error) {
 //				panic("mock out the AcceptInvitation method")
 //			},
 //			ArchiveAccountFunc: func(ctx context.Context, scope tenancy.Scope, accountID string) error {
@@ -134,7 +134,7 @@ var _ identity.Store = &StoreMock{}
 //			SetDefaultAccountFunc: func(ctx context.Context, scope tenancy.Scope, userID string, accountID string) error {
 //				panic("mock out the SetDefaultAccount method")
 //			},
-//			SetInvitationStatusFunc: func(ctx context.Context, scope tenancy.Scope, invitationID string, status identity.InvitationStatus, note string) error {
+//			SetInvitationStatusFunc: func(ctx context.Context, scope tenancy.Scope, invitationID string, status identity.InvitationStatus, statusNote string) error {
 //				panic("mock out the SetInvitationStatus method")
 //			},
 //			SetMembershipRolesFunc: func(ctx context.Context, scope tenancy.Scope, userID string, accountID string, roles []string) error {
@@ -175,7 +175,7 @@ var _ identity.Store = &StoreMock{}
 //	}
 type StoreMock struct {
 	// AcceptInvitationFunc mocks the AcceptInvitation method.
-	AcceptInvitationFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, invitationID string, token string, acceptingUserID string, note string) (*identity.Membership, error)
+	AcceptInvitationFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, invitationID string, token string, acceptingUserID string, statusNote string) (*identity.Membership, error)
 
 	// ArchiveAccountFunc mocks the ArchiveAccount method.
 	ArchiveAccountFunc func(ctx context.Context, scope tenancy.Scope, accountID string) error
@@ -286,7 +286,7 @@ type StoreMock struct {
 	SetDefaultAccountFunc func(ctx context.Context, scope tenancy.Scope, userID string, accountID string) error
 
 	// SetInvitationStatusFunc mocks the SetInvitationStatus method.
-	SetInvitationStatusFunc func(ctx context.Context, scope tenancy.Scope, invitationID string, status identity.InvitationStatus, note string) error
+	SetInvitationStatusFunc func(ctx context.Context, scope tenancy.Scope, invitationID string, status identity.InvitationStatus, statusNote string) error
 
 	// SetMembershipRolesFunc mocks the SetMembershipRoles method.
 	SetMembershipRolesFunc func(ctx context.Context, scope tenancy.Scope, userID string, accountID string, roles []string) error
@@ -334,8 +334,8 @@ type StoreMock struct {
 			Token string
 			// AcceptingUserID is the acceptingUserID argument value.
 			AcceptingUserID string
-			// Note is the note argument value.
-			Note string
+			// StatusNote is the statusNote argument value.
+			StatusNote string
 		}
 		// ArchiveAccount holds details about calls to the ArchiveAccount method.
 		ArchiveAccount []struct {
@@ -705,8 +705,8 @@ type StoreMock struct {
 			InvitationID string
 			// Status is the status argument value.
 			Status identity.InvitationStatus
-			// Note is the note argument value.
-			Note string
+			// StatusNote is the statusNote argument value.
+			StatusNote string
 		}
 		// SetMembershipRoles holds details about calls to the SetMembershipRoles method.
 		SetMembershipRoles []struct {
@@ -866,7 +866,7 @@ type StoreMock struct {
 }
 
 // AcceptInvitation calls AcceptInvitationFunc.
-func (mock *StoreMock) AcceptInvitation(ctx context.Context, q database.Tx, scope tenancy.Scope, invitationID string, token string, acceptingUserID string, note string) (*identity.Membership, error) {
+func (mock *StoreMock) AcceptInvitation(ctx context.Context, q database.Tx, scope tenancy.Scope, invitationID string, token string, acceptingUserID string, statusNote string) (*identity.Membership, error) {
 	if mock.AcceptInvitationFunc == nil {
 		panic("StoreMock.AcceptInvitationFunc: method is nil but Store.AcceptInvitation was just called")
 	}
@@ -877,7 +877,7 @@ func (mock *StoreMock) AcceptInvitation(ctx context.Context, q database.Tx, scop
 		InvitationID    string
 		Token           string
 		AcceptingUserID string
-		Note            string
+		StatusNote      string
 	}{
 		Ctx:             ctx,
 		Q:               q,
@@ -885,12 +885,12 @@ func (mock *StoreMock) AcceptInvitation(ctx context.Context, q database.Tx, scop
 		InvitationID:    invitationID,
 		Token:           token,
 		AcceptingUserID: acceptingUserID,
-		Note:            note,
+		StatusNote:      statusNote,
 	}
 	mock.lockAcceptInvitation.Lock()
 	mock.calls.AcceptInvitation = append(mock.calls.AcceptInvitation, callInfo)
 	mock.lockAcceptInvitation.Unlock()
-	return mock.AcceptInvitationFunc(ctx, q, scope, invitationID, token, acceptingUserID, note)
+	return mock.AcceptInvitationFunc(ctx, q, scope, invitationID, token, acceptingUserID, statusNote)
 }
 
 // AcceptInvitationCalls gets all the calls that were made to AcceptInvitation.
@@ -904,7 +904,7 @@ func (mock *StoreMock) AcceptInvitationCalls() []struct {
 	InvitationID    string
 	Token           string
 	AcceptingUserID string
-	Note            string
+	StatusNote      string
 } {
 	var calls []struct {
 		Ctx             context.Context
@@ -913,7 +913,7 @@ func (mock *StoreMock) AcceptInvitationCalls() []struct {
 		InvitationID    string
 		Token           string
 		AcceptingUserID string
-		Note            string
+		StatusNote      string
 	}
 	mock.lockAcceptInvitation.RLock()
 	calls = mock.calls.AcceptInvitation
@@ -2430,7 +2430,7 @@ func (mock *StoreMock) SetDefaultAccountCalls() []struct {
 }
 
 // SetInvitationStatus calls SetInvitationStatusFunc.
-func (mock *StoreMock) SetInvitationStatus(ctx context.Context, scope tenancy.Scope, invitationID string, status identity.InvitationStatus, note string) error {
+func (mock *StoreMock) SetInvitationStatus(ctx context.Context, scope tenancy.Scope, invitationID string, status identity.InvitationStatus, statusNote string) error {
 	if mock.SetInvitationStatusFunc == nil {
 		panic("StoreMock.SetInvitationStatusFunc: method is nil but Store.SetInvitationStatus was just called")
 	}
@@ -2439,18 +2439,18 @@ func (mock *StoreMock) SetInvitationStatus(ctx context.Context, scope tenancy.Sc
 		Scope        tenancy.Scope
 		InvitationID string
 		Status       identity.InvitationStatus
-		Note         string
+		StatusNote   string
 	}{
 		Ctx:          ctx,
 		Scope:        scope,
 		InvitationID: invitationID,
 		Status:       status,
-		Note:         note,
+		StatusNote:   statusNote,
 	}
 	mock.lockSetInvitationStatus.Lock()
 	mock.calls.SetInvitationStatus = append(mock.calls.SetInvitationStatus, callInfo)
 	mock.lockSetInvitationStatus.Unlock()
-	return mock.SetInvitationStatusFunc(ctx, scope, invitationID, status, note)
+	return mock.SetInvitationStatusFunc(ctx, scope, invitationID, status, statusNote)
 }
 
 // SetInvitationStatusCalls gets all the calls that were made to SetInvitationStatus.
@@ -2462,14 +2462,14 @@ func (mock *StoreMock) SetInvitationStatusCalls() []struct {
 	Scope        tenancy.Scope
 	InvitationID string
 	Status       identity.InvitationStatus
-	Note         string
+	StatusNote   string
 } {
 	var calls []struct {
 		Ctx          context.Context
 		Scope        tenancy.Scope
 		InvitationID string
 		Status       identity.InvitationStatus
-		Note         string
+		StatusNote   string
 	}
 	mock.lockSetInvitationStatus.RLock()
 	calls = mock.calls.SetInvitationStatus

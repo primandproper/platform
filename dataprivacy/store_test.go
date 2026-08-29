@@ -27,6 +27,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 	suiteSaveAndGet(t, env)
 	suiteTransition(t, env)
 	suiteCompletion(t, env)
+	suiteArtifactExpiry(t, env)
 	suiteFail(t, env)
 	suiteSweeps(t, env)
 	suiteList(t, env)
@@ -230,6 +231,193 @@ func suiteCompletion(t *testing.T, env *storeEnv) {
 	})
 }
 
+// suiteArtifactExpiry proves the store cannot record an artifact no sweep will
+// visit.
+//
+// The two sweeps divide the table by the artifact reference — the expiry sweep
+// takes the completed rows that name one, the reap takes the rows that name
+// none — and the expiry sweep also requires a deadline. A row naming an artifact
+// with no deadline therefore falls between them and keeps a packaged copy of
+// everything held about somebody forever. That is unreachable through this
+// package's own fulfiller, which always sets a TTL, and entirely reachable
+// through the exported Store the package invites consumers to call.
+func suiteArtifactExpiry(t *testing.T, env *storeEnv) {
+	t.Helper()
+
+	t.Run("a completion naming an artifact with no expiry is refused", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		req := saveRequest(t, store, newRequest(identifiers.New(), RequestExport, testSubject, baseTime))
+		req.ArtifactRef = "unexpiring.json"
+
+		err := store.WithTransaction(t.Context(), func(q database.Tx) error {
+			return store.CompleteExport(t.Context(), q, req, baseTime)
+		})
+		test.ErrorIs(t, err, ErrUnexpiringArtifact)
+
+		// Refused before the statement rather than after it: the row is
+		// untouched, so the caller may set a TTL and complete it properly.
+		read, err := store.Get(t.Context(), req.ID)
+		must.NoError(t, err)
+		test.EqOp(t, StatusInProgress, read.Status)
+		test.EqOp(t, "", read.ArtifactRef)
+	})
+
+	t.Run("an insert naming an artifact with no expiry is refused", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		completedAt := baseTime.Add(time.Hour)
+
+		req := newRequest(identifiers.New(), RequestExport, testSubject, baseTime)
+		req.Status = StatusCompleted
+		req.CompletedAt = &completedAt
+		req.ArtifactRef = "unexpiring.json"
+
+		// Insert is the second way to write the column, and a consumer restoring
+		// history through it would otherwise plant the same stranded row.
+		err := store.WithTransaction(t.Context(), func(q database.Tx) error {
+			return store.Save(t.Context(), q, req)
+		})
+		test.ErrorIs(t, err, ErrUnexpiringArtifact)
+
+		_, err = store.Get(t.Context(), req.ID)
+		test.True(t, errors.Is(err, ErrRequestNotFound))
+	})
+
+	t.Run("a completion with no artifact is unaffected", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		// An erasure has no artifact and legitimately no expiry — the column
+		// held its confirmation window, and CompleteErasure clears it. The guard
+		// is about references, not about deadlines.
+		req := saveRequest(t, store, newRequest(identifiers.New(), RequestErasure, testSubject, baseTime))
+
+		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
+			return store.CompleteErasure(t.Context(), q, req, baseTime)
+		}))
+
+		read, err := store.Get(t.Context(), req.ID)
+		must.NoError(t, err)
+		test.EqOp(t, StatusCompleted, read.Status)
+		test.True(t, read.ExpiresAt.IsZero())
+	})
+
+	t.Run("every terminal row a write path accepts is visited by a sweep", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		expiry := baseTime.Add(time.Minute)
+		horizon := baseTime.Add(time.Hour)
+
+		// Both statements that write artifact_ref, against both values of each
+		// of the two columns that decide which sweep sees the row. Enumerated
+		// rather than asserted one shape at a time, because the finding was a
+		// combination nobody wrote down: the guard has to hold for the corpus,
+		// not for the cases somebody thought to check.
+		var accepted []string
+
+		for _, write := range []func(*testing.T, Store, string, string, time.Time) bool{
+			insertTerminalRequest,
+			completeTerminalRequest,
+		} {
+			for _, ref := range []string{"", "artifact.json"} {
+				for _, expires := range []time.Time{{}, expiry} {
+					id := identifiers.New()
+
+					if write(t, store, id, ref, expires) {
+						accepted = append(accepted, id)
+					}
+				}
+			}
+		}
+
+		// Six of the eight: each path refuses the reference with no expiry, and
+		// that refusal is the only thing standing between this table and a row
+		// neither sweep below will ever return.
+		test.SliceLen(t, 6, accepted)
+
+		swept, err := store.ExpiringArtifacts(t.Context(), horizon, len(accepted)+1)
+		must.NoError(t, err)
+
+		reaped, err := store.Reap(t.Context(), horizon, len(accepted)+1)
+		must.NoError(t, err)
+
+		// The two sets are disjoint by predicate — one wants a reference, the
+		// other wants none — so covering the corpus means their sizes add up to
+		// it. Every row that got past the guard with a reference and no expiry
+		// would be in neither, and this sum would fall short by that many.
+		test.EqOp(t, len(accepted), len(swept)+int(reaped))
+	})
+}
+
+// insertTerminalRequest writes a terminal export through the insert, the way a
+// consumer migrating its own history into this table would, and reports whether
+// the store took it.
+func insertTerminalRequest(t *testing.T, store Store, id, ref string, expires time.Time) bool {
+	t.Helper()
+
+	completedAt := baseTime
+
+	req := newRequest(id, RequestExport, testSubject, baseTime)
+	req.Status = StatusCompleted
+	req.CompletedAt = &completedAt
+	req.ArtifactRef = ref
+	req.ExpiresAt = expires
+
+	return acceptedWrite(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
+		return store.Save(t.Context(), q, req)
+	}))
+}
+
+// completeTerminalRequest writes a terminal export through the guarded
+// completion, which is the path the fulfiller takes, and reports whether the
+// store took it.
+//
+// The insert and the completion share one transaction, so a refused completion
+// rolls its own row back and a declined shape leaves nothing behind either way.
+func completeTerminalRequest(t *testing.T, store Store, id, ref string, expires time.Time) bool {
+	t.Helper()
+
+	req := newRequest(id, RequestExport, testSubject, baseTime)
+	req.ExpiresAt = expires
+
+	return acceptedWrite(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
+		if err := store.Save(t.Context(), q, req); err != nil {
+			return err
+		}
+
+		req.ArtifactRef = ref
+
+		return store.CompleteExport(t.Context(), q, req, baseTime)
+	}))
+}
+
+// acceptedWrite reports whether a corpus write was stored.
+//
+// A refusal is a pass rather than a failure — the property is that every row
+// the store accepts is sweepable, and declining to store an unsweepable one
+// satisfies it. The refusal has to be the guard, though: any other error would
+// let a write that failed for an unrelated reason pass for a refused one, and
+// the corpus would go on adding up.
+func acceptedWrite(t *testing.T, err error) bool {
+	t.Helper()
+
+	if err != nil {
+		test.ErrorIs(t, err, ErrUnexpiringArtifact)
+
+		return false
+	}
+
+	return true
+}
+
 func suiteFail(t *testing.T, env *storeEnv) {
 	t.Helper()
 
@@ -401,6 +589,7 @@ func suiteSweeps(t *testing.T, env *storeEnv) {
 		withArtifact := newRequest(identifiers.New(), RequestExport, testSubject, completedAt)
 		withArtifact.Status = StatusCompleted
 		withArtifact.ArtifactRef = "still-there.json"
+		withArtifact.ExpiresAt = baseTime.Add(time.Hour)
 		withArtifact.CompletedAt = &completedAt
 		saveRequest(t, store, withArtifact)
 
