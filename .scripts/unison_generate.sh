@@ -66,6 +66,7 @@ COMPONENTS=(
   "uploads/registry postgres mysql sqlite"
   "webhooks postgres mysql sqlite"
   "operations postgres"
+  "timers postgres"
 )
 
 for component in "${COMPONENTS[@]}"; do
