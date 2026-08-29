@@ -236,6 +236,18 @@ func TestBackend_DeleteAllHeld(T *testing.T) {
 	})
 }
 
+// TestAttribution_OverlongMetadata is the SQLite half of the width guarantee:
+// the four device columns hold whatever a client said about itself, and nothing
+// in the write path shortens it. The container suite makes the same assertion
+// against a real Postgres and a real MySQL, which is where a narrowed column
+// would show.
+func TestAttribution_OverlongMetadata(T *testing.T) {
+	T.Parallel()
+
+	backend, c := newTestBackend(T)
+	assertOverlongMetadataRoundTrips(T, backend, c, heldHolder(), "s_long")
+}
+
 // TestAttribution_SurvivesEveryWrite is the row-level half of "a session does
 // not change hands": the two writes a live session takes must leave the holder
 // and the metadata exactly as the create wrote them.

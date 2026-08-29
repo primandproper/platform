@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/primandproper/platform-go/v13/sessions/database/migrations"
 	"github.com/primandproper/platform-go/v13/tenancy"
 
+	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
 
@@ -131,6 +133,53 @@ func newTestBackend(t *testing.T, opts ...Option) (*Backend[principal], *fakeClo
 // Store.New writes.
 func testRecord(c *fakeClock, userID string) *sessions.Record[principal] {
 	return testHeldRecord(c, sessions.Holder{Scope: tenancy.Global()}, sessions.Metadata{}, userID)
+}
+
+// overlongMetadata is a client's self-description at a width no VARCHAR in this
+// module's DDL would hold — 300 characters, past the 255 the indexed columns
+// declare. A device name is a user agent as often as not, and user agents run
+// past 255 characters in the wild.
+func overlongMetadata() sessions.Metadata {
+	return sessions.Metadata{
+		DeviceName:  strings.Repeat("d", 300),
+		IPAddress:   strings.Repeat("i", 300),
+		UserAgent:   strings.Repeat("u", 300),
+		LoginMethod: strings.Repeat("m", 300),
+	}
+}
+
+// assertOverlongMetadataRoundTrips writes a record whose four device columns are
+// all past any VARCHAR width and reads it back through both paths that return
+// metadata.
+//
+// It is the one assertion every dialect makes, because the failure it guards is
+// a disagreement between them: MySQL's create statement is INSERT IGNORE, whose
+// IGNORE downgrades a truncation error to a warning, so a narrow column there
+// would cut the value and say nothing while Postgres and SQLite stored it whole.
+// The holder is the caller's so that a suite sharing one table can keep this
+// record away from its neighbors.
+func assertOverlongMetadataRoundTrips(
+	t *testing.T,
+	backend *Backend[principal],
+	c *fakeClock,
+	holder sessions.Holder,
+	id string,
+) {
+	t.Helper()
+
+	ctx := t.Context()
+	want := overlongMetadata()
+
+	must.NoError(t, backend.Create(ctx, id, testHeldRecord(c, holder, want, "u_long"), time.Hour))
+
+	loaded, err := backend.Load(ctx, id)
+	must.NoError(t, err)
+	test.EqOp(t, want, loaded.Metadata)
+
+	held, err := backend.ListHeld(ctx, holder)
+	must.NoError(t, err)
+	must.SliceLen(t, 1, held)
+	test.EqOp(t, want, held[0].Record.Metadata)
 }
 
 // testHeldRecord is the same record attributed to somebody.
