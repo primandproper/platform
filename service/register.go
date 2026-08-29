@@ -20,11 +20,13 @@ import (
 	eventstreamcfg "github.com/primandproper/platform-go/v13/eventstream/config"
 	featureflagscfg "github.com/primandproper/platform-go/v13/featureflags/config"
 	"github.com/primandproper/platform-go/v13/httpclient"
+	identitycfg "github.com/primandproper/platform-go/v13/identity/config"
 	jobscfg "github.com/primandproper/platform-go/v13/jobs/config"
 	llmcfg "github.com/primandproper/platform-go/v13/llm/config"
 	messagequeuecfg "github.com/primandproper/platform-go/v13/messagequeue/config"
 	meteringcfg "github.com/primandproper/platform-go/v13/metering/config"
 	asyncnotifcfg "github.com/primandproper/platform-go/v13/notifications/async/config"
+	notificationscfg "github.com/primandproper/platform-go/v13/notifications/config"
 	mobilenotifcfg "github.com/primandproper/platform-go/v13/notifications/mobile/config"
 	"github.com/primandproper/platform-go/v13/observability"
 	loggingcfg "github.com/primandproper/platform-go/v13/observability/logging/config"
@@ -34,12 +36,14 @@ import (
 	operationscfg "github.com/primandproper/platform-go/v13/operations/config"
 	outboxcfg "github.com/primandproper/platform-go/v13/outbox/config"
 	ratelimitingcfg "github.com/primandproper/platform-go/v13/ratelimiting/config"
+	retentioncfg "github.com/primandproper/platform-go/v13/retention/config"
 	retrycfg "github.com/primandproper/platform-go/v13/retry/config"
 	routingcfg "github.com/primandproper/platform-go/v13/routing/config"
 	sagacfg "github.com/primandproper/platform-go/v13/saga/config"
 	secretscfg "github.com/primandproper/platform-go/v13/secrets/config"
 	grpcserver "github.com/primandproper/platform-go/v13/server/grpc"
 	httpserver "github.com/primandproper/platform-go/v13/server/http"
+	settingscfg "github.com/primandproper/platform-go/v13/settings/config"
 	uploadscfg "github.com/primandproper/platform-go/v13/uploads/config"
 	"github.com/primandproper/platform-go/v13/uploads/objectstorage"
 	webhookscfg "github.com/primandproper/platform-go/v13/webhooks/config"
@@ -219,6 +223,11 @@ func registerPlatformServices(i do.Injector, cfg *Config) {
 		featureflagscfg.RegisterFeatureFlagManager(i)
 	}
 
+	if cfg.Identity != nil {
+		do.ProvideValue(i, cfg.Identity)
+		identitycfg.RegisterStore(i)
+	}
+
 	if cfg.LLM != nil {
 		do.ProvideValue(i, cfg.LLM)
 		llmcfg.RegisterLLMProvider(i)
@@ -229,10 +238,27 @@ func registerPlatformServices(i do.Injector, cfg *Config) {
 		asyncnotifcfg.RegisterAsyncNotifier(i)
 	}
 
+	// Before the push sender, because the two are the ends of one loop. The
+	// store registers a notifications.Registry, RegisterPushSender resolves one
+	// optionally, and a sender that finds it deletes the device row a provider
+	// has told it is dead instead of addressing the same handset tomorrow. The
+	// ordering is documentation rather than mechanism — do resolves lazily, so
+	// the loop closes whichever of the two is registered second — but the two
+	// belong next to each other for the same reason they close it.
+	if cfg.Notifications != nil {
+		do.ProvideValue(i, cfg.Notifications)
+		notificationscfg.RegisterStore(i)
+	}
+
 	// The push sender resolves its config by value, not by pointer.
 	if cfg.MobileNotifications != nil {
 		do.ProvideValue(i, *cfg.MobileNotifications)
 		mobilenotifcfg.RegisterPushSender(i)
+	}
+
+	if cfg.Settings != nil {
+		do.ProvideValue(i, cfg.Settings)
+		settingscfg.RegisterStore(i)
 	}
 
 	if cfg.Tokens != nil {
@@ -298,6 +324,18 @@ func registerDurableWorkflows(i do.Injector, cfg *Config) {
 		do.ProvideValue(i, cfg.Outbox)
 		outboxcfg.RegisterWriter(i)
 		outboxcfg.RegisterRelay(i)
+	}
+
+	// The sweeper is no Runner and gets no place in Service's shutdown order,
+	// because it is not a loop: it is a retention.Policy set swept by a
+	// jobs.Job the application schedules, the same shape the audit log's own
+	// pruning takes. What this walk registers is the sweeper; which policies it
+	// enforces is the []retention.Policy the application registers, since what
+	// a deployment is allowed to keep and for how long is not a platform
+	// decision.
+	if cfg.Retention != nil {
+		do.ProvideValue(i, cfg.Retention)
+		retentioncfg.RegisterSweeper(i)
 	}
 
 	if cfg.Saga != nil {
