@@ -476,7 +476,7 @@ func TestSweeper_audit(T *testing.T) {
 		must.NoError(t, err)
 
 		result, err := reader.List(t.Context(),
-			&audit.Query{ResourceTypes: []string{AuditResourceType}},
+			&audit.Query{ResourceType: AuditResourceType},
 			filtering.DefaultQueryFilter(),
 		)
 		must.NoError(t, err)

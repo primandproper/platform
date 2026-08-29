@@ -124,12 +124,27 @@ retention.Policy itself permits a zero age.
 # Reading it
 
 Reader.List pages with filtering.QueryFilter, so the cursor, limit, and time
-window an HTTP caller already knows how to send work here unchanged. Query
-selects by scope, actor, resource, and event type. Note that Query.Scope is a
+window an HTTP caller already knows how to send work here unchanged — the window
+maps onto recorded_at, which is when the event happened. Query selects by scope,
+actor, resource, and event type, one value each. Note that Query.Scope is a
 pointer: the empty string is a real scope — the one platform-level events belong
 to — so a plain string could not distinguish "only platform events" from "every
 tenant's events", and in a multi-tenant read path that distinction is a
 disclosure rather than a wrong answer.
+
+# Where the SQL comes from
+
+Every statement this package executes is rendered by audit/internal/queries into
+a committed .sql per dialect, checked there by sqlc against the DDL
+audit/migrations renders, and run through the querier sqlc-gen-unison generates
+from it. Nothing here composes a query. A column renamed in a migration is a
+failed `make unison` on every dialect rather than a scan error at run time, and
+the projection a read lists and the fields a conversion reads are one generated
+struct rather than two lists somebody keeps in step by eye.
+
+That corpus also holds the three statements dataprivacy/auditerasure runs, since
+that package owns no table of its own; Erasure is the seam it reaches them
+through.
 
 # Creating the tables
 
@@ -174,3 +189,5 @@ those hold exactly what Redaction exists to keep out of durable storage, and a
 span exporter is durable storage.
 */
 package audit
+
+//go:generate go run ./internal/queriesgen

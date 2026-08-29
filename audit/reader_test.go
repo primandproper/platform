@@ -137,12 +137,12 @@ func TestReader_List(T *testing.T) {
 		must.SliceLen(t, 1, listed.Data)
 		test.EqOp(t, theirs.ID, listed.Data[0].ID)
 
-		listed, err = reader.List(t.Context(), &Query{EventTypes: []EventType{EventDeleted}}, nil)
+		listed, err = reader.List(t.Context(), &Query{EventType: EventDeleted}, nil)
 		must.NoError(t, err)
 		must.SliceLen(t, 1, listed.Data)
 		test.EqOp(t, deletion.ID, listed.Data[0].ID)
 
-		listed, err = reader.List(t.Context(), &Query{ResourceTypes: []string{"recipe"}, ResourceID: "recipe_1"}, nil)
+		listed, err = reader.List(t.Context(), &Query{ResourceType: "recipe", ResourceID: "recipe_1"}, nil)
 		must.NoError(t, err)
 		must.SliceLen(t, 1, listed.Data)
 		test.EqOp(t, mine.ID, listed.Data[0].ID)
@@ -178,6 +178,55 @@ func TestReader_List(T *testing.T) {
 		listed, err = reader.List(t.Context(), &Query{}, nil)
 		must.NoError(t, err)
 		test.SliceLen(t, 2, listed.Data)
+	})
+
+	T.Run("carries both counts on the page it read them from", func(t *testing.T) {
+		t.Parallel()
+
+		client := newTestClient(t)
+		c := newStubClock()
+		recorder := newTestRecorder(t, c)
+		reader := newTestReader(t, client)
+
+		record(t, client, recorder, entryFor("acct_1", "r1"))
+		c.advance(48 * time.Hour)
+		record(t, client, recorder, entryFor("acct_1", "r2"), entryFor("acct_1", "r3"))
+
+		filter := filtering.DefaultQueryFilter()
+		filter.CreatedAfter = pointer.To(c.Now().Add(-time.Hour))
+
+		listed, err := reader.List(t.Context(), &Query{Scope: pointer.To("acct_1")}, filter)
+		must.NoError(t, err)
+
+		filtered, total, known := listed.Counts()
+		must.True(t, known)
+
+		// The window narrows the page and the count of what it matched; the
+		// total is of the rows there were to filter, so it does not move.
+		test.SliceLen(t, 2, listed.Data)
+		test.EqOp(t, uint64(2), filtered)
+		test.EqOp(t, uint64(3), total)
+	})
+
+	T.Run("reports counts as unknown when nothing matched", func(t *testing.T) {
+		t.Parallel()
+
+		client := newTestClient(t)
+		recorder := newTestRecorder(t, newStubClock())
+		reader := newTestReader(t, client)
+
+		record(t, client, recorder, entryFor("acct_1", "r1"))
+
+		// The counts ride on the rows, so a page with no rows has none to read
+		// them off — and a zero reported there is indistinguishable from "no
+		// rows match", which is the ambiguity CountsKnown exists to remove.
+		listed, err := reader.List(t.Context(), &Query{Scope: pointer.To("acct_9")}, nil)
+		must.NoError(t, err)
+
+		test.SliceEmpty(t, listed.Data)
+
+		_, _, known := listed.Counts()
+		test.False(t, known)
 	})
 
 	T.Run("pages with a cursor", func(t *testing.T) {
@@ -391,8 +440,10 @@ func TestReader_Verify(T *testing.T) {
 		record(t, client, recorder, entryFor("acct_1", "r3"))
 
 		// The window excludes the first entry, so the walk has to fetch it to
-		// anchor the second — and still verifies cleanly.
-		result, err := reader.Verify(t.Context(), "acct_1", middle.RecordedAt, time.Time{})
+		// anchor the second — and still verifies cleanly. The lower bound is
+		// exclusive, like the filter window a List takes, so it is set just
+		// short of the entry it means to admit.
+		result, err := reader.Verify(t.Context(), "acct_1", middle.RecordedAt.Add(-time.Second), time.Time{})
 		must.NoError(t, err)
 		test.True(t, result.Intact())
 		test.EqOp(t, 2, result.Checked)

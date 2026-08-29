@@ -69,6 +69,7 @@ var rulings = map[string]ruling{
 	"webhooks/internal/webhooksdb":                                 {tier: unison},
 	"cryptography/shredding/internal/shreddingdb":                  {tier: unison},
 	"authentication/webauthn/database/internal/webauthndb":         {tier: unison},
+	"audit/internal/auditdb":                                       {tier: unison},
 	"authorization/database/internal/authorizationdb":              {tier: unison},
 	"settings/internal/settingsdb":                                 {tier: unison},
 	"uploads/registry/internal/registrydb":                         {tier: unison},
@@ -81,9 +82,7 @@ var rulings = map[string]ruling{
 	// Still composing SQL in Go. Each of these is a tracked port onto the
 	// corpus; nothing about the list is a decision, which is why none of them
 	// carries a reason.
-	"audit":                        {tier: porting},
 	"authentication/passwordreset": {tier: porting},
-	"dataprivacy/auditerasure":     {tier: porting},
 	"workqueue":                    {tier: porting},
 
 	// Not table SQL. The corpus is a set of statements checked against a schema
@@ -93,6 +92,7 @@ var rulings = map[string]ruling{
 	"database/migrate":              {tier: exempt, why: "asks a connection which schema it resolves to; goose owns the bookkeeping table and ships its DDL"},
 	"database/mysql/tableaccess":    {tier: exempt, why: "DCL and catalog introspection: sqlc has no spelling for CREATE USER or GRANT, and information_schema is not in any schema this module ships"},
 	"database/postgres/tableaccess": {tier: exempt, why: "DCL and catalog introspection: sqlc has no spelling for CREATE USER or GRANT, and pg_roles is not in any schema this module ships"},
+	"audit/internal/queries":        {tier: exempt, why: "a corpus source rather than a store: the statements here are rendered into the committed .sql that sqlc checks and unison emits from, and they cover dataprivacy/auditerasure's three as well, since that package owns no table of its own"},
 	"webhooks/internal/queries":     {tier: exempt, why: "a corpus source rather than a store: the statements here are rendered into the committed .sql that sqlc checks and unison emits from, and the eleven this package writes out in full are the shapes database/querygen's doc rules out of it"},
 	"database/querygen":             {tier: exempt, why: "the generator: its SQL literals are the statements a corpus is rendered from, not statements it executes"},
 	"saga/internal/queries":         {tier: exempt, why: "a corpus source on database/querygen's own terms: the statements it holds are rendered into saga's canonical .sql and executed from the generated package, never from here"},
@@ -107,12 +107,14 @@ var rulings = map[string]ruling{
 
 	// Ruled on for holding no SQL. Recorded rather than left absent, so a
 	// statement appearing here later is a failing test rather than a silence.
-	"authorization/database": {tier: none, why: "the resolver whose thirteen fmt.Sprintf builders a survey counted as zero: its statements are rendered by authorization/database/internal/queries and executed through the querier above, so the package that used to compose them holds none"},
-	"filtering":              {tier: none, why: "supplies the argument names a rendered statement binds and the conversions that bind them; the keyword a survey counted is a word in a comment"},
-	"identity":               {tier: none, why: "the store the tier was built for, and the first to finish: its statements are rendered by identity/internal/queries and executed through the querier above, so the package that used to compose them holds none"},
-	"metering":               {tier: none, why: "the twelve builders that composed its SQL as Go strings are gone: its statements are rendered by metering/internal/queries and executed through the querier above, so the package that used to compose them holds none"},
-	"outbox":                 {tier: none, why: "ported: its statements are rendered by outbox/internal/queries and executed through the querier above, and the one line of SQL it still names is database/dialect's NOTIFY, which is addressed to a channel rather than to a table"},
-	"timers":                 {tier: none, why: "ported: its statements are rendered by timers/internal/queries and executed through the querier above, and the one line of SQL it still names is database/dialect's NOTIFY, which is addressed to a channel rather than to a table"},
+	"authorization/database":   {tier: none, why: "the resolver whose thirteen fmt.Sprintf builders a survey counted as zero: its statements are rendered by authorization/database/internal/queries and executed through the querier above, so the package that used to compose them holds none"},
+	"filtering":                {tier: none, why: "supplies the argument names a rendered statement binds and the conversions that bind them; the keyword a survey counted is a word in a comment"},
+	"audit":                    {tier: none, why: "the hash-chained log, whose sixteen builders are rendered by audit/internal/queries and executed through the querier above; the recorder, the reader, the prune target and the erasure seam compose none"},
+	"dataprivacy/auditerasure": {tier: none, why: "it owns no table, so it owns no corpus: its two deletes and its count address audit's schema and are rendered into audit's .sql, reached through audit.Erasure"},
+	"identity":                 {tier: none, why: "the store the tier was built for, and the first to finish: its statements are rendered by identity/internal/queries and executed through the querier above, so the package that used to compose them holds none"},
+	"metering":                 {tier: none, why: "the twelve builders that composed its SQL as Go strings are gone: its statements are rendered by metering/internal/queries and executed through the querier above, so the package that used to compose them holds none"},
+	"outbox":                   {tier: none, why: "ported: its statements are rendered by outbox/internal/queries and executed through the querier above, and the one line of SQL it still names is database/dialect's NOTIFY, which is addressed to a channel rather than to a table"},
+	"timers":                   {tier: none, why: "ported: its statements are rendered by timers/internal/queries and executed through the querier above, and the one line of SQL it still names is database/dialect's NOTIFY, which is addressed to a channel rather than to a table"},
 }
 
 // TestEverySQLPackageIsClassified is the entry this file exists to make

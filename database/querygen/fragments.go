@@ -68,6 +68,67 @@ func (g *Generator) SetCondition(column, argument string) string {
 	return g.setPredicate(column, argument)
 }
 
+// MatchConditions renders the predicates a set of [Match] values makes,
+// table-qualified, for a statement a consumer writes out rather than one this
+// package renders.
+//
+// It is the same rendering every keyed statement here gets its predicates from,
+// exported for [Generator.FilterConditions]'s reason: an authored statement
+// narrowed the way a generated one is narrowed must not spell the narrowing a
+// second time. Two of the comparands are dialect facts rather than shapes —
+// [OptionalNarrowing]'s NULL arm carries a cast whose spelling differs on all
+// three engines, and [CurrentTime] asks for the clock in the units a statement
+// stores it in — so a consumer writing those out by hand would be writing down
+// what Generator.unsetArgument and Generator.storedNow already say, in a place
+// nothing checks against them.
+//
+// The predicates are qualified because the statements that take them are reads:
+// a list carries its predicates in the SELECT and again in each count subquery
+// beside it, where an unqualified column is ambiguous. An authored UPDATE or
+// DELETE wants the unqualified form, which is what the shapes that render one
+// already emit.
+func (g *Generator) MatchConditions(table string, matches ...Match) []string {
+	mustIdentifier("table name", table)
+
+	return g.matchPredicates(table, true, matches)
+}
+
+// WindowConditions renders both halves of the filter window over a column that
+// is not the convention's own created_at: the rows recorded after the lower
+// bound and before the upper one, with an absent bound admitting everything.
+//
+// [Generator.FilterConditions] derives the window from the column list, which
+// is right for a table following the convention and silent for one that does
+// not. A table whose "when did this happen" column is its own — an audit
+// entry's recorded_at, which is the caller's fact rather than the row's
+// creation time, and which a hash covers — gets no window from that derivation
+// and still owes its reader one.
+//
+// So this renders the same predicate pair against a column the caller names,
+// and the reason it is here rather than in that caller is the sentinel: an
+// absent bound coalesces to a timestamp 999 years away rather than dropping the
+// predicate, so that every subset of the two bounds is one statement, and the
+// arithmetic producing that timestamp is spelled three ways — see
+// Generator.timeHorizon, which is the whole of the reasoning.
+//
+// The argument names are the caller's because the window's meaning is. A
+// filtering.QueryFilter binds [CreatedAfterArg] and [CreatedBeforeArg] whatever
+// column they land on, so a paged read over such a table names those; a range a
+// method takes as two parameters of its own is not that filter, and names
+// something its reader recognizes.
+//
+// column is rendered as given, so a caller qualifies it the way the statement
+// it lands in needs — see [Qualify].
+func (g *Generator) WindowConditions(column, afterArg, beforeArg string) []string {
+	mustIdentifier("window after argument", afterArg)
+	mustIdentifier("window before argument", beforeArg)
+
+	return []string{
+		g.boundPredicate(column, ">", afterArg),
+		g.boundPredicate(column, "<", beforeArg),
+	}
+}
+
 // ContainsCondition renders a case-insensitive substring match of column against
 // a bound argument, for a search query's own WHERE predicate.
 //

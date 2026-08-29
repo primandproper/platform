@@ -197,22 +197,6 @@ func TestReader_PropagatesFailures(T *testing.T) {
 		test.ErrorIs(t, err, errDatabase)
 	})
 
-	T.Run("List reports a count that fails after the page succeeded", func(t *testing.T) {
-		t.Parallel()
-
-		// The page read goes through, the total does not: a partial answer must
-		// not be returned as if it were whole.
-		client := newTestClient(t)
-		recorder := newTestRecorder(t, newStubClock())
-		record(t, client, recorder, entryFor("acct_1", "recipe_1"))
-
-		reader, err := NewReader(&countFailingClient{Client: client})
-		must.NoError(t, err)
-
-		_, err = reader.List(t.Context(), nil, nil)
-		test.Error(t, err)
-	})
-
 	T.Run("Verify", func(t *testing.T) {
 		t.Parallel()
 
@@ -262,27 +246,9 @@ func TestReader_PropagatesFailures(T *testing.T) {
 		reader, err := NewReader(&rowFailingClient{Client: client, remaining: &remaining})
 		must.NoError(t, err)
 
-		_, err = reader.Verify(t.Context(), "acct_1", second.RecordedAt, time.Time{})
+		_, err = reader.Verify(t.Context(), "acct_1", second.RecordedAt.Add(-time.Second), time.Time{})
 		test.Error(t, err)
 	})
-}
-
-// countFailingClient serves the page read from a real database and fails the
-// count that follows it.
-type countFailingClient struct {
-	database.Client
-}
-
-func (c *countFailingClient) Reader() database.SQLQueryExecutor {
-	return &countFailingExecutor{SQLQueryExecutor: c.Client.Reader()}
-}
-
-type countFailingExecutor struct {
-	database.SQLQueryExecutor
-}
-
-func (e *countFailingExecutor) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
-	return e.SQLQueryExecutor.QueryRowContext(ctx, "SELECT nonexistent_column", args...)
 }
 
 // rowFailingClient serves the first failAfter single-row reads normally and
@@ -315,23 +281,8 @@ func (e *rowFailingExecutor) QueryRowContext(ctx context.Context, query string, 
 	return e.SQLQueryExecutor.QueryRowContext(ctx, "SELECT nonexistent_column", args...)
 }
 
-func TestScanRows_ReportsIterationFailure(T *testing.T) {
+func TestRows_ReportUndecodableBlobs(T *testing.T) {
 	T.Parallel()
-
-	T.Run("surfaces an error from the scan callback", func(t *testing.T) {
-		t.Parallel()
-
-		client := newTestClient(T)
-		recorder := newTestRecorder(T, newStubClock())
-		record(T, client, recorder, entryFor("acct_1", "recipe_1"))
-
-		rows, err := client.Reader().QueryContext(t.Context(),
-			"SELECT id FROM "+"audit_log_entries")
-		must.NoError(t, err)
-
-		boom := platformerrors.New("callback failed")
-		test.ErrorIs(t, scanRows(rows, func() error { return boom }), boom)
-	})
 
 	T.Run("surfaces a row that cannot be scanned into an entry", func(t *testing.T) {
 		t.Parallel()

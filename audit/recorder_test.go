@@ -200,20 +200,34 @@ func TestRecorder_Record(T *testing.T) {
 		}
 	})
 
-	T.Run("truncates the timestamp to microseconds", func(t *testing.T) {
+	T.Run("truncates the timestamp to what the dialect stores", func(t *testing.T) {
 		t.Parallel()
 
 		client := newTestClient(t)
 		r := newTestRecorder(t, newStubClock())
+		reader := newTestReader(t, client)
 
 		entry := entryFor("acct_1", "recipe_1")
 		entry.RecordedAt = time.Date(2026, time.July, 31, 12, 0, 0, 123456789, time.UTC)
 
 		record(t, client, r, entry)
 
-		// Nanoseconds do not survive Postgres or MySQL, and a timestamp that
-		// changed on the way back out would make every entry read as tampered.
-		test.EqOp(t, 123456000, entry.RecordedAt.Nanosecond())
+		// SQLite stores a timestamp as text in the shape its own
+		// CURRENT_TIMESTAMP writes, which is whole seconds; Postgres and MySQL
+		// keep microseconds. Either way what the caller is handed back is what
+		// was hashed, because the truncation happens before the digest.
+		test.EqOp(t, 0, entry.RecordedAt.Nanosecond())
+
+		// And the round trip is exact, which is the whole reason the truncation
+		// is there: a value that changed on the way back out would make every
+		// entry in the table read as tampered.
+		got, err := reader.Get(t.Context(), entry.ID)
+		must.NoError(t, err)
+		test.EqOp(t, entry.RecordedAt, got.RecordedAt)
+
+		result, err := reader.Verify(t.Context(), "acct_1", time.Time{}, time.Time{})
+		must.NoError(t, err)
+		test.True(t, result.Intact())
 	})
 
 	T.Run("preserves a caller-supplied ID", func(t *testing.T) {
@@ -230,17 +244,18 @@ func TestRecorder_Record(T *testing.T) {
 		test.EqOp(t, "entry_supplied", entry.ID)
 	})
 
-	T.Run("chains a batch larger than one INSERT can carry", func(t *testing.T) {
+	T.Run("chains a batch far larger than one round trip", func(t *testing.T) {
 		t.Parallel()
 
 		client := newTestClient(t)
 		recorder := newTestRecorder(t, newStubClock())
 		reader := newTestReader(t, client)
 
-		// Past maxBatchRows, so the insert is split — and the chain has to
-		// survive the split, since the positions were assigned across the whole
-		// batch rather than per statement.
-		const count = maxBatchRows*2 + 3
+		// Well past the seventy rows the multi-row INSERT this replaced was
+		// capped at by SQLite's bind-parameter ceiling. The chain has to survive
+		// a batch of any size, since the positions are assigned across the whole
+		// batch and written one statement at a time.
+		const count = 143
 
 		entries := make([]*Entry, 0, count)
 		for i := range count {

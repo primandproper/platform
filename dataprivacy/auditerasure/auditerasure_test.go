@@ -308,10 +308,12 @@ func TestNew(T *testing.T) {
 	T.Run("accepts an empty prefix", func(t *testing.T) {
 		t.Parallel()
 
-		// The audit package's own prefix rule allows it; the rendered names are
-		// then bare "entries" and "chains", which are still legal identifiers.
-		_, err := New(dialect.SQLite, "")
-		test.NoError(t, err)
+		// The audit package's own prefix rule allows it; the tables are then at
+		// their canonical unprefixed names.
+		eraser, err := New(dialect.SQLite, "")
+		must.NoError(t, err)
+
+		test.EqOp(t, "audit_log_entries", eraser.Describe())
 	})
 
 	T.Run("WithTablePrefix overrides the constructor's prefix", func(t *testing.T) {
@@ -320,8 +322,7 @@ func TestNew(T *testing.T) {
 		eraser, err := New(dialect.SQLite, audit.DefaultTablePrefix, WithTablePrefix("custom"))
 		must.NoError(t, err)
 
-		test.EqOp(t, "custom_audit_log_entries", eraser.entries)
-		test.EqOp(t, "custom_audit_log_chains", eraser.chains)
+		test.EqOp(t, "custom_audit_log_entries", eraser.Describe())
 	})
 
 	T.Run("rejects a prefix an option renders illegal", func(t *testing.T) {

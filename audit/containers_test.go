@@ -76,7 +76,7 @@ func (e *dialectEnv) reader(t *testing.T, prefix string) Reader {
 func (e *dialectEnv) prune(t *testing.T, c *stubClock, prefix string, retention time.Duration) int64 {
 	t.Helper()
 
-	target := PruneTarget{Clock: c, TablePrefix: prefix}
+	target := PruneTarget{TablePrefix: prefix}
 	cutoff := c.Now().UTC().Add(-retention)
 
 	var removed int64

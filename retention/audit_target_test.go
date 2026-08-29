@@ -65,13 +65,14 @@ func TestSweeper_auditLogTarget(T *testing.T) {
 		client := newTestClient(t)
 		c := newStubClock()
 
-		// One clock for the Recorder, the Sweeper's cutoff, and the target's
-		// watermark, so that advancing it ages the log the way years would.
+		// One clock for the Recorder and the Sweeper's cutoff, so that
+		// advancing it ages the log the way years would. The target holds none:
+		// the prune watermark's stamp comes from the server.
 		recorder := mustAuditRecorder(t, c)
 
 		policy := Policy{
 			Name:   audit.DefaultRetentionPolicyName,
-			Target: audit.PruneTarget{Clock: c},
+			Target: audit.PruneTarget{},
 			Age:    24 * time.Hour,
 			Basis:  audit.DefaultRetentionBasis,
 		}
@@ -133,7 +134,7 @@ func TestSweeper_auditLogTarget(T *testing.T) {
 		must.NoError(t, err)
 
 		entries, err := reader.List(t.Context(),
-			&audit.Query{ResourceTypes: []string{AuditResourceType}},
+			&audit.Query{ResourceType: AuditResourceType},
 			filtering.DefaultQueryFilter(),
 		)
 		must.NoError(t, err)
