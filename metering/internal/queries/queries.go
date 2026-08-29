@@ -190,15 +190,22 @@ var TotalProjection = []string{
 // and the four columns a period that has just begun starts at.
 //
 // The insert is a seed rather than a fold. It writes a zero quantity and a
-// last_occurred_at at the window's start, and every write that follows folds
+// last_occurred_at below the window's start, and every write that follows folds
 // into what it finds — which is what makes the fold's arithmetic the server's
 // rather than a read-modify-write's, and what gives Consume a row to lock. See
 // [Render].
 //
-// last_occurred_at is seeded at the window's start rather than at the zero
-// time, so a last-aggregation meter's first record is always newer than what
-// the row holds and the column never carries a year-one timestamp for the fold
-// to compare against.
+// last_occurred_at is seeded a whole second before the window's start, and the
+// two halves of that are separate decisions. It is near the window rather than
+// at the zero time so the column never carries a year-one timestamp for the
+// fold to compare against. It is *before* the window rather than at it because
+// every fold's guard is strict, so the seeded value has to be strictly earlier
+// than any record the window can hold — and on the dialect that stores a bound
+// time truncated to the whole second, a record arriving in the window's first
+// second is stored at the window's start exactly. A whole second is that
+// dialect's resolution and therefore the smallest step still strictly earlier
+// on all three. It is a floor rather than a reading, which is what a period
+// nothing has been recorded into holds.
 //
 // last_error is supplied rather than defaulted, and that is one dialect's doing:
 // MySQL takes no literal default on a TEXT column, so the column is NOT NULL
@@ -363,7 +370,12 @@ func totalKeyMatches() []querygen.Match {
 // "latest" backwards and let the next out-of-order record win. Every fold
 // therefore maximizes the column rather than assigning it, and the two-argument
 // maximum is the one expression in this corpus the three servers do not spell
-// alike — see [greatest].
+// alike — see [keepLarger].
+//
+// The last fold's quantity is guarded on that same movement rather than on a
+// comparison of its own, so the row is always one record's reading under that
+// record's time — see [movesForward]. Both are strict, and the seed is a second
+// below the window for it: see [TotalInsertColumns].
 //
 // Consume's apply is the exception and it is not one: it runs against a row the
 // caller locked and read, so the maximum was already taken in Go against the
@@ -572,9 +584,22 @@ func foldQueries() []*querygen.Query {
 		// value rather than against the maximum the same statement is about to
 		// write, because a record that lost the race must not then be treated
 		// as the one that won it.
+		//
+		// It is [movesForward] rather than a comparison of its own, so the
+		// quantity moves exactly when last_occurred_at moves and the row is
+		// always one record's reading under that record's time. The guard used
+		// to admit the equal case, and on the one dialect that stores a bound
+		// time truncated to the whole second that is not the corner it reads
+		// as: every record inside one second compares equal to the column
+		// there, so a redelivery stamped an hour late but inside the second a
+		// reading was already folded from would overwrite it, and the gauge
+		// would go backwards. What the strict reading costs is that same
+		// resolution — inside one second on that dialect, the first record
+		// folded in is the one that stands. See [TotalInsertColumns] for what
+		// it makes of the seed.
 		foldQuery(FoldLastTotalQuery,
-			fmt.Sprintf("%[1]s = CASE WHEN %[2]s >= %[3]s THEN %[4]s ELSE %[1]s END",
-				QuantityColumn, argument(LastOccurredAtColumn), LastOccurredAtColumn,
+			fmt.Sprintf("%[1]s = CASE WHEN %[2]s THEN %[3]s ELSE %[1]s END",
+				QuantityColumn, movesForward(LastOccurredAtColumn),
 				argument(QuantityColumn))),
 	}
 }
@@ -803,6 +828,18 @@ func argument(name string) string {
 	return fmt.Sprintf("sqlc.arg(%s)", name)
 }
 
+// movesForward renders the condition a column moves on: the bound value is
+// strictly past what the row holds.
+//
+// It is named rather than written inline because two assignments are guarded on
+// it — [keepLarger]'s own, and the last fold's quantity — and the two must not
+// drift. A quantity that moved on one comparison while the column it is stamped
+// with moved on another would leave the row holding one record's reading under
+// another record's time. See [foldQueries].
+func movesForward(column string) string {
+	return fmt.Sprintf("%s < %s", column, argument(column))
+}
+
 // keepLarger renders the assignment that moves a column forward and never
 // back: the bound value where it is larger than what the row holds, and what
 // the row holds otherwise.
@@ -821,6 +858,6 @@ func argument(name string) string {
 // and the three servers spell it identically — so this file names no dialect
 // and the generated signature is inferred rather than declared.
 func keepLarger(column string) string {
-	return fmt.Sprintf("%[1]s = CASE WHEN %[1]s < %[2]s THEN %[2]s ELSE %[1]s END",
-		column, argument(column))
+	return fmt.Sprintf("%[1]s = CASE WHEN %[2]s THEN %[3]s ELSE %[1]s END",
+		column, movesForward(column), argument(column))
 }

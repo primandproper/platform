@@ -50,6 +50,11 @@ type Total struct {
 	// LastOccurredAt is the event time of the most recent record folded in. It is
 	// what AggregationLast orders by, so an out-of-order record does not displace
 	// a newer one.
+	//
+	// A period nothing has been recorded into holds a floor rather than a
+	// reading — a second below PeriodStart, which is what makes the first record
+	// in the window strictly newer than what the row holds on every dialect. See
+	// metering/internal/queries.
 	LastOccurredAt time.Time
 
 	// NextFlush is when this total may next be posted to the provider.
@@ -172,14 +177,19 @@ type Store interface {
 	// recording why and when it may be retried.
 	ReleaseFlush(ctx context.Context, total *Total, lastErr string, nextFlush time.Time) error
 
-	// ReapEvents deletes usage event rows older than before, up to limit rows,
-	// leaving the totals they were folded into untouched.
+	// ReapEvents deletes usage event rows recorded at or before horizon, up to
+	// limit rows, leaving the totals they were folded into untouched.
+	//
+	// The boundary is inclusive on the doomed side, which is the reading that
+	// leaves no instant at which a row is neither past the horizon nor short of
+	// it — and it is the statement's, so the argument is a horizon rather than a
+	// "before".
 	//
 	// It deletes only events whose period has been fully flushed. An event row
 	// removed while its period still owes the provider usage would take the
 	// evidence for an invoice line with it, and would let a redelivery of that
 	// same event be counted a second time.
-	ReapEvents(ctx context.Context, before time.Time, limit int) (int64, error)
+	ReapEvents(ctx context.Context, horizon time.Time, limit int) (int64, error)
 
 	// WithTransaction runs fn against the store's database, for callers using
 	// RecordTx.

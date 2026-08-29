@@ -31,7 +31,7 @@ var _ metering.Store = &StoreMock{}
 //			MarkFlushedFunc: func(ctx context.Context, total *metering.Total, flushed int64, at time.Time) error {
 //				panic("mock out the MarkFlushed method")
 //			},
-//			ReapEventsFunc: func(ctx context.Context, before time.Time, limit int) (int64, error) {
+//			ReapEventsFunc: func(ctx context.Context, horizon time.Time, limit int) (int64, error) {
 //				panic("mock out the ReapEvents method")
 //			},
 //			RecordFunc: func(ctx context.Context, entries []metering.Entry, at time.Time) (metering.RecordResult, error) {
@@ -66,7 +66,7 @@ type StoreMock struct {
 	MarkFlushedFunc func(ctx context.Context, total *metering.Total, flushed int64, at time.Time) error
 
 	// ReapEventsFunc mocks the ReapEvents method.
-	ReapEventsFunc func(ctx context.Context, before time.Time, limit int) (int64, error)
+	ReapEventsFunc func(ctx context.Context, horizon time.Time, limit int) (int64, error)
 
 	// RecordFunc mocks the Record method.
 	RecordFunc func(ctx context.Context, entries []metering.Entry, at time.Time) (metering.RecordResult, error)
@@ -126,8 +126,8 @@ type StoreMock struct {
 		ReapEvents []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Before is the before argument value.
-			Before time.Time
+			// Horizon is the horizon argument value.
+			Horizon time.Time
 			// Limit is the limit argument value.
 			Limit int
 		}
@@ -333,23 +333,23 @@ func (mock *StoreMock) MarkFlushedCalls() []struct {
 }
 
 // ReapEvents calls ReapEventsFunc.
-func (mock *StoreMock) ReapEvents(ctx context.Context, before time.Time, limit int) (int64, error) {
+func (mock *StoreMock) ReapEvents(ctx context.Context, horizon time.Time, limit int) (int64, error) {
 	if mock.ReapEventsFunc == nil {
 		panic("StoreMock.ReapEventsFunc: method is nil but Store.ReapEvents was just called")
 	}
 	callInfo := struct {
-		Ctx    context.Context
-		Before time.Time
-		Limit  int
+		Ctx     context.Context
+		Horizon time.Time
+		Limit   int
 	}{
-		Ctx:    ctx,
-		Before: before,
-		Limit:  limit,
+		Ctx:     ctx,
+		Horizon: horizon,
+		Limit:   limit,
 	}
 	mock.lockReapEvents.Lock()
 	mock.calls.ReapEvents = append(mock.calls.ReapEvents, callInfo)
 	mock.lockReapEvents.Unlock()
-	return mock.ReapEventsFunc(ctx, before, limit)
+	return mock.ReapEventsFunc(ctx, horizon, limit)
 }
 
 // ReapEventsCalls gets all the calls that were made to ReapEvents.
@@ -357,14 +357,14 @@ func (mock *StoreMock) ReapEvents(ctx context.Context, before time.Time, limit i
 //
 //	len(mockedStore.ReapEventsCalls())
 func (mock *StoreMock) ReapEventsCalls() []struct {
-	Ctx    context.Context
-	Before time.Time
-	Limit  int
+	Ctx     context.Context
+	Horizon time.Time
+	Limit   int
 } {
 	var calls []struct {
-		Ctx    context.Context
-		Before time.Time
-		Limit  int
+		Ctx     context.Context
+		Horizon time.Time
+		Limit   int
 	}
 	mock.lockReapEvents.RLock()
 	calls = mock.calls.ReapEvents
