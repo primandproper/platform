@@ -50,6 +50,10 @@ func NewNotifier(cfg *Config, opts ...Option) (*Notifier, error) {
 }
 
 // Publish sends an event to all connected clients on the given channel.
+//
+// One client's failure does not stop the others: every connection on the channel
+// is attempted, and the joined per-client failures come back from here, so a
+// non-nil error means the event reached a subset of the channel.
 func (n *Notifier) Publish(ctx context.Context, channel string, event *async.Event) error {
 	ctx, op := n.o11y.Begin(ctx,
 		observability.WithValue(keys.ChannelKey, channel),
@@ -63,7 +67,9 @@ func (n *Notifier) Publish(ctx context.Context, channel string, event *async.Eve
 		Payload: event.Data,
 	}
 
-	n.manager.BroadcastToGroup(ctx, channel, esEvent)
+	if err := n.manager.BroadcastToGroup(ctx, channel, esEvent); err != nil {
+		return op.Error(err, "broadcasting event to channel")
+	}
 
 	return nil
 }
