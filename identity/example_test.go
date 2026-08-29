@@ -200,8 +200,11 @@ func Example_signIn() {
 
 	fmt.Println(proven.TwoFactorEnabled())
 
-	// argon2.Compare(proven.HashedPassword, submitted) — the engine's job.
-	fmt.Println(proven.HashedPassword != "")
+	// Then whether there is a password to compare at all: a passkey-only user
+	// has none, and an engine handed an empty hash has no way to know it was
+	// never set. Only then argon2.Compare(proven.HashedPassword, submitted),
+	// which is the engine's job and not this package's.
+	fmt.Println(proven.HasPassword())
 
 	// Output:
 	// true

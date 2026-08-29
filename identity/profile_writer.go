@@ -20,6 +20,13 @@ var _ ProfileWriter = (*SQLStore)(nil)
 // UpdateUser writes the user's profile and nothing else, plus the two
 // verification columns it has to decide rather than accept — see
 // profileUpdateParams.
+//
+// It validates the profile rather than the whole user, because it writes the
+// profile rather than the whole user. The value a consumer has to hand is
+// almost always a redacted one — every bulk read and Principal.User returns
+// users with their credentials cleared — and a write that demanded a password
+// hash back taught the caller to carry one, which is the habit this package
+// exists to make unnecessary. See User.validateProfile.
 func (s *SQLStore) UpdateUser(ctx context.Context, user *User) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
@@ -28,7 +35,7 @@ func (s *SQLStore) UpdateUser(ctx context.Context, user *User) error {
 		return op.Error(ErrNilUser, "updating identity user")
 	}
 
-	if err := user.ValidateWithContext(ctx); err != nil {
+	if err := user.validateProfile(ctx); err != nil {
 		return op.Error(err, "updating identity user")
 	}
 

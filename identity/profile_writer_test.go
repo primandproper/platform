@@ -14,6 +14,84 @@ import (
 func runProfileWriterSuite(t *testing.T, env *storeEnv) {
 	t.Helper()
 
+	// The profile handler every adopter writes first: take the principal's
+	// user, change a name, save. What comes back from GetPrincipal is redacted,
+	// so this is the case a write that validated the whole user failed — and it
+	// failed by demanding the one field the caller has no business holding.
+	t.Run("round-trips a redacted user", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		user := createUser(t, store, newUser("ada"))
+		createAccountFor(t, store, user, "Acme")
+
+		principal, err := store.GetPrincipal(t.Context(), testScope, user.ID, "")
+		must.NoError(t, err)
+		test.False(t, principal.User.HasPassword())
+
+		principal.User.FirstName = "Augusta"
+		must.NoError(t, store.UpdateUser(t.Context(), principal.User))
+
+		read, err := store.GetUser(t.Context(), testScope, user.ID)
+		must.NoError(t, err)
+		test.EqOp(t, "Augusta", read.FirstName)
+
+		// The hash the caller never had is the hash still on the row: a save
+		// that accepts a redacted user must not write the redaction back.
+		test.EqOp(t, "argon2$ada", read.HashedPassword)
+
+		// The same holds for a user out of a bulk read, which is the other
+		// value a consumer has to hand.
+		listed, err := store.ListUsersByIDs(t.Context(), testScope, []string{user.ID})
+		must.NoError(t, err)
+		must.SliceLen(t, 1, listed)
+		test.False(t, listed[0].HasPassword())
+
+		listed[0].LastName = "King"
+		must.NoError(t, store.UpdateUser(t.Context(), listed[0]))
+
+		again, err := store.GetUser(t.Context(), testScope, user.ID)
+		must.NoError(t, err)
+		test.EqOp(t, "King", again.LastName)
+		test.EqOp(t, "argon2$ada", again.HashedPassword)
+	})
+
+	// The ruling in the package documentation, exercised: a user who never had
+	// a password registers and saves their profile like anybody else.
+	t.Run("registers and saves a user who has no password", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		passkeyOnly := newUser("grace")
+		passkeyOnly.HashedPassword = ""
+		createUser(t, store, passkeyOnly)
+
+		stored, err := store.GetUser(t.Context(), testScope, passkeyOnly.ID)
+		must.NoError(t, err)
+		test.False(t, stored.HasPassword())
+
+		passkeyOnly.FirstName = "Grace"
+		must.NoError(t, store.UpdateUser(t.Context(), passkeyOnly))
+
+		read, err := store.GetUser(t.Context(), testScope, passkeyOnly.ID)
+		must.NoError(t, err)
+		test.EqOp(t, "Grace", read.FirstName)
+		test.False(t, read.HasPassword())
+
+		// The column has one writer, and it refuses an empty hash — so a user
+		// who acquires a password cannot be walked back to none.
+		must.NoError(t, store.UpdateUserPassword(t.Context(), testScope, passkeyOnly.ID, "argon2$later"))
+		must.ErrorIs(t,
+			store.UpdateUserPassword(t.Context(), testScope, passkeyOnly.ID, ""),
+			platformerrors.ErrEmptyInputParameter,
+		)
+
+		withPassword, err := store.GetUser(t.Context(), testScope, passkeyOnly.ID)
+		must.NoError(t, err)
+		test.True(t, withPassword.HasPassword())
+	})
+
 	t.Run("updates the profile without touching credentials", func(t *testing.T) {
 		t.Parallel()
 

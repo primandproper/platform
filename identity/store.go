@@ -419,6 +419,13 @@ type ProfileWriter interface {
 	//
 	// Neither verification column is a parameter. Both are read from the row and
 	// decided here, and whatever the User in hand carries in them is ignored.
+	//
+	// A redacted user round-trips. The value every bulk read and Principal.User
+	// hands back has its credentials cleared, so the obvious profile handler —
+	// take the principal's user, change the name, save — is the one that has to
+	// work; it validates the columns it assigns rather than the whole user, and
+	// a caller therefore needs neither a password hash nor a status to save a
+	// display name.
 	UpdateUser(ctx context.Context, user *User) error
 
 	// UpdateAccount writes the account's name and billing address.
