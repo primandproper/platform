@@ -74,6 +74,7 @@ import (
 	"github.com/primandproper/platform-go/v13/httpclient"
 	identitycfg "github.com/primandproper/platform-go/v13/identity/config"
 	"github.com/primandproper/platform-go/v13/internal/cfgnorm"
+	issuereportscfg "github.com/primandproper/platform-go/v13/issuereports/config"
 	jobscfg "github.com/primandproper/platform-go/v13/jobs/config"
 	llmcfg "github.com/primandproper/platform-go/v13/llm/config"
 	messagequeuecfg "github.com/primandproper/platform-go/v13/messagequeue/config"
@@ -144,6 +145,7 @@ type Config struct {
 	HTTPClient           *httpclient.Config         `env:",init" envPrefix:"HTTP_CLIENT_"            json:"httpClient,omitempty"           yaml:"httpClient,omitempty"`
 	HTTPServer           *httpserver.Config         `env:",init" envPrefix:"HTTP_SERVER_"            json:"httpServer,omitempty"           yaml:"httpServer,omitempty"`
 	Identity             *identitycfg.Config        `env:",init" envPrefix:"IDENTITY_"               json:"identity,omitempty"             yaml:"identity,omitempty"`
+	IssueReports         *issuereportscfg.Config    `env:",init" envPrefix:"ISSUE_REPORTS_"          json:"issueReports,omitempty"         yaml:"issueReports,omitempty"`
 	JobsPool             *jobscfg.PoolConfig        `env:",init" envPrefix:"JOBS_POOL_"              json:"jobsPool,omitempty"             yaml:"jobsPool,omitempty"`
 	JobsScheduler        *jobscfg.SchedulerConfig   `env:",init" envPrefix:"JOBS_SCHEDULER_"         json:"jobsScheduler,omitempty"        yaml:"jobsScheduler,omitempty"`
 	KeyedCircuitBreaking *partitionedcfg.Config     `env:",init" envPrefix:"KEYED_CIRCUIT_BREAKING_" json:"keyedCircuitBreaking,omitempty" yaml:"keyedCircuitBreaking,omitempty"`
@@ -305,6 +307,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.HTTPClient),
 		validation.Field(&cfg.HTTPServer),
 		validation.Field(&cfg.Identity),
+		validation.Field(&cfg.IssueReports),
 		validation.Field(&cfg.JobsPool),
 		validation.Field(&cfg.JobsScheduler),
 		validation.Field(&cfg.KeyedCircuitBreaking),

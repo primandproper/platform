@@ -14,6 +14,8 @@ import (
 	databasecfg "github.com/primandproper/platform-go/v13/database/config"
 	"github.com/primandproper/platform-go/v13/identity"
 	identitycfg "github.com/primandproper/platform-go/v13/identity/config"
+	"github.com/primandproper/platform-go/v13/issuereports"
+	issuereportscfg "github.com/primandproper/platform-go/v13/issuereports/config"
 	"github.com/primandproper/platform-go/v13/notifications"
 	notificationscfg "github.com/primandproper/platform-go/v13/notifications/config"
 	"github.com/primandproper/platform-go/v13/notifications/mobile"
@@ -53,7 +55,8 @@ func sqliteDatabase(t *testing.T) *databasecfg.Config {
 }
 
 // TestRegisterStores covers the subsystems the composition root reached last:
-// the identity, settings, and notifications stores, and the retention sweeper.
+// the identity, issue report, settings, and notifications stores, and the
+// retention sweeper.
 //
 // The reflection-driven tests above already assert that a field on Config is
 // validated and registers something. What they cannot say is that what it
@@ -69,6 +72,7 @@ func TestRegisterStores(T *testing.T) {
 			Name:          "example",
 			Database:      sqliteDatabase(t),
 			Identity:      &identitycfg.Config{TablePrefix: storePrefix},
+			IssueReports:  &issuereportscfg.Config{TablePrefix: storePrefix},
 			Settings:      &settingscfg.Config{TablePrefix: storePrefix},
 			Notifications: &notificationscfg.Config{TablePrefix: storePrefix},
 		}
@@ -83,6 +87,10 @@ func TestRegisterStores(T *testing.T) {
 		settingsStore, err := do.Invoke[settings.Store](i)
 		must.NoError(t, err)
 		test.NotNil(t, settingsStore)
+
+		reportStore, err := do.Invoke[issuereports.Store](i)
+		must.NoError(t, err)
+		test.NotNil(t, reportStore)
 
 		// The notifications store is registered under three keys, and the two
 		// interfaces are narrowings of the one concrete registration rather
@@ -109,6 +117,7 @@ func TestRegisterStores(T *testing.T) {
 		cfg := &Config{Name: "example"}
 		must.NoError(t, env.ParseWithOptions(cfg, env.Options{Environment: map[string]string{
 			"IDENTITY_TABLE_PREFIX":        storePrefix,
+			"ISSUE_REPORTS_TABLE_PREFIX":   storePrefix,
 			"SETTINGS_TABLE_PREFIX":        storePrefix,
 			"NOTIFICATIONS_TABLE_PREFIX":   storePrefix,
 			"RETENTION_SWEEPER_BATCH_SIZE": "500",
@@ -116,7 +125,7 @@ func TestRegisterStores(T *testing.T) {
 
 		must.NoError(t, cfg.ValidateWithContext(t.Context()))
 
-		test.Eq(t, []string{"Identity", "Notifications", "Retention", "Settings"}, present(t, cfg))
+		test.Eq(t, []string{"Identity", "IssueReports", "Notifications", "Retention", "Settings"}, present(t, cfg))
 	})
 
 	T.Run("builds the retention sweeper over the application's policies", func(t *testing.T) {

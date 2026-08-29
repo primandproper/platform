@@ -21,6 +21,7 @@ import (
 	featureflagscfg "github.com/primandproper/platform-go/v13/featureflags/config"
 	"github.com/primandproper/platform-go/v13/httpclient"
 	identitycfg "github.com/primandproper/platform-go/v13/identity/config"
+	issuereportscfg "github.com/primandproper/platform-go/v13/issuereports/config"
 	jobscfg "github.com/primandproper/platform-go/v13/jobs/config"
 	llmcfg "github.com/primandproper/platform-go/v13/llm/config"
 	messagequeuecfg "github.com/primandproper/platform-go/v13/messagequeue/config"
@@ -226,6 +227,15 @@ func registerPlatformServices(i do.Injector, cfg *Config) {
 	if cfg.Identity != nil {
 		do.ProvideValue(i, cfg.Identity)
 		identitycfg.RegisterStore(i)
+	}
+
+	// The store only. issuereports/privacy's collector and eraser need a mapping
+	// from a person to the tenants they belong to, which no environment variable
+	// can express, so a service that wants its issue reports in its subject
+	// access requests registers those two itself against this store.
+	if cfg.IssueReports != nil {
+		do.ProvideValue(i, cfg.IssueReports)
+		issuereportscfg.RegisterStore(i)
 	}
 
 	if cfg.LLM != nil {
