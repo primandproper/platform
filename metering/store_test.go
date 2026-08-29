@@ -404,6 +404,23 @@ func suiteAggregations(t *testing.T, env *storeEnv) {
 		test.EqOp(t, int64(7), totalOf(t, store))
 	})
 
+	t.Run("refuses an aggregation with no fold", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		// One named statement per aggregation is what makes this reachable at
+		// all. The write it replaced chose one line of one statement's SET list
+		// from the aggregation, and the arm for this one assigned the quantity
+		// to itself — a write that reported success and left the total where it
+		// found it, which reads on a dashboard as a meter that stopped
+		// counting. Registration refuses unique_count above this layer; the
+		// store refuses it here, so a caller bypassing the registry is told.
+		err := mustRecord(t, store, newEntry("a", 3, AggregationUniqueCount))
+
+		test.ErrorIs(t, err, ErrUnsupportedAggregation)
+	})
+
 	t.Run("max keeps the high-water mark", func(t *testing.T) {
 		t.Parallel()
 
@@ -676,6 +693,38 @@ func suiteFlushLifecycle(t *testing.T, env *storeEnv) {
 		// Incremented at claim rather than at failure, so a total whose provider
 		// call reliably kills the process eventually gives up.
 		test.EqOp(t, 1, claimed[0].FlushAttempts)
+	})
+
+	t.Run("leases every total in the batch", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		// The batch is leased a row at a time, so a pass over several totals is
+		// several statements rather than one. Each reports whether it took, and
+		// the attempt count each claimed total carries is the one that was read
+		// plus the one its own lease added — which is what a flusher deciding
+		// whether it has exhausted its budget has to see.
+		for _, subject := range []string{"tenant-a", "tenant-b", "tenant-c"} {
+			entry := newEntry("req-"+subject, 7, AggregationSum)
+			entry.Subject = subject
+
+			must.NoError(t, mustRecord(t, store, entry))
+		}
+
+		claimed, err := store.ClaimFlushable(t.Context(), baseTime, 10, 5, baseTime.Add(time.Minute))
+		must.NoError(t, err)
+		must.SliceLen(t, 3, claimed)
+
+		for _, total := range claimed {
+			test.EqOp(t, 1, total.FlushAttempts, test.Sprintf("subject %q", total.Subject))
+			test.True(t, total.Pending(), test.Sprintf("subject %q", total.Subject))
+		}
+
+		// And nothing is claimable twice under one lease.
+		again, err := store.ClaimFlushable(t.Context(), baseTime, 10, 5, baseTime.Add(time.Minute))
+		must.NoError(t, err)
+		test.SliceEmpty(t, again)
 	})
 
 	t.Run("does not claim a settled total", func(t *testing.T) {

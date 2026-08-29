@@ -166,3 +166,19 @@ func TestWorkerConfig(T *testing.T) {
 		}
 	})
 }
+
+func TestTableFor(T *testing.T) {
+	T.Parallel()
+
+	T.Run("an empty namespace renders the component's own name", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, "scheduled_timers", tableFor(""))
+	})
+
+	T.Run("a namespace is separated by the renderer", func(t *testing.T) {
+		t.Parallel()
+
+		test.EqOp(t, "ddb_scheduled_timers", tableFor("ddb"))
+	})
+}

@@ -60,13 +60,16 @@ COMPONENTS=(
   "authorization/database postgres mysql sqlite"
   "cryptography/shredding postgres mysql sqlite"
   "dataprivacy postgres mysql sqlite"
+  "metering postgres mysql sqlite"
   "notifications postgres mysql sqlite"
   "saga postgres mysql sqlite"
   "sessions/database postgres mysql sqlite"
   "settings postgres mysql sqlite"
   "uploads/registry postgres mysql sqlite"
   "webhooks postgres mysql sqlite"
+  "outbox postgres mysql sqlite"
   "operations postgres"
+  "timers postgres"
 )
 
 for component in "${COMPONENTS[@]}"; do

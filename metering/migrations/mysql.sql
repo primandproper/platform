@@ -72,7 +72,12 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}metering_totals (
     flush_attempts   INT NOT NULL DEFAULT 0,
     next_flush       DATETIME(6) NOT NULL,
     claimed_until    DATETIME(6),
-    last_error       TEXT,
+    -- NOT NULL and no DEFAULT, unlike the other two, because MySQL takes no
+    -- literal default on a TEXT column. Every row is opened by the same seed,
+    -- which supplies the empty string — see metering/internal/queries — so the
+    -- column holds what it holds elsewhere and the generated projection is a
+    -- string on all three rather than a pointer here and a value there.
+    last_error       TEXT NOT NULL,
     created_at       DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     last_updated_at  DATETIME(6),
     archived_at      DATETIME(6),

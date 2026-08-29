@@ -461,11 +461,17 @@ func (g *Generator) insertedValue(column string) string {
 // the native one — see Generator.PruneQuery for what that trades away — so the
 // condition below is "is the cheap arm on offer" rather than "is there anything
 // else that would parse".
+//
+// Prune.Conditions ride beside the matches in whichever arm renders, at the
+// qualifier Generator.PruneQualifier reports — the alias in one arm and the
+// table's own name in the other. That the two arms name the table differently
+// is the whole reason a caller is told which name to write rather than left to
+// infer one from a statement they cannot see.
 func (g *Generator) boundedDelete(table string, prune Prune, matches []Match) string {
 	if g.boundedWriteForms().has(nativeBound) {
 		return fmt.Sprintf("DELETE FROM %s\nWHERE %s%s\n%s;",
 			table,
-			joinPredicates(g.matchPredicates(table, false, matches), "\t"),
+			joinPredicates(append(g.matchPredicates(table, false, matches), prune.Conditions...), "\t"),
 			listOrderClause("", prune.Order),
 			g.capClause(),
 		)
@@ -474,7 +480,7 @@ func (g *Generator) boundedDelete(table string, prune Prune, matches []Match) st
 	capped := []string{
 		"SELECT " + strings.Join(QualifyAll(doomedAlias, prune.Key), ", "),
 		fmt.Sprintf("FROM %s AS %s", table, doomedAlias),
-		"WHERE " + joinPredicates(g.matchPredicates(doomedAlias, true, matches), "\t\t"),
+		"WHERE " + joinPredicates(append(g.matchPredicates(doomedAlias, true, matches), prune.Conditions...), "\t\t"),
 		// Both of these are unconditional. A prune that names no ordering is
 		// refused before it reaches a rendering, for
 		// ErrUnorderedBoundedStatement's reason, and one that names no cap is

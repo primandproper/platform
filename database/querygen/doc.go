@@ -452,7 +452,7 @@ middle — after which the next attempt starts from the beginning.
 	sweep := querygen.For(dialect.Postgres).PruneQuery(
 		"PruneMeteringEvents", "metering_events",
 		querygen.Prune{
-			Key:   []string{"idempotency_key"},
+			Key:   []string{"meter", "idempotency_key"},
 			Order: []querygen.Order{{Column: "recorded_at"}},
 		},
 		querygen.Match{Column: "recorded_at", Arg: "horizon", Against: querygen.AtMostArgument})
@@ -505,6 +505,19 @@ archived predicate, for the hard delete's reason: the row is being destroyed
 rather than hidden, and a row archived a year ago is precisely the row a
 retention pass exists to remove.
 
+One doom is not a comparison at all, and [Prune.Conditions] is where it goes.
+metering may destroy an event row only once the period it was folded into owes
+the provider nothing, which is a correlated NOT EXISTS over a second table —
+an expression, and so a thing the closed [Comparand] set refuses. Sending that
+caller away to write the whole statement out would send them away to write down
+which of the three spellings above their server takes, which is the one fact
+this section exists to hold; so the predicate is theirs and the statement is
+still this one, cap, ordering, arm and count alike. A condition names the pruned
+table through [Generator.PruneQualifier], because the two arms call it different
+things — the alias where the bound is on a read, the table where the DELETE
+carries it — and a condition qualified with the wrong one resolves against its
+own subquery's table and dooms rows nobody chose.
+
 # The claim that is not here
 
 The queue stores' other statement is the claim — a bounded, ordered SELECT …
@@ -522,8 +535,18 @@ workqueue and timers answer that by being Postgres-only packages rather than by
 running three claims that promise three things, so their claims belong in their
 own single-dialect corpora, where RETURNING is legal and a roster of one cannot
 diverge. A shape emitted from here would have to promise something on all three,
-and there is nothing here it could promise. If a third queue store ever wants
-one, that is when this package grows it.
+and there is nothing here it could promise.
+
+outbox is the third queue store and serves all three dialects, and it answers
+the same question the other way: its claim is three statements rather than one —
+a bounded ordered select, an update that leases what the select named, and a read
+back of the leased ids — inside one transaction, which is a shape every engine
+here has. That is what a portable claim costs, and the cost is exactly the reason
+this package still emits none: the decomposition is a concurrency decision the
+store makes, and two of the three statements it produces are authored for
+reasons of their own — a correlated self-join, and `attempts = attempts + 1`.
+What outbox does take from here is the third, its reap, which is the bounded
+prune.
 
 # The prefix search
 
@@ -731,13 +754,13 @@ The reapers this module already has, and which shape each takes:
     stamp for the confirmation windows that lapsed, and a bounded delete for the
     requests past retention — one scan, three statements, archived requests left
     alone.
-  - metering's ReapEvents is the prune. Its rows are addressed by the compound
-    natural key the events table is keyed on, (meter, idempotency_key), which is
-    the row-value comparison [Prune.Key] exists for. Its NOT EXISTS over the
-    totals table — the guard that keeps retention from destroying the evidence
-    behind an unflushed total — is not a [Match], so that statement is one of the
-    authored ones: written into metering's own corpus and checked by sqlc there,
-    the way the queue stores' expression writes are.
+  - metering's ReapEvents is the prune, and is already on it. Its rows are
+    addressed by the compound natural key the events table is keyed on, (meter,
+    idempotency_key), which is the row-value comparison [Prune.Key] exists for.
+    Its NOT EXISTS over the totals table — the guard that keeps retention from
+    destroying the evidence behind an unflushed total — is not a [Match], and it
+    is what [Prune.Conditions] was added for: the predicate is written out in
+    metering's own corpus and the three arms above are not.
   - outbox's reap is the prune. Its table carries no archived_at by design, so
     the sweep's one advantage does not apply, and a fleet of relays reaping
     concurrently is exactly what SKIP LOCKED is for.
@@ -750,7 +773,10 @@ The reapers this module already has, and which shape each takes:
     writes at run time, and everything here is rendered from string literals at
     generate time against a schema sqlc has read. What it takes from this section
     is the rules — ordered, capped, native arm on MySQL — rather than the
-    rendering.
+    rendering. It is exempt rather than porting for that reason; "The packages
+    that are not on this tier" carries the ruling, and the one rule it takes
+    that is a fact about a server rather than about a shape —
+    dialect.SupportsWriteLimit — is shared rather than restated.
 
 # The count
 
@@ -946,6 +972,20 @@ dimension, and its metadata column's name are all values a caller supplies, and
 the manager issues the CREATE TABLE itself at startup. There is no committed DDL
 for sqlc to check a statement against, and no fixed column name for a statement
 to project.
+
+retention is exempt for the same reason, arrived at from the other end. Its
+statements are ordinary table SQL — a bounded delete and a saturating count —
+and the table is the part that is not ordinary: its name, the column age is
+measured from, and the key a batch is bounded by all arrive from a Policy an
+application writes at run time, against tables this module ships no migrations
+for. Everything here renders from string literals at generate time against a
+schema sqlc has read, so there is no corpus to put those two statements in and
+nothing for sqlc to check them against. What retention takes from this package
+instead is the rules — ordered, capped, and the native arm where a server caps
+the write itself, which is dialect.SupportsWriteLimit rather than a second
+reading of MySQL's grammar — and, in place of the check a corpus would have
+given it, a container suite that runs both statements against a real server on
+each of the three dialects it serves.
 
 filtering holds no SQL at all. It was surveyed at one keyword and the keyword is
 a word in a comment: what the package supplies is the argument names a rendered

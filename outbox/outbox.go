@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"time"
 
 	"github.com/primandproper/platform-go/v13/clock"
 	"github.com/primandproper/platform-go/v13/database"
@@ -18,13 +17,52 @@ import (
 	"github.com/primandproper/platform-go/v13/observability/logging"
 	"github.com/primandproper/platform-go/v13/observability/metrics"
 	"github.com/primandproper/platform-go/v13/observability/tracing"
+	"github.com/primandproper/platform-go/v13/outbox/internal/outboxdb"
+	"github.com/primandproper/platform-go/v13/outbox/internal/queries"
 )
 
+// serviceName names the loggers, spans, and metrics this package emits.
+const serviceName = "outbox"
+
 // tableFor renders the outbox table name under a namespace. It is the one
-// place the component segment is spelled, so the Writer, the Relay, and the
-// DDL cannot disagree about it.
+// place the component segment reaches this package's own code, and it reads it
+// from the corpus rather than restating it, so the DDL, the statements and the
+// identifier check cannot disagree about what the table is called.
 func tableFor(prefix string) string {
-	return ddl.Qualify(prefix) + "outbox_messages"
+	return ddl.Qualify(prefix) + queries.OutboxTable
+}
+
+// querierFor builds the generated querier for a dialect and prefix.
+//
+// It is shared by the Writer and the Relay because both execute statements from
+// the one corpus, and a process running both against one table must not be able
+// to build two queriers that disagree about the table's name.
+//
+// The dialect mapping's default arm is reachable only when this module learns a
+// dialect the generated package was not generated for; both callers have already
+// refused anything d.Valid() declines, so this is a construction failure that
+// names the dialect rather than a panic or a reliance on outboxdb.New refusing
+// the empty string.
+func querierFor(d dialect.Dialect, prefix string) (outboxdb.Querier, error) {
+	var qd outboxdb.Dialect
+
+	switch d {
+	case dialect.Postgres:
+		qd = outboxdb.DialectPostgreSQL
+	case dialect.MySQL:
+		qd = outboxdb.DialectMySQL
+	case dialect.SQLite:
+		qd = outboxdb.DialectSQLite
+	default:
+		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "no generated outbox queries for dialect %q", d)
+	}
+
+	q, err := outboxdb.New(qd, ddl.Qualify(prefix))
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "building the outbox querier")
+	}
+
+	return q, nil
 }
 
 // DefaultTablePrefix is the namespace the outbox table carries when none is
@@ -78,6 +116,11 @@ type Writer struct {
 	clock clock.Clock
 	o11y  observability.Observer
 
+	// q is the generated querier, built once the prefix is settled. What an
+	// Enqueue executes is what sqlc analyzed, with one marker substitution —
+	// see outbox/internal/outboxdb.
+	q outboxdb.Querier
+
 	// marshaler is pinned to JSON rather than configurable. The Relay hands
 	// these bytes to the publisher inside a json.RawMessage, so any other
 	// encoding would be spliced verbatim into a JSON message rather than
@@ -95,6 +138,7 @@ type Writer struct {
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 	dialect         dialect.Dialect
+	prefix          string
 	table           string
 
 	// notifyChannel is empty unless WithWriterNotifyChannel was given one, and
@@ -116,7 +160,7 @@ func NewWriter(d dialect.Dialect, opts ...WriterOption) (*Writer, error) {
 
 	w := &Writer{
 		dialect: d,
-		table:   tableFor(DefaultTablePrefix),
+		prefix:  DefaultTablePrefix,
 		clock:   clock.NewClock(),
 	}
 	for _, opt := range opts {
@@ -124,6 +168,8 @@ func NewWriter(d dialect.Dialect, opts ...WriterOption) (*Writer, error) {
 			opt(w)
 		}
 	}
+
+	w.table = tableFor(w.prefix)
 
 	if !dialect.ValidIdentifier(w.table) {
 		return nil, platformerrors.Wrapf(dialect.ErrInvalidIdentifier, "outbox table %q", w.table)
@@ -164,12 +210,16 @@ func NewWriter(d dialect.Dialect, opts ...WriterOption) (*Writer, error) {
 		seen[se.name] = struct{}{}
 	}
 
+	var err error
+	if w.q, err = querierFor(w.dialect, w.prefix); err != nil {
+		return nil, err
+	}
+
 	w.o11y = observability.NewObserver(serviceName, w.logger, w.tracerProvider)
 	w.marshaler = encoding.NewClientEncoder(encoding.ContentTypeJSON, encoding.WithLogger(w.o11y.Logger()), encoding.WithTracerProvider(w.tracerProvider))
 
 	mp := metrics.EnsureMetricsProvider(w.metricsProvider)
 
-	var err error
 	if w.enqueuedCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_messages_enqueued", serviceName)); err != nil {
 		return nil, platformerrors.Wrap(err, "creating messages enqueued counter")
 	}
@@ -182,15 +232,18 @@ func NewWriter(d dialect.Dialect, opts ...WriterOption) (*Writer, error) {
 }
 
 // Enqueue writes messages into the outbox using the caller's transaction, so they
-// commit or roll back with whatever else that transaction did. Passing several
-// messages costs one round trip.
+// commit or roll back with whatever else that transaction did.
 //
-// Enqueue is deliberately not variadic-only sugar over a loop: a transaction
-// that emits three events should not pay three round trips inside a lock.
+// It is still variadic, and what that buys is no longer a single round trip: one
+// checked INSERT is executed per message, because a statement whose text grows a
+// tuple per row is a statement no schema check can be run over — the whole point
+// of outbox/internal/queries. What the variadic form buys instead is one
+// marshaling pass, one clock read shared by every row, and one place for the side
+// effects to run; the statements go inside a transaction the caller has already
+// opened, which is where the cost of a round trip is smallest.
 //
-// Registered side effects run first, on the same executor, and whatever they
-// return is written by the same statement as the caller's messages — so an
-// enqueue that owes a derived event still costs one round trip. An Enqueue
+// Registered side effects run first, on the same executor, so whatever they
+// return commits with the caller's messages and rolls back with them. An Enqueue
 // with no messages runs none of them: a side effect derives from what the
 // caller asked for, and a caller that asked for nothing changed nothing.
 func (w *Writer) Enqueue(ctx context.Context, q database.Tx, msgs ...Message) error {
@@ -219,7 +272,7 @@ func (w *Writer) Enqueue(ctx context.Context, q database.Tx, msgs ...Message) er
 	// counter.
 	topics := make([]string, 0, len(all))
 
-	rows := make([]enqueueRow, 0, len(all))
+	rows := make([]outboxdb.InsertOutboxMessageParams, 0, len(all))
 	for i := range all {
 		msg := all[i]
 
@@ -235,22 +288,27 @@ func (w *Writer) Enqueue(ctx context.Context, q database.Tx, msgs ...Message) er
 			return op.Error(err, "marshaling outbox payload for topic %q", msg.Topic)
 		}
 
-		rows = append(rows, enqueueRow{
-			id:        identifiers.New(),
-			topic:     msg.Topic,
-			key:       msg.Key,
-			payload:   payload,
-			createdAt: now,
+		rows = append(rows, outboxdb.InsertOutboxMessageParams{
+			ID:           identifiers.New(),
+			Topic:        msg.Topic,
+			PartitionKey: msg.Key,
+			Payload:      payload,
+			CreatedAt:    now,
 		})
 		topics = append(topics, msg.Topic)
 	}
 
 	op.Set(keys.TopicKey, topics)
 
-	query, args := buildInsert(w.dialect, w.table, rows)
-
-	if _, err := q.ExecContext(ctx, query, args...); err != nil {
-		return op.Error(err, "inserting outbox messages")
+	// One statement per message, on the caller's executor. The corpus holds a
+	// single-row INSERT rather than a VALUES list whose length is the batch's,
+	// because a statement whose text is a function of its argument count is the
+	// dynamic SQL this package no longer composes — and the round trips are
+	// inside a transaction the caller already has open.
+	for i := range rows {
+		if err := w.q.InsertOutboxMessage(ctx, q, rows[i]); err != nil {
+			return op.Error(err, "inserting outbox message for topic %q", rows[i].Topic)
+		}
 	}
 
 	// On the caller's executor, so the notification is transactional: Postgres
@@ -336,13 +394,4 @@ func (w *Writer) withSideEffects(
 	}
 
 	return all, nil
-}
-
-// enqueueRow is one row's worth of bound parameters.
-type enqueueRow struct {
-	createdAt time.Time
-	id        string
-	topic     string
-	key       string
-	payload   []byte
 }

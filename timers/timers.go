@@ -7,15 +7,20 @@ import (
 
 	"github.com/primandproper/platform-go/v13/clock"
 	"github.com/primandproper/platform-go/v13/database"
+	"github.com/primandproper/platform-go/v13/database/ddl"
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/internal/pgretry"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/observability/metrics"
+	"github.com/primandproper/platform-go/v13/timers/internal/timersdb"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
+
+// serviceName names the loggers, spans, and metrics this package emits.
+const serviceName = "timers"
 
 // Observability keys for this package's spans and log fields. Declared once so
 // that a field set on a span and the same field logged alongside it cannot
@@ -159,6 +164,10 @@ type Timers[K comparable] struct {
 	codec  KeyCodec[K]
 	o11y   observability.Observer
 
+	// q is the querier sqlc-gen-unison generated from timers/internal/queries.
+	// Nothing in this package composes SQL; see the package comment.
+	q timersdb.Querier
+
 	scheduledCounter metrics.Int64Counter
 	claimedCounter   metrics.Int64Counter
 	reclaimedCounter metrics.Int64Counter
@@ -238,9 +247,19 @@ func New[K comparable](
 		return nil, platformerrors.Wrapf(dialect.ErrInvalidIdentifier, "timer notify channel %q", cfg.NotifyChannel)
 	}
 
+	// The generated querier, instantiated once the prefix is settled. The
+	// dialect is not a choice here the way it is for a three-dialect store:
+	// RequirePostgres has already refused everything else, and the generated
+	// package was generated for a roster of one.
+	q, querierErr := timersdb.New(timersdb.DialectPostgreSQL, ddl.Qualify(cfg.TablePrefix))
+	if querierErr != nil {
+		return nil, platformerrors.Wrap(querierErr, "building the timers querier")
+	}
+
 	o := newTimerOptions(opts)
 
 	t := &Timers[K]{
+		q:      q,
 		cfg:    *cfg,
 		client: client,
 		clock:  clock.NewClock(),
@@ -386,24 +405,21 @@ func (t *Timers[K]) NextDue(ctx context.Context) (time.Duration, bool, error) {
 	ctx, op := t.o11y.Begin(ctx)
 	defer op.End()
 
-	var (
-		outstanding int64
-		micros      int64
-	)
-
-	if err := t.client.Writer().
-		QueryRowContext(ctx, buildNextDue(t.cfg.resolvedTable()), t.cfg.Name, t.cfg.attemptCeiling()).
-		Scan(&outstanding, &micros); err != nil {
+	row, err := t.q.ReadNextDueTimer(ctx, t.client.Writer(), timersdb.ReadNextDueTimerParams{
+		TimerSet:       t.cfg.Name,
+		AttemptCeiling: int64(t.cfg.attemptCeiling()),
+	})
+	if err != nil {
 		return 0, false, op.Error(err, "reading the next due timer")
 	}
 
-	if outstanding == 0 {
+	if row.Outstanding == 0 {
 		return 0, false, nil
 	}
 
-	next := time.Duration(micros) * time.Microsecond
+	next := time.Duration(row.NextDueMicroseconds) * time.Microsecond
 
-	op.SetValues(map[string]any{outstandingKey: outstanding, nextDueKey: next.String()})
+	op.SetValues(map[string]any{outstandingKey: row.Outstanding, nextDueKey: next.String()})
 
 	return next, true, nil
 }
@@ -585,37 +601,40 @@ func (t *Timers[K]) claim(ctx context.Context, limit int, lease time.Duration) (
 func (t *Timers[K]) claimOnce(ctx context.Context, limit int, lease time.Duration) ([]Due[K], error) {
 	// The writer, not the reader: this is an UPDATE that happens to return rows,
 	// and a read replica would both fail it and lose every lease it handed out.
-	due, err := database.ScanAll(ctx, t.client.Writer(), "claimed timer",
-		buildClaim(t.cfg.resolvedTable()),
-		[]any{t.cfg.Name, t.cfg.attemptCeiling(), limit, lease.Microseconds()},
-		func(scanner database.Scanner) (Due[K], error) {
-			var (
-				encoded    string
-				lateMicros int64
-				fired      Due[K]
-			)
-
-			if scanErr := scanner.Scan(&encoded, &fired.Payload, &fired.RunAt,
-				&lateMicros, &fired.Attempts, &fired.Reclaimed); scanErr != nil {
-				return fired, platformerrors.Wrap(scanErr, "scanning claimed timer")
-			}
-
-			fired.Late = max(time.Duration(lateMicros)*time.Microsecond, 0)
-
-			// A key that will not decode is the one failure here a caller cannot act
-			// on and must not be hidden: it means the table holds rows written under
-			// a different key type or codec, and every claim will keep leasing them.
-			// Failing the whole batch is the loud version of that, and the lease
-			// lapses on its own.
-			var decodeErr error
-			if fired.Key, decodeErr = t.codec.DecodeKey(encoded); decodeErr != nil {
-				return fired, platformerrors.Wrapf(decodeErr, "decoding claimed timer key %q", encoded)
-			}
-
-			return fired, nil
-		})
+	rows, err := t.q.ClaimDueTimers(ctx, t.client.Writer(), timersdb.ClaimDueTimersParams{
+		TimerSet:          t.cfg.Name,
+		AttemptCeiling:    int64(t.cfg.attemptCeiling()),
+		ClaimLimit:        int64(limit),
+		LeaseMicroseconds: lease.Microseconds(),
+	})
 	if err != nil {
 		return nil, platformerrors.Wrap(err, "leasing due timers")
+	}
+
+	due := make([]Due[K], 0, len(rows))
+
+	for i := range rows {
+		fired := Due[K]{
+			RunAt:     rows[i].RunAt,
+			Payload:   rows[i].Payload,
+			Late:      max(time.Duration(rows[i].LateMicroseconds)*time.Microsecond, 0),
+			Attempts:  int(rows[i].Attempts),
+			Reclaimed: rows[i].Reclaimed,
+		}
+
+		// A key that will not decode is the one failure here a caller cannot act
+		// on and must not be hidden: it means the table holds rows written under
+		// a different key type or codec, and every claim will keep leasing them.
+		// Failing the whole batch is the loud version of that, and the lease
+		// lapses on its own.
+		key, decodeErr := t.codec.DecodeKey(rows[i].TimerKey)
+		if decodeErr != nil {
+			return nil, platformerrors.Wrapf(decodeErr, "decoding claimed timer key %q", rows[i].TimerKey)
+		}
+
+		fired.Key = key
+
+		due = append(due, fired)
 	}
 
 	return due, nil
@@ -638,16 +657,14 @@ func (t *Timers[K]) Complete(ctx context.Context, fired ...Due[K]) error {
 	ctx, op := t.o11y.Begin(ctx, observability.WithValue(timerCountKey, len(fired)))
 	defer op.End()
 
-	affected, err := t.writeFirings(ctx, "complete", fired, func(rows []firingRef) (string, []any) {
-		args := make([]any, 0, (len(rows)*2)+1)
-		args = append(args, t.cfg.Name)
-
-		for i := range rows {
-			args = append(args, rows[i].key, rows[i].runAt)
-		}
-
-		return buildComplete(t.cfg.resolvedTable(), len(rows)), args
-	})
+	affected, err := t.writeFirings(ctx, "complete", fired,
+		func(keys []string, instants []time.Time) (int64, error) {
+			return t.q.CompleteTimers(ctx, t.client.Writer(), timersdb.CompleteTimersParams{
+				TimerSet:  t.cfg.Name,
+				TimerKeys: keys,
+				RunAts:    instants,
+			})
+		})
 	if err != nil {
 		return op.Error(err, "completing fired timers")
 	}
@@ -681,16 +698,18 @@ func (t *Timers[K]) Release(ctx context.Context, delay time.Duration, cause erro
 
 	delay = max(delay, 0)
 
-	affected, err := t.writeFirings(ctx, "release", fired, func(rows []firingRef) (string, []any) {
-		args := make([]any, 0, (len(rows)*2)+3)
-		args = append(args, t.cfg.Name, delay.Microseconds(), pgretry.TruncateError(cause))
+	lastError := truncatedCause(cause)
 
-		for i := range rows {
-			args = append(args, rows[i].key, rows[i].runAt)
-		}
-
-		return buildRelease(t.cfg.resolvedTable(), len(rows)), args
-	})
+	affected, err := t.writeFirings(ctx, "release", fired,
+		func(keys []string, instants []time.Time) (int64, error) {
+			return t.q.ReleaseTimers(ctx, t.client.Writer(), timersdb.ReleaseTimersParams{
+				TimerSet:          t.cfg.Name,
+				DelayMicroseconds: delay.Microseconds(),
+				LastError:         lastError,
+				TimerKeys:         keys,
+				RunAts:            instants,
+			})
+		})
 	if err != nil {
 		return op.Error(err, "releasing timers")
 	}
@@ -735,23 +754,15 @@ func (t *Timers[K]) Cancel(ctx context.Context, keys ...K) (int64, error) {
 
 	encoded = sortAndDedupe(encoded)
 
-	args := make([]any, 0, len(encoded)+1)
-	args = append(args, t.cfg.Name)
-
-	for _, key := range encoded {
-		args = append(args, key)
-	}
-
 	var affected int64
 
 	err := t.retrier.Do(ctx, "cancel", func() error {
-		res, execErr := t.client.Writer().
-			ExecContext(ctx, buildCancel(t.cfg.resolvedTable(), len(encoded)), args...)
-		if execErr != nil {
-			return execErr
-		}
+		var execErr error
 
-		affected, execErr = res.RowsAffected()
+		affected, execErr = t.q.CancelTimers(ctx, t.client.Writer(), timersdb.CancelTimersParams{
+			TimerSet:  t.cfg.Name,
+			TimerKeys: encoded,
+		})
 
 		return execErr
 	})
@@ -782,15 +793,18 @@ func (t *Timers[K]) Reap(ctx context.Context) (int64, error) {
 	var affected int64
 
 	err := t.retrier.Do(ctx, "reap", func() error {
-		res, execErr := t.client.Writer().ExecContext(ctx, buildReap(t.cfg.resolvedTable()),
-			t.cfg.Name, t.cfg.Retention.Microseconds(), t.cfg.ReapBatchSize)
+		var execErr error
+
+		affected, execErr = t.q.ReapFiredTimers(ctx, t.client.Writer(), timersdb.ReapFiredTimersParams{
+			TimerSet:              t.cfg.Name,
+			RetentionMicroseconds: t.cfg.Retention.Microseconds(),
+			ReapLimit:             int64(t.cfg.ReapBatchSize),
+		})
 		if execErr != nil {
 			return platformerrors.Wrap(execErr, "reaping fired timers")
 		}
 
-		affected, execErr = res.RowsAffected()
-
-		return execErr
+		return nil
 	})
 	if err != nil {
 		return 0, op.Error(err, "reaping fired timers")
@@ -816,19 +830,24 @@ func (t *Timers[K]) Stats(ctx context.Context) (Stats, error) {
 	ctx, op := t.o11y.Begin(ctx)
 	defer op.End()
 
-	var (
-		stats     Stats
-		lateMicro int64
-	)
-
-	if err := t.client.Reader().
-		QueryRowContext(ctx, buildStats(t.cfg.resolvedTable()), t.cfg.Name, t.cfg.attemptCeiling()).
-		Scan(&stats.Outstanding, &stats.Due, &stats.Leased, &stats.Stalled, &stats.Fired, &lateMicro); err != nil {
+	row, err := t.q.ReadTimerStats(ctx, t.client.Reader(), timersdb.ReadTimerStatsParams{
+		TimerSet:       t.cfg.Name,
+		AttemptCeiling: int64(t.cfg.attemptCeiling()),
+	})
+	if err != nil {
 		return Stats{}, op.Error(err, "reading timer stats")
 	}
 
-	if lateMicro > 0 {
-		stats.OldestDueLateness = time.Duration(lateMicro) * time.Microsecond
+	stats := Stats{
+		Outstanding: row.Outstanding,
+		Due:         row.Due,
+		Leased:      row.Leased,
+		Stalled:     row.Stalled,
+		Fired:       row.Fired,
+	}
+
+	if row.OldestDueMicroseconds > 0 {
+		stats.OldestDueLateness = time.Duration(row.OldestDueMicroseconds) * time.Microsecond
 	}
 
 	lateSeconds := int64(stats.OldestDueLateness.Seconds())
@@ -854,18 +873,20 @@ type firingRef struct {
 	key   string
 }
 
-// writeFirings is the shape Complete and Release share: encode the firings, hand
-// the batch to build, run it with the retry wrapper, and report how many rows it
-// touched.
+// writeFirings is the shape Complete and Release share: encode the firings,
+// split them into the two arrays their statements bind, run the write with the
+// retry wrapper, and report how many rows it touched.
 //
-// The firings are sorted by key before the statement is built. That is the
-// lock-ordering discipline, applied at the one place both writers pass through,
-// so a third added later inherits it rather than having to remember it.
+// The firings are sorted by key before they are split. That is the lock-ordering
+// discipline, applied at the one place both writers pass through, so a third
+// added later inherits it rather than having to remember it — and the split is
+// what keeps the pairing positional: the nth key and the nth instant are one
+// firing, which is the fact the statements' ORDINALITY join reads.
 func (t *Timers[K]) writeFirings(
 	ctx context.Context,
 	label string,
 	fired []Due[K],
-	build func(rows []firingRef) (query string, args []any),
+	write func(keys []string, instants []time.Time) (int64, error),
 ) (int64, error) {
 	if len(fired) == 0 {
 		return 0, nil
@@ -884,20 +905,41 @@ func (t *Timers[K]) writeFirings(
 
 	rows = sortAndDedupeFirings(rows)
 
-	query, args := build(rows)
+	keys := make([]string, 0, len(rows))
+	instants := make([]time.Time, 0, len(rows))
+
+	for i := range rows {
+		keys = append(keys, rows[i].key)
+		instants = append(instants, rows[i].runAt)
+	}
 
 	var affected int64
 
 	err := t.retrier.Do(ctx, label, func() error {
-		res, execErr := t.client.Writer().ExecContext(ctx, query, args...)
-		if execErr != nil {
-			return execErr
-		}
+		var execErr error
 
-		affected, execErr = res.RowsAffected()
+		affected, execErr = write(keys, instants)
 
 		return execErr
 	})
 
 	return affected, err
+}
+
+// truncatedCause renders a release's cause as the nullable text the statement
+// binds. A plain hand-back has no error to record, and NULL is what "no error"
+// means in that column — an empty string would be a recorded failure with
+// nothing to say about itself.
+//
+// The bound is internal/pgretry's, not a second copy of it: what fits in a
+// last_error column is the same fact for every table in this module that has
+// one, and a pathological driver error bloating a row is the case it exists for.
+func truncatedCause(cause error) *string {
+	if cause == nil {
+		return nil
+	}
+
+	truncated := platformerrors.TruncateError(cause, pgretry.MaxStoredErrLen)
+
+	return &truncated
 }

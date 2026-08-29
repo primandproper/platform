@@ -339,8 +339,12 @@ func TestWriter_Enqueue_sideEffects(T *testing.T) {
 		}))
 
 		// The whole point of deriving inside Enqueue rather than around it: two
-		// caller messages and two derived ones still cost one round trip.
-		test.EqOp(t, 1, counter.execs)
+		// caller messages and two derived ones are written by one Enqueue, on
+		// the caller's executor, so they commit together or not at all. It is a
+		// statement per row rather than one for the batch — see
+		// outbox/internal/queries on why a checked corpus cannot hold a VALUES
+		// list whose length is the call's.
+		test.EqOp(t, 4, counter.execs)
 		test.EqOp(t, 4, countRows(t, client, "1=1"))
 		test.EqOp(t, 2, countRows(t, client, "topic = 'orders-index'"))
 

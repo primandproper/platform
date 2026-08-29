@@ -44,8 +44,8 @@ asked:
 	    outbox.WithWriterSideEffect("orders-index", indexEventsFor))
 
 It runs inside every Enqueue on the caller's executor, so rows it writes commit
-with the row change and messages it returns are written by the same statement as
-the caller's — a transaction owing three events still pays one round trip. An
+with the row change and messages it returns are written by the same transaction
+as the caller's — a transaction owing three events commits four rows or none. An
 error from one aborts the enqueue and comes back to the caller, whose
 transaction rolls back with it.
 
@@ -69,6 +69,32 @@ changed nothing.
 The outbox never looks inside a Payload, so what an effect can derive from is
 the application's own message type, which the application asserts back out.
 search/sync's documentation works the index event through end to end.
+
+# Where the SQL comes from
+
+Nothing in this package composes a statement. The queries live in
+outbox/internal/queries as a rendered, committed corpus — six of the nine
+statements written out there rather than emitted by database/querygen, for the
+reasons that package's comment gives — sqlc checks that corpus against the
+schema outbox/migrations renders, on all three dialects, with no database
+running, and what the Writer and the Relay execute is the querier
+sqlc-gen-unison generated from it, in outbox/internal/outboxdb. A column renamed
+in a migration is a failed `make unison` rather than a scan error in production.
+
+One consequence reaches the API above. An Enqueue of several messages executes
+one INSERT per message rather than one multi-row statement: a VALUES list whose
+length is the batch's makes the statement's text a function of its argument
+count, which is exactly what a checked corpus cannot hold. They still run inside
+the caller's transaction, so the atomicity the package exists for is unchanged.
+
+The claim mode reaches it too. FOR UPDATE SKIP LOCKED is statement text rather
+than a bound value, so the corpus carries the claim twice — once locked, once not
+— and a relay picks the method its mode names, the way a paged read picks
+between its two directions.
+
+The one line of SQL this package still names is database/dialect's NOTIFY, which
+is addressed to a channel rather than to a table and belongs to no schema sqlc
+could check it against.
 
 # Creating the table
 
@@ -204,3 +230,5 @@ investigated after the fact, and a reaper deletes them once they age past
 Retention.
 */
 package outbox
+
+//go:generate go run ./internal/queriesgen
