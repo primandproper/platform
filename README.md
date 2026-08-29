@@ -123,6 +123,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`. 
 | `entitlements`    | Feature access & remaining quota | —                 |
 | `settings`        | Per-user and per-account runtime settings: admin-defined definitions, per-subject values | postgres, mysql, sqlite |
 | `issuereports`    | User-submitted issue reports with a triage lifecycle | postgres, mysql, sqlite |
+| `comments`        | Threaded comments on consumer-declared targets | postgres, mysql, sqlite |
 | `saga`            | Linear durable sagas with compensations | postgres, mysql, sqlite |
 | `distributedlock` | Distributed locking        | memory, postgres, redis |
 | `workqueue`       | Leased work queue (`SKIP LOCKED` claim/complete/expire) | postgres |
@@ -214,6 +215,7 @@ construction, never a partial store or a migration that creates nothing.
 | `authentication/passwordreset`         | ✓        | ✓     | ✓      |
 | `authentication/webauthn/database`     | ✓        | ✓     | ✓      |
 | `authorization/database`               | ✓        | ✓     | ✓      |
+| `comments`                             | ✓        | ✓     | ✓      |
 | `cryptography/shredding`               | ✓        | ✓     | ✓      |
 | `dataprivacy`                          | ✓        | ✓     | ✓      |
 | `identity`                             | ✓        | ✓     | ✓      |
