@@ -42,7 +42,7 @@ Selecting an implementation is deliberate: an unrecognized provider name returns
 
 ## Package Catalog
 
-Implementations are listed in parentheses; most concerns also provide a `noop`.
+Implementations are listed in parentheses; most concerns also provide a `noop`. Where an implementation is a SQL dialect, [SQL Dialect Support](#sql-dialect-support) is the full matrix and the reasons behind the three exceptions.
 
 ### Data & storage
 | Package    | Purpose                              | Implementations                       |
@@ -133,6 +133,81 @@ Implementations are listed in parentheses; most concerns also provide a `noop`.
 
 ### Utilities
 `errors`, `pointer`, `numbers`, `bitmask`, `charset`, `reflection`, `panicking`, `testutils`, `fake`.
+
+## SQL Dialect Support
+
+`database` speaks Postgres, MySQL and SQLite, and so does almost every package
+that stores anything through it. Three do not. They are Postgres-only by
+decision rather than by omission, and this is where that decision is spoken —
+once, before you choose packages, rather than package by package as each
+constructor refuses at wiring time.
+
+A ✓ means the package ships DDL for that dialect, and — for every package whose
+statements have been ported onto the generated tier — executes a querier emitted
+against it. Everything unticked returns `dialect.ErrUnsupported` at
+construction, never a partial store or a migration that creates nothing.
+
+| Package                                | Postgres | MySQL | SQLite |
+|----------------------------------------|----------|-------|--------|
+| `audit`                                | ✓        | ✓     | ✓      |
+| `authentication/oauth2server/database` | ✓        | ✓     | ✓      |
+| `authentication/passwordreset`         | ✓        | ✓     | ✓      |
+| `authentication/webauthn/database`     | ✓        | ✓     | ✓      |
+| `authorization/database`               | ✓        | ✓     | ✓      |
+| `cryptography/shredding`               | ✓        | ✓     | ✓      |
+| `dataprivacy`                          | ✓        | ✓     | ✓      |
+| `identity`                             | ✓        | ✓     | ✓      |
+| `metering`                             | ✓        | ✓     | ✓      |
+| `notifications`                        | ✓        | ✓     | ✓      |
+| `operations`                           | ✓        | —     | —      |
+| `outbox`                               | ✓        | ✓     | ✓      |
+| `saga`                                 | ✓        | ✓     | ✓      |
+| `sessions/database`                    | ✓        | ✓     | ✓      |
+| `settings`                             | ✓        | ✓     | ✓      |
+| `timers`                               | ✓        | —     | —      |
+| `uploads/registry`                     | ✓        | ✓     | ✓      |
+| `webhooks`                             | ✓        | ✓     | ✓      |
+| `workqueue`                            | ✓        | —     | —      |
+
+### Why the three narrow
+
+One reason, arrived at from three directions. `workqueue`'s claim is a single
+statement that selects due rows, locks them with `SKIP LOCKED`, increments
+attempts, extends the lease and hands the keys back with `RETURNING`. MySQL 8.0
+has `SKIP LOCKED` and CTEs but no `RETURNING`, so the same claim there is a
+`SELECT … FOR UPDATE SKIP LOCKED` plus a separate `UPDATE` inside a transaction
+held across both round trips — a different concurrency shape with a different
+failure model, which is a second implementation rather than a dialect switch.
+SQLite is a harder no: single-writer, with no row-level locking to skip.
+`timers` claims the same way. `operations` runs on `workqueue`, so its roster is
+`workqueue`'s.
+
+Widening any of them is a decision about that claim, not about a missing
+translation — the package docs carry the long form. Nothing forecloses it: the
+shape to reach for is the package as the interface with a provider subpackage
+beneath it, the way `cache` and `cache/redis` sit.
+
+### Narrowings that are not rows
+
+Some dialect-dependence is a capability inside a package that serves all three,
+and a row would misreport it either way:
+
+- **`outbox`** stores and relays on all three. Its `LISTEN`/`NOTIFY` wakeup is
+  Postgres-only and reported as `outbox.ErrNotifyUnsupported` if configured
+  elsewhere; without it a relay polls, which is later rather than wrong. Its
+  `SKIP LOCKED` claim mode degrades to a lease on SQLite.
+- **`retention`** sweeps all three, and ships no DDL: the table, the timestamp
+  column and the batch key arrive from a `Policy` written at run time, so there
+  is no schema of this module's to render for a dialect.
+- **`distributedlock/postgres`** and **`search/vector/pgvector`** are named
+  providers beside `memory`, `redis` and `qdrant`, chosen by config the way
+  `cache/redis` is. Picking one is picking Postgres, which is what its name
+  says.
+
+The matrix above is not maintained by hand against the tree.
+`internal/dialectmatrix` parses this table and fails if a row disagrees with the
+DDL a package ships, with the dialects its generated querier was emitted for, or
+if a DDL-shipping package has no row at all.
 
 ## Development
 

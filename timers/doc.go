@@ -216,6 +216,11 @@ keys with their payloads; without RETURNING that becomes a
 SELECT … FOR UPDATE SKIP LOCKED and a separate UPDATE inside a transaction held
 across both round trips, which is a different concurrency shape rather than a
 dialect switch. New returns dialect.ErrUnsupported for anything else.
+
+The module README's "SQL Dialect Support" section is where that narrowing is
+spoken module-wide, beside the roster of every other package that stores
+anything through database — the table to read before choosing a dialect, rather
+than after choosing this package.
 */
 package timers
 
