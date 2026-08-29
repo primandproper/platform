@@ -88,6 +88,11 @@ type User struct {
 
 	// EmailAddressVerifiedAt is when the address below was proven reachable, or
 	// nil if it has not been.
+	//
+	// Like the token it travels with, it is not writable through UpdateUser and
+	// the field is ignored there: a proof is something the store records when a
+	// link comes back, and a caller able to assign it could verify an address by
+	// saving a profile.
 	EmailAddressVerifiedAt *time.Time `json:"emailAddressVerifiedAt"`
 
 	// PasswordLastChangedAt is when HashedPassword last changed. It is what a
@@ -146,7 +151,14 @@ type User struct {
 
 	// EmailAddressVerificationToken is the value a verification link carries. It
 	// is cleared when the address is verified, so a link cannot be replayed
-	// after it has worked once.
+	// after it has worked once, and it is cleared again whenever EmailAddress
+	// moves: the column records that a link was mailed and not which address it
+	// went to, so a token that outlived the address it was minted for would
+	// prove the one that replaced it.
+	//
+	// Writing it through UpdateUser is not possible, and the field is ignored
+	// there. Store.SetUserEmailAddressVerificationToken issues one and
+	// Store.MarkUserEmailAddressVerified burns it.
 	EmailAddressVerificationToken string `json:"-"`
 
 	// Scope is whose directory this user is in. See the package documentation:

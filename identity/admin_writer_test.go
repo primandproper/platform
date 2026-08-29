@@ -415,16 +415,86 @@ func runAdminWriterSuite(t *testing.T, env *storeEnv) {
 
 		must.NoError(t, store.ArchiveAccount(t.Context(), testScope, closing.ID))
 
-		// The surviving membership is still there and still not the default —
-		// nothing moves it, because archiving an account is not the store
-		// choosing where its members land next.
+		// The surviving membership is still there, and it is now the default:
+		// closing an account is RemoveMembership performed on every member at
+		// once, and neither leaves somebody with memberships and nowhere to
+		// land.
 		after, err := store.ListMembershipsForUser(t.Context(), testScope, member.ID)
 		must.NoError(t, err)
 		must.SliceLen(t, 1, after)
 		test.EqOp(t, surviving.ID, after[0].BelongsToAccount)
-		test.False(t, after[0].DefaultAccount)
+		test.True(t, after[0].DefaultAccount)
+
+		landing, err := store.GetPrincipal(t.Context(), testScope, member.ID, "")
+		must.NoError(t, err)
+		test.EqOp(t, surviving.ID, landing.ActiveAccountID)
+
+		// The owner belonged to both and defaulted to the one that closed, so
+		// they move too — the archival reads every member whose default this
+		// was rather than the one it was handed.
+		ownerLanding, err := store.GetPrincipal(t.Context(), testScope, owner.ID, "")
+		must.NoError(t, err)
+		test.EqOp(t, surviving.ID, ownerLanding.ActiveAccountID)
+	})
+
+	t.Run("leaves a member of nothing else with no default", func(t *testing.T) {
+		t.Parallel()
+
+		// A default is a pointer at a live membership, so a member whose only
+		// account closed keeps none: there is nothing to point at, and that is
+		// the state ErrNoDefaultAccount describes rather than one the archival
+		// invented.
+		store := env.newStore(t)
+		owner := createUser(t, store, newUser("ada"))
+		closing := createAccountFor(t, store, owner, "Closing")
+		member := registerInto(t, store, newUser("brian"), closing.ID)
+
+		must.NoError(t, store.ArchiveAccount(t.Context(), testScope, closing.ID))
+
+		after, err := store.ListMembershipsForUser(t.Context(), testScope, member.ID)
+		must.NoError(t, err)
+		test.SliceEmpty(t, after)
 
 		_, err = store.GetPrincipal(t.Context(), testScope, member.ID, "")
 		must.ErrorIs(t, err, ErrNoDefaultAccount)
+	})
+
+	t.Run("moves a member's default off a closing account and not off another's", func(t *testing.T) {
+		t.Parallel()
+
+		// Two members of the closing account, each with a second account of
+		// their own, and one of them defaulting somewhere else already. The
+		// move is per member — the fallback is a different account for each —
+		// and it reaches only the members the closure actually strands.
+		store := env.newStore(t)
+		owner := createUser(t, store, newUser("ada"))
+		closing := createAccountFor(t, store, owner, "Closing")
+
+		stranded := registerInto(t, store, newUser("brian"), closing.ID)
+		strandedHome := createAccountFor(t, store, stranded, "Brian's")
+
+		settled := registerInto(t, store, newUser("cleo"), closing.ID)
+		settledHome := createAccountFor(t, store, settled, "Cleo's")
+		must.NoError(t, store.SetDefaultAccount(t.Context(), testScope, settled.ID, settledHome.ID))
+
+		must.NoError(t, store.ArchiveAccount(t.Context(), testScope, closing.ID))
+
+		strandedLanding, err := store.GetPrincipal(t.Context(), testScope, stranded.ID, "")
+		must.NoError(t, err)
+		test.EqOp(t, strandedHome.ID, strandedLanding.ActiveAccountID)
+
+		settledLanding, err := store.GetPrincipal(t.Context(), testScope, settled.ID, "")
+		must.NoError(t, err)
+		test.EqOp(t, settledHome.ID, settledLanding.ActiveAccountID)
+
+		// One default per member survives the move, which is the invariant
+		// SetDefaultAccount states and the archival must not break by writing a
+		// second flag.
+		for _, userID := range []string{stranded.ID, settled.ID} {
+			memberships, listErr := store.ListMembershipsForUser(t.Context(), testScope, userID)
+			must.NoError(t, listErr)
+			must.SliceLen(t, 1, memberships)
+			test.True(t, memberships[0].DefaultAccount)
+		}
 	})
 }

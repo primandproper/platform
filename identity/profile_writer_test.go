@@ -159,6 +159,71 @@ func runProfileWriterSuite(t *testing.T, env *storeEnv) {
 		test.True(t, read.EmailAddressVerified())
 	})
 
+	// The reproduction the fix exists for, and the direction that mattered: a
+	// link mailed to the address being left behind, presented after the move.
+	// The token column records that a link was mailed, not which address it went
+	// to, so a token surviving the change is proof of the old address applied to
+	// the new one — an address nobody ever proved, reading as verified.
+	t.Run("burns the outstanding verification token when the email address changes", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		user := createUser(t, store, newUser("ada"))
+
+		must.NoError(t, store.SetUserEmailAddressVerificationToken(t.Context(), testScope, user.ID, "mailed-to-ada"))
+
+		user.EmailAddress = "unproven@example.com"
+		must.NoError(t, store.UpdateUser(t.Context(), user))
+
+		// The link is dead at both ends: nothing reads back by it, and
+		// presenting it writes nothing.
+		_, err := store.GetUserByEmailVerificationToken(t.Context(), testScope, "mailed-to-ada")
+		must.ErrorIs(t, err, ErrUserNotFound)
+
+		must.ErrorIs(t,
+			store.MarkUserEmailAddressVerified(t.Context(), testScope, user.ID, "mailed-to-ada"),
+			ErrUserNotFound,
+		)
+
+		read, err := store.GetUser(t.Context(), testScope, user.ID)
+		must.NoError(t, err)
+		test.EqOp(t, "unproven@example.com", read.EmailAddress)
+		test.False(t, read.EmailAddressVerified())
+		test.EqOp(t, "", read.EmailAddressVerificationToken)
+	})
+
+	// The mirror, and the case that fails if the token is cleared on every save
+	// rather than on a move: an unrelated profile edit must not cost the user
+	// the link already sitting in their inbox.
+	t.Run("keeps the outstanding token when the email address does not change", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		user := createUser(t, store, newUser("ada"))
+
+		must.NoError(t, store.SetUserEmailAddressVerificationToken(t.Context(), testScope, user.ID, "still-good"))
+
+		// The struct in hand carries no token — a caller's copy is usually a
+		// redacted one, and this one was never told about the link — so the
+		// update has to take the token from the row rather than from the User,
+		// or every profile save would burn the outstanding link.
+		test.EqOp(t, "", user.EmailAddressVerificationToken)
+
+		user.FirstName = "Augusta"
+		must.NoError(t, store.UpdateUser(t.Context(), user))
+
+		found, err := store.GetUserByEmailVerificationToken(t.Context(), testScope, "still-good")
+		must.NoError(t, err)
+		test.EqOp(t, user.ID, found.ID)
+
+		must.NoError(t, store.MarkUserEmailAddressVerified(t.Context(), testScope, user.ID, "still-good"))
+
+		read, err := store.GetUser(t.Context(), testScope, user.ID)
+		must.NoError(t, err)
+		test.EqOp(t, "Augusta", read.FirstName)
+		test.True(t, read.EmailAddressVerified())
+	})
+
 	t.Run("lets a user keep their own handle on update", func(t *testing.T) {
 		t.Parallel()
 

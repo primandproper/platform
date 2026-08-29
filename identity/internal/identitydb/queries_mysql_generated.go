@@ -15,7 +15,7 @@ import (
 
 const answerInvitationMySQL = `UPDATE {{prefix}}identity_invitations SET
 	status = ?,
-	note = ?,
+	status_note = ?,
 	to_user = ?,
 	last_updated_at = CURRENT_TIMESTAMP(6)
 WHERE archived_at IS NULL
@@ -124,8 +124,10 @@ const createInvitationMySQL = `INSERT INTO {{prefix}}identity_invitations (
 	token,
 	status,
 	note,
+	status_note,
 	expires_at
 ) VALUES (
+	?,
 	?,
 	?,
 	?,
@@ -232,6 +234,7 @@ const getInvitationMySQL = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -852,6 +855,22 @@ WHERE {{prefix}}identity_accounts.created_at > COALESCE(?, (SELECT CURRENT_TIMES
 ORDER BY {{prefix}}identity_accounts.id DESC
 LIMIT ?`
 
+const listDefaultMembershipsForAccountMySQL = `SELECT
+	{{prefix}}identity_memberships.id,
+	{{prefix}}identity_memberships.scope,
+	{{prefix}}identity_memberships.belongs_to_user,
+	{{prefix}}identity_memberships.belongs_to_account,
+	{{prefix}}identity_memberships.default_account,
+	{{prefix}}identity_memberships.created_at,
+	{{prefix}}identity_memberships.last_updated_at,
+	{{prefix}}identity_memberships.archived_at
+FROM {{prefix}}identity_memberships
+WHERE {{prefix}}identity_memberships.archived_at IS NULL
+	AND {{prefix}}identity_memberships.scope = ?
+	AND {{prefix}}identity_memberships.belongs_to_account = ?
+	AND {{prefix}}identity_memberships.default_account = ?
+ORDER BY {{prefix}}identity_memberships.belongs_to_user ASC`
+
 const listInvitationRolesByInvitationIDsMySQL = `SELECT
 	{{prefix}}identity_invitation_roles.invitation_id,
 	{{prefix}}identity_invitation_roles.role
@@ -870,6 +889,7 @@ const listInvitationsMySQL = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -924,6 +944,7 @@ const listInvitationsByFromUserMySQL = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -984,6 +1005,7 @@ const listInvitationsByFromUserDescendingMySQL = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -1044,6 +1066,7 @@ const listInvitationsByToEmailMySQL = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -1104,6 +1127,7 @@ const listInvitationsByToEmailDescendingMySQL = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -1164,6 +1188,7 @@ const listInvitationsDescendingMySQL = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -1389,6 +1414,13 @@ WHERE archived_at IS NULL
 	AND id = ?
 	AND scope = ?`
 
+const markUserEmailAddressUnverifiedMySQL = `UPDATE {{prefix}}identity_users SET
+	email_address_verified_at = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = ?
+	AND scope = ?`
+
 const markUserEmailAddressVerifiedMySQL = `UPDATE {{prefix}}identity_users SET
 	email_address_verified_at = ?,
 	email_address_verification_token = ?,
@@ -1512,6 +1544,7 @@ WHERE archived_at IS NULL
 
 const setUserEmailAddressVerificationTokenMySQL = `UPDATE {{prefix}}identity_users SET
 	email_address_verification_token = ?,
+	email_address_verified_at = ?,
 	last_updated_at = CURRENT_TIMESTAMP(6)
 WHERE archived_at IS NULL
 	AND id = ?
@@ -1553,6 +1586,7 @@ const updateUserMySQL = `UPDATE {{prefix}}identity_users SET
 	first_name = ?,
 	last_name = ?,
 	email_address_verified_at = ?,
+	email_address_verification_token = ?,
 	last_updated_at = CURRENT_TIMESTAMP(6)
 WHERE archived_at IS NULL
 	AND id = ?
@@ -1644,6 +1678,7 @@ type mysqlQueries struct {
 	listAccountsDescending                   string
 	listAccountsForUser                      string
 	listAccountsForUserDescending            string
+	listDefaultMembershipsForAccount         string
 	listInvitationRolesByInvitationIDs       string
 	listInvitations                          string
 	listInvitationsByFromUser                string
@@ -1658,6 +1693,7 @@ type mysqlQueries struct {
 	listUsersByIDs                           string
 	listUsersDescending                      string
 	markAccountBillingSynced                 string
+	markUserEmailAddressUnverified           string
 	markUserEmailAddressVerified             string
 	markUserTwoFactorSecretVerified          string
 	recordAccountSubscription                string
@@ -1724,6 +1760,7 @@ func newMySQL(prefix string) *mysqlQueries {
 		listAccountsDescending:                   strings.ReplaceAll(listAccountsDescendingMySQL, prefixMarker, prefix),
 		listAccountsForUser:                      strings.ReplaceAll(listAccountsForUserMySQL, prefixMarker, prefix),
 		listAccountsForUserDescending:            strings.ReplaceAll(listAccountsForUserDescendingMySQL, prefixMarker, prefix),
+		listDefaultMembershipsForAccount:         strings.ReplaceAll(listDefaultMembershipsForAccountMySQL, prefixMarker, prefix),
 		listInvitationRolesByInvitationIDs:       strings.ReplaceAll(listInvitationRolesByInvitationIDsMySQL, prefixMarker, prefix),
 		listInvitations:                          strings.ReplaceAll(listInvitationsMySQL, prefixMarker, prefix),
 		listInvitationsByFromUser:                strings.ReplaceAll(listInvitationsByFromUserMySQL, prefixMarker, prefix),
@@ -1738,6 +1775,7 @@ func newMySQL(prefix string) *mysqlQueries {
 		listUsersByIDs:                           strings.ReplaceAll(listUsersByIDsMySQL, prefixMarker, prefix),
 		listUsersDescending:                      strings.ReplaceAll(listUsersDescendingMySQL, prefixMarker, prefix),
 		markAccountBillingSynced:                 strings.ReplaceAll(markAccountBillingSyncedMySQL, prefixMarker, prefix),
+		markUserEmailAddressUnverified:           strings.ReplaceAll(markUserEmailAddressUnverifiedMySQL, prefixMarker, prefix),
 		markUserEmailAddressVerified:             strings.ReplaceAll(markUserEmailAddressVerifiedMySQL, prefixMarker, prefix),
 		markUserTwoFactorSecretVerified:          strings.ReplaceAll(markUserTwoFactorSecretVerifiedMySQL, prefixMarker, prefix),
 		recordAccountSubscription:                strings.ReplaceAll(recordAccountSubscriptionMySQL, prefixMarker, prefix),
@@ -1764,7 +1802,7 @@ func newMySQL(prefix string) *mysqlQueries {
 func (q *mysqlQueries) AnswerInvitation(ctx context.Context, db DBTX, arg AnswerInvitationParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.answerInvitation,
 		arg.Status,
-		arg.Note,
+		arg.StatusNote,
 		arg.ToUser,
 		arg.ID,
 		arg.Scope,
@@ -1927,6 +1965,7 @@ func (q *mysqlQueries) CreateInvitation(ctx context.Context, db DBTX, arg Create
 		arg.Token,
 		arg.Status,
 		arg.Note,
+		arg.StatusNote,
 		arg.ExpiresAt,
 	)
 
@@ -2076,6 +2115,7 @@ func (q *mysqlQueries) GetInvitation(ctx context.Context, db DBTX, arg GetInvita
 		&i.Token,
 		&i.Status,
 		&i.Note,
+		&i.StatusNote,
 		&i.ExpiresAt,
 		&i.CreatedAt,
 		&i.LastUpdatedAt,
@@ -2844,6 +2884,47 @@ func (q *mysqlQueries) ListAccountsForUserDescending(ctx context.Context, db DBT
 	return items, nil
 }
 
+// ListDefaultMembershipsForAccount runs the :many query against mysql.
+func (q *mysqlQueries) ListDefaultMembershipsForAccount(ctx context.Context, db DBTX, arg ListDefaultMembershipsForAccountParams) ([]ListDefaultMembershipsForAccountRow, error) {
+	rows, err := db.QueryContext(ctx, q.listDefaultMembershipsForAccount,
+		arg.Scope,
+		arg.BelongsToAccount,
+		arg.DefaultAccount,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var items []ListDefaultMembershipsForAccountRow
+
+	for rows.Next() {
+		var i ListDefaultMembershipsForAccountRow
+
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.BelongsToUser,
+			&i.BelongsToAccount,
+			&i.DefaultAccount,
+			&i.CreatedAt,
+			&i.LastUpdatedAt,
+			&i.ArchivedAt,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(items, i)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
 // ListInvitationRolesByInvitationIDs runs the :many query against mysql.
 func (q *mysqlQueries) ListInvitationRolesByInvitationIDs(ctx context.Context, db DBTX, arg ListInvitationRolesByInvitationIDsParams) ([]ListInvitationRolesByInvitationIDsRow, error) {
 	query := q.listInvitationRolesByInvitationIDs
@@ -2927,6 +3008,7 @@ func (q *mysqlQueries) ListInvitations(ctx context.Context, db DBTX, arg ListInv
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -2995,6 +3077,7 @@ func (q *mysqlQueries) ListInvitationsByFromUser(ctx context.Context, db DBTX, a
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3064,6 +3147,7 @@ func (q *mysqlQueries) ListInvitationsByFromUserDescending(ctx context.Context, 
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3132,6 +3216,7 @@ func (q *mysqlQueries) ListInvitationsByToEmail(ctx context.Context, db DBTX, ar
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3201,6 +3286,7 @@ func (q *mysqlQueries) ListInvitationsByToEmailDescending(ctx context.Context, d
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3264,6 +3350,7 @@ func (q *mysqlQueries) ListInvitationsDescending(ctx context.Context, db DBTX, a
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3618,6 +3705,20 @@ func (q *mysqlQueries) MarkAccountBillingSynced(ctx context.Context, db DBTX, ar
 	return result.RowsAffected()
 }
 
+// MarkUserEmailAddressUnverified runs the :execrows query against mysql.
+func (q *mysqlQueries) MarkUserEmailAddressUnverified(ctx context.Context, db DBTX, arg MarkUserEmailAddressUnverifiedParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.markUserEmailAddressUnverified,
+		arg.EmailAddressVerifiedAt,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // MarkUserEmailAddressVerified runs the :execrows query against mysql.
 func (q *mysqlQueries) MarkUserEmailAddressVerified(ctx context.Context, db DBTX, arg MarkUserEmailAddressVerifiedParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.markUserEmailAddressVerified,
@@ -3848,6 +3949,7 @@ func (q *mysqlQueries) SetMembershipDefaultAccount(ctx context.Context, db DBTX,
 func (q *mysqlQueries) SetUserEmailAddressVerificationToken(ctx context.Context, db DBTX, arg SetUserEmailAddressVerificationTokenParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.setUserEmailAddressVerificationToken,
 		arg.EmailAddressVerificationToken,
+		arg.EmailAddressVerifiedAt,
 		arg.ID,
 		arg.Scope,
 	)
@@ -3917,6 +4019,7 @@ func (q *mysqlQueries) UpdateUser(ctx context.Context, db DBTX, arg UpdateUserPa
 		arg.FirstName,
 		arg.LastName,
 		arg.EmailAddressVerifiedAt,
+		arg.EmailAddressVerificationToken,
 		arg.ID,
 		arg.Scope,
 	)
@@ -3995,7 +4098,7 @@ func (q *mysqlQueries) UpsertMembership(ctx context.Context, db DBTX, arg Upsert
 var (
 	_ = struct {
 		Status        string
-		Note          string
+		StatusNote    string
 		ToUser        *string
 		ID            string
 		Scope         tenancy.Scope
@@ -4069,6 +4172,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 	}(CreateInvitationParams{})
 	_ = struct {
@@ -4149,6 +4253,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4564,6 +4669,21 @@ var (
 		TotalCount                  int64
 	}(ListAccountsForUserDescendingRow{})
 	_ = struct {
+		Scope            tenancy.Scope
+		BelongsToAccount string
+		DefaultAccount   bool
+	}(ListDefaultMembershipsForAccountParams{})
+	_ = struct {
+		ID               string
+		Scope            tenancy.Scope
+		BelongsToUser    string
+		BelongsToAccount string
+		DefaultAccount   bool
+		CreatedAt        time.Time
+		LastUpdatedAt    *time.Time
+		ArchivedAt       *time.Time
+	}(ListDefaultMembershipsForAccountRow{})
+	_ = struct {
 		IDs []string
 	}(ListInvitationRolesByInvitationIDsParams{})
 	_ = struct {
@@ -4591,6 +4711,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4621,6 +4742,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4651,6 +4773,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4681,6 +4804,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4711,6 +4835,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4739,6 +4864,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4874,6 +5000,11 @@ var (
 		Scope                       tenancy.Scope
 	}(MarkAccountBillingSyncedParams{})
 	_ = struct {
+		EmailAddressVerifiedAt *time.Time
+		ID                     string
+		Scope                  tenancy.Scope
+	}(MarkUserEmailAddressUnverifiedParams{})
+	_ = struct {
 		EmailAddressVerifiedAt               *time.Time
 		EmailAddressVerificationToken        string
 		ID                                   string
@@ -4976,6 +5107,7 @@ var (
 	}(SetMembershipDefaultAccountParams{})
 	_ = struct {
 		EmailAddressVerificationToken string
+		EmailAddressVerifiedAt        *time.Time
 		ID                            string
 		Scope                         tenancy.Scope
 	}(SetUserEmailAddressVerificationTokenParams{})
@@ -5004,13 +5136,14 @@ var (
 		Scope             tenancy.Scope
 	}(UpdateAccountParams{})
 	_ = struct {
-		Username               string
-		EmailAddress           string
-		FirstName              string
-		LastName               string
-		EmailAddressVerifiedAt *time.Time
-		ID                     string
-		Scope                  tenancy.Scope
+		Username                      string
+		EmailAddress                  string
+		FirstName                     string
+		LastName                      string
+		EmailAddressVerifiedAt        *time.Time
+		EmailAddressVerificationToken string
+		ID                            string
+		Scope                         tenancy.Scope
 	}(UpdateUserParams{})
 	_ = struct {
 		AccountStatus            string

@@ -265,6 +265,17 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 		test.SliceEmpty(t, minted.Roles)
 		must.NoError(t, store.SetMembershipRoles(t.Context(), testScope, successor.ID, account.ID, nil))
 
+		// It is the successor's first membership anywhere, so it is their
+		// default — the rule the other two doors that mint one apply. A minted
+		// membership that was not the default would hand somebody an account
+		// and no way to land in it: the sign-in read names no account, and a
+		// user with memberships and no default has nowhere to go.
+		test.True(t, minted.DefaultAccount)
+
+		landing, err := store.GetPrincipal(t.Context(), testScope, successor.ID, "")
+		must.NoError(t, err)
+		test.EqOp(t, account.ID, landing.ActiveAccountID)
+
 		// Transferring and ejecting are different acts; handing over and staying
 		// on is the common case.
 		_, err = store.GetMembership(t.Context(), testScope, owner.ID, account.ID)
@@ -280,6 +291,32 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 			store.TransferAccountOwnership(t.Context(), testScope, account.ID, ""),
 			platformerrors.ErrEmptyInputParameter,
 		)
+	})
+
+	t.Run("leaves a new owner's existing default where it was", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		owner := createUser(t, store, newUser("ada"))
+		account := createAccountFor(t, store, owner, "Acme")
+
+		// The successor already belongs somewhere and already lands there. The
+		// membership the transfer mints is not their first, so it does not
+		// become their default: handing somebody an account is not choosing
+		// where they sign in, and the rule is "a first membership defaults"
+		// rather than "the newest one wins".
+		successor := createUser(t, store, newUser("grace"))
+		home := createAccountFor(t, store, successor, "Home")
+
+		must.NoError(t, store.TransferAccountOwnership(t.Context(), testScope, account.ID, successor.ID))
+
+		minted, err := store.GetMembership(t.Context(), testScope, successor.ID, account.ID)
+		must.NoError(t, err)
+		test.False(t, minted.DefaultAccount)
+
+		landing, err := store.GetPrincipal(t.Context(), testScope, successor.ID, "")
+		must.NoError(t, err)
+		test.EqOp(t, home.ID, landing.ActiveAccountID)
 	})
 
 	t.Run("refuses a new owner from another directory", func(t *testing.T) {

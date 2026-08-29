@@ -232,6 +232,10 @@ func registerInto(t *testing.T, store *SQLStore, user *User, accountID string, r
 	return user
 }
 
+// senderNote is what every invitation this harness builds was sent with: the
+// message rendered into the invite email, which no answer may overwrite.
+const senderNote = "come and join us"
+
 // newInvitation builds a pending invitation from one user to an address.
 func newInvitation(from *User, accountID, toEmail, token string, expires time.Time) *Invitation {
 	return &Invitation{
@@ -242,8 +246,11 @@ func newInvitation(from *User, accountID, toEmail, token string, expires time.Ti
 		ToEmail:          toEmail,
 		Token:            token,
 		Status:           InvitationPending,
-		ExpiresAt:        expires,
-		Roles:            []string{"account_member"},
+		// The sender's message, carried by every invitation the suite builds
+		// so that any answer written on top of one has something to destroy.
+		Note:      senderNote,
+		ExpiresAt: expires,
+		Roles:     []string{"account_member"},
 	}
 }
 

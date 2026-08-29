@@ -195,6 +195,7 @@ UPDATE identity_users SET
 	first_name = sqlc.arg(first_name),
 	last_name = sqlc.arg(last_name),
 	email_address_verified_at = sqlc.narg(email_address_verified_at),
+	email_address_verification_token = sqlc.arg(email_address_verification_token),
 	last_updated_at = CURRENT_TIMESTAMP(6)
 WHERE archived_at IS NULL
 	AND id = sqlc.arg(id)
@@ -425,6 +426,7 @@ INSERT INTO identity_invitations (
 	token,
 	status,
 	note,
+	status_note,
 	expires_at
 ) VALUES (
 	sqlc.arg(id),
@@ -437,6 +439,7 @@ INSERT INTO identity_invitations (
 	sqlc.arg(token),
 	sqlc.arg(status),
 	sqlc.arg(note),
+	sqlc.arg(status_note),
 	sqlc.arg(expires_at)
 );
 
@@ -452,6 +455,7 @@ SELECT
 	identity_invitations.token,
 	identity_invitations.status,
 	identity_invitations.note,
+	identity_invitations.status_note,
 	identity_invitations.expires_at,
 	identity_invitations.created_at,
 	identity_invitations.last_updated_at,
@@ -473,6 +477,7 @@ SELECT
 	identity_invitations.token,
 	identity_invitations.status,
 	identity_invitations.note,
+	identity_invitations.status_note,
 	identity_invitations.expires_at,
 	identity_invitations.created_at,
 	identity_invitations.last_updated_at,
@@ -528,6 +533,7 @@ SELECT
 	identity_invitations.token,
 	identity_invitations.status,
 	identity_invitations.note,
+	identity_invitations.status_note,
 	identity_invitations.expires_at,
 	identity_invitations.created_at,
 	identity_invitations.last_updated_at,
@@ -583,6 +589,7 @@ SELECT
 	identity_invitations.token,
 	identity_invitations.status,
 	identity_invitations.note,
+	identity_invitations.status_note,
 	identity_invitations.expires_at,
 	identity_invitations.created_at,
 	identity_invitations.last_updated_at,
@@ -644,6 +651,7 @@ SELECT
 	identity_invitations.token,
 	identity_invitations.status,
 	identity_invitations.note,
+	identity_invitations.status_note,
 	identity_invitations.expires_at,
 	identity_invitations.created_at,
 	identity_invitations.last_updated_at,
@@ -705,6 +713,7 @@ SELECT
 	identity_invitations.token,
 	identity_invitations.status,
 	identity_invitations.note,
+	identity_invitations.status_note,
 	identity_invitations.expires_at,
 	identity_invitations.created_at,
 	identity_invitations.last_updated_at,
@@ -766,6 +775,7 @@ SELECT
 	identity_invitations.token,
 	identity_invitations.status,
 	identity_invitations.note,
+	identity_invitations.status_note,
 	identity_invitations.expires_at,
 	identity_invitations.created_at,
 	identity_invitations.last_updated_at,
@@ -1347,6 +1357,23 @@ WHERE identity_memberships.archived_at IS NULL
 	AND identity_memberships.belongs_to_user = sqlc.arg(belongs_to_user)
 ORDER BY identity_memberships.default_account DESC, identity_memberships.belongs_to_account ASC;
 
+-- name: ListDefaultMembershipsForAccount :many
+SELECT
+	identity_memberships.id,
+	identity_memberships.scope,
+	identity_memberships.belongs_to_user,
+	identity_memberships.belongs_to_account,
+	identity_memberships.default_account,
+	identity_memberships.created_at,
+	identity_memberships.last_updated_at,
+	identity_memberships.archived_at
+FROM identity_memberships
+WHERE identity_memberships.archived_at IS NULL
+	AND identity_memberships.scope = sqlc.arg(scope)
+	AND identity_memberships.belongs_to_account = sqlc.arg(belongs_to_account)
+	AND identity_memberships.default_account = sqlc.arg(default_account)
+ORDER BY identity_memberships.belongs_to_user ASC;
+
 -- name: SearchUsersByUsername :many
 SELECT
 	identity_users.id,
@@ -1454,6 +1481,7 @@ WHERE archived_at IS NULL
 -- name: SetUserEmailAddressVerificationToken :execrows
 UPDATE identity_users SET
 	email_address_verification_token = sqlc.arg(email_address_verification_token),
+	email_address_verified_at = sqlc.narg(email_address_verified_at),
 	last_updated_at = CURRENT_TIMESTAMP(6)
 WHERE archived_at IS NULL
 	AND id = sqlc.arg(id)
@@ -1468,6 +1496,14 @@ WHERE archived_at IS NULL
 	AND id = sqlc.arg(id)
 	AND scope = sqlc.arg(scope)
 	AND email_address_verification_token = sqlc.arg(current_email_address_verification_token);
+
+-- name: MarkUserEmailAddressUnverified :execrows
+UPDATE identity_users SET
+	email_address_verified_at = sqlc.narg(email_address_verified_at),
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE archived_at IS NULL
+	AND id = sqlc.arg(id)
+	AND scope = sqlc.arg(scope);
 
 -- name: UpdateUserAccountStatus :execrows
 UPDATE identity_users SET
@@ -1524,7 +1560,7 @@ WHERE archived_at IS NULL
 -- name: AnswerInvitation :execrows
 UPDATE identity_invitations SET
 	status = sqlc.arg(status),
-	note = sqlc.arg(note),
+	status_note = sqlc.arg(status_note),
 	to_user = sqlc.narg(to_user),
 	last_updated_at = CURRENT_TIMESTAMP(6)
 WHERE archived_at IS NULL

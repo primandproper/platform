@@ -462,6 +462,40 @@ func suiteAggregations(t *testing.T, env *storeEnv) {
 		test.EqOp(t, int64(10), totalOf(t, store))
 	})
 
+	t.Run("last ignores a redelivery stamped inside a second already recorded", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		// Two readings inside one second, which is all SQLite's stored
+		// timestamps resolve: on that engine the guard sees one instant twice,
+		// and the only thing separating the two records is the order they
+		// arrived in. Here that order is the reverse of the event order — the
+		// newer reading lands first and the older one is redelivered behind it,
+		// which is what the at-least-once delivery this package documents looks
+		// like when a queue replays.
+		must.NoError(t, mustRecord(t, store, newEntryAt("a", 10, AggregationLast, baseTime.Add(900*time.Millisecond))))
+		must.NoError(t, mustRecord(t, store, newEntryAt("b", 4, AggregationLast, baseTime.Add(100*time.Millisecond))))
+
+		// A gauge that goes backwards under redelivery is not "last".
+		test.EqOp(t, int64(10), totalOf(t, store))
+	})
+
+	t.Run("last takes a reading stamped at the window's start", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		// The guard is strict, so the seed a period opens at has to be strictly
+		// earlier than anything the window can hold — and on SQLite every
+		// record in the window's first second is stored at the window's start
+		// exactly. A seed at the start would refuse all of those and leave the
+		// period reading zero until the second one.
+		must.NoError(t, mustRecord(t, store, newEntryAt("a", 10, AggregationLast, monthBounds.Start)))
+
+		test.EqOp(t, int64(10), totalOf(t, store))
+	})
+
 	t.Run("folds a batch in one statement identically to one at a time", func(t *testing.T) {
 		t.Parallel()
 
@@ -484,6 +518,31 @@ func suiteAggregations(t *testing.T, env *storeEnv) {
 		// a batch cannot change the answer.
 		test.EqOp(t, totalOf(t, serial), totalOf(t, batched))
 		test.EqOp(t, int64(4), totalOf(t, batched))
+	})
+
+	t.Run("folds same-second records identically batched and one at a time", func(t *testing.T) {
+		t.Parallel()
+
+		batched := env.newStore(t)
+		serial := env.newStore(t)
+
+		// All three inside one second, which SQLite cannot tell apart. The
+		// in-process fold could — it has the entries at full precision — and if
+		// it did, a batch would answer differently from the same records
+		// arriving one at a time, on that dialect only.
+		entries := []Entry{
+			newEntryAt("a", 10, AggregationLast, baseTime.Add(100*time.Millisecond)),
+			newEntryAt("b", 4, AggregationLast, baseTime.Add(900*time.Millisecond)),
+			newEntryAt("c", 7, AggregationLast, baseTime.Add(500*time.Millisecond)),
+		}
+
+		must.NoError(t, mustRecord(t, batched, entries...))
+
+		for i := range entries {
+			must.NoError(t, mustRecord(t, serial, entries[i]))
+		}
+
+		test.EqOp(t, totalOf(t, serial), totalOf(t, batched))
 	})
 
 	t.Run("keeps last_occurred_at monotone", func(t *testing.T) {
@@ -664,6 +723,30 @@ func suiteConsume(t *testing.T, env *storeEnv) {
 		// allowed and the total stands. A sum meter would have refused it.
 		decision, err := store.Consume(t.Context(),
 			newEntryAt("req-1", 40, AggregationMax, baseTime.Add(time.Hour)), 100, BehaviorBlock, baseTime)
+		must.NoError(t, err)
+
+		test.True(t, decision.Allowed)
+		test.EqOp(t, int64(90), decision.Used)
+		test.EqOp(t, int64(90), totalOf(t, store))
+	})
+
+	t.Run("consumes against a last meter without going backwards inside a second", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		must.NoError(t, mustRecord(t, store,
+			newEntryAt("seed", 90, AggregationLast, baseTime.Add(900*time.Millisecond))))
+
+		// Consume decides in Go against the row it holds the lock on, and
+		// reading the row back recovers no precision the row does not hold: on
+		// SQLite both of these instants are the same stored second. The
+		// comparison here therefore has to hand a tie to the row for the same
+		// reason the fold statement does, or a redelivery arriving behind the
+		// reading already recorded resets the gauge through this path instead.
+		decision, err := store.Consume(t.Context(),
+			newEntryAt("req-1", 4, AggregationLast, baseTime.Add(100*time.Millisecond)),
+			100, BehaviorBlock, baseTime)
 		must.NoError(t, err)
 
 		test.True(t, decision.Allowed)
@@ -964,6 +1047,28 @@ func suiteReap(t *testing.T, env *storeEnv) {
 		test.EqOp(t, 1, countRows(t, env, prefix+"_metering_events"))
 	})
 
+	t.Run("reaps an event recorded at the horizon exactly", func(t *testing.T) {
+		t.Parallel()
+
+		store, prefix := env.newStoreWithPrefix(t)
+
+		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+
+		claimed, err := store.ClaimFlushable(t.Context(), baseTime, 10, 5, baseTime.Add(time.Minute))
+		must.NoError(t, err)
+		must.NoError(t, store.MarkFlushed(t.Context(), claimed[0], 42, baseTime))
+
+		// The boundary is inclusive on the doomed side, which is the reading
+		// that leaves no instant at which a row is neither past the horizon nor
+		// short of it. The argument is named horizon rather than before for the
+		// same reason.
+		reaped, err := store.ReapEvents(t.Context(), baseTime, 100)
+		must.NoError(t, err)
+
+		test.EqOp(t, int64(1), reaped)
+		test.EqOp(t, 0, countRows(t, env, prefix+"_metering_events"))
+	})
+
 	t.Run("honors the batch limit and does nothing for a non-positive one", func(t *testing.T) {
 		t.Parallel()
 
@@ -1009,4 +1114,39 @@ func totalOf(t *testing.T, store Store) int64 {
 	must.NoError(t, err)
 
 	return total.Quantity
+}
+
+// TestStoredResolution pins the one dialect fact this package holds outside its
+// DDL: how much of an instant survives a round trip.
+//
+// It decides the comparison Consume makes in Go against a value a server handed
+// back, and a wrong answer there is not a failed query — it is a gauge that
+// takes an older reading on one engine and not on the others.
+func TestStoredResolution(T *testing.T) {
+	T.Parallel()
+
+	// The two engines with a real temporal type keep microseconds, which is what
+	// the schema asks MySQL for rather than taking its second-granular default.
+	test.EqOp(T, time.Microsecond, storedResolution(dialect.Postgres))
+	test.EqOp(T, time.Microsecond, storedResolution(dialect.MySQL))
+
+	// The one that stores a DATETIME as text keeps whole seconds, because that
+	// is the shape its own CURRENT_TIMESTAMP writes.
+	test.EqOp(T, time.Second, storedResolution(dialect.SQLite))
+}
+
+// TestSeedLastOccurredAt pins the floor a period opens at.
+//
+// Every fold's guard is strict, so the seed has to be strictly below anything
+// the window can hold — and on SQLite a record arriving in the window's first
+// second is stored at the window's start exactly. A whole second is that
+// engine's resolution and so the smallest step still strictly earlier on all
+// three.
+func TestSeedLastOccurredAt(T *testing.T) {
+	T.Parallel()
+
+	seeded := seedLastOccurredAt(monthBounds)
+
+	test.EqOp(T, monthBounds.Start.Add(-time.Second), seeded)
+	test.True(T, seeded.Before(monthBounds.Start.Truncate(time.Second)))
 }
