@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v13/database"
+	"github.com/primandproper/platform-go/v13/database/ddl"
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/internal/sqlguard"
+	"github.com/primandproper/platform-go/v13/metering/internal/meteringdb"
 	"github.com/primandproper/platform-go/v13/metering/migrations"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/observability/logging"
@@ -42,7 +44,7 @@ var _ Store = (*SQLStore)(nil)
 // shares.
 type SQLStore struct {
 	client database.Client
-	tables *tables
+	q      meteringdb.Querier
 	o11y   observability.Observer
 
 	guardMissCounter metrics.Int64Counter
@@ -57,7 +59,11 @@ type SQLStore struct {
 	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
-	dialect         dialect.Dialect
+
+	// prefix is the namespace the table names carry. It is kept because the
+	// generated querier was built from it and the migrations are validated
+	// against it, not because anything here renders a name from it any more.
+	prefix string
 }
 
 // NewSQLStore builds a Store over the given database.
@@ -80,9 +86,8 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	}
 
 	s := &SQLStore{
-		client:  client,
-		dialect: d,
-		tables:  newTables(DefaultTablePrefix),
+		client: client,
+		prefix: DefaultTablePrefix,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -90,9 +95,25 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 		}
 	}
 
-	if err := migrations.ValidatePrefix(s.tables.prefix()); err != nil {
+	if err := migrations.ValidatePrefix(s.prefix); err != nil {
 		return nil, err
 	}
+
+	// The generated querier, instantiated once the prefix is settled and the
+	// dialect is known — the only two things the generated statements do not
+	// already carry. What executes is what sqlc analyzed, with one marker
+	// substitution; see metering/internal/queries.
+	qd, err := meteringdbDialect(d)
+	if err != nil {
+		return nil, err
+	}
+
+	q, err := meteringdb.New(qd, ddl.Qualify(s.prefix))
+	if err != nil {
+		return nil, platformerrors.Wrap(err, "building the metering querier")
+	}
+
+	s.q = q
 
 	s.o11y = observability.NewObserver(storeName, s.logger, s.tracerProvider)
 
@@ -103,7 +124,6 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	// error, and above this layer it is indistinguishable from one.
 	mp := metrics.EnsureMetricsProvider(s.metricsProvider)
 
-	var err error
 	if s.guardMissCounter, err = mp.NewInt64Counter(storeName + "_guard_misses"); err != nil {
 		return nil, platformerrors.Wrap(err, "creating metering store guard miss counter")
 	}
@@ -120,6 +140,25 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	}
 
 	return s, nil
+}
+
+// meteringdbDialect maps this module's dialect names onto the generated
+// package's. The set is closed on both sides — NewSQLStore has already rejected
+// anything d.Valid() declines — so the default arm is reachable only when this
+// module learns a dialect the generated package was not generated for. That is
+// a construction failure like any other, and it names the dialect, rather than
+// panicking or leaning on meteringdb.New refusing the empty string.
+func meteringdbDialect(d dialect.Dialect) (meteringdb.Dialect, error) {
+	switch d {
+	case dialect.Postgres:
+		return meteringdb.DialectPostgreSQL, nil
+	case dialect.MySQL:
+		return meteringdb.DialectMySQL, nil
+	case dialect.SQLite:
+		return meteringdb.DialectSQLite, nil
+	default:
+		return "", platformerrors.Wrapf(dialect.ErrUnsupported, "metering dialect %q", d)
+	}
 }
 
 func (s *SQLStore) Record(ctx context.Context, entries []Entry, at time.Time) (RecordResult, error) {
@@ -182,7 +221,7 @@ func (s *SQLStore) RecordTx(
 func (s *SQLStore) record(
 	ctx context.Context,
 	op observability.Operation,
-	q database.SQLQueryExecutor,
+	q meteringdb.DBTX,
 	entries []Entry,
 	at time.Time,
 ) (RecordResult, error) {
@@ -215,14 +254,7 @@ func (s *SQLStore) record(
 	// same function, so the grouping cannot change the answer.
 	groups := groupEntries(accepted)
 	for i := range groups {
-		group := &groups[i]
-
-		query, args := s.tables.buildUpsertTotal(
-			s.dialect, group.subject, group.meter, group.aggregation,
-			group.bounds, group.quantity, group.lastOccurredAt, at,
-		)
-
-		if _, err := q.ExecContext(ctx, query, args...); err != nil {
+		if err := s.fold(ctx, q, &groups[i], at); err != nil {
 			return RecordResult{}, op.Error(err, "folding metering usage into its total")
 		}
 	}
@@ -230,30 +262,124 @@ func (s *SQLStore) record(
 	return result, nil
 }
 
-// insertEvent writes one ledger row, reporting whether it was new.
-// eventExists reports whether this entry's (meter, idempotency_key) is already
-// in the ledger.
-func (s *SQLStore) eventExists(
-	ctx context.Context,
-	q database.SQLQueryExecutor,
-	entry *Entry,
-) (bool, error) {
-	query, args := s.tables.buildEventExists(s.dialect, entry.Meter, entry.IdempotencyKey)
+// fold folds one group's contribution into its period's total: open the row,
+// then let the server do the arithmetic against whatever it holds.
+//
+// The two halves are what makes concurrent ingest safe without a lock. Two
+// recorders folding into the same period at the same instant would otherwise
+// both read the total, both add their own quantity to it, and between them lose
+// one — silently, and in the direction that under-bills. The seed skips a row
+// that is already there, and the fold is an UPDATE the server evaluates when it
+// gets there.
+func (s *SQLStore) fold(ctx context.Context, q meteringdb.DBTX, group *entryGroup, at time.Time) error {
+	if err := s.openTotal(ctx, q, group.subject, group.meter, group.aggregation, group.bounds, at); err != nil {
+		return err
+	}
 
-	var found int
-	switch err := q.QueryRowContext(ctx, query, args...).Scan(&found); {
-	case err == nil:
-		return true, nil
-	case errors.Is(err, sql.ErrNoRows):
-		return false, nil
+	stamped := at.UTC()
+
+	params := meteringdb.FoldMeteringTotalSumParams{
+		Quantity:       group.quantity,
+		LastOccurredAt: group.lastOccurredAt.UTC(),
+		LastUpdatedAt:  &stamped,
+		Subject:        group.subject,
+		Meter:          group.meter,
+		PeriodStart:    group.bounds.Start.UTC(),
+	}
+
+	// One generated method per aggregation, chosen here. The parameter structs
+	// are three shapes of the same six values, so the conversion is a
+	// relabelling rather than three assemblies — and an aggregation with no
+	// statement is this switch's default rather than a write that leaves the
+	// total where it found it.
+	switch group.aggregation {
+	case AggregationSum:
+		_, err := s.q.FoldMeteringTotalSum(ctx, q, params)
+
+		return err
+	case AggregationMax:
+		_, err := s.q.FoldMeteringTotalMax(ctx, q, meteringdb.FoldMeteringTotalMaxParams(params))
+
+		return err
+	case AggregationLast:
+		_, err := s.q.FoldMeteringTotalLast(ctx, q, meteringdb.FoldMeteringTotalLastParams{
+			LastOccurredAt: params.LastOccurredAt,
+			Quantity:       params.Quantity,
+			LastUpdatedAt:  params.LastUpdatedAt,
+			Subject:        params.Subject,
+			Meter:          params.Meter,
+			PeriodStart:    params.PeriodStart,
+		})
+
+		return err
+	case AggregationUniqueCount:
+		// Named and refused. Registration declines it above this layer, so
+		// reaching here means something bypassed the registry.
+		return platformerrors.Wrapf(ErrUnsupportedAggregation, "meter %q aggregation %q", group.meter, group.aggregation)
 	default:
-		return false, err
+		return platformerrors.Wrapf(ErrUnsupportedAggregation, "meter %q aggregation %q", group.meter, group.aggregation)
 	}
 }
 
+// openTotal writes the period's total if nothing has yet, and leaves the one
+// that is there alone.
+//
+// It is what gives every other write to the table a row to work against: the
+// folds fold into it, and Consume locks it. Two callers opening the same period
+// at once is a race the conflict-ignore settles — the loser simply proceeds,
+// because what it wanted was for the row to exist.
+func (s *SQLStore) openTotal(
+	ctx context.Context,
+	q meteringdb.DBTX,
+	subject, meter string,
+	aggregation Aggregation,
+	bounds Bounds,
+	at time.Time,
+) error {
+	_, err := s.q.InsertMeteringTotal(ctx, q, meteringdb.InsertMeteringTotalParams{
+		Subject:     subject,
+		Meter:       meter,
+		PeriodStart: bounds.Start.UTC(),
+		PeriodEnd:   bounds.End.UTC(),
+		Aggregation: string(aggregation),
+		Quantity:    0,
+		// Seeded at the window's start rather than at the zero time, so a
+		// last-aggregation meter's first record is always newer than what the
+		// row holds and the column never carries a year-one timestamp.
+		LastOccurredAt: bounds.Start.UTC(),
+		NextFlush:      at.UTC(),
+		// Supplied rather than defaulted, because one of the three dialects
+		// takes no default on the column — see metering/internal/queries.
+		LastError: "",
+		CreatedAt: at.UTC(),
+	})
+
+	return err
+}
+
+// eventExists reports whether this entry's (meter, idempotency_key) is already
+// in the ledger.
+func (s *SQLStore) eventExists(ctx context.Context, q meteringdb.DBTX, entry *Entry) (bool, error) {
+	row, err := s.q.MeteringEventExists(ctx, q, meteringdb.MeteringEventExistsParams{
+		Meter:          entry.Meter,
+		IdempotencyKey: entry.IdempotencyKey,
+	})
+	if err != nil {
+		return false, err
+	}
+
+	return row.Exists, nil
+}
+
+// insertEvent writes one ledger row, reporting whether it was new.
+//
+// The count is the dedupe. A key already in the table takes no row and reports
+// zero, which is how the caller learns the usage was already counted — decided
+// by the database, in one round trip, and durable for as long as the row is
+// retained.
 func (s *SQLStore) insertEvent(
 	ctx context.Context,
-	q database.SQLQueryExecutor,
+	q meteringdb.DBTX,
 	entry *Entry,
 	at time.Time,
 ) (bool, error) {
@@ -262,14 +388,16 @@ func (s *SQLStore) insertEvent(
 		return false, err
 	}
 
-	query, args := s.tables.buildInsertEvent(s.dialect, entry, dimensions, at)
-
-	res, err := q.ExecContext(ctx, query, args...)
-	if err != nil {
-		return false, err
-	}
-
-	affected, err := res.RowsAffected()
+	affected, err := s.q.InsertMeteringEvent(ctx, q, meteringdb.InsertMeteringEventParams{
+		IdempotencyKey: entry.IdempotencyKey,
+		Subject:        entry.Subject,
+		Meter:          entry.Meter,
+		Quantity:       entry.Quantity,
+		OccurredAt:     entry.OccurredAt.UTC(),
+		RecordedAt:     at.UTC(),
+		PeriodStart:    entry.Bounds.Start.UTC(),
+		Dimensions:     dimensions,
+	})
 	if err != nil {
 		return false, err
 	}
@@ -286,9 +414,11 @@ func (s *SQLStore) Total(ctx context.Context, subject, meter string, bounds Boun
 	}))
 	defer op.End()
 
-	query, args := s.tables.buildSelectTotal(s.dialect, subject, meter, bounds.Start, false)
-
-	total, err := scanTotal(s.client.Reader().QueryRowContext(ctx, query, args...))
+	row, err := s.q.GetMeteringTotal(ctx, s.client.Reader(), meteringdb.GetMeteringTotalParams{
+		Subject:     subject,
+		Meter:       meter,
+		PeriodStart: bounds.Start.UTC(),
+	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			// An absent row is a number, not a missing value: nothing recorded
@@ -304,6 +434,8 @@ func (s *SQLStore) Total(ctx context.Context, subject, meter string, bounds Boun
 
 		return nil, op.Error(err, "reading metering total")
 	}
+
+	total := totalFrom((*meteringdb.SelectFlushableMeteringTotalsRow)(&row))
 
 	op.Set(usedKey, total.Quantity)
 
@@ -355,37 +487,35 @@ func (s *SQLStore) Consume(
 // consume is the serialized decide-then-record that makes Enforcer.Consume
 // exact.
 //
-// The order is load-bearing. The zero row is inserted first so there is something
-// to lock; the lock is taken before the total is read, so the number decided
+// The order is load-bearing. The row is opened first so there is something to
+// lock; the lock is taken before the total is read, so the number decided
 // against is the committed one; the decision is made before the ledger row is
 // written, so a refused consume does not burn its idempotency key on usage it
-// never recorded; and the total is only folded once the ledger row proves the
+// never recorded; and the total is only written once the ledger row proves the
 // usage is new.
 func (s *SQLStore) consume(
 	ctx context.Context,
 	op observability.Operation,
-	q database.SQLQueryExecutor,
+	q meteringdb.DBTX,
 	entry *Entry,
 	limit int64,
 	behavior QuotaBehavior,
 	at time.Time,
 ) (*Decision, error) {
-	zeroQuery, zeroArgs := s.tables.buildInsertZeroTotal(
-		s.dialect, entry.Subject, entry.Meter, entry.Aggregation, entry.Bounds, at,
-	)
-
-	if _, err := q.ExecContext(ctx, zeroQuery, zeroArgs...); err != nil {
+	if err := s.openTotal(ctx, q, entry.Subject, entry.Meter, entry.Aggregation, entry.Bounds, at); err != nil {
 		return nil, op.Error(err, "opening metering total")
 	}
 
-	selectQuery, selectArgs := s.tables.buildSelectTotal(
-		s.dialect, entry.Subject, entry.Meter, entry.Bounds.Start, true,
-	)
-
-	total, err := scanTotal(q.QueryRowContext(ctx, selectQuery, selectArgs...))
+	row, err := s.q.GetMeteringTotalForUpdate(ctx, q, meteringdb.GetMeteringTotalForUpdateParams{
+		Subject:     entry.Subject,
+		Meter:       entry.Meter,
+		PeriodStart: entry.Bounds.Start.UTC(),
+	})
 	if err != nil {
 		return nil, op.Error(err, "locking metering total")
 	}
+
+	total := totalFrom((*meteringdb.SelectFlushableMeteringTotalsRow)(&row))
 
 	newer := !entry.OccurredAt.Before(total.LastOccurredAt)
 	projected := entry.Aggregation.Fold(total.Quantity, entry.Quantity, newer)
@@ -410,10 +540,6 @@ func (s *SQLStore) consume(
 		if counted {
 			decision.Duplicate = true
 			decision.Allowed = true
-			decision.Used = total.Quantity
-			decision.Overage = overageOf(total.Quantity, limit)
-
-			return decision, nil
 		}
 
 		decision.Used = total.Quantity
@@ -438,11 +564,21 @@ func (s *SQLStore) consume(
 		return decision, nil
 	}
 
-	applyQuery, applyArgs := s.tables.buildApplyConsume(
-		s.dialect, entry.Subject, entry.Meter, entry.Bounds.Start, projected, entry.OccurredAt, at,
-	)
+	stamped := at.UTC()
 
-	if _, err = q.ExecContext(ctx, applyQuery, applyArgs...); err != nil {
+	// Assigned rather than folded, and the event time maximized here rather
+	// than in the statement, because this write runs against a row this
+	// transaction holds the lock on: the arithmetic was done above against the
+	// committed value, and nothing can have moved it since. Every other write
+	// to this table takes the other reading, because none of them holds a lock.
+	if _, err = s.q.ApplyMeteringConsume(ctx, q, meteringdb.ApplyMeteringConsumeParams{
+		Quantity:       projected,
+		LastOccurredAt: laterOf(total.LastOccurredAt, entry.OccurredAt),
+		LastUpdatedAt:  &stamped,
+		Subject:        entry.Subject,
+		Meter:          entry.Meter,
+		PeriodStart:    entry.Bounds.Start.UTC(),
+	}); err != nil {
 		return nil, op.Error(err, "applying metering consume")
 	}
 
@@ -462,45 +598,16 @@ func (s *SQLStore) ClaimFlushable(
 		return nil, nil
 	}
 
-	var (
-		claimed  []*Total
-		selected int
-	)
+	var claimed []*Total
 
-	// The select and the update run in one transaction so that FOR UPDATE SKIP
-	// LOCKED means anything. Without it the lock is released before the update,
-	// and two flushers select the same totals.
+	// The select and the leases run in one transaction so that FOR UPDATE SKIP
+	// LOCKED means anything. Without it the lock is released before the first
+	// lease, and two flushers select the same totals.
 	err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		selectQuery, selectArgs := s.tables.buildSelectFlushable(s.dialect, now, limit, maxAttempts, true)
+		var claimErr error
+		claimed, claimErr = s.claim(ctx, op, q, now, limit, maxAttempts, leaseUntil)
 
-		keys, keyErr := scanTotalKeys(ctx, q, selectQuery, selectArgs)
-		if keyErr != nil {
-			return op.Error(keyErr, "selecting flushable metering totals")
-		}
-
-		selected = len(keys)
-
-		if selected == 0 {
-			return nil
-		}
-
-		claimQuery, claimArgs := s.tables.buildClaimFlushable(s.dialect, keys, leaseUntil)
-		if _, execErr := q.ExecContext(ctx, claimQuery, claimArgs...); execErr != nil {
-			return op.Error(execErr, "claiming flushable metering totals")
-		}
-
-		// Re-read rather than project from the select, so the attempt counts the
-		// flusher sees are the ones the claim just wrote. A flusher deciding
-		// whether it has exhausted its budget from a pre-increment count would
-		// grant every total one attempt more than configured.
-		fetchQuery, fetchArgs := s.tables.buildFetchTotalsByKey(s.dialect, keys)
-
-		var fetchErr error
-		if claimed, fetchErr = scanTotals(ctx, q, fetchQuery, fetchArgs); fetchErr != nil {
-			return op.Error(fetchErr, "reading claimed metering totals")
-		}
-
-		return nil
+		return claimErr
 	})
 	if err != nil {
 		return nil, err
@@ -513,6 +620,72 @@ func (s *SQLStore) ClaimFlushable(
 	if len(claimed) == limit {
 		op.Logger().WithValue(limitKey, limit).
 			Info("metering flush filled its batch; usage may be accumulating faster than it is flushed")
+	}
+
+	return claimed, nil
+}
+
+// claim reads the batch and leases it a row at a time, returning the totals
+// this flusher now holds.
+//
+// A lease per row rather than one over the batch. The row-value IN list the
+// batch form needed has no static arity — its shape is the caller's cardinality
+// — so there is nothing for sqlc to check; and the re-read it needed to see the
+// attempt counts carried no guard, so a total another flusher settled in
+// between came back as one this flusher held. Keyed per row, the count of each
+// lease is the answer to both: the total either qualified and is held, or it did
+// not and is not in the batch.
+//
+// The attempt count each returned total carries is the one that was read plus
+// the one this lease just added. That is exact rather than optimistic — the
+// lease matched, and the row is held for the rest of this transaction — and it
+// is what a flusher deciding whether it has exhausted its budget has to see.
+func (s *SQLStore) claim(
+	ctx context.Context,
+	op observability.Operation,
+	q meteringdb.DBTX,
+	now time.Time,
+	limit, maxAttempts int,
+	leaseUntil time.Time,
+) ([]*Total, error) {
+	expiredBy := now.UTC()
+
+	rows, err := s.q.SelectFlushableMeteringTotals(ctx, q, meteringdb.SelectFlushableMeteringTotalsParams{
+		DueAt:          expiredBy,
+		MaxAttempts:    int64(maxAttempts),
+		LeaseExpiredBy: &expiredBy,
+		ResultLimit:    int64(limit),
+	})
+	if err != nil {
+		return nil, op.Error(err, "selecting flushable metering totals")
+	}
+
+	leased := leaseUntil.UTC()
+
+	claimed := make([]*Total, 0, len(rows))
+
+	for i := range rows {
+		total := totalFrom(&rows[i])
+
+		affected, leaseErr := s.q.ClaimMeteringTotal(ctx, q, meteringdb.ClaimMeteringTotalParams{
+			ClaimedUntil: &leased,
+			Subject:      total.Subject,
+			Meter:        total.Meter,
+			PeriodStart:  total.PeriodStart,
+		})
+		if leaseErr != nil {
+			return nil, op.Error(leaseErr, "claiming flushable metering total")
+		}
+
+		if affected == 0 {
+			// Settled by another flusher between the read and this lease. It
+			// owes the provider nothing now, so it is not this pass's to post.
+			continue
+		}
+
+		total.FlushAttempts++
+
+		claimed = append(claimed, total)
 	}
 
 	return claimed, nil
@@ -536,9 +709,19 @@ func (s *SQLStore) MarkFlushed(ctx context.Context, total *Total, flushed int64,
 		aggregationKey: string(total.Aggregation),
 	})
 
-	query, args := s.tables.buildMarkFlushed(s.dialect, total, flushed, at)
+	stamped := at.UTC()
 
-	return s.guard.Exec(ctx, op, s.client.Writer(), query, args, total.Meter, "mark_flushed",
+	affected, err := s.q.MarkMeteringTotalFlushed(ctx, s.client.Writer(), meteringdb.MarkMeteringTotalFlushedParams{
+		FlushedQuantity: flushed,
+		NextFlush:       at.UTC(),
+		LastUpdatedAt:   &stamped,
+		Subject:         total.Subject,
+		Meter:           total.Meter,
+		PeriodStart:     total.PeriodStart.UTC(),
+		FlushSequence:   int64(total.FlushSequence),
+	})
+
+	return s.guard.Count(ctx, op, affected, err, total.Meter, "mark_flushed",
 		"marking metering total flushed")
 }
 
@@ -559,9 +742,24 @@ func (s *SQLStore) ReleaseFlush(ctx context.Context, total *Total, lastErr strin
 		aggregationKey: string(total.Aggregation),
 	})
 
-	query, args := s.tables.buildReleaseFlush(s.dialect, total, lastErr, nextFlush, nextFlush)
+	stamped := nextFlush.UTC()
 
-	return s.guard.Exec(ctx, op, s.client.Writer(), query, args, total.Meter, "release_flush",
+	// The lease is handed back by binding NULL, and flushed_quantity is not
+	// assigned at all: the post may have reached the provider and failed on the
+	// way back, so the next attempt has to carry the same delta under the same
+	// sequence.
+	affected, err := s.q.ReleaseMeteringFlush(ctx, s.client.Writer(), meteringdb.ReleaseMeteringFlushParams{
+		NextFlush:     stamped,
+		LastError:     lastErr,
+		ClaimedUntil:  nil,
+		LastUpdatedAt: &stamped,
+		Subject:       total.Subject,
+		Meter:         total.Meter,
+		PeriodStart:   total.PeriodStart.UTC(),
+		FlushSequence: int64(total.FlushSequence),
+	})
+
+	return s.guard.Count(ctx, op, affected, err, total.Meter, "release_flush",
 		"releasing metering flush lease")
 }
 
@@ -573,16 +771,12 @@ func (s *SQLStore) ReapEvents(ctx context.Context, before time.Time, limit int) 
 		return 0, nil
 	}
 
-	query, args := s.tables.buildReapEvents(s.dialect, before, limit)
-
-	result, err := s.client.Writer().ExecContext(ctx, query, args...)
+	reaped, err := s.q.PruneMeteringEvents(ctx, s.client.Writer(), meteringdb.PruneMeteringEventsParams{
+		Horizon:     before.UTC(),
+		ResultLimit: int64(limit),
+	})
 	if err != nil {
 		return 0, op.Error(err, "reaping metering usage events")
-	}
-
-	reaped, err := result.RowsAffected()
-	if err != nil {
-		return 0, op.Error(err, "reading reaped metering usage event count")
 	}
 
 	op.Set(reapedKey, reaped)
@@ -634,7 +828,7 @@ func groupEntries(entries []Entry) []entryGroup {
 				bounds:      e.Bounds,
 				// Seeded at the window's start rather than the zero time, so a
 				// last-aggregation meter's first record is always "newer" and the
-				// column never holds a year-one timestamp for GREATEST to compare
+				// column never holds a year-one timestamp for the fold to compare
 				// against.
 				lastOccurredAt: e.Bounds.Start,
 			}
@@ -680,49 +874,54 @@ func overageOf(used, limit int64) int64 {
 	return max(0, used-limit)
 }
 
-// scanTotalKeys drains a composite-key projection.
-func scanTotalKeys(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) ([]totalKey, error) {
-	return database.ScanAll(ctx, q, "metering total key", query, args, func(scanner database.Scanner) (totalKey, error) {
-		var k totalKey
-		if err := scanner.Scan(&k.subject, &k.meter, &k.periodStart); err != nil {
-			return totalKey{}, err
-		}
-
-		k.periodStart = k.periodStart.UTC()
-
-		return k, nil
-	})
-}
-
-// scanTotals drains a total projection.
-func scanTotals(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) ([]*Total, error) {
-	return database.ScanAll(ctx, q, "metering total", query, args, scanTotal)
-}
-
-// scanTotal reads one row of totalColumns.
-func scanTotal(scanner database.Scanner) (*Total, error) {
-	var (
-		total       Total
-		aggregation string
-		lastErr     sql.NullString
-	)
-
-	if err := scanner.Scan(
-		&total.Subject, &total.Meter, &total.PeriodStart, &total.PeriodEnd, &aggregation,
-		&total.Quantity, &total.LastOccurredAt, &total.FlushedQuantity,
-		&total.FlushSequence, &total.FlushAttempts, &total.NextFlush, &lastErr,
-	); err != nil {
-		return nil, err
+// laterOf is the newer of two instants, in UTC.
+//
+// It is what Consume's write puts in last_occurred_at, and it is in Go rather
+// than in the statement because that write runs against a locked row: the
+// column cannot have moved since it was read, so the comparison here and one in
+// SQL have the same answer. See metering/internal/queries.
+func laterOf(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b.UTC()
 	}
 
-	total.Aggregation = Aggregation(aggregation)
-	total.PeriodStart = total.PeriodStart.UTC()
-	total.PeriodEnd = total.PeriodEnd.UTC()
-	total.LastOccurredAt = total.LastOccurredAt.UTC()
-	total.NextFlush = total.NextFlush.UTC()
-	total.LastError = database.StringFromNullString(lastErr)
+	return a.UTC()
+}
 
-	return &total, nil
+// totalFrom converts a generated row into this package's Total.
+//
+// It is a struct literal on purpose, and it is the whole of what this package
+// does with the generated types. A renamed or retyped column changes the
+// generated struct and this function stops compiling; the scan-by-position
+// pairing it replaced reported the same mistake as a runtime scan error, or
+// worse, as two same-typed columns silently transposed.
+//
+// It takes the claim read's row type because every read of this table projects
+// the same twelve columns in the same order, so the three generated row structs
+// are one shape under three names and the two single-row reads convert to this
+// one. That conversion is checked: a projection that drifted would change one
+// struct and not the others, and the conversion would stop compiling.
+//
+// The four timestamps are normalized to UTC because every one this package
+// writes is UTC and so every one it hands back should be: Postgres returns a
+// time in the session's zone, MySQL in the server's, and SQLite whatever the
+// stored text parsed as, so a caller comparing two of those, or rendering one
+// into JSON, would get an answer that depends on where the row was read.
+func totalFrom(row *meteringdb.SelectFlushableMeteringTotalsRow) *Total {
+	return &Total{
+		PeriodStart:     row.PeriodStart.UTC(),
+		PeriodEnd:       row.PeriodEnd.UTC(),
+		LastOccurredAt:  row.LastOccurredAt.UTC(),
+		NextFlush:       row.NextFlush.UTC(),
+		Subject:         row.Subject,
+		Meter:           row.Meter,
+		LastError:       row.LastError,
+		Aggregation:     Aggregation(row.Aggregation),
+		Quantity:        row.Quantity,
+		FlushedQuantity: row.FlushedQuantity,
+		FlushSequence:   int(row.FlushSequence),
+		FlushAttempts:   int(row.FlushAttempts),
+	}
 }
 
 // encodeDimensions renders a usage record's dimensions for storage, or nil for an

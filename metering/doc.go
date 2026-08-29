@@ -239,5 +239,14 @@ atomicity of Consume is a row lock. A repository interface over those would be a
 interface over three SQL features, implemented once. Store is still an interface,
 for an application whose schema conventions differ enough to be worth
 reimplementing it against.
+
+None of that SQL is written here. The statements are described as data in
+metering/internal/queries, rendered from there into one canonical .sql per
+dialect, checked against this package's own DDL by sqlc, and executed through
+the querier sqlc-gen-unison generates from them. A column renamed in the
+migrations is then a failed `make unison` with no database running, rather than
+a runtime error on whichever of the three servers a deployment happens to run.
 */
 package metering
+
+//go:generate go run ./internal/queriesgen

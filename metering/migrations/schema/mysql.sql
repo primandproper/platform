@@ -1,0 +1,44 @@
+CREATE TABLE IF NOT EXISTS metering_events (
+    idempotency_key VARCHAR(255) NOT NULL,
+    subject         VARCHAR(255) NOT NULL,
+    meter           VARCHAR(64) NOT NULL,
+    quantity        BIGINT NOT NULL,
+    occurred_at     DATETIME(6) NOT NULL,
+    recorded_at     DATETIME(6) NOT NULL,
+    period_start    DATETIME(6) NOT NULL,
+    dimensions      BLOB,
+    PRIMARY KEY (meter, idempotency_key)
+);
+
+CREATE INDEX metering_events_period_idx
+    ON metering_events (subject, meter, period_start, occurred_at);
+
+CREATE INDEX metering_events_reap_idx
+    ON metering_events (recorded_at);
+
+CREATE TABLE IF NOT EXISTS metering_totals (
+    subject          VARCHAR(255) NOT NULL,
+    meter            VARCHAR(64) NOT NULL,
+    period_start     DATETIME(6) NOT NULL,
+    period_end       DATETIME(6) NOT NULL,
+    aggregation      VARCHAR(32) NOT NULL,
+    quantity         BIGINT NOT NULL DEFAULT 0,
+    last_occurred_at DATETIME(6) NOT NULL,
+    flushed_quantity BIGINT NOT NULL DEFAULT 0,
+    flush_sequence   INT NOT NULL DEFAULT 0,
+    flush_attempts   INT NOT NULL DEFAULT 0,
+    next_flush       DATETIME(6) NOT NULL,
+    claimed_until    DATETIME(6),
+    last_error       TEXT NOT NULL,
+    created_at       DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    last_updated_at  DATETIME(6),
+    archived_at      DATETIME(6),
+    PRIMARY KEY (subject, meter, period_start)
+);
+
+CREATE INDEX metering_totals_flush_idx
+    ON metering_totals (next_flush, subject, meter);
+
+CREATE INDEX metering_totals_subject_idx
+    ON metering_totals (subject, period_start, meter);
+
