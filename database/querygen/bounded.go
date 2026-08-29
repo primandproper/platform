@@ -68,6 +68,14 @@ const sweepAlias = "bounded"
 // different pair of them, and an arm rendered there is a choice among what it
 // accepts rather than the only thing that parses. Where a shape picks, its own
 // doc says why.
+//
+// One row of the table is not this package's to hold. Whether a server caps the
+// write itself is dialect.SupportsWriteLimit, in the leaf every SQL-emitting
+// package already imports, because retention composes a bounded delete for a
+// driver and cannot render one from here — its table arrives from a run-time
+// policy. So the atom is shared and the composition is local: this is the set of
+// spellings a corpus may be rendered from, and it is derived from that answer
+// rather than from a second reading of the same server.
 type boundedWriteForm uint8
 
 const (
@@ -123,7 +131,7 @@ func (f boundedWriteForm) has(form boundedWriteForm) bool {
 // shared by a read, a delete and an update — and nativeBound, which has no read
 // in it, is a spelling the read could not be rendered from.
 func (g *Generator) boundedWriteForms() boundedWriteForm {
-	if g.dialect == dialect.MySQL {
+	if g.dialect.SupportsWriteLimit() {
 		return nativeBound | materializedSubquery
 	}
 
