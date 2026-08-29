@@ -522,8 +522,18 @@ workqueue and timers answer that by being Postgres-only packages rather than by
 running three claims that promise three things, so their claims belong in their
 own single-dialect corpora, where RETURNING is legal and a roster of one cannot
 diverge. A shape emitted from here would have to promise something on all three,
-and there is nothing here it could promise. If a third queue store ever wants
-one, that is when this package grows it.
+and there is nothing here it could promise.
+
+outbox is the third queue store and serves all three dialects, and it answers
+the same question the other way: its claim is three statements rather than one —
+a bounded ordered select, an update that leases what the select named, and a read
+back of the leased ids — inside one transaction, which is a shape every engine
+here has. That is what a portable claim costs, and the cost is exactly the reason
+this package still emits none: the decomposition is a concurrency decision the
+store makes, and two of the three statements it produces are authored for
+reasons of their own — a correlated self-join, and `attempts = attempts + 1`.
+What outbox does take from here is the third, its reap, which is the bounded
+prune.
 
 # The prefix search
 

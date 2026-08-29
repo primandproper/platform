@@ -2,7 +2,6 @@ package outbox
 
 import (
 	"github.com/primandproper/platform-go/v13/clock"
-	"github.com/primandproper/platform-go/v13/database/ddl"
 	"github.com/primandproper/platform-go/v13/observability/logging"
 	"github.com/primandproper/platform-go/v13/observability/metrics"
 	"github.com/primandproper/platform-go/v13/observability/tracing"
@@ -78,7 +77,7 @@ type WriterOption func(*Writer)
 func WithWriterTablePrefix(prefix string) WriterOption {
 	return func(w *Writer) {
 		if prefix != "" {
-			w.table = ddl.Qualify(prefix) + "outbox_messages"
+			w.prefix = prefix
 		}
 	}
 }

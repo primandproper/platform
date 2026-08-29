@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/primandproper/platform-go/v13/observability/logging"
 	"github.com/primandproper/platform-go/v13/observability/metrics"
 	"github.com/primandproper/platform-go/v13/observability/tracing"
+	"github.com/primandproper/platform-go/v13/outbox/internal/outboxdb"
 	retrycfg "github.com/primandproper/platform-go/v13/retry/config"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -66,6 +68,12 @@ type Relay struct {
 	dialect dialect.Dialect
 	clock   clock.Clock
 	o11y    observability.Observer
+
+	// q is the generated querier, built once the prefix is settled and the
+	// dialect is known — the only two things the generated statements do not
+	// already carry. What a cycle executes is what sqlc analyzed, with one
+	// marker substitution; see outbox/internal/outboxdb.
+	q outboxdb.Querier
 
 	publishers map[string]messagequeue.Publisher
 
@@ -126,7 +134,13 @@ func NewRelay(ctx context.Context, cfg *RelayConfig, client database.Client, pro
 		return nil, platformerrors.Wrapf(dialect.ErrInvalidIdentifier, "outbox table %q", cfg.table)
 	}
 
+	q, querierErr := querierFor(d, cfg.TablePrefix)
+	if querierErr != nil {
+		return nil, querierErr
+	}
+
 	r := &Relay{
+		q:          q,
 		cfg:        *cfg,
 		dialect:    d,
 		client:     client,
@@ -413,11 +427,7 @@ func (r *Relay) claim(ctx context.Context) ([]claimedMessage, error) {
 	err := r.client.WithTransaction(ctx, func(q database.Tx) error {
 		now := r.clock.Now().UTC()
 
-		selectQuery, selectArgs := buildSelectClaimable(
-			r.dialect, r.cfg.table, now, r.cfg.BatchSize, r.cfg.ClaimMode == ClaimSkipLocked,
-		)
-
-		ids, err := scanIDs(ctx, q, selectQuery, selectArgs)
+		ids, err := r.selectClaimable(ctx, q, now)
 		if err != nil {
 			return platformerrors.Wrap(err, "selecting claimable outbox messages")
 		}
@@ -426,16 +436,29 @@ func (r *Relay) claim(ctx context.Context) ([]claimedMessage, error) {
 			return nil
 		}
 
-		claimQuery, claimArgs := buildClaim(r.dialect, r.cfg.table, ids, now.Add(r.cfg.LeaseDuration))
-		if _, err = q.ExecContext(ctx, claimQuery, claimArgs...); err != nil {
+		leaseUntil := now.Add(r.cfg.LeaseDuration)
+
+		if err = r.q.ClaimOutboxMessages(ctx, q, outboxdb.ClaimOutboxMessagesParams{
+			ClaimedUntil: &leaseUntil,
+			IDs:          ids,
+		}); err != nil {
 			return platformerrors.Wrap(err, "claiming outbox messages")
 		}
 
-		fetchQuery, fetchArgs := buildFetch(r.dialect, r.cfg.table, ids)
-
-		claimed, err = scanMessages(ctx, q, fetchQuery, fetchArgs)
+		rows, err := r.q.FetchClaimedOutboxMessages(ctx, q, outboxdb.FetchClaimedOutboxMessagesParams{IDs: ids})
 		if err != nil {
 			return platformerrors.Wrap(err, "reading claimed outbox messages")
+		}
+
+		claimed = make([]claimedMessage, 0, len(rows))
+		for i := range rows {
+			claimed = append(claimed, claimedMessage{
+				id:       rows[i].ID,
+				topic:    rows[i].Topic,
+				key:      rows[i].PartitionKey,
+				payload:  rows[i].Payload,
+				attempts: int(rows[i].Attempts),
+			})
 		}
 
 		return nil
@@ -451,9 +474,12 @@ func (r *Relay) claim(ctx context.Context) ([]claimedMessage, error) {
 
 // markPublished retires the rows that made it to the broker.
 func (r *Relay) markPublished(ctx context.Context, ids []string) error {
-	query, args := buildMarkPublished(r.dialect, r.cfg.table, ids, r.clock.Now().UTC())
+	at := r.clock.Now().UTC()
 
-	if _, err := r.client.Writer().ExecContext(ctx, query, args...); err != nil {
+	if err := r.q.MarkOutboxMessagesPublished(ctx, r.client.Writer(), outboxdb.MarkOutboxMessagesPublishedParams{
+		PublishedAt: &at,
+		IDs:         ids,
+	}); err != nil {
 		return platformerrors.Wrap(err, "marking outbox messages published")
 	}
 
@@ -471,9 +497,7 @@ func (r *Relay) recordFailure(ctx context.Context, msg *claimedMessage, cause er
 
 	nextAttempt := r.clock.Now().UTC().Add(retrycfg.ScheduledDelayFor(r.cfg.Backoff, msg.attempts))
 
-	query, args := buildRecordFailure(
-		r.dialect, r.cfg.table, msg.id, nextAttempt, truncateError(cause), quarantine,
-	)
+	lastErr := truncateError(cause)
 
 	// The partition key matters here more than anywhere else: a keyed message
 	// that is failing is also holding up every later message for that key, so
@@ -485,7 +509,16 @@ func (r *Relay) recordFailure(ctx context.Context, msg *claimedMessage, cause er
 		attemptsKey:     msg.attempts,
 	})
 
-	if _, err := r.client.Writer().ExecContext(ctx, query, args...); err != nil {
+	// The lease is released by binding it to nothing rather than by leaving it
+	// out of the statement: a message whose publish failed must be reclaimable
+	// before its lease would have lapsed on its own.
+	if _, err := r.q.RecordOutboxMessageFailure(ctx, r.client.Writer(), outboxdb.RecordOutboxMessageFailureParams{
+		ID:           msg.id,
+		ClaimedUntil: nil,
+		NextAttempt:  nextAttempt,
+		LastError:    &lastErr,
+		Quarantined:  quarantine,
+	}); err != nil {
 		// The lease still expires on its own, so the message is retried
 		// regardless — just later than intended.
 		logger.Error("recording outbox publish failure", err)
@@ -531,29 +564,30 @@ func (r *Relay) sampleBacklog(ctx context.Context) {
 
 // backlog reads how many messages are waiting and how old the oldest is. Split
 // out from sampleBacklog because this is the part with something to get wrong:
-// MIN over a timestamp column comes back through three different drivers.
+// the oldest instant comes back through three different drivers, and an empty
+// queue comes back as no row at all.
 //
 // An empty backlog reports an age of zero rather than no age at all, so a
 // drained queue actively resets the gauge instead of leaving a stale reading
 // on the dashboard.
 func (r *Relay) backlog(ctx context.Context) (depth int64, age time.Duration, err error) {
-	var oldest any
-	if err = r.client.Reader().
-		QueryRowContext(ctx, buildBacklog(r.cfg.table)).
-		Scan(&depth, &oldest); err != nil {
+	row, err := r.q.OutboxBacklog(ctx, r.client.Reader())
+
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		// An empty queue is no row rather than a row of zeroes — see
+		// outbox/internal/queries on why the statement is grouped — so the
+		// driver's empty result is the answer here rather than a failure.
+		return 0, 0, nil
+	case err != nil:
 		return 0, 0, platformerrors.Wrap(err, "reading outbox backlog")
 	}
 
-	created, ok := database.CoerceTime(oldest)
-	if !ok {
-		return depth, 0, nil
-	}
-
-	if age = r.clock.Since(created.UTC()); age < 0 {
+	if age = r.clock.Since(row.Oldest.UTC()); age < 0 {
 		age = 0
 	}
 
-	return depth, age, nil
+	return row.Depth, age, nil
 }
 
 // reap deletes published rows past the retention window.
@@ -565,18 +599,12 @@ func (r *Relay) reap(ctx context.Context) {
 
 	op.Set(retentionCutoffKey, before)
 
-	query, args := buildReap(r.dialect, r.cfg.table, before, r.cfg.ReapBatchSize)
-
-	res, err := r.client.Writer().ExecContext(ctx, query, args...)
+	affected, err := r.q.ReapPublishedOutboxMessages(ctx, r.client.Writer(), outboxdb.ReapPublishedOutboxMessagesParams{
+		Before:      &before,
+		ResultLimit: int64(r.cfg.ReapBatchSize),
+	})
 	if err != nil {
 		op.Acknowledge(err, "reaping published outbox messages")
-
-		return
-	}
-
-	affected, err := res.RowsAffected()
-	if err != nil {
-		op.Acknowledge(err, "counting reaped outbox messages")
 
 		return
 	}
@@ -607,28 +635,52 @@ func truncateError(err error) string {
 	return platformerrors.TruncateError(err, maxStoredErrorLength)
 }
 
-// scanIDs runs a single-column query and collects the results. A close failure
-// is surfaced only when nothing worse already went wrong, so the real cause is
-// never masked by the cleanup.
-func scanIDs(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) ([]string, error) {
-	return database.ScanStrings(ctx, q, "outbox id", query, args)
-}
+// selectClaimable picks the batch of ids this cycle will lease, through
+// whichever of the two claim statements the configured mode names.
+//
+// The lock clause is statement text rather than a bound value, so the mode is a
+// choice between two generated methods — the way a paged read chooses between
+// its two directions — rather than a clause appended to one. See
+// outbox/internal/queries.
+//
+// The two comparisons are one instant and two arguments: next_attempt is NOT
+// NULL and claimed_until is not, and no analyzer gives one argument two
+// nullabilities. Both are bound from this cycle's single clock read, which is
+// what keeps them the same moment in fact.
+func (r *Relay) selectClaimable(ctx context.Context, q database.Tx, now time.Time) ([]string, error) {
+	limit := int64(r.cfg.BatchSize)
 
-// scanMessages projects claimed rows. The column list comes from
-// messageColumns so the query and this scan cannot drift.
-func scanMessages(ctx context.Context, q database.SQLQueryExecutor, query string, args []any) ([]claimedMessage, error) {
-	return database.ScanAll(ctx, q, "outbox message", query, args, func(scanner database.Scanner) (claimedMessage, error) {
-		var (
-			msg claimedMessage
-			key sql.NullString
-		)
-
-		if err := scanner.Scan(&msg.id, &msg.topic, &key, &msg.payload, &msg.attempts); err != nil {
-			return claimedMessage{}, err
+	if r.cfg.ClaimMode == ClaimSkipLocked {
+		rows, err := r.q.SelectClaimableOutboxMessagesSkipLocked(ctx, q, outboxdb.SelectClaimableOutboxMessagesSkipLockedParams{
+			Now:            now,
+			LeaseExpiredBy: &now,
+			ResultLimit:    limit,
+		})
+		if err != nil {
+			return nil, err
 		}
 
-		msg.key = key.String
+		ids := make([]string, 0, len(rows))
+		for i := range rows {
+			ids = append(ids, rows[i].ID)
+		}
 
-		return msg, nil
+		return ids, nil
+	}
+
+	rows, err := r.q.SelectClaimableOutboxMessages(ctx, q, outboxdb.SelectClaimableOutboxMessagesParams{
+		Now:            now,
+		LeaseExpiredBy: &now,
+		ResultLimit:    limit,
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]string, 0, len(rows))
+	for i := range rows {
+		ids = append(ids, rows[i].ID)
+	}
+
+	return ids, nil
 }
