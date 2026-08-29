@@ -164,8 +164,8 @@ Both are inherited from workqueue, whose documentation explains them at length,
 and both are load-bearing here for the same reasons.
 
 Every writer takes its row locks in primary-key order. Schedule sorts its rows
-before building the statement, and Complete, Release, and Cancel reach theirs
-through a CTE that orders and locks them explicitly. Claim is exempt and safe:
+before binding them and the statement orders them again, and Complete, Release,
+and Cancel reach theirs through a CTE that orders and locks them explicitly. Claim is exempt and safe:
 SKIP LOCKED never waits, and a statement that never waits cannot be half of a
 deadlock.
 
@@ -180,6 +180,22 @@ omission: scheduling is not a per-request write path — one row is created when
 trial starts, not on every read of it — so the contention that makes merging
 worth its complexity does not arise. If you find yourself scheduling on every
 request, you want a work queue.
+
+# Where the SQL comes from
+
+Nothing in this package composes a statement. The queries live in
+timers/internal/queries as a rendered, committed corpus — written out there
+rather than emitted by database/querygen, for the reason that package's comment
+gives — sqlc checks that corpus against the schema timers/migrations renders with
+no database running, and what the set executes is the querier sqlc-gen-unison
+generated from it, in timers/internal/timersdb. A column renamed in a migration
+is a failed `make unison` rather than a scan error in production.
+
+A batch reaches those statements as one bound array per column rather than as a
+tuple per row, so the text of a statement does not depend on how many timers are
+in the call. Schedule, Complete, Release, and Cancel each split their batch into
+parallel arrays, in primary-key order, which is where the lock-ordering
+discipline below is applied.
 
 # Creating the table
 
@@ -202,3 +218,5 @@ across both round trips, which is a different concurrency shape rather than a
 dialect switch. New returns dialect.ErrUnsupported for anything else.
 */
 package timers
+
+//go:generate go run ./internal/queriesgen

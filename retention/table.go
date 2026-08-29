@@ -153,16 +153,37 @@ func (t Table) Backlog(
 
 // buildDelete renders the bounded delete for a dialect.
 //
+// Which arm a server takes is dialect.SupportsWriteLimit rather than a
+// comparison spelled here, and that is the whole of what this package borrows
+// from database/querygen's prune: the rules, not the rendering. A retention
+// pass is ordered so successive batches make monotonic progress through a
+// backlog, capped so one pass cannot become the unbounded DELETE this package
+// exists to avoid, and rendered on MySQL as the native bounded write its
+// grammar has. What it cannot borrow is the rendering itself, because
+// querygen renders from string literals at generate time against a schema sqlc
+// has read, and every identifier below arrives from a Policy an application
+// wrote — see this package's doc.
+//
 // MySQL is the odd one out in the useful direction: it accepts ORDER BY and
-// LIMIT on a DELETE, which is both simpler and cheaper than the alternative,
-// and it refuses to read from the table it is deleting from in an IN subquery
-// (error 1093) — so the portable form is not available there anyway. Postgres
-// and SQLite have no DELETE ... LIMIT, so a batch there is a DELETE against the
-// keys a bounded SELECT chose.
+// LIMIT on the DELETE, which is simpler and cheaper than bounding a read. What
+// it refuses is narrower than it looks — an IN subquery that scans the table
+// being deleted from (ER_UPDATE_TABLE_USED, error 1093), which it accepts
+// perfectly well once materialized through a derived table. So the native arm
+// here is a choice among two spellings rather than the only one that parses,
+// and it is the right choice for a statement with no read to keep in step with.
+// Postgres and SQLite have no DELETE ... LIMIT at all, so a batch there is a
+// DELETE against the keys a bounded SELECT chose.
+//
+// There is no FOR UPDATE SKIP LOCKED on that bounded SELECT, where querygen's
+// prune renders one. Both halves of its argument are absent here. A Sweeper
+// runs as a jobs.Job under the scheduler's lock, so there is no second pass to
+// divide a backlog with; and a batch that came back short is how sweepPolicy
+// learns a policy has drained, which a skipped row would turn into two
+// readings of one number.
 func (t Table) buildDelete(d dialect.Dialect, cutoff time.Time, limit int) (query string, args []any) {
 	args = []any{cutoff.UTC(), limit}
 
-	if d == dialect.MySQL {
+	if d.SupportsWriteLimit() {
 		return fmt.Sprintf(
 			"DELETE FROM %s WHERE %s <= %s ORDER BY %s LIMIT %s",
 			t.Name, t.Column, d.Placeholder(1), t.Column, d.Placeholder(2),

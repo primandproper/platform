@@ -105,6 +105,36 @@ Nothing here writes an entry for a policy that removed nothing. A sweep that
 found an empty table is not an event, and a nightly entry saying so for every
 policy would bury the ones that matter.
 
+# The SQL here is composed in Go, and that is a ruling rather than an oversight
+
+Every other package in this module that owns SQL renders it into a canonical
+.sql, has sqlc check it against a committed schema, and executes the querier
+sqlc-gen-unison generates — so a renamed column is a failed generate rather than
+a runtime error. This package cannot be on that tier, and the reason is the same
+thing that makes it useful: the table a pass deletes from, the column its age is
+measured from, and the key its batches are bounded by are values a Policy
+carries, written by an application, against tables this module ships no
+migrations for. There is no schema for sqlc to read and no statement it could
+check, because the statement does not exist until a Policy names one.
+
+What the two statements owe in exchange is written down rather than assumed.
+Every identifier that reaches query text goes through dialect.ValidIdentifier at
+construction, which is why Table has no predicate field — an identifier can be
+vetted and a SQL fragment cannot, and configuration is exactly the path by which
+an unreviewed one would arrive. The values are bound, never interpolated. The
+shape follows database/querygen's bounded prune: ordered, so successive batches
+make monotonic progress through a backlog; capped, so no pass can become the
+unbounded DELETE this package exists to avoid; and rendered as the native
+bounded write on the one dialect whose grammar has one, which is
+dialect.SupportsWriteLimit rather than a second copy of that answer. And what a
+corpus would have bought — somebody other than the author agreeing the statement
+is legal — is bought instead by a container suite that runs both statements
+against a real Postgres, a real MySQL, and SQLite.
+
+database/querygen's doc carries the long form, under "The packages that are not
+on this tier"; internal/sqltier carries the ruling in the form that fails a build
+if this package ever grows a statement nobody has thought about.
+
 # What this does not do
 
 It does not soft-delete, archive, or export before deleting. A policy that has

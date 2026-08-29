@@ -57,6 +57,33 @@ func (d Dialect) SupportsSkipLocked() bool {
 	return d == Postgres || d == MySQL
 }
 
+// SupportsWriteLimit reports whether the dialect caps a DELETE or an UPDATE
+// with that statement's own ORDER BY and LIMIT.
+//
+// It is what decides the shape of a bounded write, which every reaper in this
+// module renders one of. MySQL takes the cap on the write itself. Postgres does
+// not parse it at all, and SQLite parses it only in builds compiled with
+// SQLITE_ENABLE_UPDATE_DELETE_LIMIT, which most are not — so that spelling
+// there is a failure waiting for run time rather than one a generator would
+// see. Both of those bound a read instead and write away whatever it named.
+//
+// What it does not say is that MySQL has no read-bounded form. It refuses only
+// the unmaterialized one, where the read scans the table being written
+// (ER_UPDATE_TABLE_USED, error 1093), and accepts the identical rows through a
+// derived table. So this is the answer to "may the write carry its own bound",
+// and not to "is there any other way to bound it" — see database/querygen's
+// boundedWriteForm, which composes this into the full set of spellings a server
+// accepts.
+//
+// It lives here for PostgresNotifyStatement's reason: two packages depend on
+// it, one of them renders a corpus and the other composes SQL for a driver, and
+// neither should be learning a server's grammar from the other. A second copy
+// of this answer is one that can drift, and the copy retention carried had —
+// it read MySQL's refusal as covering every read-bounded form.
+func (d Dialect) SupportsWriteLimit() bool {
+	return d == MySQL
+}
+
 // SupportsNotify reports whether the dialect can signal a listening session
 // with LISTEN/NOTIFY, which is what lets a poller be woken instead of waiting
 // out its interval.
