@@ -373,8 +373,7 @@ func (v *Verifier) challengeFor(err error) (status int, challenge string) {
 		// render one.
 		var required []string
 
-		var scoped *scopeError
-		if stderrors.As(err, &scoped) {
+		if scoped, ok := stderrors.AsType[*scopeError](err); ok {
 			required = scoped.required
 		}
 
