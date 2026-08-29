@@ -167,7 +167,7 @@ const (
 	accountStatusColumn            = "account_status"
 	accountStatusExplanationColumn = "account_status_explanation"
 	ownerUserIDColumn              = "owner_user_id"
-	invitationNoteColumn           = "note"
+	invitationStatusNoteColumn     = "status_note"
 	invitationToUserColumn         = "to_user"
 
 	// The two agreement stamps, one per statement. A document is accepted on
@@ -338,6 +338,7 @@ var Invitations = Table{
 		"token",
 		"status",
 		"note",
+		invitationStatusNoteColumn,
 		"expires_at",
 		querygen.CreatedAtColumn,
 		querygen.LastUpdatedAtColumn,
@@ -662,8 +663,13 @@ func fieldWrites(g *querygen.Generator) []*querygen.Query {
 		g.UpdateQuery("MarkAccountBillingSynced", AccountsTable, Accounts.Columns,
 			[]string{billingSyncedAtColumn}, Accounts.Nullable, scope),
 
+		// The answer writes its own note, never the sender's. `note` is the
+		// message the invitation was sent with — the one rendered into the
+		// email and shown beside the invitation afterwards — and a SET list
+		// naming it here would destroy that message every time somebody
+		// replied.
 		g.UpdateQuery("AnswerInvitation", InvitationsTable, Invitations.Columns,
-			[]string{InvitationStatusColumn, invitationNoteColumn, invitationToUserColumn},
+			[]string{InvitationStatusColumn, invitationStatusNoteColumn, invitationToUserColumn},
 			Invitations.Nullable,
 			scope,
 			querygen.Match{Column: InvitationStatusColumn, Arg: currentInvitationStatusArg}),

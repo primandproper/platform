@@ -102,6 +102,10 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 // The provider names the platforms, and each one it names must initialize
 // successfully; a failed init surfaces as an error rather than silently degrading
 // to a noop that would report every SendPush as a success.
+//
+// Options supplied with WithSenderOptions are applied after the ones derived
+// here, so a wiring site can attach what this package cannot make — a token
+// invalidator above all — or override the observability it just handed over.
 func (cfg *Config) NewPushSender(
 	ctx context.Context,
 	opts ...Option,
@@ -153,7 +157,12 @@ func (cfg *Config) NewPushSender(
 			fcmSender = s
 		}
 
-		return mobile.NewMultiPlatformPushSender(apnsSender, fcmSender, mobile.WithLogger(logger), mobile.WithTracerProvider(tracerProvider)), nil
+		senderOpts := append(
+			[]mobile.Option{mobile.WithLogger(logger), mobile.WithTracerProvider(tracerProvider)},
+			o.sender...,
+		)
+
+		return mobile.NewMultiPlatformPushSender(apnsSender, fcmSender, senderOpts...), nil
 	case ProviderNoop:
 		return noop.NewPushNotificationSender(), nil
 	default:

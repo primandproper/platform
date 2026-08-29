@@ -425,6 +425,7 @@ INSERT INTO identity_invitations (
 	token,
 	status,
 	note,
+	status_note,
 	expires_at
 ) VALUES (
 	sqlc.arg(id),
@@ -437,6 +438,7 @@ INSERT INTO identity_invitations (
 	sqlc.arg(token),
 	sqlc.arg(status),
 	sqlc.arg(note),
+	sqlc.arg(status_note),
 	sqlc.arg(expires_at)
 );
 
@@ -452,6 +454,7 @@ SELECT
 	identity_invitations.token,
 	identity_invitations.status,
 	identity_invitations.note,
+	identity_invitations.status_note,
 	identity_invitations.expires_at,
 	identity_invitations.created_at,
 	identity_invitations.last_updated_at,
@@ -473,6 +476,7 @@ SELECT
 	identity_invitations.token,
 	identity_invitations.status,
 	identity_invitations.note,
+	identity_invitations.status_note,
 	identity_invitations.expires_at,
 	identity_invitations.created_at,
 	identity_invitations.last_updated_at,
@@ -528,6 +532,7 @@ SELECT
 	identity_invitations.token,
 	identity_invitations.status,
 	identity_invitations.note,
+	identity_invitations.status_note,
 	identity_invitations.expires_at,
 	identity_invitations.created_at,
 	identity_invitations.last_updated_at,
@@ -583,6 +588,7 @@ SELECT
 	identity_invitations.token,
 	identity_invitations.status,
 	identity_invitations.note,
+	identity_invitations.status_note,
 	identity_invitations.expires_at,
 	identity_invitations.created_at,
 	identity_invitations.last_updated_at,
@@ -644,6 +650,7 @@ SELECT
 	identity_invitations.token,
 	identity_invitations.status,
 	identity_invitations.note,
+	identity_invitations.status_note,
 	identity_invitations.expires_at,
 	identity_invitations.created_at,
 	identity_invitations.last_updated_at,
@@ -705,6 +712,7 @@ SELECT
 	identity_invitations.token,
 	identity_invitations.status,
 	identity_invitations.note,
+	identity_invitations.status_note,
 	identity_invitations.expires_at,
 	identity_invitations.created_at,
 	identity_invitations.last_updated_at,
@@ -766,6 +774,7 @@ SELECT
 	identity_invitations.token,
 	identity_invitations.status,
 	identity_invitations.note,
+	identity_invitations.status_note,
 	identity_invitations.expires_at,
 	identity_invitations.created_at,
 	identity_invitations.last_updated_at,
@@ -1541,7 +1550,7 @@ WHERE archived_at IS NULL
 -- name: AnswerInvitation :execrows
 UPDATE identity_invitations SET
 	status = sqlc.arg(status),
-	note = sqlc.arg(note),
+	status_note = sqlc.arg(status_note),
 	to_user = sqlc.narg(to_user),
 	last_updated_at = CURRENT_TIMESTAMP(6)
 WHERE archived_at IS NULL
