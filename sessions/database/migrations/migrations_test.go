@@ -165,7 +165,7 @@ func columnTypes(t *testing.T, d dialect.Dialect) map[string]string {
 	// The table is the first statement in every dialect, and its column lines
 	// are the ones that open with an identifier rather than with CREATE, KEY, or
 	// the closing paren.
-	for _, line := range strings.Split(stmts[0], "\n") {
+	for line := range strings.SplitSeq(stmts[0], "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 2 || strings.EqualFold(fields[0], "create") || strings.EqualFold(fields[0], "key") {
 			continue
