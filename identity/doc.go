@@ -264,6 +264,14 @@ The stamps the statements write are not among them. created_at, last_updated_at
 and archived_at come from the server's own CURRENT_TIMESTAMP, which on SQLite is
 the shape that column's comparisons are lexicographic over rather than one that
 happens to sort right — see identity/migrations.
+
+# Why there are no handlers here
+
+The bargain above — you keep your service layer, your HTTP handlers and your
+proto — is not this package's alone. It is where the module draws the line
+between what it stores and what it serves, and the module README states it once,
+under "Stores and Transports", along with the few components on the other side
+of it and the reason each is there.
 */
 package identity
 

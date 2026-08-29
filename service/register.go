@@ -8,6 +8,7 @@ import (
 	capitalismcfg "github.com/primandproper/platform-go/v13/capitalism/config"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v13/circuitbreaking/config"
 	partitionedcfg "github.com/primandproper/platform-go/v13/circuitbreaking/partitioned/config"
+	commentscfg "github.com/primandproper/platform-go/v13/comments/config"
 	cookiescfg "github.com/primandproper/platform-go/v13/cookies/config"
 	encryptioncfg "github.com/primandproper/platform-go/v13/cryptography/encryption/config"
 	shreddingcfg "github.com/primandproper/platform-go/v13/cryptography/shredding/config"
@@ -21,6 +22,7 @@ import (
 	featureflagscfg "github.com/primandproper/platform-go/v13/featureflags/config"
 	"github.com/primandproper/platform-go/v13/httpclient"
 	identitycfg "github.com/primandproper/platform-go/v13/identity/config"
+	issuereportscfg "github.com/primandproper/platform-go/v13/issuereports/config"
 	jobscfg "github.com/primandproper/platform-go/v13/jobs/config"
 	llmcfg "github.com/primandproper/platform-go/v13/llm/config"
 	messagequeuecfg "github.com/primandproper/platform-go/v13/messagequeue/config"
@@ -177,6 +179,18 @@ func registerPlatformServices(i do.Injector, cfg *Config) {
 		capitalismcfg.RegisterUsageReporter(i)
 	}
 
+	// The store only, and it resolves a comments.Targets the application
+	// registers. Which kinds of thing accept comments is a declaration in Go —
+	// each type optionally carrying a function that reads the application's own
+	// tables to say whether one is there — and no environment variable can
+	// express a function. comments/privacy's collector and eraser are the
+	// service's to register too, for the reason every registry in this file is:
+	// they need a mapping from a person to the tenants they belong to.
+	if cfg.Comments != nil {
+		do.ProvideValue(i, cfg.Comments)
+		commentscfg.RegisterStore(i)
+	}
+
 	if cfg.Cookies != nil {
 		do.ProvideValue(i, cfg.Cookies)
 		cookiescfg.RegisterCookieManager(i)
@@ -227,6 +241,15 @@ func registerPlatformServices(i do.Injector, cfg *Config) {
 	if cfg.Identity != nil {
 		do.ProvideValue(i, cfg.Identity)
 		identitycfg.RegisterStore(i)
+	}
+
+	// The store only. issuereports/privacy's collector and eraser need a mapping
+	// from a person to the tenants they belong to, which no environment variable
+	// can express, so a service that wants its issue reports in its subject
+	// access requests registers those two itself against this store.
+	if cfg.IssueReports != nil {
+		do.ProvideValue(i, cfg.IssueReports)
+		issuereportscfg.RegisterStore(i)
 	}
 
 	if cfg.LLM != nil {

@@ -122,6 +122,8 @@ Implementations are listed in parentheses; most concerns also provide a `noop`. 
 | `capitalism`      | Payments                   | stripe                  |
 | `entitlements`    | Feature access & remaining quota | —                 |
 | `settings`        | Per-user and per-account runtime settings: admin-defined definitions, per-subject values | postgres, mysql, sqlite |
+| `issuereports`    | User-submitted issue reports with a triage lifecycle | postgres, mysql, sqlite |
+| `comments`        | Threaded comments on consumer-declared targets | postgres, mysql, sqlite |
 | `saga`            | Linear durable sagas with compensations | postgres, mysql, sqlite |
 | `distributedlock` | Distributed locking        | memory, postgres, redis |
 | `workqueue`       | Leased work queue (`SKIP LOCKED` claim/complete/expire) | postgres |
@@ -134,6 +136,65 @@ Implementations are listed in parentheses; most concerns also provide a `noop`. 
 
 ### Utilities
 `errors`, `pointer`, `numbers`, `bitmask`, `charset`, `reflection`, `panicking`, `testutils`, `fake`.
+
+## Stores and Transports
+
+A component here that owns data ships a `Store` interface, a SQL implementation
+of it, the DDL for whichever dialects the matrix below grants it, and a mock —
+and stops. The HTTP handlers over that store are not missing; they are yours.
+The routes, the request and response types, the authorization on each one and
+the error envelope a client sees are the application's, and a library that
+shipped them would be versioning your `/api/v1/users` on its own release
+cadence, in types your proto does not have, under a scoping rule it guessed.
+
+So `identity`, `webhooks` endpoint management, `settings`, `notifications`,
+`metering`, `audit`, `dataprivacy`, `saga`, `timers` and `workqueue` ship a
+store and no handlers. `identity` states the bargain plainly: a consumer keeps
+its service layer, its HTTP handlers, its proto and whatever columns are
+genuinely its own — it does not keep a users table.
+
+The line is not "no transports". It is this:
+
+> **This module ships a transport only where the shape of the request is decided
+> by something other than the consumer's domain** — a probe, a protocol, a
+> middleware contract, or a third party's payload. Where the shape is the
+> consumer's, it ships the store and the consumer ships the handler.
+
+Everything below is on the far side of that line, and it is the whole list.
+
+| Transport                         | Kind             | Whose shape it is                                     |
+|-----------------------------------|------------------|-------------------------------------------------------|
+| `server/http`                     | server           | the process: bind, serve, drain, and its own probes    |
+| `server/grpc`                     | server           | the same, for gRPC                                     |
+| `errors/http`                     | mapping          | a sentinel to a status code, and back                  |
+| `errors/grpc`                     | mapping          | a sentinel to a gRPC code, and back                    |
+| `filtering/grpc`                  | wire conversion  | `QueryFilter` and `Pagination` to their generated messages |
+| `authorization/http`              | middleware       | a route's declared requirement, checked before it runs |
+| `authorization/grpc`              | middleware       | the same, as interceptors                              |
+| `idempotency/http`                | middleware       | the `Idempotency-Key` header, both sides of the wire   |
+| `idempotency/grpc`                | middleware       | the same, over metadata                                |
+| `ratelimiting/http`               | middleware       | a token per request, 429 when there is none            |
+| `ratelimiting/grpc`               | middleware       | the same, as interceptors                              |
+| `cryptography/requestsigning/http`| middleware       | a signature verified before the handler runs           |
+| `sessions/http`                   | binding          | a signed cookie, whose security properties are ours    |
+| `operations/http`                 | resource surface | poll, list, cancel, subscribe — over `Operation`       |
+
+The middleware rows carry nothing domain-shaped: they read a header or a claim
+and let the request through or refuse it, and the handler behind them is still
+yours. `sessions/http` binds a store to a cookie, and a cookie's signing,
+encryption, `HttpOnly`, `Secure` and `SameSite` are security decisions this
+module already made — there is no resource of yours in it.
+
+`operations/http` is the one row that is a resource surface, and it earns it by
+being entirely this module's own resource: an `Operation`, its two-tier progress
+and its state machine are types you did not define, and polling one or
+subscribing to its server-sent events is the pattern's protocol rather than your
+API. *Starting* an operation is yours, and is deliberately not there.
+
+One transport sits outside the table because it is not an `http` subpackage:
+`webhooks/inbound` ships a `Receiver` that is an `http.Handler`, for the same
+reason — a Stripe or GitHub callback's shape is decided by Stripe or GitHub, and
+you have no say in it either.
 
 ## SQL Dialect Support
 
@@ -155,9 +216,11 @@ construction, never a partial store or a migration that creates nothing.
 | `authentication/passwordreset`         | ✓        | ✓     | ✓      |
 | `authentication/webauthn/database`     | ✓        | ✓     | ✓      |
 | `authorization/database`               | ✓        | ✓     | ✓      |
+| `comments`                             | ✓        | ✓     | ✓      |
 | `cryptography/shredding`               | ✓        | ✓     | ✓      |
 | `dataprivacy`                          | ✓        | ✓     | ✓      |
 | `identity`                             | ✓        | ✓     | ✓      |
+| `issuereports`                         | ✓        | ✓     | ✓      |
 | `metering`                             | ✓        | ✓     | ✓      |
 | `notifications`                        | ✓        | ✓     | ✓      |
 | `operations`                           | ✓        | —     | —      |

@@ -55,6 +55,8 @@ var tenancyColumns = map[string][]string{
 		"identity_memberships.scope",
 		"identity_users.scope",
 	},
+	"comments":          {"comments.scope"},
+	"issuereports":      {"issue_reports.scope"},
 	"notifications":     {"notifications_devices.scope", "notifications_inbox.scope"},
 	"sessions/database": {"sessions.scope"},
 	"settings":          {"settings_definitions.scope", "settings_values.scope"},

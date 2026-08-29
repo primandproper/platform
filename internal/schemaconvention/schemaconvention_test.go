@@ -10,11 +10,13 @@ import (
 	oauth2migrations "github.com/primandproper/platform-go/v13/authentication/oauth2server/database/migrations"
 	webauthnmigrations "github.com/primandproper/platform-go/v13/authentication/webauthn/database/migrations"
 	authzmigrations "github.com/primandproper/platform-go/v13/authorization/database/migrations"
+	commentsmigrations "github.com/primandproper/platform-go/v13/comments/migrations"
 	shreddingmigrations "github.com/primandproper/platform-go/v13/cryptography/shredding/migrations"
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	"github.com/primandproper/platform-go/v13/database/querygen"
 	dataprivacymigrations "github.com/primandproper/platform-go/v13/dataprivacy/migrations"
 	identitymigrations "github.com/primandproper/platform-go/v13/identity/migrations"
+	issuereportsmigrations "github.com/primandproper/platform-go/v13/issuereports/migrations"
 	meteringmigrations "github.com/primandproper/platform-go/v13/metering/migrations"
 	notificationsmigrations "github.com/primandproper/platform-go/v13/notifications/migrations"
 	operationsmigrations "github.com/primandproper/platform-go/v13/operations/migrations"
@@ -43,6 +45,8 @@ type renderer func(dialect.Dialect, string) ([]string, error)
 // nobody decided.
 var conventional = map[string]renderer{
 	"identity_users":         identitymigrations.Statements,
+	"issue_reports":          issuereportsmigrations.Statements,
+	"comments":               commentsmigrations.Statements,
 	"identity_accounts":      identitymigrations.Statements,
 	"identity_memberships":   identitymigrations.Statements,
 	"identity_invitations":   identitymigrations.Statements,
@@ -211,6 +215,8 @@ func TestEveryTableIsClassified(T *testing.T) {
 		"authz":         authzmigrations.Statements,
 		"dataprivacy":   dataprivacymigrations.Statements,
 		"identity":      identitymigrations.Statements,
+		"comments":      commentsmigrations.Statements,
+		"issuereports":  issuereportsmigrations.Statements,
 		"metering":      meteringmigrations.Statements,
 		"notifications": notificationsmigrations.Statements,
 		"operations":    operationsmigrations.Statements,

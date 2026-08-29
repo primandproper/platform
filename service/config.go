@@ -59,6 +59,7 @@ import (
 	capitalismcfg "github.com/primandproper/platform-go/v13/capitalism/config"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v13/circuitbreaking/config"
 	partitionedcfg "github.com/primandproper/platform-go/v13/circuitbreaking/partitioned/config"
+	commentscfg "github.com/primandproper/platform-go/v13/comments/config"
 	"github.com/primandproper/platform-go/v13/cookies"
 	encryptioncfg "github.com/primandproper/platform-go/v13/cryptography/encryption/config"
 	shreddingcfg "github.com/primandproper/platform-go/v13/cryptography/shredding/config"
@@ -74,6 +75,7 @@ import (
 	"github.com/primandproper/platform-go/v13/httpclient"
 	identitycfg "github.com/primandproper/platform-go/v13/identity/config"
 	"github.com/primandproper/platform-go/v13/internal/cfgnorm"
+	issuereportscfg "github.com/primandproper/platform-go/v13/issuereports/config"
 	jobscfg "github.com/primandproper/platform-go/v13/jobs/config"
 	llmcfg "github.com/primandproper/platform-go/v13/llm/config"
 	messagequeuecfg "github.com/primandproper/platform-go/v13/messagequeue/config"
@@ -130,6 +132,7 @@ type Config struct {
 	Authorization        *authorizationcfg.Config   `env:",init" envPrefix:"AUTHORIZATION_"          json:"authorization,omitempty"        yaml:"authorization,omitempty"`
 	Capitalism           *capitalismcfg.Config      `env:",init" envPrefix:"CAPITALISM_"             json:"capitalism,omitempty"           yaml:"capitalism,omitempty"`
 	CircuitBreaking      *circuitbreakingcfg.Config `env:",init" envPrefix:"CIRCUIT_BREAKING_"       json:"circuitBreaking,omitempty"      yaml:"circuitBreaking,omitempty"`
+	Comments             *commentscfg.Config        `env:",init" envPrefix:"COMMENTS_"               json:"comments,omitempty"             yaml:"comments,omitempty"`
 	Cookies              *cookies.Config            `env:",init" envPrefix:"COOKIES_"                json:"cookies,omitempty"              yaml:"cookies,omitempty"`
 	DataPrivacy          *dataprivacycfg.Config     `env:",init" envPrefix:"DATA_PRIVACY_"           json:"dataPrivacy,omitempty"          yaml:"dataPrivacy,omitempty"`
 	Database             *databasecfg.Config        `env:",init" envPrefix:"DATABASE_"               json:"database,omitempty"             yaml:"database,omitempty"`
@@ -145,6 +148,7 @@ type Config struct {
 	HTTPClient           *httpclient.Config         `env:",init" envPrefix:"HTTP_CLIENT_"            json:"httpClient,omitempty"           yaml:"httpClient,omitempty"`
 	HTTPServer           *httpserver.Config         `env:",init" envPrefix:"HTTP_SERVER_"            json:"httpServer,omitempty"           yaml:"httpServer,omitempty"`
 	Identity             *identitycfg.Config        `env:",init" envPrefix:"IDENTITY_"               json:"identity,omitempty"             yaml:"identity,omitempty"`
+	IssueReports         *issuereportscfg.Config    `env:",init" envPrefix:"ISSUE_REPORTS_"          json:"issueReports,omitempty"         yaml:"issueReports,omitempty"`
 	JobsPool             *jobscfg.PoolConfig        `env:",init" envPrefix:"JOBS_POOL_"              json:"jobsPool,omitempty"             yaml:"jobsPool,omitempty"`
 	JobsScheduler        *jobscfg.SchedulerConfig   `env:",init" envPrefix:"JOBS_SCHEDULER_"         json:"jobsScheduler,omitempty"        yaml:"jobsScheduler,omitempty"`
 	KeyedCircuitBreaking *partitionedcfg.Config     `env:",init" envPrefix:"KEYED_CIRCUIT_BREAKING_" json:"keyedCircuitBreaking,omitempty" yaml:"keyedCircuitBreaking,omitempty"`
@@ -279,6 +283,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.Authorization),
 		validation.Field(&cfg.Capitalism),
 		validation.Field(&cfg.CircuitBreaking),
+		validation.Field(&cfg.Comments),
 		validation.Field(&cfg.Cookies),
 		// The one cross-subsystem rule in this list, and it earns the exception
 		// because the alternative is silence. dataprivacy runs its exports and
@@ -307,6 +312,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.HTTPClient),
 		validation.Field(&cfg.HTTPServer),
 		validation.Field(&cfg.Identity),
+		validation.Field(&cfg.IssueReports),
 		validation.Field(&cfg.JobsPool),
 		validation.Field(&cfg.JobsScheduler),
 		validation.Field(&cfg.KeyedCircuitBreaking),

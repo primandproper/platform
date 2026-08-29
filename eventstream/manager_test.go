@@ -203,7 +203,7 @@ func TestStreamManager_BroadcastToGroup(T *testing.T) {
 			Type:    "test",
 			Payload: json.RawMessage(`{"v":"hello"}`),
 		}
-		m.BroadcastToGroup(ctx, "g1", event)
+		must.NoError(t, m.BroadcastToGroup(ctx, "g1", event))
 
 		test.SliceLen(t, 1, s1.sentEvents())
 		test.EqOp(t, "test", s1.sentEvents()[0].Type)
@@ -225,8 +225,8 @@ func TestStreamManager_BroadcastToGroup(T *testing.T) {
 		ctx := t.Context()
 		m, obs := newRecordingManager(t)
 
-		// Should not panic
-		m.BroadcastToGroup(ctx, "nonexistent", &Event{Type: "test"})
+		// Should not panic, and a group with no streams has nothing to report.
+		must.NoError(t, m.BroadcastToGroup(ctx, "nonexistent", &Event{Type: "test"}))
 
 		// An empty group never reaches the fan-out, so only group_id and the event
 		// type are observed (no length).
@@ -258,9 +258,9 @@ func TestStreamManager_BroadcastToGroupFiltered(T *testing.T) {
 		}
 
 		// Only include m2
-		m.BroadcastToGroupFiltered(ctx, "g1", event, func(memberID string) bool {
+		must.NoError(t, m.BroadcastToGroupFiltered(ctx, "g1", event, func(memberID string) bool {
 			return memberID == "m2"
-		})
+		}))
 
 		test.SliceEmpty(t, s1.sentEvents())
 		test.SliceLen(t, 1, s2.sentEvents())
@@ -282,7 +282,8 @@ func TestStreamManager_BroadcastToGroupFiltered(T *testing.T) {
 		m, obs := newRecordingManager(t)
 		m.Add(ctx, "g1", "m1", s1)
 
-		m.BroadcastToGroupFiltered(ctx, "g1", &Event{Type: "x"}, func(string) bool { return false })
+		// An excluded stream cannot fail, so a filter matching nobody returns nil.
+		must.NoError(t, m.BroadcastToGroupFiltered(ctx, "g1", &Event{Type: "x"}, func(string) bool { return false }))
 
 		test.SliceEmpty(t, s1.sentEvents())
 
@@ -304,7 +305,11 @@ func TestStreamManager_BroadcastToGroupFiltered(T *testing.T) {
 		m.Add(ctx, "g1", "m2", s2)
 
 		// Include every member so the failing stream's Send error is exercised.
-		m.BroadcastToGroupFiltered(ctx, "g1", &Event{Type: "filtered"}, func(string) bool { return true })
+		err := m.BroadcastToGroupFiltered(ctx, "g1", &Event{Type: "filtered"}, func(string) bool { return true })
+
+		// The failure comes back rather than being swallowed, and it is the one
+		// the failing stream returned.
+		must.ErrorIs(t, err, errStub)
 
 		// The non-failing stream still receives the event despite s1's error.
 		test.SliceLen(t, 1, s2.sentEvents())
@@ -508,7 +513,10 @@ func TestStreamManager_BroadcastToGroup_with_failing_stream(T *testing.T) {
 		m.Add(ctx, "g1", "m2", s2)
 
 		event := &Event{Type: "test"}
-		m.BroadcastToGroup(ctx, "g1", event)
+		err := m.BroadcastToGroup(ctx, "g1", event)
+
+		// The broadcast reports the failure it swallowed nothing of.
+		must.ErrorIs(t, err, errStub)
 
 		// s2 should still receive the event even though s1 failed
 		// (we can't guarantee order due to map iteration, but we can check that
@@ -535,7 +543,7 @@ func TestStreamManager_BroadcastToGroup_with_failing_stream(T *testing.T) {
 
 		m.Add(ctx, "g1", "m1", &failingStream{})
 
-		m.BroadcastToGroup(ctx, "g1", &Event{Type: "test"})
+		must.ErrorIs(t, m.BroadcastToGroup(ctx, "g1", &Event{Type: "test"}), errStub)
 
 		op := obs.ObservedOperationWithData(t, map[string]any{
 			"group_id":     "g1",
@@ -543,6 +551,105 @@ func TestStreamManager_BroadcastToGroup_with_failing_stream(T *testing.T) {
 			keys.LengthKey: 1,
 		})
 		must.SliceLen(t, 1, op.Errors)
+	})
+}
+
+func TestStreamManager_BroadcastToGroup_aggregatesFailures(T *testing.T) {
+	T.Parallel()
+
+	T.Run("joins every failing stream's error", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+
+		errFirst := errors.New("first stream is gone")
+		errSecond := errors.New("second stream is gone")
+
+		healthy := newMockStream()
+		m, obs := newRecordingManager(t)
+		m.Add(ctx, "g1", "m1", &failingStream{err: errFirst})
+		m.Add(ctx, "g1", "m2", &failingStream{err: errSecond})
+		m.Add(ctx, "g1", "m3", healthy)
+
+		err := m.BroadcastToGroup(ctx, "g1", &Event{Type: "test"})
+
+		// Both failures survive the join, so the caller can tell which streams did
+		// not take the event rather than only that some did not.
+		must.ErrorIs(t, err, errFirst)
+		must.ErrorIs(t, err, errSecond)
+
+		// The stream that could take the event still got it: the loop does not halt
+		// at the first failure.
+		test.SliceLen(t, 1, healthy.sentEvents())
+
+		// Both failures reach the span too; the returned error is the caller-visible
+		// half of the same fact.
+		op := obs.ObservedOperationWithData(t, map[string]any{
+			"group_id":     "g1",
+			"event.type":   "test",
+			keys.LengthKey: 3,
+		})
+		must.SliceLen(t, 2, op.Errors)
+	})
+
+	T.Run("a wholly successful broadcast returns nil", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+
+		m, _ := newRecordingManager(t)
+		m.Add(ctx, "g1", "m1", newMockStream())
+		m.Add(ctx, "g1", "m2", newMockStream())
+
+		must.NoError(t, m.BroadcastToGroup(ctx, "g1", &Event{Type: "test"}))
+	})
+}
+
+func TestStreamManager_BroadcastToGroupFiltered_aggregatesFailures(T *testing.T) {
+	T.Parallel()
+
+	T.Run("joins every included failing stream's error", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+
+		errFirst := errors.New("first stream is gone")
+		errSecond := errors.New("second stream is gone")
+
+		m, obs := newRecordingManager(t)
+		m.Add(ctx, "g1", "m1", &failingStream{err: errFirst})
+		m.Add(ctx, "g1", "m2", &failingStream{err: errSecond})
+
+		err := m.BroadcastToGroupFiltered(ctx, "g1", &Event{Type: "filtered"}, func(string) bool { return true })
+
+		must.ErrorIs(t, err, errFirst)
+		must.ErrorIs(t, err, errSecond)
+
+		op := obs.ObservedOperationWithData(t, map[string]any{
+			"group_id":   "g1",
+			"event.type": "filtered",
+		})
+		must.SliceLen(t, 2, op.Errors)
+	})
+
+	T.Run("an excluded stream cannot contribute a failure", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+
+		healthy := newMockStream()
+		m, _ := newRecordingManager(t)
+		m.Add(ctx, "g1", "m1", &failingStream{})
+		m.Add(ctx, "g1", "m2", healthy)
+
+		// The only stream that would fail is filtered out, so nothing was attempted
+		// that could fail and the result is nil rather than errStub.
+		err := m.BroadcastToGroupFiltered(ctx, "g1", &Event{Type: "filtered"}, func(memberID string) bool {
+			return memberID == "m2"
+		})
+
+		must.NoError(t, err)
+		test.SliceLen(t, 1, healthy.sentEvents())
 	})
 }
 
@@ -560,7 +667,7 @@ func TestStreamManager_BroadcastToGroup_doesNotWedgeOnSlowClient(T *testing.T) {
 
 		broadcastDone := make(chan struct{})
 		go func() {
-			m.BroadcastToGroup(ctx, "g1", &Event{Type: "x"})
+			_ = m.BroadcastToGroup(ctx, "g1", &Event{Type: "x"})
 			close(broadcastDone)
 		}()
 
@@ -616,8 +723,18 @@ func (b *blockingStream) Done() <-chan struct{} { return make(chan struct{}) }
 func (b *blockingStream) Close() error          { return nil }
 
 // failingStream is a stream that always returns an error on Send.
-type failingStream struct{}
+// failingStream fails every Send. A zero value fails with errStub; set err to
+// give a particular stream an error a joined result can be matched against
+// individually.
+type failingStream struct {
+	err error
+}
 
-func (f *failingStream) Send(context.Context, *Event) error { return errStub }
-func (f *failingStream) Done() <-chan struct{}              { return make(chan struct{}) }
-func (f *failingStream) Close() error                       { return nil }
+func (f *failingStream) Send(context.Context, *Event) error {
+	if f.err != nil {
+		return f.err
+	}
+	return errStub
+}
+func (f *failingStream) Done() <-chan struct{} { return make(chan struct{}) }
+func (f *failingStream) Close() error          { return nil }

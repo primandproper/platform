@@ -78,5 +78,18 @@ and no fan-out: every replica can serve a subscription to any operation, because
 every replica can read the row. That is the property that makes this different
 from notifications/async, whose single-replica constraint comes from holding
 state in the process.
+
+# Why this package exists at all, when most stores here ship no handlers
+
+Almost nothing in this module ships a resource surface — a component that owns
+data ships a store, and the routes over it are the application's. This package
+is the one exception, and it is one because every type on the wire here is this
+module's own: an Operation, its two-tier progress and the states it moves
+through are not yours, and polling one or subscribing to it is the pattern's
+protocol rather than your API. The half that *is* yours — starting the work — is
+the half above that is deliberately absent.
+
+The module README's "Stores and Transports" section is where that rule is stated
+for the module as a whole, along with everything else on this side of it.
 */
 package http

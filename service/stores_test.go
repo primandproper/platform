@@ -11,9 +11,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/primandproper/platform-go/v13/comments"
+	commentscfg "github.com/primandproper/platform-go/v13/comments/config"
 	databasecfg "github.com/primandproper/platform-go/v13/database/config"
 	"github.com/primandproper/platform-go/v13/identity"
 	identitycfg "github.com/primandproper/platform-go/v13/identity/config"
+	"github.com/primandproper/platform-go/v13/issuereports"
+	issuereportscfg "github.com/primandproper/platform-go/v13/issuereports/config"
 	"github.com/primandproper/platform-go/v13/notifications"
 	notificationscfg "github.com/primandproper/platform-go/v13/notifications/config"
 	"github.com/primandproper/platform-go/v13/notifications/mobile"
@@ -55,8 +59,8 @@ func sqliteDatabase(t *testing.T) *databasecfg.Config {
 }
 
 // TestRegisterStores covers the subsystems the composition root reached last:
-// the identity, settings, notifications and waitlist stores, and the retention
-// sweeper.
+// the identity, issue report, comment, settings, notifications and waitlist
+// stores, and the retention sweeper.
 //
 // The reflection-driven tests above already assert that a field on Config is
 // validated and registers something. What they cannot say is that what it
@@ -72,6 +76,8 @@ func TestRegisterStores(T *testing.T) {
 			Name:          "example",
 			Database:      sqliteDatabase(t),
 			Identity:      &identitycfg.Config{TablePrefix: storePrefix},
+			IssueReports:  &issuereportscfg.Config{TablePrefix: storePrefix},
+			Comments:      &commentscfg.Config{TablePrefix: storePrefix},
 			Settings:      &settingscfg.Config{TablePrefix: storePrefix},
 			Notifications: &notificationscfg.Config{TablePrefix: storePrefix},
 			Waitlists:     &waitlistscfg.Config{TablePrefix: storePrefix},
@@ -80,6 +86,11 @@ func TestRegisterStores(T *testing.T) {
 
 		i := newInjector(t, cfg)
 
+		// The comment store's one dependency the environment cannot supply:
+		// which kinds of thing accept comments, each type optionally carrying a
+		// function that reads the application's own tables.
+		do.ProvideValue(i, comments.Targets{comments.TargetType("recipe"): {Description: "a recipe"}})
+
 		identityStore, err := do.Invoke[identity.Store](i)
 		must.NoError(t, err)
 		test.NotNil(t, identityStore)
@@ -87,6 +98,14 @@ func TestRegisterStores(T *testing.T) {
 		settingsStore, err := do.Invoke[settings.Store](i)
 		must.NoError(t, err)
 		test.NotNil(t, settingsStore)
+
+		reportStore, err := do.Invoke[issuereports.Store](i)
+		must.NoError(t, err)
+		test.NotNil(t, reportStore)
+
+		commentStore, err := do.Invoke[comments.Store](i)
+		must.NoError(t, err)
+		test.NotNil(t, commentStore)
 
 		waitlistStore, err := do.Invoke[waitlists.Store](i)
 		must.NoError(t, err)
@@ -117,6 +136,8 @@ func TestRegisterStores(T *testing.T) {
 		cfg := &Config{Name: "example"}
 		must.NoError(t, env.ParseWithOptions(cfg, env.Options{Environment: map[string]string{
 			"IDENTITY_TABLE_PREFIX":        storePrefix,
+			"ISSUE_REPORTS_TABLE_PREFIX":   storePrefix,
+			"COMMENTS_TABLE_PREFIX":        storePrefix,
 			"SETTINGS_TABLE_PREFIX":        storePrefix,
 			"NOTIFICATIONS_TABLE_PREFIX":   storePrefix,
 			"WAITLISTS_TABLE_PREFIX":       storePrefix,
@@ -125,7 +146,7 @@ func TestRegisterStores(T *testing.T) {
 
 		must.NoError(t, cfg.ValidateWithContext(t.Context()))
 
-		test.Eq(t, []string{"Identity", "Notifications", "Retention", "Settings", "Waitlists"}, present(t, cfg))
+		test.Eq(t, []string{"Comments", "Identity", "IssueReports", "Notifications", "Retention", "Settings", "Waitlists"}, present(t, cfg))
 	})
 
 	T.Run("builds the retention sweeper over the application's policies", func(t *testing.T) {

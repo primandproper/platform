@@ -64,6 +64,8 @@ var rulings = map[string]ruling{
 	"authentication/oauth2server/database/internal/oauth2serverdb": {tier: unison},
 	"dataprivacy/internal/dataprivacydb":                           {tier: unison},
 	"identity/internal/identitydb":                                 {tier: unison},
+	"issuereports/internal/issuereportsdb":                         {tier: unison},
+	"comments/internal/commentsdb":                                 {tier: unison},
 	"saga/internal/sagadb":                                         {tier: unison},
 	"sessions/database/internal/sessionsdb":                        {tier: unison},
 	"webhooks/internal/webhooksdb":                                 {tier: unison},

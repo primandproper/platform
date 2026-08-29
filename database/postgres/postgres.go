@@ -11,6 +11,7 @@ import (
 	"github.com/primandproper/platform-go/v13/database/internal/sqlclient"
 	"github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/observability"
+	"github.com/primandproper/platform-go/v13/observability/tracing"
 
 	"github.com/XSAM/otelsql"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,6 +23,14 @@ import (
 const (
 	tracingName = "db_client"
 )
+
+// spanAttributes are the attributes every span this client emits carries, on
+// both surfaces: otelsql puts them on the database/sql spans, pgxTracer on the
+// native ones. One variable rather than two so the two cannot drift into
+// looking like separate databases.
+var spanAttributes = []attribute.KeyValue{
+	semconv.ServiceNameKey.String("database"),
+}
 
 // PgxAccess is an optional capability exposing the native pgx connection pools, for
 // callers that need driver features the database/sql surface cannot express —
@@ -38,6 +47,12 @@ const (
 // database/sql handles are derived from them via a pool connector — so
 // MaxOpenConns caps the union of both surfaces, and a connection held idle by the
 // database/sql layer is unavailable to native callers until it is released.
+//
+// Statements issued through these pools are traced: the client installs a pgx
+// tracer on the pools it opens, so a native Query, Exec, SendBatch, CopyFrom, or
+// Prepare produces a client span under the tracer provider the client was built
+// with, named and attributed like the database/sql surface's own. A client built
+// with no tracer provider installs no tracer.
 //
 // Like RawAccess, this is a deliberate step outside the portable Client surface; it
 // is also postgres-only, so callers asserting it accept a hard pgx dependency.
@@ -70,9 +85,15 @@ var (
 // both surfaces share one set of connections. The database/sql layer keeps its
 // otelsql instrumentation; if a metrics provider is supplied via
 // WithMetricsProvider, the driver emits SQL latency and other db.sql.* metrics
-// (e.g. db_sql_latency_milliseconds_bucket in Prometheus). Native pool usage is
-// not yet traced — instrument at the call site, or thread a pgx tracer through
-// here when a consumer needs it.
+// (e.g. db_sql_latency_milliseconds_bucket in Prometheus).
+//
+// Both surfaces are traced through the provider given to WithTracerProvider, and
+// each statement is spanned once: otelsql spans what the database/sql handles
+// issue, a pgx tracer spans what the native pools issue, and because the two run
+// on the same connections the client marks the contexts it owns so the pgx tracer
+// does not span the derived surface's statements a second time. Given no tracer
+// provider, neither instrumentation is installed — including otelsql's, which
+// would otherwise resolve OpenTelemetry's global provider.
 func NewDatabaseClient(ctx context.Context, cfg database.ClientConfig, opts ...Option) (*Client, error) {
 	o := newOptions(opts)
 	o11y := observability.NewObserver(tracingName, o.logger, o.tracerProvider)
@@ -81,12 +102,12 @@ func NewDatabaseClient(ctx context.Context, cfg database.ClientConfig, opts ...O
 	defer op.End()
 
 	otelsqlOpts := []otelsql.Option{
-		otelsql.WithAttributes(
-			attribute.KeyValue{
-				Key:   semconv.ServiceNameKey,
-				Value: attribute.StringValue("database"),
-			},
-		),
+		otelsql.WithAttributes(spanAttributes...),
+		// otelsql otherwise resolves the global provider, which would put the
+		// database/sql spans somewhere the native ones are not — and would give
+		// a client built with no tracer provider at all spans it never asked
+		// for.
+		otelsql.WithTracerProvider(tracing.EnsureTracerProvider(o.tracerProvider)),
 	}
 	if o.metricsProvider != nil {
 		otelsqlOpts = append(otelsqlOpts, otelsql.WithMeterProvider(o.metricsProvider.MeterProvider()))
@@ -95,9 +116,17 @@ func NewDatabaseClient(ctx context.Context, cfg database.ClientConfig, opts ...O
 	// Gate raw SQL text on spans behind the config's LogQueries flag. When the
 	// config opts out (the default), suppress db.statement so query text is not
 	// leaked into traces.
+	logQueries := true
 	if lq, ok := cfg.(interface{ GetLogQueries() bool }); ok && !lq.GetLogQueries() {
+		logQueries = false
+
 		otelsqlOpts = append(otelsqlOpts, otelsql.WithSpanOptions(otelsql.SpanOptions{DisableQuery: true}))
 	}
+
+	// The same gate reaches the native pools through their own tracer, which is
+	// nil when no provider was given: an untraced client keeps pgx's untraced
+	// fast path.
+	pgxTracer := newPgxTracer(o.tracerProvider, spanAttributes, logQueries)
 
 	var (
 		readPool, writePool *pgxpool.Pool
@@ -113,14 +142,14 @@ func NewDatabaseClient(ctx context.Context, cfg database.ClientConfig, opts ...O
 		Set("db.write_configured", writeConnStr != "")
 
 	if readConnStr != "" {
-		readPool, readDB, err = connect(ctx, readConnStr, cfg, otelsqlOpts)
+		readPool, readDB, err = connect(ctx, readConnStr, cfg, otelsqlOpts, pgxTracer)
 		if err != nil {
 			return nil, errors.Wrap(err, "connecting to read postgres database")
 		}
 	}
 
 	if writeConnStr != "" {
-		writePool, writeDB, err = connect(ctx, writeConnStr, cfg, otelsqlOpts)
+		writePool, writeDB, err = connect(ctx, writeConnStr, cfg, otelsqlOpts, pgxTracer)
 		if err != nil {
 			err = errors.Wrap(err, "connecting to write postgres database")
 
@@ -199,7 +228,13 @@ func closePools(cause error, readDB, writeDB *sql.DB, readPool, writePool *pgxpo
 // database/sql handle from it. The pool is the single authority on connection
 // count and lifetime; the derived handle is capped to the same values so the two
 // layers can never disagree about the real limit.
-func connect(ctx context.Context, connStr string, cfg database.ClientConfig, opts []otelsql.Option) (*pgxpool.Pool, *sql.DB, error) {
+func connect(
+	ctx context.Context,
+	connStr string,
+	cfg database.ClientConfig,
+	opts []otelsql.Option,
+	tracer *pgxTracer,
+) (*pgxpool.Pool, *sql.DB, error) {
 	poolCfg, err := pgxpool.ParseConfig(connStr)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "parsing postgres connection string")
@@ -215,12 +250,28 @@ func connect(ctx context.Context, connStr string, cfg database.ClientConfig, opt
 		poolCfg.MaxConnLifetime = d
 	}
 
+	// A nil tracer is left off the config rather than installed as a noop: pgx
+	// checks the field for nil on every statement, so an untraced client pays
+	// nothing at all.
+	if tracer != nil {
+		poolCfg.ConnConfig.Tracer = tracer
+	}
+
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "creating postgres connection pool")
 	}
 
-	db := otelsql.OpenDB(stdlib.GetPoolConnector(pool), opts...)
+	// Both surfaces run on this pool's connections, so the pgx tracer sees the
+	// database/sql layer's statements too. The connector wrapper marks them, and
+	// the tracer skips what it marked; see derivedsurface.go. Without a tracer
+	// there is nothing to mark, so the connector goes in bare.
+	connector := stdlib.GetPoolConnector(pool)
+	if tracer != nil {
+		connector = &derivedConnector{Connector: connector}
+	}
+
+	db := otelsql.OpenDB(connector, opts...)
 
 	// An idle connection at this layer is still checked out of the pgx pool, so
 	// MaxIdleConns bounds how many pool connections the database/sql surface may

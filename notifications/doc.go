@@ -71,6 +71,14 @@ notifications/migrations renders the DDL for a dialect and a table prefix. It
 ships no numbered migration file, because migration numbers are global per
 consumer; hand migrations.SQL to database/migrate's WithGeneratedMigration and
 the tables are created by your own migration run.
+
+# Where this package stops
+
+At the store and the senders. The inbox endpoints a client polls — list mine,
+mark one read, mark them all read — are an application's routes over an
+application's types, and this package ships none of them. The module README's
+"Stores and Transports" section is where that line is drawn for the module as a
+whole.
 */
 package notifications
 

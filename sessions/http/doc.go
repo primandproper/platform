@@ -62,5 +62,17 @@ Give cookies.Config a Lifetime at least as long as the absolute timeout.
 securecookie refuses to decode a value older than that lifetime, so a shorter
 one caps every session regardless of what the store thinks, and does it in a way
 that looks like sessions randomly failing to load.
+
+# What this package is not
+
+It is not a session API. There are no routes here for listing a user's sessions
+or revoking one from another device; those are an application's, over an
+application's types. What this package ships is the binding between a store and
+a cookie, and a cookie's signing, encryption, HttpOnly, Secure and SameSite are
+security decisions this module has already made — leaving them to each consumer
+is how they get made differently in each one.
+
+The module README's "Stores and Transports" section is where that line is drawn
+for the module as a whole.
 */
 package http
