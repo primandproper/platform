@@ -131,6 +131,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`. 
 | `operations`      | Long-running operations with durable state, two-tier progress, and streamed updates | postgres |
 | `filtering`       | Query filters / pagination | —                       |
 | `qrcodes`         | QR code generation         | —                       |
+| `waitlists`       | Pre-launch waitlists: signup lifecycle, and an unsubscribe that outlives the address | postgres, mysql, sqlite |
 | `eventcapture`    | Recording domain events    | jsonl                   |
 
 ### Utilities
@@ -229,6 +230,7 @@ construction, never a partial store or a migration that creates nothing.
 | `settings`                             | ✓        | ✓     | ✓      |
 | `timers`                               | ✓        | —     | —      |
 | `uploads/registry`                     | ✓        | ✓     | ✓      |
+| `waitlists`                            | ✓        | ✓     | ✓      |
 | `webhooks`                             | ✓        | ✓     | ✓      |
 | `workqueue`                            | ✓        | —     | —      |
 
