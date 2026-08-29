@@ -112,6 +112,69 @@ func TestStatements(T *testing.T) {
 			}
 		}
 	})
+
+	// The four device columns are a client's own self-description, and a user
+	// agent runs past 255 characters in the wild. Declaring one of them narrow
+	// on a single engine would not be a length limit but a silent difference in
+	// what got stored: the create statement is INSERT IGNORE, for its
+	// id-conflict semantics, and IGNORE downgrades MySQL's truncation error to
+	// a warning — so the value a security page renders would depend on which
+	// engine wrote it.
+	T.Run("every dialect stores the device columns whole", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range allDialects() {
+			types := columnTypes(t, d)
+
+			for _, column := range []string{"device_name", "ip_address", "user_agent", "login_method"} {
+				test.EqOp(t, "TEXT", types[column], test.Sprintf("dialect %q, column %q", d, column))
+			}
+		}
+	})
+
+	// Which leaves the narrowing MySQL genuinely needs: it cannot index a TEXT
+	// column without a prefix length, so the primary key and the pair the
+	// enumeration is keyed on are VARCHAR and nothing else is. A column narrowed
+	// for tidiness is the previous case waiting to happen.
+	T.Run("mysql narrows only the columns its indexes need", func(t *testing.T) {
+		t.Parallel()
+
+		for column, declared := range columnTypes(t, dialect.MySQL) {
+			if !strings.HasPrefix(declared, "VARCHAR") {
+				continue
+			}
+
+			test.SliceContainsOp(t, []string{"id", "scope", "principal"}, column,
+				test.Sprintf("%q is VARCHAR, but no index needs it to be", column))
+		}
+	})
+}
+
+// columnTypes reads a rendered CREATE TABLE back as column name to declared
+// type, so a test can assert what a column is rather than that the DDL happens
+// to contain a string.
+func columnTypes(t *testing.T, d dialect.Dialect) map[string]string {
+	t.Helper()
+
+	stmts, err := Statements(d, "")
+	must.NoError(t, err)
+	must.SliceNotEmpty(t, stmts)
+
+	types := map[string]string{}
+
+	// The table is the first statement in every dialect, and its column lines
+	// are the ones that open with an identifier rather than with CREATE, KEY, or
+	// the closing paren.
+	for _, line := range strings.Split(stmts[0], "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || strings.EqualFold(fields[0], "create") || strings.EqualFold(fields[0], "key") {
+			continue
+		}
+
+		types[fields[0]] = strings.TrimSuffix(fields[1], ",")
+	}
+
+	return types
 }
 
 func TestValidatePrefix(T *testing.T) {

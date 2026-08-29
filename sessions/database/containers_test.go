@@ -224,6 +224,16 @@ func runDialectSuite(t *testing.T, client database.Client, d dialect.Dialect) {
 		must.NoError(t, loadErr)
 	})
 
+	// The metadata columns against the server's own declared widths. MySQL's
+	// create is INSERT IGNORE, so a VARCHAR here would not raise on an
+	// over-long device name — it would store a shorter one than Postgres and
+	// SQLite did, and only this run would notice.
+	t.Run("stores a device name no VARCHAR would hold", func(t *testing.T) {
+		holder := sessions.Holder{Scope: tenancy.Of("acct_long"), Principal: "u_long"}
+
+		assertOverlongMetadataRoundTrips(t, backend, c, holder, "long-metadata")
+	})
+
 	t.Run("serves a whole session lifecycle under a store", func(t *testing.T) {
 		store, storeErr := sessions.NewStore(backend, sessions.WithClock(c), sessions.WithIdleTimeout(10*time.Minute))
 		must.NoError(t, storeErr)
