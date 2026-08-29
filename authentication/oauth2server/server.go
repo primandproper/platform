@@ -34,6 +34,7 @@ type Server struct {
 	resolver           SubjectResolver
 	renderer           LoginRenderer
 	policy             RegistrationPolicy
+	registrationGate   routing.Middleware
 	revocationObserver RevocationObserver
 	clock              clockReader
 	o11y               observability.Observer
@@ -100,6 +101,7 @@ func NewServer(issuer string, store Store, authenticator SubjectAuthenticator, o
 		resolver:             o.subjectResolver,
 		renderer:             o.loginRenderer,
 		policy:               o.registrationPolicy,
+		registrationGate:     o.registrationLimiter,
 		revocationObserver:   o.revocationObserver,
 		clock:                o.clock,
 		o11y:                 observability.NewObserver(serviceName, o.logger, o.tracerProvider),
@@ -217,12 +219,14 @@ func (s *Server) Handler() http.Handler {
 // an HTML login page — and a generated schema describing them would be a second,
 // worse copy of RFC 6749 that a client author would be wrong to read.
 //
-// The middleware slot is how a deployment rate limits /register, which is the
-// one endpoint here that an anonymous caller can write rows through. To limit
-// only that one, mount the handlers individually rather than calling this — and
-// a deployment that does not want the endpoint at all says so with
-// WithDynamicRegistration(false), which takes it out of the discovery document
-// as well as off the router.
+// The middleware slot applies to all six endpoints, which is what to reach for
+// when the whole surface needs the same thing. It is not where /register's rate
+// limit goes: that endpoint is the one here an anonymous caller can write rows
+// through, so it wants a bound the other five do not, and
+// WithRegistrationLimiter puts one inside RegisterHandler — where Handler and a
+// deployment mounting the endpoint by hand get it too. A deployment that does
+// not want the endpoint at all says so with WithDynamicRegistration(false),
+// which takes it out of the discovery document as well as off the router.
 func (s *Server) Mount(r *routing.Router, middleware ...routing.Middleware) {
 	r.Handle(http.MethodGet, PathAuthorizationServerMetadata, s.MetadataHandler(), middleware...)
 	r.Handle(http.MethodGet, PathAuthorize, s.AuthorizeHandler(), middleware...)

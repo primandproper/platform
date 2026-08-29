@@ -55,14 +55,31 @@ type RegistrationResponse struct {
 // and every registration carries an expiry so the table it writes to does not
 // grow without limit.
 //
-// What it cannot do from in here is rate limiting; see RegistrationPolicy for
-// why, and Server.Mount for where to put it.
+// What it cannot decide from in here is how fast an anonymous caller may ask,
+// because that rests on who the caller is and this package cannot tell:
+// WithRegistrationLimiter is the seam a deployment answers that with, and a
+// server built with one returns the handler already behind it — so Handler,
+// Mount, and a deployment routing this by hand are all bounded without having
+// to arrange it themselves.
 //
 // A server built with WithDynamicRegistration(false) answers 404 here instead
 // of registering anything, so that a deployment which mounted this handler by
-// hand — the way Mount's own doc suggests rate limiting it — cannot end up
-// serving the endpoint its discovery document says it does not have.
+// hand cannot end up serving the endpoint its discovery document says it does
+// not have. The gate, when there is one, still runs first: a caller hammering
+// an endpoint that 404s is the case a bound is for, and spending the check to
+// find out it was turned off would be paying at the wrong end.
 func (s *Server) RegisterHandler() http.Handler {
+	handler := s.registerHandler()
+
+	if s.registrationGate == nil {
+		return handler
+	}
+
+	return s.registrationGate(handler)
+}
+
+// registerHandler is /register itself, without whatever gate wraps it.
+func (s *Server) registerHandler() http.Handler {
 	return http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 		ctx, op := s.o11y.BeginCustom(req.Context(), operationName(endpointRegister))
 		defer s.end(ctx, op, endpointRegister, s.clock.Now())

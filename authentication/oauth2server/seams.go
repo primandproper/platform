@@ -230,11 +230,11 @@ type RegistrationRequest struct {
 // deployment needs: an allowlist of hosts, a cap tied to a tenant, a check
 // against an out-of-band approval.
 //
-// What it is not is a rate limiter. Rate limiting a registration endpoint
-// depends on how a deployment identifies a caller — source address, a proxy
-// header, an API gateway's own token — and none of those are visible from here
-// with any confidence. Mount /register behind ratelimiting middleware; Server's
-// Mount takes middleware for exactly this.
+// What it is not is a rate limiter. A policy is handed the parsed metadata and
+// not the request, so it cannot see a caller at all — and identifying one
+// depends on how a deployment is fronted anyway: source address, a proxy
+// header, an API gateway's own token. WithRegistrationLimiter is where that
+// answer goes, and ratelimiting/http builds the gate it takes.
 type RegistrationPolicy interface {
 	// AllowRegistration vets a request. An error wrapping
 	// ErrRegistrationRejected renders as a 400 with invalid_client_metadata
