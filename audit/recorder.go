@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
+	"github.com/primandproper/platform-go/v13/audit/internal/auditdb"
 	"github.com/primandproper/platform-go/v13/clock"
 	"github.com/primandproper/platform-go/v13/database"
 	"github.com/primandproper/platform-go/v13/database/dialect"
@@ -50,11 +50,14 @@ var _ Recorder = (*ChainRecorder)(nil)
 // It is exported, and returned by NewRecorder, so a caller can depend on the
 // recorder it built rather than on the Recorder seam.
 type ChainRecorder struct {
-	clock  clock.Clock
-	o11y   observability.Observer
-	tables *tables
+	clock clock.Clock
+	o11y  observability.Observer
 
-	redactions map[string]Redaction
+	// q is the generated querier, instantiated for the configured dialect at
+	// the configured prefix. It takes the executor per call, which is what lets
+	// one Recorder serve every transaction in the process — the same property
+	// this type had when it held no handle and rendered its own SQL.
+	q auditdb.Querier
 
 	recordedCounter  metrics.Int64Counter
 	recordErrCounter metrics.Int64Counter
@@ -66,8 +69,16 @@ type ChainRecorder struct {
 	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
-	dialect         dialect.Dialect
-	prefix          string
+
+	redactions map[string]Redaction
+
+	dialect dialect.Dialect
+	prefix  string
+
+	// precision is what a recorded_at is truncated to before it is hashed and
+	// written, which is a property of the dialect's storage — see
+	// storedPrecision.
+	precision time.Duration
 }
 
 // NewRecorder builds a Recorder for the given dialect.
@@ -90,13 +101,23 @@ func NewRecorder(d dialect.Dialect, opts ...RecorderOption) (*ChainRecorder, err
 	if err := ValidateTablePrefix(r.prefix); err != nil {
 		return nil, err
 	}
-	r.tables = newTables(r.prefix)
+
+	// The generated querier, instantiated once the prefix is settled and the
+	// dialect is known — the only two things the generated statements do not
+	// already carry. What executes is what sqlc analyzed, with one marker
+	// substitution; see audit/internal/auditdb.
+	q, err := newQuerier(r.dialect, r.prefix)
+	if err != nil {
+		return nil, err
+	}
+
+	r.q = q
+	r.precision = storedPrecision(r.dialect)
 
 	r.o11y = observability.NewObserver(serviceName, r.logger, r.tracerProvider)
 
 	mp := metrics.EnsureMetricsProvider(r.metricsProvider)
 
-	var err error
 	if r.recordedCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_entries_recorded", serviceName)); err != nil {
 		return nil, platformerrors.Wrap(err, "creating entries recorded counter")
 	}
@@ -146,7 +167,7 @@ func (r *ChainRecorder) Record(ctx context.Context, q database.Tx, entries ...*E
 	scopes, byScope := groupByScope(entries)
 	op.Set(scopeCountKey, len(scopes))
 
-	now := r.clock.Now().UTC().Truncate(time.Microsecond)
+	now := r.clock.Now().UTC().Truncate(r.precision)
 
 	for _, scope := range scopes {
 		if err := r.recordScope(ctx, q, scope, byScope[scope], now); err != nil {
@@ -171,6 +192,14 @@ func (r *ChainRecorder) Record(ctx context.Context, q database.Tx, entries ...*E
 }
 
 // recordScope chains and inserts one scope's entries.
+//
+// One statement per entry, where this used to be a multi-row INSERT capped at
+// seventy rows by SQLite's bind-parameter ceiling. The multi-row form's shape is
+// the caller's cardinality, so it has no static text for sqlc to check — and
+// the cap that kept it legal was arithmetic over a column count nothing
+// verified. What it costs is a round trip per entry inside a transaction the
+// caller had already opened, on a path whose cardinality is the number of
+// resources one request touched.
 func (r *ChainRecorder) recordScope(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
@@ -178,12 +207,10 @@ func (r *ChainRecorder) recordScope(
 	entries []*Entry,
 	now time.Time,
 ) error {
-	head, err := r.lockChainHead(ctx, q, scope, now)
+	head, err := r.lockChainHead(ctx, q, scope)
 	if err != nil {
 		return err
 	}
-
-	rows := make([]entryRow, 0, len(entries))
 
 	prevHash := head.headHash
 	seq := head.headSeq
@@ -195,30 +222,29 @@ func (r *ChainRecorder) recordScope(
 		if entry.RecordedAt.IsZero() {
 			entry.RecordedAt = now
 		}
-		entry.RecordedAt = entry.RecordedAt.UTC().Truncate(time.Microsecond)
+		entry.RecordedAt = entry.RecordedAt.UTC().Truncate(r.precision)
 
 		seq++
 		entry.Seq = seq
 		entry.PrevHash = prevHash
 
-		row, rowErr := r.buildRow(entry)
+		params, rowErr := r.buildRow(entry)
 		if rowErr != nil {
 			return rowErr
 		}
 
-		prevHash = entry.Hash
-		rows = append(rows, *row)
-	}
-
-	for chunk := range slices.Chunk(rows, maxBatchRows) {
-		query, args := r.tables.buildInsertEntries(r.dialect, chunk)
-		if _, err = q.ExecContext(ctx, query, args...); err != nil {
+		if err = r.q.InsertAuditLogEntry(ctx, q, *params); err != nil {
 			return platformerrors.Wrap(err, "inserting audit entries")
 		}
+
+		prevHash = entry.Hash
 	}
 
-	query, args := r.tables.buildUpdateChainHead(r.dialect, scope, prevHash, seq, now)
-	if _, err = q.ExecContext(ctx, query, args...); err != nil {
+	if _, err = r.q.AdvanceAuditChainHead(ctx, q, auditdb.AdvanceAuditChainHeadParams{
+		HeadSeq:  seq,
+		HeadHash: prevHash,
+		Scope:    scope,
+	}); err != nil {
 		return platformerrors.Wrap(err, "advancing audit chain head")
 	}
 
@@ -227,7 +253,7 @@ func (r *ChainRecorder) recordScope(
 
 // buildRow applies redaction, encodes the field blobs, and computes the entry's
 // hash over the exact bytes that are about to be stored.
-func (r *ChainRecorder) buildRow(entry *Entry) (*entryRow, error) {
+func (r *ChainRecorder) buildRow(entry *Entry) (*auditdb.InsertAuditLogEntryParams, error) {
 	changes, metadata, err := r.redact(entry)
 	if err != nil {
 		return nil, err
@@ -254,22 +280,9 @@ func (r *ChainRecorder) buildRow(entry *Entry) (*entryRow, error) {
 	entry.Changes = changes
 	entry.Metadata = metadata
 
-	return &entryRow{
-		id:           entry.ID,
-		seq:          entry.Seq,
-		scope:        entry.Scope,
-		recordedAt:   entry.RecordedAt,
-		eventType:    string(entry.EventType),
-		resourceType: entry.ResourceType,
-		resourceID:   entry.ResourceID,
-		actorID:      entry.Actor.ID,
-		actorType:    string(entry.Actor.Type),
-		actorIP:      entry.Actor.IP,
-		changes:      encodedChanges,
-		metadata:     encodedMetadata,
-		prevHash:     entry.PrevHash,
-		hash:         entry.Hash,
-	}, nil
+	params := insertParams(entry, encodedChanges, encodedMetadata)
+
+	return &params, nil
 }
 
 // chainState is a scope's position in its own chain.
@@ -296,7 +309,6 @@ func (r *ChainRecorder) lockChainHead(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
 	scope string,
-	now time.Time,
 ) (*chainState, error) {
 	state, err := r.readChainHead(ctx, q, scope)
 	if err == nil {
@@ -306,8 +318,11 @@ func (r *ChainRecorder) lockChainHead(
 		return nil, err
 	}
 
-	query, args := r.tables.buildInsertChain(r.dialect, scope, now)
-	if _, err = q.ExecContext(ctx, query, args...); err != nil {
+	// The row already there wins, unchanged, so two transactions recording into
+	// a scope for the first time do not race: the loser waits for the winner to
+	// commit and then locks the row that now exists, rather than failing on the
+	// primary key.
+	if _, err = r.q.CreateAuditChain(ctx, q, auditdb.CreateAuditChainParams{Scope: scope}); err != nil {
 		return nil, platformerrors.Wrapf(err, "creating audit chain for scope %q", scope)
 	}
 
@@ -323,18 +338,14 @@ func (r *ChainRecorder) lockChainHead(
 
 // readChainHead reads a scope's chain row, taking a row lock where the dialect
 // has them.
+//
+// The lock is in the statement rather than in an argument to it, because a
+// clause is statement text on all three servers — so the locked read and the
+// unlocked one the reader uses are two named statements in the corpus, and this
+// is the one that holds the row.
 func (r *ChainRecorder) readChainHead(ctx context.Context, q database.SQLQueryExecutor, scope string) (*chainState, error) {
-	query, args := r.tables.buildSelectChainHead(r.dialect, scope, true)
-
-	var (
-		state             chainState
-		prunedThroughSeq  int64
-		prunedThroughHash string
-	)
-
-	if err := q.QueryRowContext(ctx, query, args...).Scan(
-		&state.headSeq, &state.headHash, &prunedThroughSeq, &prunedThroughHash,
-	); err != nil {
+	row, err := r.q.LockAuditChain(ctx, q, auditdb.LockAuditChainParams{Scope: scope})
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}
@@ -342,7 +353,7 @@ func (r *ChainRecorder) readChainHead(ctx context.Context, q database.SQLQueryEx
 		return nil, platformerrors.Wrapf(err, "reading audit chain head for scope %q", scope)
 	}
 
-	return &state, nil
+	return &chainState{headHash: row.HeadHash, headSeq: row.HeadSeq}, nil
 }
 
 // groupByScope buckets entries by scope, returning the scopes in the order they

@@ -6,8 +6,10 @@ import (
 	"errors"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/clock"
+	"github.com/primandproper/platform-go/v13/audit/internal/auditdb"
+	"github.com/primandproper/platform-go/v13/audit/internal/queries"
 	"github.com/primandproper/platform-go/v13/database"
+	"github.com/primandproper/platform-go/v13/database/ddl"
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 
@@ -139,14 +141,19 @@ func (cfg *RetentionConfig) ValidateWithContext(ctx context.Context) error {
 // back and the next sweep removes them again; the invariant that matters — a
 // delete and its watermark are never separated — is strictly stronger for it.
 //
+// # It holds no clock
+//
+// It held one, and the clock stamped the prune watermark's last_updated_at. The
+// generated write takes that from the server instead: the column is bookkeeping
+// on a row nothing hashes and nothing compares, so the reason to bind an
+// application clock does not reach it, and the reason not to does — two clocks
+// writing one column is two answers to when the row last moved. What still
+// comes from the caller's clock is everything that decides which rows go: the
+// cutoff a retention.Sweeper computes and hands to Sweep.
+//
 // It is a value type with exported fields, like retention.Table, so a policy
 // set still reads as data.
 type PruneTarget struct {
-	// Clock stamps the prune watermark's last_updated_at. Nil means the system
-	// clock; it is here so a test can pin the value, and because nothing else
-	// in this package reads the wall clock directly either.
-	Clock clock.Clock
-
 	// TablePrefix is the prefix the audit tables carry. It must match the
 	// Recorder's — auditcfg builds both from one field for exactly that reason.
 	TablePrefix string
@@ -166,7 +173,7 @@ type PruneTarget struct {
 // Describe names the table entries are removed from, for telemetry and for the
 // audit entry accounting for the sweep.
 func (t PruneTarget) Describe() string {
-	return newTables(t.TablePrefix).entries
+	return ddl.Qualify(t.TablePrefix) + queries.EntriesTable
 }
 
 // Validate vets the dialect and the table prefix.
@@ -211,17 +218,27 @@ func (t PruneTarget) Sweep(
 	cutoff time.Time,
 	limit int,
 ) (int64, error) {
+	// The querier is built per call because the dialect is a parameter of one:
+	// a PruneTarget is a value in a policy set, assembled before anything knows
+	// which database will run it, and retention.Sweeper supplies both the
+	// executor and the dialect when it opens the batch's transaction. What that
+	// costs is one prefix substitution per statement per batch, against a batch
+	// that then issues four statements per scope.
+	querier, err := newQuerier(d, t.TablePrefix)
+	if err != nil {
+		return 0, err
+	}
+
 	var (
-		tbls    = newTables(t.TablePrefix)
 		page    = t.scopePageSize()
 		removed int64
 		cursor  *string
 	)
 
 	for removed < int64(limit) {
-		scopes, err := t.prunableScopes(ctx, q, d, tbls, cutoff, cursor, page)
-		if err != nil {
-			return 0, err
+		scopes, scopeErr := t.prunableScopes(ctx, q, querier, cutoff, cursor, page)
+		if scopeErr != nil {
+			return 0, scopeErr
 		}
 
 		if len(scopes) == 0 {
@@ -233,7 +250,7 @@ func (t PruneTarget) Sweep(
 				break
 			}
 
-			pruned, pruneErr := t.pruneScope(ctx, q, d, tbls, scope, cutoff, int(int64(limit)-removed))
+			pruned, pruneErr := t.pruneScope(ctx, q, querier, scope, cutoff, int64(limit)-removed)
 			if pruneErr != nil {
 				// Zero rather than what the earlier scopes removed: the Sweeper
 				// rolls this transaction back, so those rows are still there.
@@ -269,78 +286,93 @@ func (t PruneTarget) Backlog(
 	cutoff time.Time,
 	ceiling int,
 ) (int64, error) {
-	query, args := newTables(t.TablePrefix).buildCountPrunableEntries(d, cutoff, ceiling)
+	querier, err := newQuerier(d, t.TablePrefix)
+	if err != nil {
+		return 0, err
+	}
 
-	var backlog int64
-	if err := q.QueryRowContext(ctx, query, args...).Scan(&backlog); err != nil {
+	row, err := querier.CountPrunableAuditEntries(ctx, q, auditdb.CountPrunableAuditEntriesParams{
+		Horizon:     cutoff.UTC(),
+		ResultLimit: int64(ceiling),
+	})
+	if err != nil {
 		return 0, platformerrors.Wrap(err, "counting audit entries past the retention window")
 	}
 
-	return backlog, nil
+	return row.Count, nil
 }
 
 // prunableScopes reads one page of the scopes holding anything at or before the
 // cutoff, ordered so the cursor can advance past them.
+//
+// The first page and the pages after it are two statements rather than one with
+// an optional cursor, and the empty scope is why: it is a scope like any other
+// — the one platform-level events are recorded in — so a keyset that coalesced
+// an absent cursor to the empty string would place the first page just past it,
+// and the log's own events would be the ones no sweep ever visited.
 func (t PruneTarget) prunableScopes(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
-	d dialect.Dialect,
-	tbls *tables,
+	querier auditdb.Querier,
 	cutoff time.Time,
 	after *string,
 	limit int,
 ) ([]string, error) {
-	query, args := tbls.buildSelectPrunableScopes(d, cutoff, after, limit)
+	horizon := cutoff.UTC()
 
-	//nolint:sqlclosecheck // scanRows closes the result set in a defer; the check does not follow it into the helper.
-	rows, err := q.QueryContext(ctx, query, args...)
+	if after == nil {
+		rows, err := querier.ListPrunableAuditScopes(ctx, q, auditdb.ListPrunableAuditScopesParams{
+			Horizon:     horizon,
+			ResultLimit: int64(limit),
+		})
+		if err != nil {
+			return nil, platformerrors.Wrap(err, "querying prunable audit scopes")
+		}
+
+		return convertRows(rows, func(row *auditdb.ListPrunableAuditScopesRow) (string, error) {
+			return row.Scope, nil
+		})
+	}
+
+	rows, err := querier.ListPrunableAuditScopesAfter(ctx, q, auditdb.ListPrunableAuditScopesAfterParams{
+		Horizon:     horizon,
+		PageCursor:  *after,
+		ResultLimit: int64(limit),
+	})
 	if err != nil {
 		return nil, platformerrors.Wrap(err, "querying prunable audit scopes")
 	}
 
-	scopes := make([]string, 0, limit)
-	if err = scanRows(rows, func() error {
-		var scope string
-		if scanErr := rows.Scan(&scope); scanErr != nil {
-			return scanErr
-		}
-		scopes = append(scopes, scope)
-
-		return nil
-	}); err != nil {
-		return nil, platformerrors.Wrap(err, "scanning prunable audit scopes")
-	}
-
-	return scopes, nil
+	return convertRows(rows, func(row *auditdb.ListPrunableAuditScopesAfterRow) (string, error) {
+		return row.Scope, nil
+	})
 }
 
 // pruneScope removes a prefix of one scope's chain and records where it pruned
 // to, reporting how many entries went.
 //
-// The two statements are not separable. If they were, a crash between them
-// would leave a gap that Verify — correctly — would report as a deletion. They
-// are in the same transaction because the Sweeper opened one around the batch.
+// The delete and the watermark are not separable. If they were, a crash between
+// them would leave a gap that Verify — correctly — would report as a deletion.
+// They are in the same transaction because the Sweeper opened one around the
+// batch.
 func (t PruneTarget) pruneScope(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
-	d dialect.Dialect,
-	tbls *tables,
+	querier auditdb.Querier,
 	scope string,
 	cutoff time.Time,
-	budget int,
+	budget int64,
 ) (int64, error) {
-	boundary, ok, err := t.pruneBoundary(ctx, q, d, tbls, scope, cutoff, budget)
+	boundary, ok, err := t.pruneBoundary(ctx, q, querier, scope, cutoff, budget)
 	if !ok || err != nil {
 		return 0, err
 	}
 
-	query, args := tbls.buildSelectPruneTarget(d, scope, boundary)
-
-	var (
-		targetSeq  int64
-		targetHash string
-	)
-	if err = q.QueryRowContext(ctx, query, args...).Scan(&targetSeq, &targetHash); err != nil {
+	target, err := querier.GetAuditPruneTarget(ctx, q, auditdb.GetAuditPruneTargetParams{
+		Scope:    scope,
+		Boundary: boundary,
+	})
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, nil
 		}
@@ -348,23 +380,35 @@ func (t PruneTarget) pruneScope(
 		return 0, platformerrors.Wrapf(err, "reading audit prune target for scope %q", scope)
 	}
 
-	query, args = tbls.buildDeletePruned(d, scope, targetSeq)
-
-	result, err := q.ExecContext(ctx, query, args...)
+	// Capped as well as bounded, and the cap cannot bite: positions are
+	// distinct integers, so the rows between the scope's oldest and the
+	// boundary computed from it number at most the budget itself. That matters
+	// more than it sounds. A cap that truncated the delete would leave rows
+	// below the watermark this pass is about to write, and the next
+	// verification would find its oldest survivor linking to an entry that is
+	// gone — retention reporting itself as tampering.
+	//
+	// What it buys is the property held by the statement rather than by the
+	// arithmetic in front of it: an unbounded DELETE over a long-neglected
+	// scope holds locks for minutes and times out somewhere in the middle,
+	// after which the next attempt starts over.
+	pruned, err := querier.PruneAuditLogEntries(ctx, q, auditdb.PruneAuditLogEntriesParams{
+		Scope:       scope,
+		ThroughSeq:  target.Seq,
+		ResultLimit: budget,
+	})
 	if err != nil {
 		return 0, platformerrors.Wrapf(err, "deleting aged audit entries from scope %q", scope)
-	}
-
-	pruned, err := result.RowsAffected()
-	if err != nil {
-		return 0, platformerrors.Wrapf(err, "counting pruned audit entries for scope %q", scope)
 	}
 
 	// The watermark is what keeps the chain verifiable across the gap the
 	// DELETE just made: the oldest surviving entry's PrevHash is checked
 	// against it rather than against a row that no longer exists.
-	query, args = tbls.buildUpdateChainPruned(d, scope, targetHash, targetSeq, t.now())
-	if _, err = q.ExecContext(ctx, query, args...); err != nil {
+	if _, err = querier.RecordAuditChainPrune(ctx, q, auditdb.RecordAuditChainPruneParams{
+		PrunedThroughSeq:  target.Seq,
+		PrunedThroughHash: target.Hash,
+		Scope:             scope,
+	}); err != nil {
 		return 0, platformerrors.Wrapf(err, "recording audit prune watermark for scope %q", scope)
 	}
 
@@ -380,32 +424,37 @@ func (t PruneTarget) pruneScope(
 // survivors remain a contiguous suffix, which deleting by timestamp alone would
 // not — recorded_at comes from the recording process's clock and so is not
 // perfectly ordered with respect to position across several processes.
+//
+// Both bounds arrive as pointers because both are aggregates over a set that
+// may be empty. A scope holding no entries at all has no oldest position, and
+// one whose entries are all past the cutoff has no first survivor; the absence
+// is the answer in each case rather than a value to substitute for.
 func (t PruneTarget) pruneBoundary(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
-	d dialect.Dialect,
-	tbls *tables,
+	querier auditdb.Querier,
 	scope string,
 	cutoff time.Time,
-	budget int,
+	budget int64,
 ) (boundary int64, ok bool, err error) {
-	query, args := tbls.buildSelectPruneBounds(d, scope, cutoff)
-
-	var oldest, firstToKeep sql.NullInt64
-	if err = q.QueryRowContext(ctx, query, args...).Scan(&oldest, &firstToKeep); err != nil {
+	bounds, err := querier.GetAuditPruneBounds(ctx, q, auditdb.GetAuditPruneBoundsParams{
+		Horizon: cutoff.UTC(),
+		Scope:   scope,
+	})
+	if err != nil {
 		return 0, false, platformerrors.Wrapf(err, "reading audit prune bounds for scope %q", scope)
 	}
 
-	if !oldest.Valid {
+	if bounds.OldestSeq == nil {
 		return 0, false, nil
 	}
 
-	boundary = oldest.Int64 + int64(budget) - 1
-	if firstToKeep.Valid && firstToKeep.Int64 <= boundary {
-		boundary = firstToKeep.Int64 - 1
+	boundary = *bounds.OldestSeq + budget - 1
+	if bounds.FirstKeptSeq != nil && *bounds.FirstKeptSeq <= boundary {
+		boundary = *bounds.FirstKeptSeq - 1
 	}
 
-	if boundary < oldest.Int64 {
+	if boundary < *bounds.OldestSeq {
 		return 0, false, nil
 	}
 
@@ -419,13 +468,4 @@ func (t PruneTarget) scopePageSize() int {
 	}
 
 	return t.ScopePageSize
-}
-
-// now is the Clock's reading, or the wall clock's when none was set.
-func (t PruneTarget) now() time.Time {
-	if t.Clock == nil {
-		return time.Now().UTC()
-	}
-
-	return t.Clock.Now().UTC()
 }

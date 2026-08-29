@@ -91,6 +91,123 @@ func TestGenerator_SetCondition(T *testing.T) {
 	})
 }
 
+func TestGenerator_MatchConditions(T *testing.T) {
+	T.Parallel()
+
+	T.Run("renders one predicate per match, qualified", func(t *testing.T) {
+		t.Parallel()
+
+		got := pg().MatchConditions("things",
+			Match{Column: "scope"},
+			Match{Column: "status", Arg: "current_status"})
+
+		test.Eq(t, []string{
+			"things.scope = sqlc.arg(scope)",
+			"things.status = sqlc.arg(current_status)",
+		}, got)
+	})
+
+	T.Run("it is the predicate the keyed statements are rendered from", func(t *testing.T) {
+		t.Parallel()
+
+		// One rendering, so a statement a consumer writes out and one this
+		// package emits cannot come to spell a narrowing differently.
+		match := Match{Column: "owner", Against: OptionalNarrowing}
+
+		list := pg().ListQueries("ListThings", "things", []string{IDColumn, "owner"}, match)
+
+		test.StrContains(t, list[0].Content, pg().MatchConditions("things", match)[0])
+	})
+
+	T.Run("the optional narrowing carries each dialect's cast", func(t *testing.T) {
+		t.Parallel()
+
+		match := Match{Column: "owner", Against: OptionalNarrowing}
+
+		// The NULL arm is where the three engines part company, and it is the
+		// reason this fragment is exported at all: an authored statement that
+		// spelled its own would be a second copy of Generator.unsetArgument.
+		test.EqOp(t, "(sqlc.narg(owner)::text IS NULL OR things.owner = sqlc.narg(owner))",
+			pg().MatchConditions("things", match)[0])
+		test.EqOp(t, "(CAST(sqlc.narg(owner) AS CHAR) IS NULL OR things.owner = sqlc.narg(owner))",
+			For(dialect.MySQL).MatchConditions("things", match)[0])
+		test.EqOp(t, "(CAST(sqlc.narg(owner) AS TEXT) IS NULL OR things.owner = sqlc.narg(owner))",
+			For(dialect.SQLite).MatchConditions("things", match)[0])
+	})
+
+	T.Run("it refuses a table name that is not an identifier", func(t *testing.T) {
+		t.Parallel()
+
+		defer func() {
+			raised, ok := recover().(error)
+			test.True(t, ok)
+			test.ErrorIs(t, raised, dialect.ErrInvalidIdentifier)
+		}()
+
+		_ = pg().MatchConditions("things; DROP TABLE widgets", Match{Column: "scope"})
+	})
+}
+
+func TestGenerator_WindowConditions(T *testing.T) {
+	T.Parallel()
+
+	T.Run("renders both halves against the named column", func(t *testing.T) {
+		t.Parallel()
+
+		got := pg().WindowConditions("entries.recorded_at", CreatedAfterArg, CreatedBeforeArg)
+
+		test.Eq(t, []string{
+			"entries.recorded_at > COALESCE(sqlc.narg(created_after), (SELECT CURRENT_TIMESTAMP - '999 years'::INTERVAL))",
+			"entries.recorded_at < COALESCE(sqlc.narg(created_before), (SELECT CURRENT_TIMESTAMP + '999 years'::INTERVAL))",
+		}, got)
+	})
+
+	T.Run("it is the window a derived list already renders", func(t *testing.T) {
+		t.Parallel()
+
+		// One rendering, so a table whose time column is its own and a table
+		// following the convention cannot come to disagree about what an unset
+		// bound means.
+		derived := pg().FilterConditions("things", []string{IDColumn, CreatedAtColumn}, Ascending)
+
+		for _, condition := range pg().WindowConditions("things."+CreatedAtColumn, CreatedAfterArg, CreatedBeforeArg) {
+			test.StrContains(t, derived, condition)
+		}
+	})
+
+	T.Run("the argument names are the caller's", func(t *testing.T) {
+		t.Parallel()
+
+		// A window whose bounds are two parameters of a method rather than a
+		// filter's fields names something a reader of that method recognizes.
+		got := pg().WindowConditions("entries.recorded_at", "recorded_after", "recorded_before")
+
+		test.StrContains(t, got[0], "sqlc.narg(recorded_after)")
+		test.StrContains(t, got[1], "sqlc.narg(recorded_before)")
+	})
+
+	T.Run("each dialect spells its own horizon", func(t *testing.T) {
+		t.Parallel()
+
+		test.StrContains(t, For(dialect.MySQL).WindowConditions("t.at", CreatedAfterArg, CreatedBeforeArg)[0],
+			"INTERVAL 999 YEAR")
+		test.StrContains(t, For(dialect.SQLite).WindowConditions("t.at", CreatedAfterArg, CreatedBeforeArg)[0],
+			"datetime(CURRENT_TIMESTAMP, '-999 years')")
+	})
+
+	T.Run("it refuses an argument that is not an identifier", func(t *testing.T) {
+		t.Parallel()
+
+		defer func() {
+			raised, ok := recover().(error)
+			test.True(t, ok)
+			test.ErrorIs(t, raised, dialect.ErrInvalidIdentifier)
+		}()
+
+		_ = pg().WindowConditions("t.at", CreatedAfterArg, "before; DROP TABLE widgets")
+	})
+}
+
 func TestGenerator_LimitClause(T *testing.T) {
 	T.Parallel()
 

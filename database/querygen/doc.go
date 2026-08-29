@@ -743,8 +743,8 @@ The reapers this module already has, and which shape each takes:
     concurrently is exactly what SKIP LOCKED is for.
   - audit's prune is the prune, keyed on the pair (scope, seq). The two reads
     computing its horizon are aggregates over a chain rather than statements this
-    package emits, and stay authored; what the port changes is that the DELETE
-    they feed gains the cap it does not have today.
+    package emits, and stayed authored; what the port changed is that the DELETE
+    they feed gained the cap it did not have.
   - retention's Table is the prune's shape and cannot be a prune's caller. Its
     table, its age column and its key column arrive from a policy a consumer
     writes at run time, and everything here is rendered from string literals at
@@ -884,9 +884,19 @@ schema, same generated querier, so a renamed column fails the same generate.
 What such a statement must not do is restate a dialect fact. The fragments are
 exported for that reason — [Generator.FilterConditions] and the two count
 selects, [Generator.CursorCondition] and [Generator.CursorLimitClause],
-[Generator.LimitClause], [Generator.SetCondition] — so an authored statement is
-this module's shape written out with this package's spelling of each server's
-differences, rather than a second copy of them that can drift.
+[Generator.LimitClause], [Generator.SetCondition], [Generator.MatchConditions]
+and [Generator.WindowConditions] — so an authored statement is this module's
+shape written out with this package's spelling of each server's differences,
+rather than a second copy of them that can drift.
+
+The last two are what an authored *list* needs, and audit is why they are here.
+Its entries table has no created_at: what a reader filters on is recorded_at,
+which the hash covers and the caller assigns, so the window every other list
+gets derived from its column list has to be named instead — and the sentinel an
+absent bound coalesces to is three spellings of one interval. Its six
+selectors are then [OptionalNarrowing] matches, whose NULL arm carries a cast
+that is three spellings again. Neither is a shape; both are the same predicate
+this package already renders, handed to a statement it does not.
 
 # The packages that are not on this tier
 
@@ -945,15 +955,27 @@ its own. That it holds none is recorded as an assertion rather than left as an
 absence, because an absence goes on reading true after the package stops
 deserving it.
 
-The remaining one is a port rather than an exemption.
+The remaining one was a port rather than an exemption, and it has landed.
 
 dataprivacy/auditerasure owns no table. Its three statements — two deletes of a
 subject's audit scopes and the count of what the hash chain will not let go of —
 address the audit log's tables, which the audit package ships the migrations
-for. So they belong in that package's corpus rather than in one of its own: a
+for. So they live in that package's corpus rather than in one of its own: a
 second corpus over somebody else's schema would be a second place a column
-rename has to be noticed. It ports when the audit log does — the delete shape it
-was waiting on is [Generator.DeleteQuery] now.
+rename has to be noticed. What crosses the package boundary is not the querier,
+which is internal to audit, but audit.Erasure — the two writes and the count as
+methods taking the eraser's own transaction, with which scopes belong to a
+subject and what basis the rest are kept under left where they belong.
+
+audit is on the tier as of that port, and it is the one that added two fragments
+rather than a shape. Its entries table has no created_at — recorded_at is the
+caller's fact and the hash covers it — so its paged read names the filter window
+instead of deriving it, through [Generator.WindowConditions]; and its six
+selectors are [OptionalNarrowing] matches rendered through
+[Generator.MatchConditions], which is the first use of that comparand on a
+dialect without arrays. Everything else it needed already existed: the chain's
+natural key is [Match] values, its genesis row is
+[Generator.InsertIgnoreQuery], and its retention pass is the prune above.
 
 dataprivacy itself is on the tier. It is the second package to arrive, and the
 three shapes it needed are the sweeps above: its statements were previously

@@ -49,8 +49,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/primandproper/platform-go/v13/audit"
 	"github.com/primandproper/platform-go/v13/database"
-	"github.com/primandproper/platform-go/v13/database/ddl"
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	"github.com/primandproper/platform-go/v13/dataprivacy"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
@@ -72,7 +72,14 @@ const DefaultRetentionBasis = "audit records retained under legitimate interest 
 
 // ErrInvalidTablePrefix indicates a prefix that is not a plain SQL identifier
 // fragment.
-var ErrInvalidTablePrefix = platformerrors.New("invalid audit table prefix")
+//
+// It is audit.ErrInvalidTablePrefix rather than a sentinel of this package's
+// own, and that is the port rather than a shortcut: this package renders no
+// table name any more — the statements it runs are audit's, against audit's
+// tables — so the rule about what a prefix may be has one home and one error.
+// It stays exported here so that a caller checking this package's errors need
+// not know which package the check moved to.
+var ErrInvalidTablePrefix = audit.ErrInvalidTablePrefix
 
 // ScopeResolver names the audit scopes that belong to a subject and may
 // therefore be deleted whole.
@@ -88,12 +95,18 @@ var ErrInvalidTablePrefix = platformerrors.New("invalid audit table prefix")
 type ScopeResolver func(ctx context.Context, subject dataprivacy.Subject) ([]string, error)
 
 // Eraser removes a subject's audit scopes and reports what it could not remove.
+//
+// It holds no SQL. The two deletes and the count are audit's own statements,
+// in audit's checked corpus against the schema audit ships the migrations for,
+// reached through the [audit.Erasure] this type is built around — see that
+// type's documentation for why a package owning no table owns no corpus
+// either. What lives here is the part that is genuinely this package's: which
+// scopes belong to a subject, and the basis retained entries are kept under.
 type Eraser struct {
 	resolve ScopeResolver
-	entries string
-	chains  string
+	erasure *audit.Erasure
 	basis   string
-	dialect dialect.Dialect
+	prefix  string
 }
 
 var _ dataprivacy.Eraser = (*Eraser)(nil)
@@ -105,8 +118,7 @@ type Option func(*Eraser)
 // the audit tables were rendered with.
 func WithTablePrefix(prefix string) Option {
 	return func(e *Eraser) {
-		e.entries = ddl.Qualify(prefix) + "audit_log_entries"
-		e.chains = ddl.Qualify(prefix) + "audit_log_chains"
+		e.prefix = prefix
 	}
 }
 
@@ -138,15 +150,9 @@ func New(d dialect.Dialect, prefix string, opts ...Option) (*Eraser, error) {
 		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "audit erasure dialect %q", d)
 	}
 
-	if !ddl.ValidNamespace(prefix) {
-		return nil, platformerrors.Wrapf(ErrInvalidTablePrefix, "audit table prefix %q", prefix)
-	}
-
 	e := &Eraser{
-		dialect: d,
-		entries: ddl.Qualify(prefix) + "audit_log_entries",
-		chains:  ddl.Qualify(prefix) + "audit_log_chains",
-		basis:   DefaultRetentionBasis,
+		prefix: prefix,
+		basis:  DefaultRetentionBasis,
 		resolve: func(_ context.Context, subject dataprivacy.Subject) ([]string, error) {
 			return []string{subject.ID}, nil
 		},
@@ -157,11 +163,17 @@ func New(d dialect.Dialect, prefix string, opts ...Option) (*Eraser, error) {
 		}
 	}
 
-	for _, name := range []string{e.entries, e.chains} {
-		if !dialect.ValidIdentifier(name) {
-			return nil, platformerrors.Wrapf(ErrInvalidTablePrefix, "audit table %q", name)
-		}
+	// The prefix is vetted where the tables are named, which is the audit
+	// package: one rule, applied once, so a prefix this package accepted and
+	// that one refused is not a thing that can happen. The option runs first,
+	// so a prefix smuggled in that way is caught on the same terms as the
+	// constructor's.
+	erasure, err := audit.NewErasure(d, audit.WithErasureTablePrefix(e.prefix))
+	if err != nil {
+		return nil, err
 	}
+
+	e.erasure = erasure
 
 	return e, nil
 }
@@ -188,15 +200,13 @@ func (e *Eraser) Erase(
 
 	outcome := dataprivacy.ErasureOutcome{Retained: map[string]string{}}
 
-	if len(scopes) > 0 {
-		if outcome.Deleted, err = e.deleteScopes(ctx, q, scopes); err != nil {
-			return dataprivacy.ErasureOutcome{}, err
-		}
+	if outcome.Deleted, err = e.erasure.DeleteScopes(ctx, q, scopes); err != nil {
+		return dataprivacy.ErasureOutcome{}, err
 	}
 
 	// Counted after the scope deletion, so entries that were just removed are
 	// not also reported as retained.
-	remaining, err := e.countRemaining(ctx, q, subject)
+	remaining, err := e.erasure.CountMentions(ctx, q, subject.ID)
 	if err != nil {
 		return dataprivacy.ErasureOutcome{}, err
 	}
@@ -212,56 +222,8 @@ func (e *Eraser) Erase(
 	return outcome, nil
 }
 
-// deleteScopes removes whole audit scopes: their entries, then their chain
-// rows.
-//
-// Both, and in that order. Leaving the chain row behind would leave a scope
-// whose recorded head position is ahead of any surviving entry, and a later
-// entry written into that scope would be assigned a position the chain claims
-// is already used.
-func (e *Eraser) deleteScopes(ctx context.Context, q database.SQLQueryExecutor, scopes []string) (int64, error) {
-	args := make([]any, 0, len(scopes))
-	for _, scope := range scopes {
-		args = append(args, scope)
-	}
-
-	placeholders := e.dialect.Placeholders(1, len(scopes))
-
-	result, err := q.ExecContext(ctx,
-		fmt.Sprintf("DELETE FROM %s WHERE scope IN (%s)", e.entries, placeholders), args...)
-	if err != nil {
-		return 0, platformerrors.Wrap(err, "deleting audit entries for subject scopes")
-	}
-
-	deleted, err := result.RowsAffected()
-	if err != nil {
-		return 0, platformerrors.Wrap(err, "counting deleted audit entries")
-	}
-
-	if _, err = q.ExecContext(ctx,
-		fmt.Sprintf("DELETE FROM %s WHERE scope IN (%s)", e.chains, placeholders), args...); err != nil {
-		return 0, platformerrors.Wrap(err, "deleting audit chains for subject scopes")
-	}
-
-	return deleted, nil
-}
-
-// countRemaining counts entries elsewhere that still name the subject.
-//
-// These are the ones the chain will not let go of: the subject acting inside
-// another tenant's scope, or appearing as the resource of somebody else's
-// action. They are counted rather than sampled, because the number is what goes
-// in front of the subject and "some" is not an answer.
-func (e *Eraser) countRemaining(ctx context.Context, q database.SQLQueryExecutor, subject dataprivacy.Subject) (int64, error) {
-	query := fmt.Sprintf(
-		"SELECT COUNT(*) FROM %s WHERE actor_id = %s OR resource_id = %s",
-		e.entries, e.dialect.Placeholder(1), e.dialect.Placeholder(2),
-	)
-
-	var remaining int64
-	if err := q.QueryRowContext(ctx, query, subject.ID, subject.ID).Scan(&remaining); err != nil {
-		return 0, platformerrors.Wrap(err, "counting retained audit entries")
-	}
-
-	return remaining, nil
+// Describe names the audit table this eraser deletes from, at the prefix it was
+// built with.
+func (e *Eraser) Describe() string {
+	return e.erasure.Describe()
 }

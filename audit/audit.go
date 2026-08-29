@@ -191,10 +191,18 @@ type Entry struct {
 	// RecordedAt is when the event happened. The Recorder stamps it from its
 	// clock when zero.
 	//
-	// It is truncated to microseconds before it is written. Postgres and MySQL
-	// store microseconds, so a nanosecond-precision value would not survive the
-	// round trip — and a timestamp that changes on the way back out is a
-	// timestamp the hash chain would report as tampering on every single entry.
+	// It is truncated before it is written, to whatever the database will hand
+	// back unchanged: microseconds on Postgres and MySQL, whole seconds on
+	// SQLite, which stores a timestamp as text in the shape its own
+	// CURRENT_TIMESTAMP writes. The digest is taken over the truncated value,
+	// because a timestamp that changes on the way back out is a timestamp the
+	// hash chain would report as tampering on every single entry.
+	//
+	// What the coarser stamp does not affect is order. This package refuses to
+	// order the log by this field at all — the chain is defined by Seq, and two
+	// entries recorded in one transaction already share a timestamp — so on
+	// SQLite entries within a second are harder to tell apart in a report and
+	// no easier to misorder.
 	RecordedAt time.Time `json:"recordedAt"`
 
 	// Changes is the per-field before/after of the event, keyed by field name.

@@ -14,10 +14,21 @@ import (
 // sweepBatch drives one batch of a PruneTarget the way a retention.Sweeper
 // does: inside a transaction it owns, with a row budget, against a cutoff it
 // computed from the policy's age.
-func sweepBatch(t *testing.T, client database.Client, target PruneTarget, age time.Duration, limit int) (int64, error) {
+//
+// The clock is the caller's rather than the target's, which is what the port
+// made of it: a PruneTarget holds no clock any more — the watermark's stamp
+// comes from the server — and what a Sweeper still supplies is the cutoff.
+func sweepBatch(
+	t *testing.T,
+	client database.Client,
+	c *stubClock,
+	target PruneTarget,
+	age time.Duration,
+	limit int,
+) (int64, error) {
 	t.Helper()
 
-	cutoff := target.now().Add(-age)
+	cutoff := c.Now().UTC().Add(-age)
 
 	var removed int64
 	err := client.WithTransaction(t.Context(), func(q database.Tx) error {
@@ -31,10 +42,17 @@ func sweepBatch(t *testing.T, client database.Client, target PruneTarget, age ti
 }
 
 // mustSweep is sweepBatch for the cases where the sweep is expected to work.
-func mustSweep(t *testing.T, client database.Client, target PruneTarget, age time.Duration, limit int) int64 {
+func mustSweep(
+	t *testing.T,
+	client database.Client,
+	c *stubClock,
+	target PruneTarget,
+	age time.Duration,
+	limit int,
+) int64 {
 	t.Helper()
 
-	removed, err := sweepBatch(t, client, target, age, limit)
+	removed, err := sweepBatch(t, client, c, target, age, limit)
 	must.NoError(t, err)
 
 	return removed
@@ -42,10 +60,17 @@ func mustSweep(t *testing.T, client database.Client, target PruneTarget, age tim
 
 // backlogOf reads a target's backlog the way the Sweeper does, off the read
 // handle rather than inside the batch's transaction.
-func backlogOf(t *testing.T, client database.Client, target PruneTarget, age time.Duration, ceiling int) int64 {
+func backlogOf(
+	t *testing.T,
+	client database.Client,
+	c *stubClock,
+	target PruneTarget,
+	age time.Duration,
+	ceiling int,
+) int64 {
 	t.Helper()
 
-	backlog, err := target.Backlog(t.Context(), client.Reader(), dialect.SQLite, target.now().Add(-age), ceiling)
+	backlog, err := target.Backlog(t.Context(), client.Reader(), dialect.SQLite, c.Now().UTC().Add(-age), ceiling)
 	must.NoError(t, err)
 
 	return backlog
@@ -174,7 +199,7 @@ func TestPruneTarget_Sweep(T *testing.T) {
 		c.advance(2 * time.Hour)
 		record(t, client, recorder, entryFor("acct_1", "r3"))
 
-		test.EqOp(t, int64(1), mustSweep(t, client, PruneTarget{Clock: c}, 3*time.Hour, 100))
+		test.EqOp(t, int64(1), mustSweep(t, client, c, PruneTarget{}, 3*time.Hour, 100))
 		test.EqOp(t, 2, countRows(t, client, "audit_log_entries", "1=1"))
 
 		// The watermark the sweep left behind is what the oldest survivor is
@@ -198,7 +223,7 @@ func TestPruneTarget_Sweep(T *testing.T) {
 		record(t, client, recorder, entryFor("acct_1", "r1"))
 		c.advance(time.Minute)
 
-		test.EqOp(t, int64(0), mustSweep(t, client, PruneTarget{Clock: c}, time.Hour, 100))
+		test.EqOp(t, int64(0), mustSweep(t, client, c, PruneTarget{}, time.Hour, 100))
 		test.EqOp(t, 1, countRows(t, client, "audit_log_entries", "1=1"))
 	})
 
@@ -207,7 +232,7 @@ func TestPruneTarget_Sweep(T *testing.T) {
 
 		client := newTestClient(t)
 
-		test.EqOp(t, int64(0), mustSweep(t, client, PruneTarget{Clock: newStubClock()}, time.Hour, 100))
+		test.EqOp(t, int64(0), mustSweep(t, client, newStubClock(), PruneTarget{}, time.Hour, 100))
 	})
 
 	T.Run("stops at the row budget and reports it undrained", func(t *testing.T) {
@@ -224,11 +249,11 @@ func TestPruneTarget_Sweep(T *testing.T) {
 
 		c.advance(4 * time.Hour)
 
-		target := PruneTarget{Clock: c}
+		target := PruneTarget{}
 
 		// Exactly the budget: that is what tells the Sweeper there is more to
 		// do and to spend another batch on it.
-		test.EqOp(t, int64(2), mustSweep(t, client, target, time.Hour, 2))
+		test.EqOp(t, int64(2), mustSweep(t, client, c, target, time.Hour, 2))
 		test.EqOp(t, 3, countRows(t, client, "audit_log_entries", "1=1"))
 
 		// Still contiguous, still anchored: a batched sweep is several prefix
@@ -237,12 +262,12 @@ func TestPruneTarget_Sweep(T *testing.T) {
 		must.NoError(t, err)
 		test.True(t, result.Intact())
 
-		test.EqOp(t, int64(2), mustSweep(t, client, target, time.Hour, 2))
+		test.EqOp(t, int64(2), mustSweep(t, client, c, target, time.Hour, 2))
 		test.EqOp(t, 1, countRows(t, client, "audit_log_entries", "1=1"))
 
 		// Short of the budget on the last batch, which is how the Sweeper
 		// learns the log has drained.
-		test.EqOp(t, int64(1), mustSweep(t, client, target, time.Hour, 2))
+		test.EqOp(t, int64(1), mustSweep(t, client, c, target, time.Hour, 2))
 		test.EqOp(t, 0, countRows(t, client, "audit_log_entries", "1=1"))
 
 		result, err = reader.Verify(t.Context(), "acct_1", time.Time{}, time.Time{})
@@ -264,7 +289,7 @@ func TestPruneTarget_Sweep(T *testing.T) {
 
 		// Three of the four, so the budget runs out mid-way through the second
 		// scope rather than at a scope boundary.
-		test.EqOp(t, int64(3), mustSweep(t, client, PruneTarget{Clock: c}, time.Hour, 3))
+		test.EqOp(t, int64(3), mustSweep(t, client, c, PruneTarget{}, time.Hour, 3))
 		test.EqOp(t, 1, countRows(t, client, "audit_log_entries", "1=1"))
 	})
 
@@ -282,7 +307,7 @@ func TestPruneTarget_Sweep(T *testing.T) {
 		// A page of one, three scopes: the page is not a cap, so the batch
 		// keeps reading pages until it runs out of scopes. If it were a cap,
 		// this would report one and claim to have drained.
-		test.EqOp(t, int64(3), mustSweep(t, client, PruneTarget{Clock: c, ScopePageSize: 1}, time.Hour, 100))
+		test.EqOp(t, int64(3), mustSweep(t, client, c, PruneTarget{ScopePageSize: 1}, time.Hour, 100))
 		test.EqOp(t, 0, countRows(t, client, "audit_log_entries", "1=1"))
 	})
 
@@ -299,7 +324,7 @@ func TestPruneTarget_Sweep(T *testing.T) {
 		record(t, client, recorder, entryFor("", "r1"), entryFor("acct_1", "r1"))
 		c.advance(4 * time.Hour)
 
-		test.EqOp(t, int64(2), mustSweep(t, client, PruneTarget{Clock: c}, time.Hour, 100))
+		test.EqOp(t, int64(2), mustSweep(t, client, c, PruneTarget{}, time.Hour, 100))
 		test.EqOp(t, 0, countRows(t, client, "audit_log_entries", "1=1"))
 	})
 
@@ -315,7 +340,7 @@ func TestPruneTarget_Sweep(T *testing.T) {
 
 		// At or before, not strictly before — the same reading the backlog
 		// count uses, so a row cannot sit in the backlog that no sweep takes.
-		test.EqOp(t, int64(1), mustSweep(t, client, PruneTarget{Clock: c}, time.Hour, 100))
+		test.EqOp(t, int64(1), mustSweep(t, client, c, PruneTarget{}, time.Hour, 100))
 	})
 
 	T.Run("lets a chain continue after its entries are all pruned", func(t *testing.T) {
@@ -331,7 +356,7 @@ func TestPruneTarget_Sweep(T *testing.T) {
 
 		c.advance(4 * time.Hour)
 
-		test.EqOp(t, int64(1), mustSweep(t, client, PruneTarget{Clock: c}, time.Hour, 100))
+		test.EqOp(t, int64(1), mustSweep(t, client, c, PruneTarget{}, time.Hour, 100))
 
 		// The chain row outlives the entries, so the next write continues the
 		// chain rather than restarting at a position already used.
@@ -364,12 +389,12 @@ func TestPruneTarget_Sweep(T *testing.T) {
 			"UPDATE audit_log_entries SET recorded_at = ? WHERE seq = 0",
 			c.Now().UTC())
 
-		test.EqOp(t, int64(0), mustSweep(t, client, PruneTarget{Clock: c}, time.Hour, 100))
+		test.EqOp(t, int64(0), mustSweep(t, client, c, PruneTarget{}, time.Hour, 100))
 		test.EqOp(t, 2, countRows(t, client, "audit_log_entries", "1=1"))
 
 		// And it is visible: the blocked entry is still counted as backlog,
 		// which is the number that says a policy is stuck rather than clean.
-		test.EqOp(t, int64(1), backlogOf(t, client, PruneTarget{Clock: c}, time.Hour, 100))
+		test.EqOp(t, int64(1), backlogOf(t, client, c, PruneTarget{}, time.Hour, 100))
 	})
 }
 
@@ -387,7 +412,7 @@ func TestPruneTarget_Backlog(T *testing.T) {
 		c.advance(4 * time.Hour)
 		record(t, client, recorder, entryFor("acct_1", "r2"))
 
-		test.EqOp(t, int64(2), backlogOf(t, client, PruneTarget{Clock: c}, time.Hour, 100))
+		test.EqOp(t, int64(2), backlogOf(t, client, c, PruneTarget{}, time.Hour, 100))
 	})
 
 	T.Run("saturates at the ceiling", func(t *testing.T) {
@@ -404,7 +429,7 @@ func TestPruneTarget_Backlog(T *testing.T) {
 
 		// A gauge, not an inventory: the reading must not get most expensive
 		// exactly when the problem is worst.
-		test.EqOp(t, int64(3), backlogOf(t, client, PruneTarget{Clock: c}, time.Hour, 3))
+		test.EqOp(t, int64(3), backlogOf(t, client, c, PruneTarget{}, time.Hour, 3))
 	})
 
 	T.Run("reports a table it cannot read", func(t *testing.T) {
@@ -433,7 +458,7 @@ func TestPruneTarget_PropagatesFailures(T *testing.T) {
 
 		exec(t, client, "DROP TABLE audit_log_entries")
 
-		_, err := sweepBatch(t, client, PruneTarget{Clock: c}, time.Hour, 100)
+		_, err := sweepBatch(t, client, c, PruneTarget{}, time.Hour, 100)
 		test.Error(t, err)
 	})
 
@@ -451,7 +476,7 @@ func TestPruneTarget_PropagatesFailures(T *testing.T) {
 		// cannot be written — a half-applied migration looks exactly like this.
 		exec(t, client, "DROP TABLE audit_log_chains")
 
-		removed, err := sweepBatch(t, client, PruneTarget{Clock: c}, time.Hour, 100)
+		removed, err := sweepBatch(t, client, c, PruneTarget{}, time.Hour, 100)
 		test.Error(t, err)
 		test.EqOp(t, int64(0), removed)
 

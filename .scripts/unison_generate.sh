@@ -54,6 +54,7 @@ GOBIN="${BIN_DIR}" go install "github.com/primandproper/sqlc-gen-unison/cmd/unis
 # which is what unison itself reads the roster from.
 COMPONENTS=(
   "identity postgres mysql sqlite"
+  "audit postgres mysql sqlite"
   "authentication/oauth2server/database postgres mysql sqlite"
   "authentication/webauthn/database postgres mysql sqlite"
   "authorization/database postgres mysql sqlite"
