@@ -268,6 +268,32 @@ func (t *AccessToken) Active(now time.Time) bool {
 	return t != nil && t.RevokedAt.IsZero() && now.Before(t.ExpiresAt)
 }
 
+// HasScopes reports whether this token carries every scope in required.
+//
+// Naming none is true, which is the ordinary way for a resource server to ask
+// "is this token good here" without also asking what it may do — the
+// per-operation question is usually decided further in, by a handler that has
+// this token from TokenFromContext.
+//
+// Exact string equality, and no hierarchy: "recipes:write" does not imply
+// "recipes:read", and "recipes" does not cover either. RFC 6749 §3.3 leaves
+// scope semantics to the authorization server, so any implication invented here
+// would be one this package granted on a deployment's behalf — and the failure
+// direction is a token being accepted for something nobody meant to authorize.
+func (t *AccessToken) HasScopes(required ...string) bool {
+	if t == nil {
+		return len(required) == 0
+	}
+
+	for _, scope := range required {
+		if !slices.Contains(t.Scopes, scope) {
+			return false
+		}
+	}
+
+	return true
+}
+
 // Clone returns a deep copy. See Subject.Clone.
 func (t *AccessToken) Clone() *AccessToken {
 	if t == nil {

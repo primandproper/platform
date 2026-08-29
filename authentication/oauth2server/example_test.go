@@ -212,3 +212,72 @@ func ExampleNewResourceMetadata() {
 	// Output:
 	// Bearer resource_metadata="https://api.example/.well-known/oauth-protected-resource", error="invalid_token", error_description="the token expired"
 }
+
+// The resource server's half: an MCP endpoint mounted behind this package's
+// tokens.
+//
+// Nothing here is MCP-specific, which is the point — mcpHandler stands in for
+// whatever an SDK assembled, and a REST API takes exactly the same guard.
+func ExampleNewVerifier() {
+	// The authorization server, in this process, so a revoked token stops
+	// working now rather than in fifteen minutes.
+	srv, err := oauth2server.NewServer("https://auth.example", memory.NewStore(),
+		oauth2server.SubjectAuthenticatorFunc(
+			func(context.Context, *http.Request) (*oauth2server.Subject, error) {
+				return &oauth2server.Subject{ID: "user_1"}, nil
+			}),
+		oauth2server.WithScopes("recipes:read", "recipes:write"),
+		// The same string the resource names itself by, below. Two spellings of
+		// one identifier, and a token's audience is compared against it.
+		oauth2server.WithResources("https://api.example/"))
+	if err != nil {
+		panic(err)
+	}
+
+	// What this resource server is, and where its tokens come from. A client
+	// that has never heard of either reads this document and finds out.
+	meta, err := oauth2server.NewResourceMetadata("https://api.example/",
+		[]string{srv.Issuer()},
+		oauth2server.WithResourceName("Recipes MCP"),
+		oauth2server.WithResourceScopes("recipes:read", "recipes:write"))
+	if err != nil {
+		panic(err)
+	}
+
+	guard, err := oauth2server.NewVerifier(meta, srv)
+	if err != nil {
+		panic(err)
+	}
+
+	// Whatever the MCP SDK assembled from twenty-five tool registrations. It is
+	// an http.Handler, so this is the whole of the mount.
+	mcpHandler := http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		// A tool that writes where the others read asks for itself, against the
+		// token the guard already looked up.
+		token, _ := oauth2server.TokenFromContext(req.Context())
+		if !token.HasScopes("recipes:write") {
+			res.WriteHeader(http.StatusForbidden)
+
+			return
+		}
+
+		res.WriteHeader(http.StatusOK)
+	})
+
+	// srv.Mount(router) puts the six OAuth endpoints on; meta.Mount(router)
+	// publishes the document; this is the resource itself.
+	protected := guard.Middleware("recipes:read")(mcpHandler)
+
+	// A client that was never configured with this server gets told where to
+	// look rather than simply refused.
+	res := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/mcp", http.NoBody)
+	protected.ServeHTTP(res, req)
+
+	fmt.Println(res.Code)
+	fmt.Println(res.Header().Get("WWW-Authenticate"))
+
+	// Output:
+	// 401
+	// Bearer resource_metadata="https://api.example/.well-known/oauth-protected-resource"
+}

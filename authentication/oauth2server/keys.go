@@ -26,6 +26,7 @@ const (
 	familyIDKey  = "oauth2server.family_id"
 	scopeKey     = "oauth2server.scope"
 	revokedKey   = "oauth2server.revoked_records"
+	resourceKey  = "oauth2server.resource"
 )
 
 // Endpoint names, reported as an attribute on every instrument so that one
@@ -36,6 +37,14 @@ const (
 	endpointToken     = "token"
 	endpointRegister  = "register"
 	endpointRevoke    = "revoke"
+
+	// endpointVerify is not an endpoint on this server at all: it is the
+	// resource server's check, on the other side of the token. It shares the
+	// label so that one error counter and one latency histogram cover a
+	// deployment's whole OAuth surface — the tokens minted here and the
+	// requests they are spent on — rather than two panels that have to be read
+	// side by side.
+	endpointVerify = "verify"
 )
 
 // The OAuth request parameters this package reads, spelled once.
