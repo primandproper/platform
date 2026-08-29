@@ -58,10 +58,24 @@ var (
 	// expired, or has already been answered.
 	ErrInvitationNotFound = platformerrors.New("invitation not found")
 
-	// ErrNoDefaultAccount indicates a user with no account marked as their
-	// default, which for a user created through CreateMembership cannot happen —
-	// the first membership is the default. It surfaces for a directory whose
-	// rows were written by something else.
+	// ErrNoDefaultAccount indicates a user with nowhere to land: GetPrincipal
+	// was asked for the active account and given no id, and the user has none
+	// marked as their default.
+	//
+	// The state this package produces is a user who holds no live memberships
+	// at all — one who has never been put in an account, or whose last
+	// membership was ended by RemoveMembership or by the archival of the
+	// account it was in. It is the honest answer there: a default is a pointer
+	// at a membership, and there is none to point at.
+	//
+	// A user who does hold memberships and has no default is not a state this
+	// package's writes leave behind. Every door that mints a membership makes a
+	// first one the default — CreateMembership, AcceptInvitation, and the
+	// membership TransferAccountOwnership mints for an owner who had none — and
+	// every door that ends one moves the default off it to another live
+	// membership, RemoveMembership for one member and ArchiveAccount for all of
+	// them at once. So it surfaces for a directory whose rows were written by
+	// something else.
 	ErrNoDefaultAccount = platformerrors.New("user has no default account")
 
 	// ErrLastAccountOwner indicates an act that would leave an account without

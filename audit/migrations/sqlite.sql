@@ -7,10 +7,25 @@
 -- append-only by trigger besides, so last_updated_at and archived_at would be
 -- columns no statement can write. audit_log_chains, below, is a different table
 -- and carries the triple.
+--
+-- scope is whose entry this is: an account, an organization, a region, or — as
+-- the empty string — nobody. It is also the chain's identity: entries are
+-- positioned, hashed, and verified within one scope, so a row filed under the
+-- wrong one is not a mislabeled row but a fork of somebody else's chain.
+--
+-- It has no default, and it is the one column here that departs from this
+-- table's habit of defaulting a text column to the empty string. The neighbors
+-- default because their empty string is an absence — an entry about no
+-- particular resource, an actor whose type or address was not recorded — and a
+-- write that omits one means exactly that. scope's empty string is not an
+-- absence but a value, tenancy.Global(), so a default would hand the global
+-- scope to a write that forgot the column — the mistake tenancy.Scope exists to
+-- make unspellable in Go. NOT NULL with nothing to fall back on makes that write
+-- fail instead. See the tenancy package.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}audit_log_entries (
     id            TEXT PRIMARY KEY,
     seq           BIGINT NOT NULL,
-    scope         TEXT NOT NULL DEFAULT '',
+    scope         TEXT NOT NULL,
     recorded_at   DATETIME NOT NULL,
     event_type    TEXT NOT NULL,
     resource_type TEXT NOT NULL,

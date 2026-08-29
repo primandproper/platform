@@ -167,7 +167,7 @@ const (
 	accountStatusColumn            = "account_status"
 	accountStatusExplanationColumn = "account_status_explanation"
 	ownerUserIDColumn              = "owner_user_id"
-	invitationNoteColumn           = "note"
+	invitationStatusNoteColumn     = "status_note"
 	invitationToUserColumn         = "to_user"
 
 	// The two agreement stamps, one per statement. A document is accepted on
@@ -218,10 +218,12 @@ const EmailAddressVerifiedAtColumn = "email_address_verified_at"
 //
 // Everything after last_name is either a credential, a proof, or a status, and
 // each is written by the method that owns it — which is why the standard update
-// assigns four profile columns and one derived fifth. email_address_verified_at
-// is updatable on purpose: moving an address has to clear the proof that went
-// with it, or a user could take an address they have never proven and stay
-// verified.
+// assigns four profile columns and two derived ones. email_address_verified_at
+// and email_address_verification_token are updatable on purpose, and as a pair:
+// moving an address has to clear the proof that went with it, or a user could
+// take an address they have never proven and stay verified — and it has to
+// clear the outstanding token in the same statement, or the link minted for the
+// address being left behind proves the one being moved to.
 var Users = Table{
 	Name:     UsersTable,
 	Singular: "User",
@@ -261,6 +263,7 @@ var Users = Table{
 		"first_name",
 		"last_name",
 		EmailAddressVerifiedAtColumn,
+		UserEmailVerificationTokenColumn,
 	},
 	Omitted: []querygen.StandardQuery{querygen.ExistsQuery},
 }
@@ -338,6 +341,7 @@ var Invitations = Table{
 		"token",
 		"status",
 		"note",
+		invitationStatusNoteColumn,
 		"expires_at",
 		querygen.CreatedAtColumn,
 		querygen.LastUpdatedAtColumn,
@@ -604,13 +608,30 @@ func fieldWrites(g *querygen.Generator) []*querygen.Query {
 			querygen.Match{Column: twoFactorColumn, Against: querygen.EmptyString, Exclude: true},
 			querygen.Match{Column: twoFactorVerifiedAtColumn, Against: querygen.NoValue}),
 
+		// Issuing a link drops the proof, for the reason enrolling a second
+		// factor drops its verification: the two columns are one state, and a
+		// row holding both says the address is proven and has an outstanding
+		// link at the same time. Which of the two a reader believes is then a
+		// question about which column it happened to look at.
 		g.UpdateQuery("SetUserEmailAddressVerificationToken", UsersTable, Users.Columns,
-			[]string{UserEmailVerificationTokenColumn}, Users.Nullable, scope),
+			[]string{UserEmailVerificationTokenColumn, EmailAddressVerifiedAtColumn}, Users.Nullable, scope),
 
 		g.UpdateQuery("MarkUserEmailAddressVerified", UsersTable, Users.Columns,
 			[]string{EmailAddressVerifiedAtColumn, UserEmailVerificationTokenColumn}, Users.Nullable,
 			scope,
 			querygen.Match{Column: UserEmailVerificationTokenColumn, Arg: currentEmailVerificationTokenArg}),
+
+		// The other direction, and the one nothing else can express: the proof
+		// comes off an address the user keeps. Unguarded on purpose — it is the
+		// safe direction, so an unverify that lost a race to another unverify
+		// has still left the row where the caller wanted it.
+		//
+		// It writes the proof alone rather than the pair. Any outstanding link
+		// was minted for this address, which has not changed, so burning it
+		// would cost the user a round trip to prove an address they are already
+		// being asked to prove.
+		g.UpdateQuery("MarkUserEmailAddressUnverified", UsersTable, Users.Columns,
+			[]string{EmailAddressVerifiedAtColumn}, Users.Nullable, scope),
 
 		g.UpdateQuery("UpdateUserAccountStatus", UsersTable, Users.Columns,
 			[]string{accountStatusColumn, accountStatusExplanationColumn}, Users.Nullable, scope),
@@ -662,8 +683,13 @@ func fieldWrites(g *querygen.Generator) []*querygen.Query {
 		g.UpdateQuery("MarkAccountBillingSynced", AccountsTable, Accounts.Columns,
 			[]string{billingSyncedAtColumn}, Accounts.Nullable, scope),
 
+		// The answer writes its own note, never the sender's. `note` is the
+		// message the invitation was sent with — the one rendered into the
+		// email and shown beside the invitation afterwards — and a SET list
+		// naming it here would destroy that message every time somebody
+		// replied.
 		g.UpdateQuery("AnswerInvitation", InvitationsTable, Invitations.Columns,
-			[]string{InvitationStatusColumn, invitationNoteColumn, invitationToUserColumn},
+			[]string{InvitationStatusColumn, invitationStatusNoteColumn, invitationToUserColumn},
 			Invitations.Nullable,
 			scope,
 			querygen.Match{Column: InvitationStatusColumn, Arg: currentInvitationStatusArg}),
@@ -1003,11 +1029,17 @@ func batchedReads(g *querygen.Generator) []*querygen.Query {
 	return rendered
 }
 
-// junctionLists is the three reads that cross the membership junction: an
-// account's roster, the accounts a user belongs to, and a user's own
-// memberships.
+// junctionLists is the four unpaged-or-joined reads over the membership
+// junction: an account's roster, the accounts a user belongs to, a user's own
+// memberships, and the memberships that name one account as their default.
 //
-// They were the last statements identity ran that no generator could render,
+// The first two cross the junction; the last two are the same builder with no
+// join at all, which is what an unpaged list keyed on a match is here. They sit
+// together because a page of one table reached through another and a whole
+// answer over one table are the same statement with everything a page implies
+// removed — see [querygen.Generator.JunctionListAllQuery].
+//
+// The joined pair were the last statements identity ran that no generator could render,
 // because every other query here projects one table's columns and these span
 // two. That is what kept a hand-paired two-entity scanner alive after everything
 // single-table had been ported — a projection and a list of scan targets written
@@ -1069,7 +1101,25 @@ func junctionLists(g *querygen.Generator) []*querygen.Query {
 		},
 		scope, querygen.Match{Column: MembershipUserColumn})
 
-	return append(append(roster, forUser...), memberships)
+	// The members who land in one account, which is who archiving it is about
+	// to strand. The archival moves each of their defaults to another live
+	// membership, so the answer it needs is every one of these rows rather than
+	// a page of them — unpaged for the same reason the list above it is.
+	//
+	// The flag is a bound argument rather than a literal TRUE, the way every
+	// other predicate over it here is one: a value spelled into SQL text is a
+	// value that can disagree with the one the store binds.
+	//
+	// It orders by the member, so an archival that has to be repeated against
+	// an unchanged directory does the same work in the same order.
+	stranded := g.JunctionListAllQuery("ListDefaultMembershipsForAccount", MembershipsTable, Memberships.Columns,
+		nil,
+		[]querygen.Order{{Column: MembershipUserColumn}},
+		scope,
+		querygen.Match{Column: MembershipAccountColumn},
+		querygen.Match{Column: MembershipDefaultColumn})
+
+	return append(append(roster, forUser...), memberships, stranded)
 }
 
 // usernamePrefixSearch is the directory's search: the page of users whose

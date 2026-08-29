@@ -436,19 +436,25 @@ func createUserParams(u *User) identitydb.CreateUserParams {
 	}
 }
 
-// updateUserParams is the profile update: four columns and a derived fifth.
-// verifiedAt is the caller's decision rather than the user's own field — moving
-// an address clears the proof that went with it, and only the store knows what
-// the stored address was. See SQLStore.UpdateUser.
-func updateUserParams(u *User, verifiedAt *time.Time) identitydb.UpdateUserParams {
+// updateUserParams is the profile update: four columns and two derived ones.
+//
+// verifiedAt and token are the caller's decision rather than the user's own
+// fields, and they are decided together — moving an address clears the proof
+// that went with it and burns the link that would have proved it, and only the
+// store knows what the stored address was. Taking the token from the User would
+// be worse than useless here: the copy a caller holds is usually a redacted one,
+// whose token is the empty string, so every profile save would burn a live link.
+// See SQLStore.UpdateUser.
+func updateUserParams(u *User, verifiedAt *time.Time, token string) identitydb.UpdateUserParams {
 	return identitydb.UpdateUserParams{
-		ID:                     u.ID,
-		Scope:                  u.Scope,
-		Username:               u.Username,
-		EmailAddress:           u.EmailAddress,
-		FirstName:              u.FirstName,
-		LastName:               u.LastName,
-		EmailAddressVerifiedAt: verifiedAt,
+		ID:                            u.ID,
+		Scope:                         u.Scope,
+		Username:                      u.Username,
+		EmailAddress:                  u.EmailAddress,
+		FirstName:                     u.FirstName,
+		LastName:                      u.LastName,
+		EmailAddressVerifiedAt:        verifiedAt,
+		EmailAddressVerificationToken: token,
 	}
 }
 
@@ -774,6 +780,7 @@ func invitationFromRow(r *identitydb.GetInvitationRow) *Invitation {
 		Token:            r.Token,
 		Status:           InvitationStatus(r.Status),
 		Note:             r.Note,
+		StatusNote:       r.StatusNote,
 		ExpiresAt:        r.ExpiresAt.UTC(),
 		CreatedAt:        r.CreatedAt.UTC(),
 		LastUpdatedAt:    utcPtr(r.LastUpdatedAt),
@@ -794,6 +801,7 @@ func invitationPageRowFromUser(r *identitydb.ListInvitationsByFromUserRow) pageR
 			Token:            r.Token,
 			Status:           r.Status,
 			Note:             r.Note,
+			StatusNote:       r.StatusNote,
 			ExpiresAt:        r.ExpiresAt,
 			CreatedAt:        r.CreatedAt,
 			LastUpdatedAt:    r.LastUpdatedAt,
@@ -817,6 +825,7 @@ func invitationPageRowToEmail(r *identitydb.ListInvitationsByToEmailRow) pageRow
 			Token:            r.Token,
 			Status:           r.Status,
 			Note:             r.Note,
+			StatusNote:       r.StatusNote,
 			ExpiresAt:        r.ExpiresAt,
 			CreatedAt:        r.CreatedAt,
 			LastUpdatedAt:    r.LastUpdatedAt,
@@ -839,6 +848,7 @@ func createInvitationParams(i *Invitation) identitydb.CreateInvitationParams {
 		Token:            i.Token,
 		Status:           i.Status.String(),
 		Note:             i.Note,
+		StatusNote:       i.StatusNote,
 		ExpiresAt:        i.ExpiresAt.UTC(),
 	}
 }

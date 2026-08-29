@@ -38,6 +38,13 @@ type Store interface {
 	// A request saved in a terminal status carries its CompletedAt, which is
 	// what CountOverdue and Reap read terminality off — see that field.
 	//
+	// A request saved with an ArtifactRef must carry an ExpiresAt, and one
+	// saved without one is refused with the error wrapping
+	// ErrUnexpiringArtifact that CompleteExport returns. Insert and completion
+	// are the only two statements that write an artifact reference, so guarding
+	// both is what makes the invariant hold for the table rather than for one
+	// code path.
+	//
 	// It takes a transaction for the same reason audit.Recorder.Record does. "Who
 	// asked for this person's data" is itself an auditable event, and an audit
 	// entry that can commit while the request it describes rolls back — or the
@@ -94,6 +101,13 @@ type Store interface {
 
 	// CompleteExport records a fulfilled export using the caller's transaction: its
 	// artifact, that artifact's expiry, and any per-section failures.
+	//
+	// It returns an error wrapping ErrUnexpiringArtifact when the request names
+	// an artifact and its ExpiresAt is zero. The expiry is what the artifact
+	// sweep matches on, so a completion without one would write a row pointing
+	// at a packaged copy of everything held about somebody that no sweep will
+	// ever visit. The expiry is refused rather than defaulted, because how long
+	// an export stays fetchable is the caller's policy and not this store's.
 	CompleteExport(ctx context.Context, q database.Tx, req *Request, at time.Time) error
 
 	// WithTransaction runs fn against the store's database.

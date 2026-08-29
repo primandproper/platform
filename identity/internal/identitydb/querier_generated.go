@@ -160,6 +160,8 @@ type Querier interface {
 	ListAccountsForUser(ctx context.Context, db DBTX, arg ListAccountsForUserParams) ([]ListAccountsForUserRow, error)
 	// ListAccountsForUserDescending runs the :many query.
 	ListAccountsForUserDescending(ctx context.Context, db DBTX, arg ListAccountsForUserDescendingParams) ([]ListAccountsForUserDescendingRow, error)
+	// ListDefaultMembershipsForAccount runs the :many query.
+	ListDefaultMembershipsForAccount(ctx context.Context, db DBTX, arg ListDefaultMembershipsForAccountParams) ([]ListDefaultMembershipsForAccountRow, error)
 	// ListInvitationRolesByInvitationIDs runs the :many query.
 	ListInvitationRolesByInvitationIDs(ctx context.Context, db DBTX, arg ListInvitationRolesByInvitationIDsParams) ([]ListInvitationRolesByInvitationIDsRow, error)
 	// ListInvitations runs the :many query.
@@ -191,6 +193,11 @@ type Querier interface {
 	// The count means different things on different engines; see the note
 	// on Querier.
 	MarkAccountBillingSynced(ctx context.Context, db DBTX, arg MarkAccountBillingSyncedParams) (int64, error)
+	// MarkUserEmailAddressUnverified runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	MarkUserEmailAddressUnverified(ctx context.Context, db DBTX, arg MarkUserEmailAddressUnverifiedParams) (int64, error)
 	// MarkUserEmailAddressVerified runs the :execrows query.
 	//
 	// The count means different things on different engines; see the note

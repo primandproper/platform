@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS audit_log_entries (
     id            TEXT PRIMARY KEY,
     seq           BIGINT NOT NULL,
-    scope         TEXT NOT NULL DEFAULT '',
+    scope         TEXT NOT NULL,
     recorded_at   TIMESTAMPTZ NOT NULL,
     event_type    TEXT NOT NULL,
     resource_type TEXT NOT NULL,

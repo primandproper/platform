@@ -268,6 +268,7 @@ func TestService_DegradedDependencies(T *testing.T) {
 		req := newRequest(identifiers.New(), RequestExport, testSubject, baseTime)
 		req.Status = StatusCompleted
 		req.ArtifactRef = "exports/x.json"
+		req.ExpiresAt = baseTime.Add(DefaultArtifactTTL)
 		saveRequest(t, store, req)
 
 		_, err = svc.Download(t.Context(), req.ID)
@@ -293,6 +294,7 @@ func TestService_DegradedDependencies(T *testing.T) {
 		req := newRequest(identifiers.New(), RequestExport, testSubject, baseTime)
 		req.Status = StatusCompleted
 		req.ArtifactRef = "exports/missing.json"
+		req.ExpiresAt = baseTime.Add(DefaultArtifactTTL)
 		saveRequest(t, store, req)
 
 		_, err = svc.Open(t.Context(), req.ID)

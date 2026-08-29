@@ -141,6 +141,7 @@ func TestSQLStore_Observability(T *testing.T) {
 
 		req.ArtifactRef = "dataprivacy/exports/x.json"
 		req.ArtifactBytes = 2048
+		req.ExpiresAt = baseTime.Add(DefaultArtifactTTL)
 
 		err := store.WithTransaction(t.Context(), func(q database.Tx) error {
 			return store.CompleteExport(t.Context(), q, req, baseTime)

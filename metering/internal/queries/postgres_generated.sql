@@ -127,7 +127,7 @@ WHERE subject = sqlc.arg(subject)
 
 -- name: FoldMeteringTotalLast :execrows
 UPDATE metering_totals SET
-	quantity = CASE WHEN sqlc.arg(last_occurred_at) >= last_occurred_at THEN sqlc.arg(quantity) ELSE quantity END,
+	quantity = CASE WHEN last_occurred_at < sqlc.arg(last_occurred_at) THEN sqlc.arg(quantity) ELSE quantity END,
 	last_occurred_at = CASE WHEN last_occurred_at < sqlc.arg(last_occurred_at) THEN sqlc.arg(last_occurred_at) ELSE last_occurred_at END,
 	last_updated_at = sqlc.narg(last_updated_at)
 WHERE subject = sqlc.arg(subject)

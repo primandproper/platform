@@ -254,11 +254,23 @@ func (s *SQLStore) ArchiveAccount(ctx context.Context, scope tenancy.Scope, acco
 		// against an archived account keep it in their switcher and keep
 		// resolving permissions through it.
 		//
+		// Who lands here has to be read before the flag comes off, since the
+		// clear is what makes them unfindable. The rows are read rather than
+		// counted because each stranded member's default moves to a membership
+		// of their own, which is a different account per member.
+		stranded, err := s.q.ListDefaultMembershipsForAccount(ctx, q,
+			identitydb.ListDefaultMembershipsForAccountParams{
+				Scope:            scope,
+				BelongsToAccount: accountID,
+				DefaultAccount:   true,
+			})
+		if err != nil {
+			return platformerrors.Wrap(err, "reading identity default memberships")
+		}
+
 		// The default flag comes off first, for the reason ArchiveUser's does:
 		// the clear reaches live rows only, and these are about to stop being
-		// live. A member whose default this account was is left with none,
-		// which is the honest state — GetPrincipal reports it rather than
-		// landing them somewhere they no longer belong.
+		// live.
 		if _, err = s.q.ClearMembershipDefaultAccountsForAccount(ctx, q,
 			identitydb.ClearMembershipDefaultAccountsForAccountParams{
 				Scope:            scope,
@@ -273,6 +285,19 @@ func (s *SQLStore) ArchiveAccount(ctx context.Context, scope tenancy.Scope, acco
 			BelongsToAccount: accountID,
 		}); err != nil {
 			return platformerrors.Wrap(err, "archiving identity memberships")
+		}
+
+		// Each member who landed here now lands somewhere else they still
+		// belong, which is the same move RemoveMembership makes for the one
+		// member it removes — the account going away is that removal performed
+		// on everybody at once, and a member with memberships and nowhere to
+		// land cannot build a Principal. A member who belonged to nothing else
+		// keeps no default, which is the honest state rather than an invented
+		// one: there is no membership left to point at.
+		for i := range stranded {
+			if err = s.moveDefaultAccount(ctx, q, scope, stranded[i].BelongsToUser, accountID); err != nil {
+				return err
+			}
 		}
 
 		return nil

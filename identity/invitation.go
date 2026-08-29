@@ -108,8 +108,21 @@ type Invitation struct {
 	// Status is where the invitation stands.
 	Status InvitationStatus `json:"status"`
 
-	// Note is why it was answered the way it was, written by whoever answered.
+	// Note is what the sender wrote when they sent the invitation — the message
+	// rendered into the invite email and shown beside the invitation on a
+	// roster. It is written once, at creation, and no answer touches it.
 	Note string `json:"note"`
+
+	// StatusNote is why the invitation was answered the way it was, written by
+	// whoever answered it. It is empty until somebody does, and it is a second
+	// column rather than the first one reused: an answer that overwrote Note
+	// would destroy the sender's message at the moment it became the thing a
+	// roster wants to show beside the answer.
+	//
+	// Only the two status writes assign it — AcceptInvitation and
+	// SetInvitationStatus — which is why an invitation carrying one at creation
+	// is refused: there is no flow that could have answered it.
+	StatusNote string `json:"statusNote"`
 
 	// Roles are the roles the resulting membership will carry. They are fixed at
 	// invitation time rather than at acceptance so that what somebody is being

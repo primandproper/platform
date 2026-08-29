@@ -1,6 +1,7 @@
 package mobilecfg
 
 import (
+	"github.com/primandproper/platform-go/v13/notifications/mobile"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/observability/logging"
 	"github.com/primandproper/platform-go/v13/observability/metrics"
@@ -21,6 +22,8 @@ type options struct {
 	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
+
+	sender []mobile.Option
 }
 
 // newOptions applies opts, ignoring nil entries.
@@ -60,4 +63,16 @@ func WithMetricsProvider(metricsProvider metrics.Provider) Option {
 // its pillars and then override one of them.
 func WithPillars(p *observability.Pillars) Option {
 	return func(o *options) { o.logger, o.tracerProvider, o.metricsProvider = p.Deps() }
+}
+
+// WithSenderOptions passes opts to the multi-platform sender NewPushSender
+// builds, after the options it derives from configuration.
+//
+// It is how the token invalidator reaches the sender from a wiring site. This
+// package configures senders, not storage, so it cannot make the registry
+// mobile.WithTokenInvalidator wants; RegisterPushSender resolves one from the
+// injector and hands it over through here. The noop provider ignores these,
+// having nothing to send and nothing to prune.
+func WithSenderOptions(opts ...mobile.Option) Option {
+	return func(o *options) { o.sender = append(o.sender, opts...) }
 }

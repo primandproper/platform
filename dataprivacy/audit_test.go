@@ -221,6 +221,7 @@ func TestService_AuditRecording(T *testing.T) {
 		req := newRequest(identifiers.New(), RequestExport, testSubject, baseTime)
 		req.Status = StatusCompleted
 		req.ArtifactRef = "dataprivacy/exports/" + req.ID + ".json"
+		req.ExpiresAt = baseTime.Add(DefaultArtifactTTL)
 		saveRequest(t, env.store, req)
 
 		must.NoError(t, env.uploader.Save(t.Context(), req.ArtifactRef, stringReader(`{"data":{}}`)))
@@ -245,6 +246,7 @@ func TestService_AuditRecording(T *testing.T) {
 		req := newRequest(identifiers.New(), RequestExport, testSubject, baseTime)
 		req.Status = StatusCompleted
 		req.ArtifactRef = "dataprivacy/exports/" + req.ID + ".json"
+		req.ExpiresAt = baseTime.Add(DefaultArtifactTTL)
 		saveRequest(t, env.store, req)
 
 		must.NoError(t, env.uploader.Save(t.Context(), req.ArtifactRef, stringReader(`{"data":{}}`)))
@@ -267,6 +269,7 @@ func TestService_AuditRecording(T *testing.T) {
 		req := newRequest(identifiers.New(), RequestExport, testSubject, baseTime)
 		req.Status = StatusCompleted
 		req.ArtifactRef = "dataprivacy/exports/" + req.ID + ".json"
+		req.ExpiresAt = baseTime.Add(DefaultArtifactTTL)
 		saveRequest(t, env.store, req)
 
 		must.NoError(t, env.uploader.Save(t.Context(), req.ArtifactRef, stringReader(`{"data":{}}`)))

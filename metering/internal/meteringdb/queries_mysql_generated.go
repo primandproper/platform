@@ -28,7 +28,7 @@ WHERE subject = ?
 	AND quantity > flushed_quantity`
 
 const foldMeteringTotalLastMySQL = `UPDATE {{prefix}}metering_totals SET
-	quantity = CASE WHEN ? >= last_occurred_at THEN ? ELSE quantity END,
+	quantity = CASE WHEN last_occurred_at < ? THEN ? ELSE quantity END,
 	last_occurred_at = CASE WHEN last_occurred_at < ? THEN ? ELSE last_occurred_at END,
 	last_updated_at = ?
 WHERE subject = ?

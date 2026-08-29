@@ -62,6 +62,40 @@ also owns the two properties a consumer writing that table by hand gets wrong:
 the token is stored as a digest, and single use is enforced by the store rather
 than by whoever called it.
 
+# Passwordless users
+
+A user with no password is a supported user, not an unfinished one.
+
+This module ships a WebAuthn engine and an OAuth2 one, and a registration
+through either produces somebody there is no hash to store for. So
+HashedPassword is not required by [User.ValidateWithContext] and never was
+load-bearing: the check it was written for — catching the caller who forgot to
+hash — could not work, because a plaintext password is a non-empty string and
+passed. What it did instead was make passkey-only registration unspellable, and
+make the obvious profile save fail, since every bulk read and [Principal.User]
+returns a redacted user and the read-modify-write then had nothing to put in
+the field.
+
+The empty string means the user holds no password credential. What it must
+never be read as is "any password will do". This package stores what an engine
+produced and never compares, so that obligation lands on the sign-in flow: ask
+[User.HasPassword] before reaching for
+[github.com/primandproper/platform-go/v13/authentication/argon2], rather than
+handing the engine an empty hash and trusting it to error. A user who has no
+password should be refused a password sign-in and sent to the credential they
+do have — which is a different answer from "wrong password", and only the flow
+is in a position to give it.
+
+A user acquires a password later through [CredentialStore.UpdateUserPassword],
+which is the only writer of the column and refuses an empty hash. The two rules together
+are what keep the state honest: a user is passwordless because they registered
+that way, and no write can walk a user who has one back to none by forgetting
+the field.
+
+Whether a registration may go through without a password remains the
+consumer's call, like the rest of registration policy. This package stops
+having an opinion, rather than acquiring the opposite one.
+
 # Scope is not the account
 
 Every row here carries a [github.com/primandproper/platform-go/v13/tenancy.Scope],

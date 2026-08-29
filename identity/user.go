@@ -88,6 +88,11 @@ type User struct {
 
 	// EmailAddressVerifiedAt is when the address below was proven reachable, or
 	// nil if it has not been.
+	//
+	// Like the token it travels with, it is not writable through UpdateUser and
+	// the field is ignored there: a proof is something the store records when a
+	// link comes back, and a caller able to assign it could verify an address by
+	// saving a profile.
 	EmailAddressVerifiedAt *time.Time `json:"emailAddressVerifiedAt"`
 
 	// PasswordLastChangedAt is when HashedPassword last changed. It is what a
@@ -131,6 +136,12 @@ type User struct {
 
 	// HashedPassword is what the argon2 package produced. This package never
 	// hashes and never compares; it stores the string the engine returned.
+	//
+	// It is empty for a user who holds no password credential — a passkey-only
+	// or federated registration — which is a supported user rather than an
+	// unfinished one. Ask HasPassword rather than reading this field, and see
+	// the package documentation for what the empty string must never be taken
+	// to mean.
 	HashedPassword string `json:"-"`
 
 	// TwoFactorSecret is the TOTP shared secret, as the totp package generated
@@ -140,7 +151,14 @@ type User struct {
 
 	// EmailAddressVerificationToken is the value a verification link carries. It
 	// is cleared when the address is verified, so a link cannot be replayed
-	// after it has worked once.
+	// after it has worked once, and it is cleared again whenever EmailAddress
+	// moves: the column records that a link was mailed and not which address it
+	// went to, so a token that outlived the address it was minted for would
+	// prove the one that replaced it.
+	//
+	// Writing it through UpdateUser is not possible, and the field is ignored
+	// there. Store.SetUserEmailAddressVerificationToken issues one and
+	// Store.MarkUserEmailAddressVerified burns it.
 	EmailAddressVerificationToken string `json:"-"`
 
 	// Scope is whose directory this user is in. See the package documentation:
@@ -191,11 +209,13 @@ var _ validation.ValidatableWithContext = (*User)(nil)
 // Store: a user that says nothing about which directory it belongs to is one an
 // application registered by accident. Say tenancy.Global to mean it.
 //
-// The password hash is required and its shape is not checked. Requiring it
-// catches the caller who forgot to hash, which is the failure that writes a
-// plaintext password into the column; checking its shape would mean this
-// package knowing which hashing engine produced it, which is exactly the
-// coupling the engines were kept free of.
+// The password hash is neither required nor shape-checked. Not shape-checked
+// because that would mean this package knowing which hashing engine produced
+// it, which is exactly the coupling the engines were kept free of. Not required
+// because a user need not have a password at all — see the package
+// documentation on passwordless users. Requiring it was meant to catch the
+// caller who forgot to hash, and never could: a plaintext password is a
+// non-empty string and passed.
 func (u *User) ValidateWithContext(ctx context.Context) error {
 	if u == nil {
 		return ErrNilUser
@@ -209,10 +229,34 @@ func (u *User) ValidateWithContext(ctx context.Context) error {
 		return platformerrors.Wrapf(platformerrors.ErrUnrecognizedInputValue, "account status %q", u.AccountStatus)
 	}
 
+	return u.validateProfile(ctx)
+}
+
+// validateProfile checks the invariants of the columns a profile write assigns,
+// and no others.
+//
+// It is deliberately narrower than ValidateWithContext: the scope the statement
+// is keyed on, and the username and address it sets. Validating a column the
+// statement never touches refuses a value the write would have ignored, and the
+// caller who then goes looking for something to put in that field is the caller
+// who starts carrying a password hash around. The status is the live example —
+// AdminWriter owns it, ProfileWriter cannot write it, and a handler assembling
+// a User out of a profile form has no reason to name one.
+//
+// Both callers pass through here, so the address rule cannot drift between what
+// registration accepts and what a profile save accepts. See SQLStore.UpdateUser.
+func (u *User) validateProfile(ctx context.Context) error {
+	if u == nil {
+		return ErrNilUser
+	}
+
+	if err := u.Scope.Validate(); err != nil {
+		return err
+	}
+
 	return validation.ValidateStructWithContext(ctx, u,
 		validation.Field(&u.Username, validation.Required),
 		validation.Field(&u.EmailAddress, validation.Required, emailAddressRule),
-		validation.Field(&u.HashedPassword, validation.Required),
 	)
 }
 
@@ -240,6 +284,24 @@ func (u *User) Redacted() *User {
 	clone.EmailAddressVerificationToken = ""
 
 	return &clone
+}
+
+// HasPassword reports whether the user holds a password credential at all.
+//
+// It is the question a password sign-in has to ask before it compares. A
+// passwordless user's hash is the empty string, and an engine handed one has no
+// way to know it was never set — so the refusal belongs here, at the flow that
+// knows, rather than in whatever argon2 decides an empty hash compares equal
+// to. Refusing a password sign-in for a user who has no password is also not
+// the same answer as "wrong password": somebody who registered with a passkey
+// should be sent back to their passkey.
+//
+// Note that it reads the field, so it answers about a user that was read
+// unredacted. [User.Redacted] clears the hash, so a redacted user reports
+// false — which is why this is a sign-in flow's question and not a profile
+// page's.
+func (u *User) HasPassword() bool {
+	return u != nil && u.HashedPassword != ""
 }
 
 // TwoFactorEnabled reports whether the user has a second factor that has

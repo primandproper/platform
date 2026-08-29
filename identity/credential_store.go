@@ -176,7 +176,8 @@ func (s *SQLStore) MarkUserTwoFactorSecretVerified(ctx context.Context, scope te
 }
 
 // SetUserEmailAddressVerificationToken stores the token a verification link will
-// carry, replacing any outstanding one.
+// carry, replacing any outstanding one and dropping any proof the address
+// already had.
 func (s *SQLStore) SetUserEmailAddressVerificationToken(ctx context.Context, scope tenancy.Scope, userID, token string) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
@@ -199,11 +200,19 @@ func (s *SQLStore) SetUserEmailAddressVerificationToken(ctx context.Context, sco
 
 	// Any outstanding token is replaced, so re-sending a verification email
 	// invalidates the previous link rather than leaving two live.
+	//
+	// The stamp comes off with it, in the same statement and for the reason
+	// UpdateUserTwoFactorSecret enrolls a secret unverified: an outstanding link
+	// and a recorded proof are two answers to one question, and a row holding
+	// both leaves which one is true up to whichever column a reader consulted.
+	// Issuing a link is a statement that the address wants proving, so it is the
+	// column that says otherwise which has to go.
 	count, err := s.q.SetUserEmailAddressVerificationToken(ctx, s.client.Writer(),
 		identitydb.SetUserEmailAddressVerificationTokenParams{
 			ID:                            userID,
 			Scope:                         scope,
 			EmailAddressVerificationToken: token,
+			EmailAddressVerifiedAt:        nil,
 		})
 	if err = s.guardCount(ctx, count, err, ErrUserNotFound, "setting identity email verification token"); err != nil {
 		return op.Error(err, "setting identity email verification token")
@@ -245,6 +254,40 @@ func (s *SQLStore) MarkUserEmailAddressVerified(ctx context.Context, scope tenan
 		})
 	if err = s.guardCount(ctx, count, err, ErrUserNotFound, "marking identity email address verified"); err != nil {
 		return op.Error(err, "marking identity email address verified")
+	}
+
+	return nil
+}
+
+// MarkUserEmailAddressUnverified withdraws the proof without touching the
+// address it was given for.
+func (s *SQLStore) MarkUserEmailAddressUnverified(ctx context.Context, scope tenancy.Scope, userID string) error {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(userIDKey, userID),
+	)
+	defer op.End()
+
+	if err := scope.Validate(); err != nil {
+		return op.Error(err, "marking identity email address unverified")
+	}
+
+	// No token and no guard. There is nothing to compare against — the caller is
+	// not answering a link, it is deciding that the address needs proving again
+	// — and a guard here would only be able to fail an unverify that raced
+	// another unverify, which is a race whose two outcomes are the same row.
+	//
+	// nil is written rather than left out because the statement assigns the
+	// column: this package's writes name what they set, so "unverified" is a
+	// value bound here rather than a NULL literal in the SQL.
+	count, err := s.q.MarkUserEmailAddressUnverified(ctx, s.client.Writer(),
+		identitydb.MarkUserEmailAddressUnverifiedParams{
+			ID:                     userID,
+			Scope:                  scope,
+			EmailAddressVerifiedAt: nil,
+		})
+	if err = s.guardCount(ctx, count, err, ErrUserNotFound, "marking identity email address unverified"); err != nil {
+		return op.Error(err, "marking identity email address unverified")
 	}
 
 	return nil

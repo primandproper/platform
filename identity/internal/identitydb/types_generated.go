@@ -14,7 +14,7 @@ import (
 // AnswerInvitationParams are the arguments to AnswerInvitation.
 type AnswerInvitationParams struct {
 	Status        string
-	Note          string
+	StatusNote    string
 	ToUser        *string
 	ID            string
 	Scope         tenancy.Scope
@@ -110,6 +110,7 @@ type CreateInvitationParams struct {
 	Token            string
 	Status           string
 	Note             string
+	StatusNote       string
 	ExpiresAt        time.Time
 }
 
@@ -212,6 +213,7 @@ type GetInvitationRow struct {
 	Token            string
 	Status           string
 	Note             string
+	StatusNote       string
 	ExpiresAt        time.Time
 	CreatedAt        time.Time
 	LastUpdatedAt    *time.Time
@@ -709,6 +711,25 @@ type ListAccountsForUserDescendingRow struct {
 	TotalCount                  int64
 }
 
+// ListDefaultMembershipsForAccountParams are the arguments to ListDefaultMembershipsForAccount.
+type ListDefaultMembershipsForAccountParams struct {
+	Scope            tenancy.Scope
+	BelongsToAccount string
+	DefaultAccount   bool
+}
+
+// ListDefaultMembershipsForAccountRow is one row of ListDefaultMembershipsForAccount's result.
+type ListDefaultMembershipsForAccountRow struct {
+	ID               string
+	Scope            tenancy.Scope
+	BelongsToUser    string
+	BelongsToAccount string
+	DefaultAccount   bool
+	CreatedAt        time.Time
+	LastUpdatedAt    *time.Time
+	ArchivedAt       *time.Time
+}
+
 // ListInvitationRolesByInvitationIDsParams are the arguments to ListInvitationRolesByInvitationIDs.
 type ListInvitationRolesByInvitationIDsParams struct {
 	IDs []string
@@ -744,6 +765,7 @@ type ListInvitationsRow struct {
 	Token            string
 	Status           string
 	Note             string
+	StatusNote       string
 	ExpiresAt        time.Time
 	CreatedAt        time.Time
 	LastUpdatedAt    *time.Time
@@ -778,6 +800,7 @@ type ListInvitationsByFromUserRow struct {
 	Token            string
 	Status           string
 	Note             string
+	StatusNote       string
 	ExpiresAt        time.Time
 	CreatedAt        time.Time
 	LastUpdatedAt    *time.Time
@@ -812,6 +835,7 @@ type ListInvitationsByFromUserDescendingRow struct {
 	Token            string
 	Status           string
 	Note             string
+	StatusNote       string
 	ExpiresAt        time.Time
 	CreatedAt        time.Time
 	LastUpdatedAt    *time.Time
@@ -846,6 +870,7 @@ type ListInvitationsByToEmailRow struct {
 	Token            string
 	Status           string
 	Note             string
+	StatusNote       string
 	ExpiresAt        time.Time
 	CreatedAt        time.Time
 	LastUpdatedAt    *time.Time
@@ -880,6 +905,7 @@ type ListInvitationsByToEmailDescendingRow struct {
 	Token            string
 	Status           string
 	Note             string
+	StatusNote       string
 	ExpiresAt        time.Time
 	CreatedAt        time.Time
 	LastUpdatedAt    *time.Time
@@ -912,6 +938,7 @@ type ListInvitationsDescendingRow struct {
 	Token            string
 	Status           string
 	Note             string
+	StatusNote       string
 	ExpiresAt        time.Time
 	CreatedAt        time.Time
 	LastUpdatedAt    *time.Time
@@ -1073,6 +1100,13 @@ type MarkAccountBillingSyncedParams struct {
 	Scope                       tenancy.Scope
 }
 
+// MarkUserEmailAddressUnverifiedParams are the arguments to MarkUserEmailAddressUnverified.
+type MarkUserEmailAddressUnverifiedParams struct {
+	EmailAddressVerifiedAt *time.Time
+	ID                     string
+	Scope                  tenancy.Scope
+}
+
 // MarkUserEmailAddressVerifiedParams are the arguments to MarkUserEmailAddressVerified.
 type MarkUserEmailAddressVerifiedParams struct {
 	EmailAddressVerifiedAt               *time.Time
@@ -1201,6 +1235,7 @@ type SetMembershipDefaultAccountParams struct {
 // SetUserEmailAddressVerificationTokenParams are the arguments to SetUserEmailAddressVerificationToken.
 type SetUserEmailAddressVerificationTokenParams struct {
 	EmailAddressVerificationToken string
+	EmailAddressVerifiedAt        *time.Time
 	ID                            string
 	Scope                         tenancy.Scope
 }
@@ -1237,13 +1272,14 @@ type UpdateAccountParams struct {
 
 // UpdateUserParams are the arguments to UpdateUser.
 type UpdateUserParams struct {
-	Username               string
-	EmailAddress           string
-	FirstName              string
-	LastName               string
-	EmailAddressVerifiedAt *time.Time
-	ID                     string
-	Scope                  tenancy.Scope
+	Username                      string
+	EmailAddress                  string
+	FirstName                     string
+	LastName                      string
+	EmailAddressVerifiedAt        *time.Time
+	EmailAddressVerificationToken string
+	ID                            string
+	Scope                         tenancy.Scope
 }
 
 // UpdateUserAccountStatusParams are the arguments to UpdateUserAccountStatus.

@@ -227,7 +227,15 @@ type CredentialStore interface {
 
 	// SetUserEmailAddressVerificationToken stores the token a verification link
 	// will carry, replacing any outstanding one — so re-sending a verification
-	// email invalidates the previous link rather than leaving two live.
+	// email invalidates the previous link rather than leaving two live — and
+	// dropping any proof the address already had, so the row never says both
+	// "proven" and "a link is outstanding".
+	//
+	// A flow that changes an address and then verifies it mints the link in that
+	// order. UpdateUser burns the outstanding token along with the stamp,
+	// because the column records that a link was mailed and not which address it
+	// went to, so a token minted before the change is one this package cannot
+	// tell apart from a token minted for the address being left behind.
 	SetUserEmailAddressVerificationToken(ctx context.Context, scope tenancy.Scope, userID, token string) error
 
 	// MarkUserEmailAddressVerified stamps the address as proven and clears the
@@ -237,6 +245,17 @@ type CredentialStore interface {
 	// caller has already read the user by token, and re-checking it here is what
 	// makes a verification that raced another one write once.
 	MarkUserEmailAddressVerified(ctx context.Context, scope tenancy.Scope, userID, token string) error
+
+	// MarkUserEmailAddressUnverified withdraws the proof from an address the
+	// user keeps — an administrator acting on a bounce, a support decision, a
+	// deliverability sweep.
+	//
+	// It takes no token and names no value the row must still hold, because
+	// unlike the three guarded writes it is not answering anything: it is the
+	// safe direction, and an unverify that raced another one has still left the
+	// row where both callers wanted it. Any outstanding link survives, since it
+	// was minted for this address and the address has not moved.
+	MarkUserEmailAddressUnverified(ctx context.Context, scope tenancy.Scope, userID string) error
 }
 
 // SignInReader is the read side of authenticating a request.
@@ -391,7 +410,22 @@ type ProfileWriter interface {
 	//
 	// Changing the username or email address to one already registered in this
 	// scope returns ErrUsernameTaken or ErrEmailAddressTaken. Changing the email
-	// address clears its verification: the new address has not been proven.
+	// address clears its verification: the new address has not been proven. The
+	// outstanding verification token goes with it, in the same statement — the
+	// column records that a link was mailed, not which address it went to, so a
+	// token that survived the move would let the link sent to the old address
+	// prove the new one. A flow that means to verify the new address issues a
+	// fresh link after this write, not before.
+	//
+	// Neither verification column is a parameter. Both are read from the row and
+	// decided here, and whatever the User in hand carries in them is ignored.
+	//
+	// A redacted user round-trips. The value every bulk read and Principal.User
+	// hands back has its credentials cleared, so the obvious profile handler —
+	// take the principal's user, change the name, save — is the one that has to
+	// work; it validates the columns it assigns rather than the whole user, and
+	// a caller therefore needs neither a password hash nor a status to save a
+	// display name.
 	UpdateUser(ctx context.Context, user *User) error
 
 	// UpdateAccount writes the account's name and billing address.
@@ -462,6 +496,11 @@ type MembershipWriter interface {
 	// and this package does not know what a role of yours means. A new owner who
 	// was already a member keeps the roles they had. Either way, granting them
 	// more is SetMembershipRoles.
+	//
+	// A minted membership is the new owner's default when it is the first they
+	// hold anywhere, which is the rule CreateMembership and AcceptInvitation
+	// apply to the memberships they mint. A new owner who already belongs
+	// somewhere keeps the default they chose.
 	TransferAccountOwnership(ctx context.Context, scope tenancy.Scope, accountID, newOwnerUserID string) error
 
 	// RemoveMembership ends a user's membership in an account.
@@ -532,6 +571,13 @@ type AdminWriter interface {
 
 	// ArchiveAccount soft-deletes an account and ends every membership in it, in
 	// one transaction.
+	//
+	// A member whose default account this was has their default moved to
+	// another live membership, which is what RemoveMembership does for the one
+	// member it removes: an account going away is that removal performed on
+	// everybody at once, and neither leaves a user with memberships and nowhere
+	// to land. A member who belonged to nothing else keeps no default, because
+	// there is no membership left to point at.
 	ArchiveAccount(ctx context.Context, scope tenancy.Scope, accountID string) error
 }
 
@@ -599,6 +645,11 @@ type BillingWriter interface {
 type InvitationStore interface {
 	// CreateInvitation writes an invitation. The ID is generated if it carries
 	// none, and CreatedAt is read back from the row — see Registrar.CreateUser.
+	//
+	// Note is the sender's message and is written here; StatusNote is the
+	// answer's and is not. An invitation carrying one at creation is refused
+	// with an error wrapping errors.ErrUnrecognizedInputValue, for the same
+	// reason one carrying a terminal status is: nothing has answered it yet.
 	CreateInvitation(ctx context.Context, invitation *Invitation) error
 
 	// GetInvitation reads one of the scope's live invitations by ID, for the
@@ -643,7 +694,11 @@ type InvitationStore interface {
 	// The accepting user must be a live user in the invitation's scope, and one
 	// who is not returns an error wrapping ErrUserNotFound rather than a
 	// membership spanning two directories.
-	AcceptInvitation(ctx context.Context, q database.Tx, scope tenancy.Scope, invitationID, token, acceptingUserID, note string) (*Membership, error)
+	//
+	// statusNote is why the answer went the way it did, and it lands in
+	// Invitation.StatusNote. The sender's Note is untouched — an invite email's
+	// message is still readable beside the acceptance that answered it.
+	AcceptInvitation(ctx context.Context, q database.Tx, scope tenancy.Scope, invitationID, token, acceptingUserID, statusNote string) (*Membership, error)
 
 	// SetInvitationStatus answers an invitation without producing a membership:
 	// rejection by the recipient, cancellation by the sender.
@@ -651,7 +706,10 @@ type InvitationStore interface {
 	// It refuses InvitationAccepted, returning ErrInvalidInvitationStatus —
 	// accepting is AcceptInvitation, and a status write that produced no
 	// membership would leave exactly the state that method exists to prevent.
-	SetInvitationStatus(ctx context.Context, scope tenancy.Scope, invitationID string, status InvitationStatus, note string) error
+	//
+	// statusNote is the answer's, and lands in Invitation.StatusNote beside a
+	// sender's Note it does not touch.
+	SetInvitationStatus(ctx context.Context, scope tenancy.Scope, invitationID string, status InvitationStatus, statusNote string) error
 }
 
 // Store is the whole persistence seam for the identity directory: every

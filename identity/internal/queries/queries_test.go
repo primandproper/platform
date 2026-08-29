@@ -101,8 +101,9 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 	// Every paged read appears twice, under its name and that name plus
 	// Descending: a sort direction is which way the ORDER BY runs and which way
 	// the cursor comparison points, so it is answered by a second statement
-	// rather than by a bound argument. The unpaged ListMembershipsForUser is
-	// the one list with a single entry, because it takes no filter to carry a
+	// rather than by a bound argument. The unpaged lists —
+	// ListMembershipsForUser and ListDefaultMembershipsForAccount — are the
+	// entries that appear once, because neither takes a filter to carry a
 	// direction, and the search's count is single for the same reason a count
 	// does not move as a caller pages.
 	want := []string{
@@ -121,10 +122,12 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 		"ListMembershipRolesByMembershipIDs", "ListInvitationRolesByInvitationIDs",
 		"ListAccountMembers", "ListAccountMembersDescending",
 		"ListAccountsForUser", "ListAccountsForUserDescending", "ListMembershipsForUser",
+		"ListDefaultMembershipsForAccount",
 		"SearchUsersByUsername", "SearchUsersByUsernameDescending", "CountSearchUsersByUsername",
 		"UpdateUserPassword", "SetUserRequiresPasswordChange", "UpdateUserTwoFactorSecret",
 		"MarkUserTwoFactorSecretVerified",
 		"SetUserEmailAddressVerificationToken", "MarkUserEmailAddressVerified",
+		"MarkUserEmailAddressUnverified",
 		"UpdateUserAccountStatus", "TransferAccountOwnership",
 		"RecordAccountSubscription", "SetAccountBillingStatus",
 		"SetAccountPaymentProcessorCustomerID", "MarkAccountBillingSynced",
@@ -472,9 +475,16 @@ func TestTable_UpdateColumns(t *testing.T) {
 	}
 
 	// Named rather than derived, because the set is the whole reason UpdateUser
-	// cannot blank a password hash off a Redacted struct.
+	// cannot blank a password hash off a Redacted struct — and because the last
+	// two are the reason it is not simply the profile: the proof and the
+	// outstanding link both come off when the address moves, and a set that lost
+	// either one lets a link minted for the address being left behind prove the
+	// address being moved to.
 	test.SliceEqFunc(t,
-		[]string{"username", "email_address", "first_name", "last_name", "email_address_verified_at"},
+		[]string{
+			"username", "email_address", "first_name", "last_name",
+			"email_address_verified_at", "email_address_verification_token",
+		},
 		Users.UpdateColumns(),
 		func(a, b string) bool { return a == b },
 	)
@@ -608,7 +618,7 @@ func TestFieldWrites_NameRealColumns(t *testing.T) {
 			billingStatusColumn, subscriptionPlanIDColumn,
 			paymentProcessorCustomerIDColumn, billingSyncedAtColumn,
 		},
-		&Invitations: {InvitationStatusColumn, invitationNoteColumn, invitationToUserColumn},
+		&Invitations: {InvitationStatusColumn, invitationStatusNoteColumn, invitationToUserColumn},
 	}
 
 	for table, columns := range assigned {
@@ -672,6 +682,69 @@ func TestFieldWrites_GuardsSurvive(T *testing.T) {
 			// Without this the loop above passes for a rendering that emits
 			// none of the three, which is the failure it exists to catch.
 			test.SliceLen(t, len(guards), seen)
+		})
+	}
+}
+
+// TestRender_VerificationColumnsMoveTogether pins the pairing that keeps a
+// verification link from proving an address it was never sent to.
+//
+// email_address_verified_at and email_address_verification_token are one fact
+// written across two columns: the proof, and the outstanding offer to prove.
+// Every statement that moves one of them has to be deliberate about the other,
+// because the token column records that a link was mailed and not which address
+// it went to — so a statement that changes the address and leaves the token
+// alone hands the old address's link to the new one, which is the whole of the
+// hole this pins shut. The failing direction is silent: each of these
+// statements is correct SQL with either column missing from its SET list.
+//
+// MarkUserEmailAddressUnverified is the one that assigns the stamp alone, and
+// the assertion says so rather than exempting it: the address has not moved, so
+// the link outstanding for it is still a link for it.
+func TestRender_VerificationColumnsMoveTogether(T *testing.T) {
+	T.Parallel()
+
+	// Statement name to whether it assigns the token alongside the stamp.
+	pairing := map[string]bool{
+		"UpdateUser":                           true,
+		"SetUserEmailAddressVerificationToken": true,
+		"MarkUserEmailAddressVerified":         true,
+		"MarkUserEmailAddressUnverified":       false,
+	}
+
+	for _, d := range everyDialect {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			var seen []string
+
+			for statement := range strings.SplitSeq(Render(d), "-- name: ") {
+				name, _, _ := strings.Cut(statement, " ")
+
+				withToken, ok := pairing[name]
+				if !ok {
+					continue
+				}
+
+				// The stamp is nullable, so it binds through narg; clearing it
+				// is a bound nil rather than a NULL written into the text.
+				test.StrContains(t, statement,
+					EmailAddressVerifiedAtColumn+" = sqlc.narg("+EmailAddressVerifiedAtColumn+")",
+					test.Sprintf("statement %q", name))
+
+				assignment := UserEmailVerificationTokenColumn + " = sqlc.arg(" + UserEmailVerificationTokenColumn + ")"
+				if withToken {
+					test.StrContains(t, statement, assignment, test.Sprintf("statement %q", name))
+				} else {
+					test.StrNotContains(t, statement, assignment, test.Sprintf("statement %q", name))
+				}
+
+				seen = append(seen, name)
+			}
+
+			// Without this a rendering that emitted none of the four would pass
+			// the loop above, which is the failure it exists to catch.
+			test.SliceLen(t, len(pairing), seen)
 		})
 	}
 }
@@ -755,6 +828,71 @@ func TestFieldWrites_BillingWritesAreEnumerated(T *testing.T) {
 	}
 }
 
+// TestAnswerInvitation_LeavesTheSendersNote pins the one thing about this
+// statement that no compiler and no dialect will report: which of the two note
+// columns it assigns.
+//
+// The two are written by two people at two moments — note by the sender at
+// creation, status_note by whoever answered — and a SET list naming the first
+// destroys the message the invite email was built from at the moment a roster
+// most wants to show it beside the answer. That is a silent loss: the write
+// succeeds, the row is valid, and the only evidence is a column that used to
+// hold something.
+//
+// The projection is checked from the other end, because a note stored and never
+// selected is the same loss one statement later: both columns come back out of
+// the read and out of both paged lists.
+func TestAnswerInvitation_LeavesTheSendersNote(T *testing.T) {
+	T.Parallel()
+
+	const senderNoteColumn = "note"
+
+	projecting := []string{
+		"GetInvitation",
+		"ListInvitationsByFromUser", "ListInvitationsByFromUserDescending",
+		"ListInvitationsByToEmail", "ListInvitationsByToEmailDescending",
+	}
+
+	for _, d := range everyDialect {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			var answered, projected []string
+
+			for statement := range strings.SplitSeq(Render(d), "-- name: ") {
+				name, _, _ := strings.Cut(statement, " ")
+
+				switch {
+				case name == "AnswerInvitation":
+					test.StrContains(t, statement,
+						invitationStatusNoteColumn+" = sqlc.arg("+invitationStatusNoteColumn+")")
+
+					// The sender's column is not in the SET list. Anchored on
+					// the leading tab an assignment is rendered with, because
+					// status_note ends in note and the statement legitimately
+					// names the one it does assign.
+					test.StrNotContains(t, statement, "\n\t"+senderNoteColumn+" = sqlc.")
+
+					answered = append(answered, name)
+
+				case slices.Contains(projecting, name):
+					for _, column := range []string{senderNoteColumn, invitationStatusNoteColumn} {
+						test.StrContains(t, statement, InvitationsTable+"."+column,
+							test.Sprintf("statement %q", name))
+					}
+
+					projected = append(projected, name)
+				}
+			}
+
+			// Without these the loops above pass for a rendering that emits
+			// none of the statements, which is the failure they exist to catch.
+			test.SliceLen(t, 1, answered)
+			test.SliceLen(t, len(projecting), projected)
+		})
+	}
+}
+
 // TestFieldWrites_StampLastUpdatedAt pins the convention half: every one of
 // these writes stamps the column from the server's clock, rather than assigning
 // it from a bound value or leaving it behind. A row whose last_updated_at came
@@ -766,6 +904,7 @@ func TestFieldWrites_StampLastUpdatedAt(T *testing.T) {
 	written := []string{
 		"UpdateUserPassword", "SetUserRequiresPasswordChange", "UpdateUserTwoFactorSecret",
 		"SetUserEmailAddressVerificationToken", "MarkUserEmailAddressVerified",
+		"MarkUserEmailAddressUnverified",
 		"UpdateUserAccountStatus", "TransferAccountOwnership",
 		"RecordAccountSubscription", "SetAccountBillingStatus",
 		"SetAccountPaymentProcessorCustomerID", "MarkAccountBillingSynced",

@@ -22,6 +22,11 @@ type (
 		// PasswordMatches reports whether password matches hash. A non-match
 		// returns (false, nil); only genuine errors (malformed hash, runtime
 		// failure) populate err.
+		//
+		// This module ships no mismatch sentinel, deliberately. A sign-in has
+		// three refusals to collapse into one — an unknown handle, a wrong
+		// password, a wrong second-factor code — and the package documentation
+		// says why the error that covers all three belongs to the caller.
 		PasswordMatches(ctx context.Context, hash, password string) (bool, error)
 	}
 )
