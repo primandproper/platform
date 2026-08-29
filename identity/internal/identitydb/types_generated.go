@@ -709,6 +709,25 @@ type ListAccountsForUserDescendingRow struct {
 	TotalCount                  int64
 }
 
+// ListDefaultMembershipsForAccountParams are the arguments to ListDefaultMembershipsForAccount.
+type ListDefaultMembershipsForAccountParams struct {
+	Scope            tenancy.Scope
+	BelongsToAccount string
+	DefaultAccount   bool
+}
+
+// ListDefaultMembershipsForAccountRow is one row of ListDefaultMembershipsForAccount's result.
+type ListDefaultMembershipsForAccountRow struct {
+	ID               string
+	Scope            tenancy.Scope
+	BelongsToUser    string
+	BelongsToAccount string
+	DefaultAccount   bool
+	CreatedAt        time.Time
+	LastUpdatedAt    *time.Time
+	ArchivedAt       *time.Time
+}
+
 // ListInvitationRolesByInvitationIDsParams are the arguments to ListInvitationRolesByInvitationIDs.
 type ListInvitationRolesByInvitationIDsParams struct {
 	IDs []string

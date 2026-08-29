@@ -852,6 +852,22 @@ WHERE {{prefix}}identity_accounts.created_at > COALESCE(?, (SELECT CURRENT_TIMES
 ORDER BY {{prefix}}identity_accounts.id DESC
 LIMIT ?`
 
+const listDefaultMembershipsForAccountMySQL = `SELECT
+	{{prefix}}identity_memberships.id,
+	{{prefix}}identity_memberships.scope,
+	{{prefix}}identity_memberships.belongs_to_user,
+	{{prefix}}identity_memberships.belongs_to_account,
+	{{prefix}}identity_memberships.default_account,
+	{{prefix}}identity_memberships.created_at,
+	{{prefix}}identity_memberships.last_updated_at,
+	{{prefix}}identity_memberships.archived_at
+FROM {{prefix}}identity_memberships
+WHERE {{prefix}}identity_memberships.archived_at IS NULL
+	AND {{prefix}}identity_memberships.scope = ?
+	AND {{prefix}}identity_memberships.belongs_to_account = ?
+	AND {{prefix}}identity_memberships.default_account = ?
+ORDER BY {{prefix}}identity_memberships.belongs_to_user ASC`
+
 const listInvitationRolesByInvitationIDsMySQL = `SELECT
 	{{prefix}}identity_invitation_roles.invitation_id,
 	{{prefix}}identity_invitation_roles.role
@@ -1644,6 +1660,7 @@ type mysqlQueries struct {
 	listAccountsDescending                   string
 	listAccountsForUser                      string
 	listAccountsForUserDescending            string
+	listDefaultMembershipsForAccount         string
 	listInvitationRolesByInvitationIDs       string
 	listInvitations                          string
 	listInvitationsByFromUser                string
@@ -1724,6 +1741,7 @@ func newMySQL(prefix string) *mysqlQueries {
 		listAccountsDescending:                   strings.ReplaceAll(listAccountsDescendingMySQL, prefixMarker, prefix),
 		listAccountsForUser:                      strings.ReplaceAll(listAccountsForUserMySQL, prefixMarker, prefix),
 		listAccountsForUserDescending:            strings.ReplaceAll(listAccountsForUserDescendingMySQL, prefixMarker, prefix),
+		listDefaultMembershipsForAccount:         strings.ReplaceAll(listDefaultMembershipsForAccountMySQL, prefixMarker, prefix),
 		listInvitationRolesByInvitationIDs:       strings.ReplaceAll(listInvitationRolesByInvitationIDsMySQL, prefixMarker, prefix),
 		listInvitations:                          strings.ReplaceAll(listInvitationsMySQL, prefixMarker, prefix),
 		listInvitationsByFromUser:                strings.ReplaceAll(listInvitationsByFromUserMySQL, prefixMarker, prefix),
@@ -2830,6 +2848,47 @@ func (q *mysqlQueries) ListAccountsForUserDescending(ctx context.Context, db DBT
 			&i.ArchivedAt,
 			&i.FilteredCount,
 			&i.TotalCount,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(items, i)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
+// ListDefaultMembershipsForAccount runs the :many query against mysql.
+func (q *mysqlQueries) ListDefaultMembershipsForAccount(ctx context.Context, db DBTX, arg ListDefaultMembershipsForAccountParams) ([]ListDefaultMembershipsForAccountRow, error) {
+	rows, err := db.QueryContext(ctx, q.listDefaultMembershipsForAccount,
+		arg.Scope,
+		arg.BelongsToAccount,
+		arg.DefaultAccount,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var items []ListDefaultMembershipsForAccountRow
+
+	for rows.Next() {
+		var i ListDefaultMembershipsForAccountRow
+
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.BelongsToUser,
+			&i.BelongsToAccount,
+			&i.DefaultAccount,
+			&i.CreatedAt,
+			&i.LastUpdatedAt,
+			&i.ArchivedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -4563,6 +4622,21 @@ var (
 		FilteredCount               int64
 		TotalCount                  int64
 	}(ListAccountsForUserDescendingRow{})
+	_ = struct {
+		Scope            tenancy.Scope
+		BelongsToAccount string
+		DefaultAccount   bool
+	}(ListDefaultMembershipsForAccountParams{})
+	_ = struct {
+		ID               string
+		Scope            tenancy.Scope
+		BelongsToUser    string
+		BelongsToAccount string
+		DefaultAccount   bool
+		CreatedAt        time.Time
+		LastUpdatedAt    *time.Time
+		ArchivedAt       *time.Time
+	}(ListDefaultMembershipsForAccountRow{})
 	_ = struct {
 		IDs []string
 	}(ListInvitationRolesByInvitationIDsParams{})

@@ -160,6 +160,8 @@ type Querier interface {
 	ListAccountsForUser(ctx context.Context, db DBTX, arg ListAccountsForUserParams) ([]ListAccountsForUserRow, error)
 	// ListAccountsForUserDescending runs the :many query.
 	ListAccountsForUserDescending(ctx context.Context, db DBTX, arg ListAccountsForUserDescendingParams) ([]ListAccountsForUserDescendingRow, error)
+	// ListDefaultMembershipsForAccount runs the :many query.
+	ListDefaultMembershipsForAccount(ctx context.Context, db DBTX, arg ListDefaultMembershipsForAccountParams) ([]ListDefaultMembershipsForAccountRow, error)
 	// ListInvitationRolesByInvitationIDs runs the :many query.
 	ListInvitationRolesByInvitationIDs(ctx context.Context, db DBTX, arg ListInvitationRolesByInvitationIDsParams) ([]ListInvitationRolesByInvitationIDsRow, error)
 	// ListInvitations runs the :many query.

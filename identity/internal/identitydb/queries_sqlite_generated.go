@@ -852,6 +852,22 @@ WHERE {{prefix}}identity_accounts.created_at > COALESCE(?1, (SELECT datetime(CUR
 ORDER BY {{prefix}}identity_accounts.id DESC
 LIMIT COALESCE(?9, 50)`
 
+const listDefaultMembershipsForAccountSQLite = `SELECT
+	{{prefix}}identity_memberships.id,
+	{{prefix}}identity_memberships.scope,
+	{{prefix}}identity_memberships.belongs_to_user,
+	{{prefix}}identity_memberships.belongs_to_account,
+	{{prefix}}identity_memberships.default_account,
+	{{prefix}}identity_memberships.created_at,
+	{{prefix}}identity_memberships.last_updated_at,
+	{{prefix}}identity_memberships.archived_at
+FROM {{prefix}}identity_memberships
+WHERE {{prefix}}identity_memberships.archived_at IS NULL
+	AND {{prefix}}identity_memberships.scope = ?1
+	AND {{prefix}}identity_memberships.belongs_to_account = ?2
+	AND {{prefix}}identity_memberships.default_account = ?3
+ORDER BY {{prefix}}identity_memberships.belongs_to_user ASC`
+
 const listInvitationRolesByInvitationIDsSQLite = `SELECT
 	{{prefix}}identity_invitation_roles.invitation_id,
 	{{prefix}}identity_invitation_roles.role
@@ -1644,6 +1660,7 @@ type sqliteQueries struct {
 	listAccountsDescending                   string
 	listAccountsForUser                      string
 	listAccountsForUserDescending            string
+	listDefaultMembershipsForAccount         string
 	listInvitationRolesByInvitationIDs       string
 	listInvitations                          string
 	listInvitationsByFromUser                string
@@ -1724,6 +1741,7 @@ func newSQLite(prefix string) *sqliteQueries {
 		listAccountsDescending:                   strings.ReplaceAll(listAccountsDescendingSQLite, prefixMarker, prefix),
 		listAccountsForUser:                      strings.ReplaceAll(listAccountsForUserSQLite, prefixMarker, prefix),
 		listAccountsForUserDescending:            strings.ReplaceAll(listAccountsForUserDescendingSQLite, prefixMarker, prefix),
+		listDefaultMembershipsForAccount:         strings.ReplaceAll(listDefaultMembershipsForAccountSQLite, prefixMarker, prefix),
 		listInvitationRolesByInvitationIDs:       strings.ReplaceAll(listInvitationRolesByInvitationIDsSQLite, prefixMarker, prefix),
 		listInvitations:                          strings.ReplaceAll(listInvitationsSQLite, prefixMarker, prefix),
 		listInvitationsByFromUser:                strings.ReplaceAll(listInvitationsByFromUserSQLite, prefixMarker, prefix),
@@ -2799,6 +2817,47 @@ func (q *sqliteQueries) ListAccountsForUserDescending(ctx context.Context, db DB
 			&i.ArchivedAt,
 			&i.FilteredCount,
 			&i.TotalCount,
+		); err != nil {
+			return nil, err
+		}
+
+		items = append(items, i)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
+// ListDefaultMembershipsForAccount runs the :many query against sqlite.
+func (q *sqliteQueries) ListDefaultMembershipsForAccount(ctx context.Context, db DBTX, arg ListDefaultMembershipsForAccountParams) ([]ListDefaultMembershipsForAccountRow, error) {
+	rows, err := db.QueryContext(ctx, q.listDefaultMembershipsForAccount,
+		arg.Scope,
+		arg.BelongsToAccount,
+		arg.DefaultAccount,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	var items []ListDefaultMembershipsForAccountRow
+
+	for rows.Next() {
+		var i ListDefaultMembershipsForAccountRow
+
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.BelongsToUser,
+			&i.BelongsToAccount,
+			&i.DefaultAccount,
+			&i.CreatedAt,
+			&i.LastUpdatedAt,
+			&i.ArchivedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -4447,6 +4506,21 @@ var (
 		FilteredCount               int64
 		TotalCount                  int64
 	}(ListAccountsForUserDescendingRow{})
+	_ = struct {
+		Scope            tenancy.Scope
+		BelongsToAccount string
+		DefaultAccount   bool
+	}(ListDefaultMembershipsForAccountParams{})
+	_ = struct {
+		ID               string
+		Scope            tenancy.Scope
+		BelongsToUser    string
+		BelongsToAccount string
+		DefaultAccount   bool
+		CreatedAt        time.Time
+		LastUpdatedAt    *time.Time
+		ArchivedAt       *time.Time
+	}(ListDefaultMembershipsForAccountRow{})
 	_ = struct {
 		IDs []string
 	}(ListInvitationRolesByInvitationIDsParams{})
