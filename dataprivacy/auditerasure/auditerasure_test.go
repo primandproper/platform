@@ -132,7 +132,7 @@ func TestEraser(T *testing.T) {
 		env.record(t, "user-1", "user-1", "recipe-1")
 		env.record(t, "user-1", "user-1", "recipe-2")
 
-		eraser, err := New(dialect.SQLite, audit.DefaultTablePrefix)
+		eraser, err := New(dialect.SQLite)
 		must.NoError(t, err)
 
 		outcome := env.erase(t, eraser, dataprivacy.Subject{ID: "user-1"})
@@ -159,7 +159,7 @@ func TestEraser(T *testing.T) {
 		env.record(t, "account-9", "user-1", "recipe-4")
 		env.record(t, "account-9", "user-7", "recipe-5")
 
-		eraser, err := New(dialect.SQLite, audit.DefaultTablePrefix)
+		eraser, err := New(dialect.SQLite)
 		must.NoError(t, err)
 
 		env.erase(t, eraser, dataprivacy.Subject{ID: "user-1"})
@@ -187,7 +187,7 @@ func TestEraser(T *testing.T) {
 		env.record(t, "account-9", "user-1", "recipe-2")
 		env.record(t, "account-9", "user-7", "user-1")
 
-		eraser, err := New(dialect.SQLite, audit.DefaultTablePrefix)
+		eraser, err := New(dialect.SQLite)
 		must.NoError(t, err)
 
 		outcome := env.erase(t, eraser, dataprivacy.Subject{ID: "user-1"})
@@ -209,7 +209,7 @@ func TestEraser(T *testing.T) {
 
 		env.record(t, "user-1", "user-1", "recipe-1")
 
-		eraser, err := New(dialect.SQLite, audit.DefaultTablePrefix)
+		eraser, err := New(dialect.SQLite)
 		must.NoError(t, err)
 
 		outcome := env.erase(t, eraser, dataprivacy.Subject{ID: "user-1"})
@@ -226,7 +226,7 @@ func TestEraser(T *testing.T) {
 		env.record(t, "tenant-a", "user-1", "recipe-1")
 		env.record(t, "tenant-b", "user-1", "recipe-2")
 
-		eraser, err := New(dialect.SQLite, audit.DefaultTablePrefix,
+		eraser, err := New(dialect.SQLite,
 			WithScopeResolver(func(_ context.Context, s dataprivacy.Subject) ([]string, error) {
 				return []string{"tenant-a", "tenant-b"}, nil
 			}))
@@ -245,7 +245,7 @@ func TestEraser(T *testing.T) {
 
 		env.record(t, "user-1", "user-1", "recipe-1")
 
-		eraser, err := New(dialect.SQLite, audit.DefaultTablePrefix,
+		eraser, err := New(dialect.SQLite,
 			WithScopeResolver(func(context.Context, dataprivacy.Subject) ([]string, error) {
 				return nil, nil
 			}))
@@ -266,7 +266,7 @@ func TestEraser(T *testing.T) {
 
 		env.record(t, "account-9", "user-1", "recipe-1")
 
-		eraser, err := New(dialect.SQLite, audit.DefaultTablePrefix,
+		eraser, err := New(dialect.SQLite,
 			WithRetentionBasis("kept under Article 17(3)(b)"))
 		must.NoError(t, err)
 
@@ -278,7 +278,7 @@ func TestEraser(T *testing.T) {
 	T.Run("refuses a nil executor", func(t *testing.T) {
 		t.Parallel()
 
-		eraser, err := New(dialect.SQLite, audit.DefaultTablePrefix)
+		eraser, err := New(dialect.SQLite)
 		must.NoError(t, err)
 
 		_, err = eraser.Erase(t.Context(), nil, dataprivacy.Subject{ID: "user-1"})
@@ -292,46 +292,44 @@ func TestNew(T *testing.T) {
 	T.Run("rejects an unsupported dialect", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := New(dialect.Dialect("oracle"), audit.DefaultTablePrefix)
+		_, err := New(dialect.Dialect("oracle"))
 		test.ErrorIs(t, err, dialect.ErrUnsupported)
 	})
 
 	T.Run("rejects a prefix that is not an identifier fragment", func(t *testing.T) {
 		t.Parallel()
 
+		// The rule is audit's, and so is the error: this package renders no
+		// identifier of its own to check one against.
 		for _, prefix := range []string{"drop table;--", "has space", "1leading"} {
-			_, err := New(dialect.SQLite, prefix)
+			_, err := New(dialect.SQLite, WithTablePrefix(prefix))
 			test.ErrorIs(t, err, ErrInvalidTablePrefix, test.Sprintf("prefix %q", prefix))
 		}
 	})
 
-	T.Run("accepts an empty prefix", func(t *testing.T) {
+	T.Run("defaults to the audit tables' canonical names", func(t *testing.T) {
 		t.Parallel()
 
-		// The audit package's own prefix rule allows it; the tables are then at
-		// their canonical unprefixed names.
-		eraser, err := New(dialect.SQLite, "")
+		// Naming no prefix and naming the empty one are the same thing, which
+		// is what audit.DefaultTablePrefix is.
+		unnamed, err := New(dialect.SQLite)
 		must.NoError(t, err)
 
-		test.EqOp(t, "audit_log_entries", eraser.Describe())
+		test.EqOp(t, "audit_log_entries", unnamed.Describe())
+
+		named, err := New(dialect.SQLite, WithTablePrefix(audit.DefaultTablePrefix))
+		must.NoError(t, err)
+
+		test.EqOp(t, "audit_log_entries", named.Describe())
 	})
 
-	T.Run("WithTablePrefix overrides the constructor's prefix", func(t *testing.T) {
+	T.Run("WithTablePrefix names the tables the audit package rendered", func(t *testing.T) {
 		t.Parallel()
 
-		eraser, err := New(dialect.SQLite, audit.DefaultTablePrefix, WithTablePrefix("custom"))
+		eraser, err := New(dialect.SQLite, WithTablePrefix("custom"))
 		must.NoError(t, err)
 
 		test.EqOp(t, "custom_audit_log_entries", eraser.Describe())
-	})
-
-	T.Run("rejects a prefix an option renders illegal", func(t *testing.T) {
-		t.Parallel()
-
-		// The option runs before the identifier check, so a prefix smuggled in
-		// this way is caught on the same terms as the constructor's.
-		_, err := New(dialect.SQLite, audit.DefaultTablePrefix, WithTablePrefix("bad name "))
-		test.ErrorIs(t, err, ErrInvalidTablePrefix)
 	})
 
 	T.Run("propagates a scope resolver error", func(t *testing.T) {
@@ -339,7 +337,7 @@ func TestNew(T *testing.T) {
 
 		env := newAuditEnv(t)
 
-		eraser, err := New(dialect.SQLite, audit.DefaultTablePrefix,
+		eraser, err := New(dialect.SQLite,
 			WithScopeResolver(func(context.Context, dataprivacy.Subject) ([]string, error) {
 				return nil, platformerrors.New("tenant directory is down")
 			}))
@@ -417,7 +415,7 @@ func TestEraser_PropagatesFailures(T *testing.T) {
 	T.Run("a failing delete is reported", func(t *testing.T) {
 		t.Parallel()
 
-		eraser, err := New(dialect.SQLite, audit.DefaultTablePrefix)
+		eraser, err := New(dialect.SQLite)
 		must.NoError(t, err)
 
 		_, err = eraser.Erase(t.Context(), database.NewTxForTesting(&failingExecutor{closed: newClosedPool(t)}),
@@ -433,7 +431,7 @@ func TestEraser_PropagatesFailures(T *testing.T) {
 		env := newAuditEnv(t)
 		env.record(t, "user-1", "user-1", "recipe-1")
 
-		eraser, err := New(dialect.SQLite, audit.DefaultTablePrefix)
+		eraser, err := New(dialect.SQLite)
 		must.NoError(t, err)
 
 		closed := newClosedPool(t)
@@ -453,7 +451,7 @@ func TestEraser_PropagatesFailures(T *testing.T) {
 	T.Run("no scopes still counts what is retained", func(t *testing.T) {
 		t.Parallel()
 
-		eraser, err := New(dialect.SQLite, audit.DefaultTablePrefix,
+		eraser, err := New(dialect.SQLite,
 			WithScopeResolver(func(context.Context, dataprivacy.Subject) ([]string, error) {
 				return nil, nil
 			}))

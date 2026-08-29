@@ -90,6 +90,17 @@ func (e *dialectEnv) prune(t *testing.T, c *stubClock, prefix string, retention 
 	return removed
 }
 
+// erasure builds an Erasure bound to the supplied prefix, the way
+// dataprivacy/auditerasure builds the one it wraps.
+func (e *dialectEnv) erasure(t *testing.T, prefix string) *Erasure {
+	t.Helper()
+
+	er, err := NewErasure(e.dialect, WithErasureTablePrefix(prefix))
+	must.NoError(t, err)
+
+	return er
+}
+
 // runDialectSuite is the behavioral contract every dialect owes. SQLite is
 // covered by the in-process tests; this exists so the SQL only a real server
 // can validate — numbered placeholders, FOR UPDATE, ON CONFLICT against
@@ -247,6 +258,85 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 		result, err := reader.Verify(t.Context(), "acct_1", time.Time{}, time.Time{})
 		must.NoError(t, err)
 		test.True(t, result.Intact())
+		test.EqOp(t, 1, result.Checked)
+	})
+
+	t.Run("erases whole scopes and counts the mentions the chain keeps", func(t *testing.T) {
+		t.Parallel()
+
+		c := newStubClock()
+		prefix := env.newPrefix(t)
+		recorder := env.recorder(t, c, prefix)
+		reader := env.reader(t, prefix)
+		erasure := env.erasure(t, prefix)
+
+		// The subject as the thing acted on rather than the actor, which is the
+		// second arm of the count's disjunction, and one entry that names them
+		// in neither column.
+		actedOn := entryFor("acct_9", "user_1")
+		actedOn.Actor = Actor{ID: "user_2", Type: ActorUser}
+
+		unrelated := entryFor("acct_9", "r4")
+		unrelated.Actor = Actor{ID: "user_2", Type: ActorUser}
+
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
+			return recorder.Record(t.Context(), q, entryFor("user_1", "r1"), entryFor("user_1", "r2"))
+		}))
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
+			return recorder.Record(t.Context(), q, entryFor("user_1_devices", "d1"))
+		}))
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
+			return recorder.Record(t.Context(), q, entryFor("acct_9", "r3"), actedOn, unrelated)
+		}))
+
+		// Two scopes in one statement. The bound set is `= ANY($1::text[])` on
+		// Postgres and an expanded `IN (?, ?)` on MySQL, and neither rendering
+		// runs anywhere the in-process SQLite suite can reach it.
+		var deleted, remaining int64
+
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
+			var err error
+			if deleted, err = erasure.DeleteScopes(t.Context(), q, []string{"user_1", "user_1_devices"}); err != nil {
+				return err
+			}
+
+			// Counted in the same transaction and after the deletion, so the
+			// three entries just removed are not also reported as retained.
+			remaining, err = erasure.CountMentions(t.Context(), q, "user_1")
+
+			return err
+		}))
+
+		test.EqOp(t, int64(3), deleted)
+		test.EqOp(t, int64(2), remaining)
+
+		// Entries and chain rows go together, for both scopes.
+		test.EqOp(t, 0, countRows(t, env.client, prefix+"_audit_log_entries", "scope = 'user_1'"))
+		test.EqOp(t, 0, countRows(t, env.client, prefix+"_audit_log_chains", "scope = 'user_1'"))
+		test.EqOp(t, 0, countRows(t, env.client, prefix+"_audit_log_entries", "scope = 'user_1_devices'"))
+		test.EqOp(t, 0, countRows(t, env.client, prefix+"_audit_log_chains", "scope = 'user_1_devices'"))
+
+		// Somebody else's tenant is untouched, chain row and all, and still
+		// verifies across the deletion.
+		test.EqOp(t, 3, countRows(t, env.client, prefix+"_audit_log_entries", "scope = 'acct_9'"))
+		test.EqOp(t, 1, countRows(t, env.client, prefix+"_audit_log_chains", "scope = 'acct_9'"))
+
+		result, err := reader.Verify(t.Context(), "acct_9", time.Time{}, time.Time{})
+		must.NoError(t, err)
+		test.True(t, result.Intact(), test.Sprintf("break: %+v", result.FirstBreak))
+		test.EqOp(t, 3, result.Checked)
+
+		// The delete order is what makes an erased scope writable again. Had the
+		// chain row outlived its entries, this write would take a position past
+		// a head that is no longer there, and the verification below would
+		// report the hole as tampering.
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
+			return recorder.Record(t.Context(), q, entryFor("user_1", "r5"))
+		}))
+
+		result, err = reader.Verify(t.Context(), "user_1", time.Time{}, time.Time{})
+		must.NoError(t, err)
+		test.True(t, result.Intact(), test.Sprintf("break: %+v", result.FirstBreak))
 		test.EqOp(t, 1, result.Checked)
 	})
 

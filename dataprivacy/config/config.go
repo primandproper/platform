@@ -357,9 +357,12 @@ func RegisterAuditEraser(
 		return false, errors.Wrap(errors.ErrNilInputParameter, "nil dataprivacy registry")
 	}
 
-	base := []auditerasure.Option{auditerasure.WithRetentionBasis(cfg.AuditErasure.RetentionBasis)}
+	base := []auditerasure.Option{
+		auditerasure.WithRetentionBasis(cfg.AuditErasure.RetentionBasis),
+		auditerasure.WithTablePrefix(cfg.AuditErasure.TablePrefix),
+	}
 
-	eraser, err := auditerasure.New(cfg.Dialect, cfg.AuditErasure.TablePrefix, append(base, opts...)...)
+	eraser, err := auditerasure.New(cfg.Dialect, append(base, opts...)...)
 	if err != nil {
 		return false, errors.Wrap(err, "building dataprivacy audit eraser")
 	}
