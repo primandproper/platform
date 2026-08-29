@@ -1414,6 +1414,13 @@ WHERE archived_at IS NULL
 	AND id = $2
 	AND scope = $3`
 
+const markUserEmailAddressUnverifiedPostgreSQL = `UPDATE {{prefix}}identity_users SET
+	email_address_verified_at = $1,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE archived_at IS NULL
+	AND id = $2
+	AND scope = $3`
+
 const markUserEmailAddressVerifiedPostgreSQL = `UPDATE {{prefix}}identity_users SET
 	email_address_verified_at = $1,
 	email_address_verification_token = $2,
@@ -1537,10 +1544,11 @@ WHERE archived_at IS NULL
 
 const setUserEmailAddressVerificationTokenPostgreSQL = `UPDATE {{prefix}}identity_users SET
 	email_address_verification_token = $1,
+	email_address_verified_at = $2,
 	last_updated_at = CURRENT_TIMESTAMP
 WHERE archived_at IS NULL
-	AND id = $2
-	AND scope = $3`
+	AND id = $3
+	AND scope = $4`
 
 const setUserRequiresPasswordChangePostgreSQL = `UPDATE {{prefix}}identity_users SET
 	requires_password_change = $1,
@@ -1578,10 +1586,11 @@ const updateUserPostgreSQL = `UPDATE {{prefix}}identity_users SET
 	first_name = $3,
 	last_name = $4,
 	email_address_verified_at = $5,
+	email_address_verification_token = $6,
 	last_updated_at = CURRENT_TIMESTAMP
 WHERE archived_at IS NULL
-	AND id = $6
-	AND scope = $7`
+	AND id = $7
+	AND scope = $8`
 
 const updateUserAccountStatusPostgreSQL = `UPDATE {{prefix}}identity_users SET
 	account_status = $1,
@@ -1684,6 +1693,7 @@ type postgresqlQueries struct {
 	listUsersByIDs                           string
 	listUsersDescending                      string
 	markAccountBillingSynced                 string
+	markUserEmailAddressUnverified           string
 	markUserEmailAddressVerified             string
 	markUserTwoFactorSecretVerified          string
 	recordAccountSubscription                string
@@ -1765,6 +1775,7 @@ func newPostgreSQL(prefix string) *postgresqlQueries {
 		listUsersByIDs:                           strings.ReplaceAll(listUsersByIDsPostgreSQL, prefixMarker, prefix),
 		listUsersDescending:                      strings.ReplaceAll(listUsersDescendingPostgreSQL, prefixMarker, prefix),
 		markAccountBillingSynced:                 strings.ReplaceAll(markAccountBillingSyncedPostgreSQL, prefixMarker, prefix),
+		markUserEmailAddressUnverified:           strings.ReplaceAll(markUserEmailAddressUnverifiedPostgreSQL, prefixMarker, prefix),
 		markUserEmailAddressVerified:             strings.ReplaceAll(markUserEmailAddressVerifiedPostgreSQL, prefixMarker, prefix),
 		markUserTwoFactorSecretVerified:          strings.ReplaceAll(markUserTwoFactorSecretVerifiedPostgreSQL, prefixMarker, prefix),
 		recordAccountSubscription:                strings.ReplaceAll(recordAccountSubscriptionPostgreSQL, prefixMarker, prefix),
@@ -3516,6 +3527,20 @@ func (q *postgresqlQueries) MarkAccountBillingSynced(ctx context.Context, db DBT
 	return result.RowsAffected()
 }
 
+// MarkUserEmailAddressUnverified runs the :execrows query against postgresql.
+func (q *postgresqlQueries) MarkUserEmailAddressUnverified(ctx context.Context, db DBTX, arg MarkUserEmailAddressUnverifiedParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.markUserEmailAddressUnverified,
+		arg.EmailAddressVerifiedAt,
+		arg.ID,
+		arg.Scope,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // MarkUserEmailAddressVerified runs the :execrows query against postgresql.
 func (q *postgresqlQueries) MarkUserEmailAddressVerified(ctx context.Context, db DBTX, arg MarkUserEmailAddressVerifiedParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.markUserEmailAddressVerified,
@@ -3745,6 +3770,7 @@ func (q *postgresqlQueries) SetMembershipDefaultAccount(ctx context.Context, db 
 func (q *postgresqlQueries) SetUserEmailAddressVerificationToken(ctx context.Context, db DBTX, arg SetUserEmailAddressVerificationTokenParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.setUserEmailAddressVerificationToken,
 		arg.EmailAddressVerificationToken,
+		arg.EmailAddressVerifiedAt,
 		arg.ID,
 		arg.Scope,
 	)
@@ -3814,6 +3840,7 @@ func (q *postgresqlQueries) UpdateUser(ctx context.Context, db DBTX, arg UpdateU
 		arg.FirstName,
 		arg.LastName,
 		arg.EmailAddressVerifiedAt,
+		arg.EmailAddressVerificationToken,
 		arg.ID,
 		arg.Scope,
 	)
@@ -4794,6 +4821,11 @@ var (
 		Scope                       tenancy.Scope
 	}(MarkAccountBillingSyncedParams{})
 	_ = struct {
+		EmailAddressVerifiedAt *time.Time
+		ID                     string
+		Scope                  tenancy.Scope
+	}(MarkUserEmailAddressUnverifiedParams{})
+	_ = struct {
 		EmailAddressVerifiedAt               *time.Time
 		EmailAddressVerificationToken        string
 		ID                                   string
@@ -4896,6 +4928,7 @@ var (
 	}(SetMembershipDefaultAccountParams{})
 	_ = struct {
 		EmailAddressVerificationToken string
+		EmailAddressVerifiedAt        *time.Time
 		ID                            string
 		Scope                         tenancy.Scope
 	}(SetUserEmailAddressVerificationTokenParams{})
@@ -4924,13 +4957,14 @@ var (
 		Scope             tenancy.Scope
 	}(UpdateAccountParams{})
 	_ = struct {
-		Username               string
-		EmailAddress           string
-		FirstName              string
-		LastName               string
-		EmailAddressVerifiedAt *time.Time
-		ID                     string
-		Scope                  tenancy.Scope
+		Username                      string
+		EmailAddress                  string
+		FirstName                     string
+		LastName                      string
+		EmailAddressVerifiedAt        *time.Time
+		EmailAddressVerificationToken string
+		ID                            string
+		Scope                         tenancy.Scope
 	}(UpdateUserParams{})
 	_ = struct {
 		AccountStatus            string

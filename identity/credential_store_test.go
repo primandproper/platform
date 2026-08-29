@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v13/identifiers"
 	"github.com/primandproper/platform-go/v13/tenancy"
 
 	"github.com/shoenig/test"
@@ -165,6 +166,110 @@ func runCredentialStoreSuite(t *testing.T, env *storeEnv) {
 
 		must.ErrorIs(t,
 			store.SetUserEmailAddressVerificationToken(t.Context(), tenancy.Scope{}, user.ID, "tok-third"),
+			tenancy.ErrNoScope,
+		)
+	})
+
+	t.Run("drops the proof when a fresh link is issued", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		user := newUser("ada")
+		user.EmailAddressVerificationToken = "verify-me"
+		createUser(t, store, user)
+
+		must.NoError(t, store.MarkUserEmailAddressVerified(t.Context(), testScope, user.ID, "verify-me"))
+
+		// A row holding both a stamp and an outstanding link is two answers to
+		// one question, and which one a reader believes comes down to which
+		// column it consulted. Issuing a link says the address wants proving,
+		// so the column saying otherwise is the one that goes.
+		must.NoError(t, store.SetUserEmailAddressVerificationToken(t.Context(), testScope, user.ID, "prove-it-again"))
+
+		reissued, err := store.GetUser(t.Context(), testScope, user.ID)
+		must.NoError(t, err)
+		test.False(t, reissued.EmailAddressVerified())
+		test.EqOp(t, "prove-it-again", reissued.EmailAddressVerificationToken)
+
+		must.NoError(t, store.MarkUserEmailAddressVerified(t.Context(), testScope, user.ID, "prove-it-again"))
+
+		reverified, err := store.GetUser(t.Context(), testScope, user.ID)
+		must.NoError(t, err)
+		test.True(t, reverified.EmailAddressVerified())
+	})
+
+	t.Run("withdraws the proof without moving the address", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		user := newUser("ada")
+		user.EmailAddressVerificationToken = "verify-me"
+		createUser(t, store, user)
+
+		must.NoError(t, store.MarkUserEmailAddressVerified(t.Context(), testScope, user.ID, "verify-me"))
+
+		// A bounce, a support decision, a deliverability sweep: the address is
+		// the one the user chose and stays that way, and only the proof goes.
+		must.NoError(t, store.MarkUserEmailAddressUnverified(t.Context(), testScope, user.ID))
+
+		read, err := store.GetUser(t.Context(), testScope, user.ID)
+		must.NoError(t, err)
+		test.False(t, read.EmailAddressVerified())
+		test.EqOp(t, user.EmailAddress, read.EmailAddress)
+
+		// Unguarded, so unlike the three writes that name a value the row must
+		// still hold, a second call is not a lost race — it is the same row.
+		must.NoError(t, store.MarkUserEmailAddressUnverified(t.Context(), testScope, user.ID))
+
+		// A fresh link and the proof it earns still work afterwards, which is
+		// what makes this an unverify rather than a lockout.
+		must.NoError(t, store.SetUserEmailAddressVerificationToken(t.Context(), testScope, user.ID, "prove-it-again"))
+		must.NoError(t, store.MarkUserEmailAddressVerified(t.Context(), testScope, user.ID, "prove-it-again"))
+
+		reverified, err := store.GetUser(t.Context(), testScope, user.ID)
+		must.NoError(t, err)
+		test.True(t, reverified.EmailAddressVerified())
+	})
+
+	t.Run("leaves the outstanding link alone when withdrawing a proof", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		user := createUser(t, store, newUser("ada"))
+
+		must.NoError(t, store.SetUserEmailAddressVerificationToken(t.Context(), testScope, user.ID, "in-the-inbox"))
+		must.NoError(t, store.MarkUserEmailAddressUnverified(t.Context(), testScope, user.ID))
+
+		// The link was minted for this address and the address has not moved,
+		// so burning it would cost the user a round trip to prove the address
+		// they are being asked to prove.
+		found, err := store.GetUserByEmailVerificationToken(t.Context(), testScope, "in-the-inbox")
+		must.NoError(t, err)
+		test.EqOp(t, user.ID, found.ID)
+	})
+
+	t.Run("keeps the unverify inside the directory it was asked of", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		user := createUser(t, store, newUser("ada"))
+
+		// The scope is in the predicate, so the neighbor's directory reaches
+		// nobody, and an unknown user is a miss rather than a silent no-op.
+		must.ErrorIs(t,
+			store.MarkUserEmailAddressUnverified(t.Context(), otherScope, user.ID),
+			ErrUserNotFound,
+		)
+
+		must.ErrorIs(t,
+			store.MarkUserEmailAddressUnverified(t.Context(), testScope, identifiers.New()),
+			ErrUserNotFound,
+		)
+
+		must.ErrorIs(t,
+			store.MarkUserEmailAddressUnverified(t.Context(), tenancy.Scope{}, user.ID),
 			tenancy.ErrNoScope,
 		)
 	})

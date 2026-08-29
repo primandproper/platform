@@ -193,6 +193,11 @@ type Querier interface {
 	// The count means different things on different engines; see the note
 	// on Querier.
 	MarkAccountBillingSynced(ctx context.Context, db DBTX, arg MarkAccountBillingSyncedParams) (int64, error)
+	// MarkUserEmailAddressUnverified runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	MarkUserEmailAddressUnverified(ctx context.Context, db DBTX, arg MarkUserEmailAddressUnverifiedParams) (int64, error)
 	// MarkUserEmailAddressVerified runs the :execrows query.
 	//
 	// The count means different things on different engines; see the note

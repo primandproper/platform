@@ -101,6 +101,9 @@ var _ identity.Store = &StoreMock{}
 //			MarkAccountBillingSyncedFunc: func(ctx context.Context, scope tenancy.Scope, accountID string) error {
 //				panic("mock out the MarkAccountBillingSynced method")
 //			},
+//			MarkUserEmailAddressUnverifiedFunc: func(ctx context.Context, scope tenancy.Scope, userID string) error {
+//				panic("mock out the MarkUserEmailAddressUnverified method")
+//			},
 //			MarkUserEmailAddressVerifiedFunc: func(ctx context.Context, scope tenancy.Scope, userID string, token string) error {
 //				panic("mock out the MarkUserEmailAddressVerified method")
 //			},
@@ -248,6 +251,9 @@ type StoreMock struct {
 
 	// MarkAccountBillingSyncedFunc mocks the MarkAccountBillingSynced method.
 	MarkAccountBillingSyncedFunc func(ctx context.Context, scope tenancy.Scope, accountID string) error
+
+	// MarkUserEmailAddressUnverifiedFunc mocks the MarkUserEmailAddressUnverified method.
+	MarkUserEmailAddressUnverifiedFunc func(ctx context.Context, scope tenancy.Scope, userID string) error
 
 	// MarkUserEmailAddressVerifiedFunc mocks the MarkUserEmailAddressVerified method.
 	MarkUserEmailAddressVerifiedFunc func(ctx context.Context, scope tenancy.Scope, userID string, token string) error
@@ -570,6 +576,15 @@ type StoreMock struct {
 			// AccountID is the accountID argument value.
 			AccountID string
 		}
+		// MarkUserEmailAddressUnverified holds details about calls to the MarkUserEmailAddressUnverified method.
+		MarkUserEmailAddressUnverified []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// UserID is the userID argument value.
+			UserID string
+		}
 		// MarkUserEmailAddressVerified holds details about calls to the MarkUserEmailAddressVerified method.
 		MarkUserEmailAddressVerified []struct {
 			// Ctx is the ctx argument value.
@@ -826,6 +841,7 @@ type StoreMock struct {
 	lockListUsers                            sync.RWMutex
 	lockListUsersByIDs                       sync.RWMutex
 	lockMarkAccountBillingSynced             sync.RWMutex
+	lockMarkUserEmailAddressUnverified       sync.RWMutex
 	lockMarkUserEmailAddressVerified         sync.RWMutex
 	lockMarkUserTwoFactorSecretVerified      sync.RWMutex
 	lockRecordAccountSubscription            sync.RWMutex
@@ -1930,6 +1946,46 @@ func (mock *StoreMock) MarkAccountBillingSyncedCalls() []struct {
 	mock.lockMarkAccountBillingSynced.RLock()
 	calls = mock.calls.MarkAccountBillingSynced
 	mock.lockMarkAccountBillingSynced.RUnlock()
+	return calls
+}
+
+// MarkUserEmailAddressUnverified calls MarkUserEmailAddressUnverifiedFunc.
+func (mock *StoreMock) MarkUserEmailAddressUnverified(ctx context.Context, scope tenancy.Scope, userID string) error {
+	if mock.MarkUserEmailAddressUnverifiedFunc == nil {
+		panic("StoreMock.MarkUserEmailAddressUnverifiedFunc: method is nil but Store.MarkUserEmailAddressUnverified was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Scope  tenancy.Scope
+		UserID string
+	}{
+		Ctx:    ctx,
+		Scope:  scope,
+		UserID: userID,
+	}
+	mock.lockMarkUserEmailAddressUnverified.Lock()
+	mock.calls.MarkUserEmailAddressUnverified = append(mock.calls.MarkUserEmailAddressUnverified, callInfo)
+	mock.lockMarkUserEmailAddressUnverified.Unlock()
+	return mock.MarkUserEmailAddressUnverifiedFunc(ctx, scope, userID)
+}
+
+// MarkUserEmailAddressUnverifiedCalls gets all the calls that were made to MarkUserEmailAddressUnverified.
+// Check the length with:
+//
+//	len(mockedStore.MarkUserEmailAddressUnverifiedCalls())
+func (mock *StoreMock) MarkUserEmailAddressUnverifiedCalls() []struct {
+	Ctx    context.Context
+	Scope  tenancy.Scope
+	UserID string
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Scope  tenancy.Scope
+		UserID string
+	}
+	mock.lockMarkUserEmailAddressUnverified.RLock()
+	calls = mock.calls.MarkUserEmailAddressUnverified
+	mock.lockMarkUserEmailAddressUnverified.RUnlock()
 	return calls
 }
 
