@@ -9,7 +9,21 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}dataprivacy_requests (
     operation_id    VARCHAR(64) NOT NULL DEFAULT '',
     subject_id      VARCHAR(255) NOT NULL,
     subject_type    VARCHAR(64) NOT NULL DEFAULT '',
-    subject_scope   VARCHAR(255) NOT NULL DEFAULT '',
+    -- subject_scope is whose request this is: a reseller, a region, a product,
+    -- or — as the empty string — nobody. A read that names a subject names their
+    -- scope with it, and the one read that deliberately does not says so in its
+    -- own name.
+    --
+    -- It has no default, unlike the text columns around it. Their empty string
+    -- is an absence — a request no operation drove, a subject whose type the
+    -- caller did not name, an artifact never written — and a write that omits
+    -- one means exactly that. This one's empty string is not an absence but a
+    -- value, tenancy.Global(), so a default would hand the global scope to a
+    -- write that forgot the column, filing a subject's request in the tenant
+    -- that matches nobody — the mistake tenancy.Scope exists to make
+    -- unspellable in Go. NOT NULL with nothing to fall back on makes that write
+    -- fail instead. See the tenancy package.
+    subject_scope   VARCHAR(255) NOT NULL,
     -- The convention triple. created_at is when the request was submitted — the
     -- instant the statutory clock starts — and no longer wears a second name for
     -- the row's creation time. last_updated_at is NULL until the fulfiller first
