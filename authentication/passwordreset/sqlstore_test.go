@@ -24,8 +24,7 @@ func TestNewSQLStore(T *testing.T) {
 		store, err := NewSQLStore(&Config{}, newTestClient(t))
 		must.NoError(t, err)
 		must.NotNil(t, store)
-		test.EqOp(t, dialect.SQLite, store.dialect)
-		test.EqOp(t, "password_reset_tokens", store.table)
+		must.NotNil(t, store.q)
 	})
 
 	T.Run("with a nil config", func(t *testing.T) {
@@ -53,12 +52,23 @@ func TestNewSQLStore(T *testing.T) {
 		test.Error(t, err)
 	})
 
-	T.Run("renders the namespaced table name", func(t *testing.T) {
+	// A namespace is not decoration: it renders a second table, and every
+	// statement the store runs has to name that one. The store carries no table
+	// name of its own to assert on — the prefix reaches the generated querier
+	// and nothing else — so this is asserted where it is decided, in the rows.
+	T.Run("addresses the table its namespace names", func(t *testing.T) {
 		t.Parallel()
 
-		store, err := NewSQLStore(&Config{TablePrefix: "ddb"}, newTestClient(t))
+		client := newTestClient(t)
+		createTable(t, client, dialect.SQLite, "ddb")
+
+		store, err := NewSQLStore(&Config{TablePrefix: "ddb"}, client, WithClock(newFakeClock()))
 		must.NoError(t, err)
-		test.EqOp(t, "ddb_password_reset_tokens", store.table)
+
+		issue(t, store, time.Hour)
+
+		test.EqOp(t, 1, rowsIn(t, client, "ddb_password_reset_tokens"))
+		test.EqOp(t, 0, rowsIn(t, client, "password_reset_tokens"))
 	})
 }
 

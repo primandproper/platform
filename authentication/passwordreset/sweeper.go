@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/primandproper/platform-go/v13/authentication/passwordreset/internal/passwordresetdb"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/observability/metrics"
 )
@@ -32,6 +33,11 @@ const backgroundSweepFailure = "background sweep of expired password reset token
 // it returns a count, not rows — which is what keeps it inside the narrow
 // exception the tenancy doctrine allows a component's own machinery.
 //
+// The horizon is this store's own clock rather than the server's, because that
+// is the clock that stamped the column: a deadline written as now-plus-a-TTL
+// from an injected clock and compared against CURRENT_TIMESTAMP would be two
+// clocks deciding one row.
+//
 // One statement, no batching. Token rows are small and the index on expires_at
 // makes the delete proportional to what is actually dead rather than to the
 // table.
@@ -39,20 +45,13 @@ func (s *SQLStore) Sweep(ctx context.Context) (int64, error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
-	query, args := buildSweep(s.dialect, s.table, s.clock.Now())
-
-	result, err := s.db.Writer().ExecContext(ctx, query, args...)
+	swept, err := s.q.SweepExpiredTokens(ctx, s.db.Writer(), passwordresetdb.SweepExpiredTokensParams{
+		ExpiresBefore: s.clock.Now().UTC(),
+	})
 	if err != nil {
 		s.sweepErrorsCounter.Add(ctx, 1)
 
 		return 0, op.Error(err, "sweeping expired password reset token rows")
-	}
-
-	swept, err := result.RowsAffected()
-	if err != nil {
-		s.sweepErrorsCounter.Add(ctx, 1)
-
-		return 0, op.Error(err, "counting swept password reset token rows")
 	}
 
 	s.sweptCounter.Add(ctx, swept)

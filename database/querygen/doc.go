@@ -1039,6 +1039,27 @@ conflict branch clearing archived_at is exactly what makes a re-seed revive a
 reserved name. The thirteenth is [Generator.ClosureQuery] above, and it is the
 one statement in this module with a recursive term.
 
+authentication/passwordreset is the last one, and it arrived from outside the
+survey rather than from a ruling: it landed after the survey that produced this
+section, so no roster ever listed it and its five fmt.Sprintf builders were a
+violation of a claim nobody had checked it against. Its port needed no new
+shape. The issuance is [Generator.InsertQuery] with created_at named in its
+column list rather than left to the database, which is cryptography/shredding's
+argument reaching a table that does have an id: nothing pages by it, so there is
+no cursor walk for a caller-supplied creation time to disagree with. The lookup is
+[Generator.ReadQuery] over a list with no id and a projection that drops the
+digest, the redemption is [Generator.UpdateQuery] guarded on [NoValue], and the
+revocation and the sweep are [Generator.DeleteQuery] — the second of them with
+[AtMostArgument] rather than [CurrentTime], because that table's deadline is
+stamped by the store's own injected clock and the server's would be the wrong
+one rather than merely the inexpressible one.
+
+With it, the set of packages composing SQL in Go is empty. internal/sqltier is
+where that is a check rather than a sentence here: every package in the module
+holding a statement is on the tier, exempt with a reason, or ruled to hold none,
+and a store that grew a hand-built statement back fails a test rather than
+reading as a package nobody had got to yet.
+
 # include_archived actually includes archived rows
 
 A filtered list's WHERE clause is FilterConditions in its entirety, not an
