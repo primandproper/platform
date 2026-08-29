@@ -72,23 +72,27 @@ import (
 	eventstreamcfg "github.com/primandproper/platform-go/v13/eventstream/config"
 	featureflagscfg "github.com/primandproper/platform-go/v13/featureflags/config"
 	"github.com/primandproper/platform-go/v13/httpclient"
+	identitycfg "github.com/primandproper/platform-go/v13/identity/config"
 	"github.com/primandproper/platform-go/v13/internal/cfgnorm"
 	jobscfg "github.com/primandproper/platform-go/v13/jobs/config"
 	llmcfg "github.com/primandproper/platform-go/v13/llm/config"
 	messagequeuecfg "github.com/primandproper/platform-go/v13/messagequeue/config"
 	meteringcfg "github.com/primandproper/platform-go/v13/metering/config"
 	asyncnotifcfg "github.com/primandproper/platform-go/v13/notifications/async/config"
+	notificationscfg "github.com/primandproper/platform-go/v13/notifications/config"
 	mobilenotifcfg "github.com/primandproper/platform-go/v13/notifications/mobile/config"
 	"github.com/primandproper/platform-go/v13/observability"
 	operationscfg "github.com/primandproper/platform-go/v13/operations/config"
 	outboxcfg "github.com/primandproper/platform-go/v13/outbox/config"
 	ratelimitingcfg "github.com/primandproper/platform-go/v13/ratelimiting/config"
+	retentioncfg "github.com/primandproper/platform-go/v13/retention/config"
 	retrycfg "github.com/primandproper/platform-go/v13/retry/config"
 	routingcfg "github.com/primandproper/platform-go/v13/routing/config"
 	sagacfg "github.com/primandproper/platform-go/v13/saga/config"
 	secretscfg "github.com/primandproper/platform-go/v13/secrets/config"
 	grpcserver "github.com/primandproper/platform-go/v13/server/grpc"
 	httpserver "github.com/primandproper/platform-go/v13/server/http"
+	settingscfg "github.com/primandproper/platform-go/v13/settings/config"
 	uploadscfg "github.com/primandproper/platform-go/v13/uploads/config"
 	webhookscfg "github.com/primandproper/platform-go/v13/webhooks/config"
 
@@ -106,12 +110,12 @@ import (
 // nothing was put into. After that, non-nil means the operator configured it.
 //
 // The generic subsystems are deliberately absent. cache.Cache[T],
-// idempotency.Manager[T], and the two search indexes are registered per
-// concrete type, with an index name or a type argument no config can supply, so
-// they stay explicit calls to their own Register functions on the injector this
-// package does not hide. The same goes for the config-less primitives —
-// clock.RegisterClock, random.RegisterGenerator — which have no presence to
-// read.
+// idempotency.Manager[T], sessions, timers, workqueue, and the two search
+// indexes are registered per concrete type, with an index name or a type
+// argument no config can supply, so they stay explicit calls to their own
+// Register functions on the injector this package does not hide. The same goes
+// for the config-less primitives — clock.RegisterClock,
+// random.RegisterGenerator — which have no presence to read.
 //
 // The health registry is the one config-less thing this package does register,
 // because it is not a primitive: it is a reading of everything else that got
@@ -139,6 +143,7 @@ type Config struct {
 	GRPCServer           *grpcserver.Config         `env:",init" envPrefix:"GRPC_SERVER_"            json:"grpcServer,omitempty"           yaml:"grpcServer,omitempty"`
 	HTTPClient           *httpclient.Config         `env:",init" envPrefix:"HTTP_CLIENT_"            json:"httpClient,omitempty"           yaml:"httpClient,omitempty"`
 	HTTPServer           *httpserver.Config         `env:",init" envPrefix:"HTTP_SERVER_"            json:"httpServer,omitempty"           yaml:"httpServer,omitempty"`
+	Identity             *identitycfg.Config        `env:",init" envPrefix:"IDENTITY_"               json:"identity,omitempty"             yaml:"identity,omitempty"`
 	JobsPool             *jobscfg.PoolConfig        `env:",init" envPrefix:"JOBS_POOL_"              json:"jobsPool,omitempty"             yaml:"jobsPool,omitempty"`
 	JobsScheduler        *jobscfg.SchedulerConfig   `env:",init" envPrefix:"JOBS_SCHEDULER_"         json:"jobsScheduler,omitempty"        yaml:"jobsScheduler,omitempty"`
 	KeyedCircuitBreaking *partitionedcfg.Config     `env:",init" envPrefix:"KEYED_CIRCUIT_BREAKING_" json:"keyedCircuitBreaking,omitempty" yaml:"keyedCircuitBreaking,omitempty"`
@@ -146,13 +151,16 @@ type Config struct {
 	MessageQueue         *messagequeuecfg.Config    `env:",init" envPrefix:"MESSAGE_QUEUE_"          json:"messageQueue,omitempty"         yaml:"messageQueue,omitempty"`
 	Metering             *meteringcfg.Config        `env:",init" envPrefix:"METERING_"               json:"metering,omitempty"             yaml:"metering,omitempty"`
 	MobileNotifications  *mobilenotifcfg.Config     `env:",init" envPrefix:"MOBILE_NOTIFICATIONS_"   json:"mobileNotifications,omitempty"  yaml:"mobileNotifications,omitempty"`
+	Notifications        *notificationscfg.Config   `env:",init" envPrefix:"NOTIFICATIONS_"          json:"notifications,omitempty"        yaml:"notifications,omitempty"`
 	Operations           *operationscfg.Config      `env:",init" envPrefix:"OPERATIONS_"             json:"operations,omitempty"           yaml:"operations,omitempty"`
 	Outbox               *outboxcfg.Config          `env:",init" envPrefix:"OUTBOX_"                 json:"outbox,omitempty"               yaml:"outbox,omitempty"`
 	RateLimiting         *ratelimitingcfg.Config    `env:",init" envPrefix:"RATE_LIMITING_"          json:"rateLimiting,omitempty"         yaml:"rateLimiting,omitempty"`
+	Retention            *retentioncfg.Config       `env:",init" envPrefix:"RETENTION_"              json:"retention,omitempty"            yaml:"retention,omitempty"`
 	Retry                *retrycfg.Config           `env:",init" envPrefix:"RETRY_"                  json:"retry,omitempty"                yaml:"retry,omitempty"`
 	Routing              *routingcfg.Config         `env:",init" envPrefix:"ROUTING_"                json:"routing,omitempty"              yaml:"routing,omitempty"`
 	Saga                 *sagacfg.Config            `env:",init" envPrefix:"SAGA_"                   json:"saga,omitempty"                 yaml:"saga,omitempty"`
 	Secrets              *secretscfg.Config         `env:",init" envPrefix:"SECRETS_"                json:"secrets,omitempty"              yaml:"secrets,omitempty"`
+	Settings             *settingscfg.Config        `env:",init" envPrefix:"SETTINGS_"               json:"settings,omitempty"             yaml:"settings,omitempty"`
 	Tokens               *tokenscfg.Config          `env:",init" envPrefix:"TOKENS_"                 json:"tokens,omitempty"               yaml:"tokens,omitempty"`
 	Uploads              *uploadscfg.Config         `env:",init" envPrefix:"UPLOADS_"                json:"uploads,omitempty"              yaml:"uploads,omitempty"`
 	Webhooks             *webhookscfg.Config        `env:",init" envPrefix:"WEBHOOKS_"               json:"webhooks,omitempty"             yaml:"webhooks,omitempty"`
@@ -296,6 +304,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.GRPCServer),
 		validation.Field(&cfg.HTTPClient),
 		validation.Field(&cfg.HTTPServer),
+		validation.Field(&cfg.Identity),
 		validation.Field(&cfg.JobsPool),
 		validation.Field(&cfg.JobsScheduler),
 		validation.Field(&cfg.KeyedCircuitBreaking),
@@ -303,13 +312,16 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.MessageQueue),
 		validation.Field(&cfg.Metering),
 		validation.Field(&cfg.MobileNotifications),
+		validation.Field(&cfg.Notifications),
 		validation.Field(&cfg.Operations),
 		validation.Field(&cfg.Outbox),
 		validation.Field(&cfg.RateLimiting),
+		validation.Field(&cfg.Retention),
 		validation.Field(&cfg.Retry),
 		validation.Field(&cfg.Routing),
 		validation.Field(&cfg.Saga),
 		validation.Field(&cfg.Secrets),
+		validation.Field(&cfg.Settings),
 		validation.Field(&cfg.Shredding),
 		validation.Field(&cfg.Tokens),
 		validation.Field(&cfg.Uploads),
