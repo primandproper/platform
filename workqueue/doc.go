@@ -199,6 +199,13 @@ MySQL rendering to reconcile, so the RETURNING split a portable corpus would
 have owed is not a shape this package has: sqlc's Postgres engine parses the
 lock-ordering CTE, the SKIP LOCKED claim, the interval arithmetic and the
 multi-column RETURNING exactly as they are written.
+
+This is not the only place that answer is kept. The module README's
+"SQL Dialect Support" section carries the matrix for every package in this
+module that stores anything through database, so a consumer choosing between
+Postgres and MySQL reads one table rather than discovering this package's answer
+here after having already chosen it. internal/dialectmatrix checks that table
+against the DDL and the queriers each package actually ships.
 */
 package workqueue
 

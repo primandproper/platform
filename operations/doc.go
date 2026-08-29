@@ -268,6 +268,11 @@ exactly as correct, just later.
 So the constructors return dialect.ErrUnsupported for anything else, rather than
 degrading to something that looks like it worked.
 
+The module README's "SQL Dialect Support" section is where that narrowing is
+spoken module-wide, beside the roster of every other package that stores
+anything through database — the table to read before choosing a dialect, rather
+than after choosing this package.
+
 # Where the SQL comes from
 
 Nothing in this package composes a statement. The queries live in
