@@ -59,6 +59,7 @@ import (
 	capitalismcfg "github.com/primandproper/platform-go/v13/capitalism/config"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v13/circuitbreaking/config"
 	partitionedcfg "github.com/primandproper/platform-go/v13/circuitbreaking/partitioned/config"
+	commentscfg "github.com/primandproper/platform-go/v13/comments/config"
 	"github.com/primandproper/platform-go/v13/cookies"
 	encryptioncfg "github.com/primandproper/platform-go/v13/cryptography/encryption/config"
 	shreddingcfg "github.com/primandproper/platform-go/v13/cryptography/shredding/config"
@@ -130,6 +131,7 @@ type Config struct {
 	Authorization        *authorizationcfg.Config   `env:",init" envPrefix:"AUTHORIZATION_"          json:"authorization,omitempty"        yaml:"authorization,omitempty"`
 	Capitalism           *capitalismcfg.Config      `env:",init" envPrefix:"CAPITALISM_"             json:"capitalism,omitempty"           yaml:"capitalism,omitempty"`
 	CircuitBreaking      *circuitbreakingcfg.Config `env:",init" envPrefix:"CIRCUIT_BREAKING_"       json:"circuitBreaking,omitempty"      yaml:"circuitBreaking,omitempty"`
+	Comments             *commentscfg.Config        `env:",init" envPrefix:"COMMENTS_"               json:"comments,omitempty"             yaml:"comments,omitempty"`
 	Cookies              *cookies.Config            `env:",init" envPrefix:"COOKIES_"                json:"cookies,omitempty"              yaml:"cookies,omitempty"`
 	DataPrivacy          *dataprivacycfg.Config     `env:",init" envPrefix:"DATA_PRIVACY_"           json:"dataPrivacy,omitempty"          yaml:"dataPrivacy,omitempty"`
 	Database             *databasecfg.Config        `env:",init" envPrefix:"DATABASE_"               json:"database,omitempty"             yaml:"database,omitempty"`
@@ -279,6 +281,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.Authorization),
 		validation.Field(&cfg.Capitalism),
 		validation.Field(&cfg.CircuitBreaking),
+		validation.Field(&cfg.Comments),
 		validation.Field(&cfg.Cookies),
 		// The one cross-subsystem rule in this list, and it earns the exception
 		// because the alternative is silence. dataprivacy runs its exports and

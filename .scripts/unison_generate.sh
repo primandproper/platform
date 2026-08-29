@@ -59,6 +59,7 @@ COMPONENTS=(
   "authentication/passwordreset postgres mysql sqlite"
   "authentication/webauthn/database postgres mysql sqlite"
   "authorization/database postgres mysql sqlite"
+  "comments postgres mysql sqlite"
   "cryptography/shredding postgres mysql sqlite"
   "dataprivacy postgres mysql sqlite"
   "issuereports postgres mysql sqlite"

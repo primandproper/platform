@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/primandproper/platform-go/v13/comments"
+	commentscfg "github.com/primandproper/platform-go/v13/comments/config"
 	databasecfg "github.com/primandproper/platform-go/v13/database/config"
 	"github.com/primandproper/platform-go/v13/identity"
 	identitycfg "github.com/primandproper/platform-go/v13/identity/config"
@@ -55,8 +57,8 @@ func sqliteDatabase(t *testing.T) *databasecfg.Config {
 }
 
 // TestRegisterStores covers the subsystems the composition root reached last:
-// the identity, issue report, settings, and notifications stores, and the
-// retention sweeper.
+// the identity, issue report, comment, settings, and notifications stores, and
+// the retention sweeper.
 //
 // The reflection-driven tests above already assert that a field on Config is
 // validated and registers something. What they cannot say is that what it
@@ -73,12 +75,18 @@ func TestRegisterStores(T *testing.T) {
 			Database:      sqliteDatabase(t),
 			Identity:      &identitycfg.Config{TablePrefix: storePrefix},
 			IssueReports:  &issuereportscfg.Config{TablePrefix: storePrefix},
+			Comments:      &commentscfg.Config{TablePrefix: storePrefix},
 			Settings:      &settingscfg.Config{TablePrefix: storePrefix},
 			Notifications: &notificationscfg.Config{TablePrefix: storePrefix},
 		}
 		must.NoError(t, cfg.ValidateWithContext(t.Context()))
 
 		i := newInjector(t, cfg)
+
+		// The comment store's one dependency the environment cannot supply:
+		// which kinds of thing accept comments, each type optionally carrying a
+		// function that reads the application's own tables.
+		do.ProvideValue(i, comments.Targets{comments.TargetType("recipe"): {Description: "a recipe"}})
 
 		identityStore, err := do.Invoke[identity.Store](i)
 		must.NoError(t, err)
@@ -91,6 +99,10 @@ func TestRegisterStores(T *testing.T) {
 		reportStore, err := do.Invoke[issuereports.Store](i)
 		must.NoError(t, err)
 		test.NotNil(t, reportStore)
+
+		commentStore, err := do.Invoke[comments.Store](i)
+		must.NoError(t, err)
+		test.NotNil(t, commentStore)
 
 		// The notifications store is registered under three keys, and the two
 		// interfaces are narrowings of the one concrete registration rather
@@ -118,6 +130,7 @@ func TestRegisterStores(T *testing.T) {
 		must.NoError(t, env.ParseWithOptions(cfg, env.Options{Environment: map[string]string{
 			"IDENTITY_TABLE_PREFIX":        storePrefix,
 			"ISSUE_REPORTS_TABLE_PREFIX":   storePrefix,
+			"COMMENTS_TABLE_PREFIX":        storePrefix,
 			"SETTINGS_TABLE_PREFIX":        storePrefix,
 			"NOTIFICATIONS_TABLE_PREFIX":   storePrefix,
 			"RETENTION_SWEEPER_BATCH_SIZE": "500",
@@ -125,7 +138,7 @@ func TestRegisterStores(T *testing.T) {
 
 		must.NoError(t, cfg.ValidateWithContext(t.Context()))
 
-		test.Eq(t, []string{"Identity", "IssueReports", "Notifications", "Retention", "Settings"}, present(t, cfg))
+		test.Eq(t, []string{"Comments", "Identity", "IssueReports", "Notifications", "Retention", "Settings"}, present(t, cfg))
 	})
 
 	T.Run("builds the retention sweeper over the application's policies", func(t *testing.T) {
