@@ -24,8 +24,14 @@ A deployment that charges on the web and on mobile runs both adapters, one per
 endpoint, and that is the shape to reach for — not a merged manager, which
 would have to pretend one provider could answer for the other.
 
-There is likewise no UsageReporter here. RevenueCat prices whole subscriptions,
-not metered consumption, so there is no meter to post to.
+There is likewise no UsageReporter here, and the absence is named rather than
+merely true. RevenueCat prices whole subscriptions, not metered consumption, so
+there is no meter to post to; usage.go carries that reason and
+ErrUsageReportingUnsupported, which capitalismcfg's usage reporter constructor
+refuses with when RevenueCat is the selected provider. It is a second sentinel
+because it is a second reason: the outbound methods above refuse because the
+store owns the purchase, and a usage report is refused because there is nothing
+to meter.
 
 # What the events say, and what they do not
 
