@@ -33,6 +33,11 @@ Wire it and dead tokens leave on their own. Leave it unwired and the
 classification still reaches the caller as an error — nothing is hidden — but
 nothing prunes.
 
+From configuration the same wiring is two registrations rather than a call:
+notifications/config registers the store, notifications/mobile/config registers
+the sender and resolves the registry optionally, and a container carrying both
+prunes. A container carrying only the sender behaves exactly as it did before.
+
 # Tenancy, and the one method without it
 
 Every read and write here takes a tenancy.Scope, and the inbox takes a principal
