@@ -116,6 +116,12 @@ type Option func(*Eraser)
 
 // WithTablePrefix overrides audit.DefaultTablePrefix. It must match the prefix
 // the audit tables were rendered with.
+//
+// It names no table: the prefix is forwarded to audit, which vets it and hands
+// it to the generated querier, and nothing here renders an identifier from it.
+// It is the only way to say which tables are meant, which is the point — a
+// constructor that also took the prefix positionally would be two places to
+// name one thing, and a prefix accepted in one and overridden in the other.
 func WithTablePrefix(prefix string) Option {
 	return func(e *Eraser) {
 		e.prefix = prefix
@@ -143,15 +149,16 @@ func WithRetentionBasis(basis string) Option {
 
 // New builds an Eraser over the audit tables.
 //
-// The dialect must match the database the erasure transaction runs against, and
-// the prefix must match the audit tables' own.
-func New(d dialect.Dialect, prefix string, opts ...Option) (*Eraser, error) {
+// The dialect must match the database the erasure transaction runs against. The
+// tables are audit.DefaultTablePrefix's unless WithTablePrefix says otherwise,
+// in which case the prefix must match the audit tables' own.
+func New(d dialect.Dialect, opts ...Option) (*Eraser, error) {
 	if !d.Valid() {
 		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "audit erasure dialect %q", d)
 	}
 
 	e := &Eraser{
-		prefix: prefix,
+		prefix: audit.DefaultTablePrefix,
 		basis:  DefaultRetentionBasis,
 		resolve: func(_ context.Context, subject dataprivacy.Subject) ([]string, error) {
 			return []string{subject.ID}, nil
@@ -165,9 +172,7 @@ func New(d dialect.Dialect, prefix string, opts ...Option) (*Eraser, error) {
 
 	// The prefix is vetted where the tables are named, which is the audit
 	// package: one rule, applied once, so a prefix this package accepted and
-	// that one refused is not a thing that can happen. The option runs first,
-	// so a prefix smuggled in that way is caught on the same terms as the
-	// constructor's.
+	// that one refused is not a thing that can happen.
 	erasure, err := audit.NewErasure(d, audit.WithErasureTablePrefix(e.prefix))
 	if err != nil {
 		return nil, err
