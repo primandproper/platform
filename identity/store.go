@@ -392,6 +392,13 @@ type ProfileWriter interface {
 	// Changing the username or email address to one already registered in this
 	// scope returns ErrUsernameTaken or ErrEmailAddressTaken. Changing the email
 	// address clears its verification: the new address has not been proven.
+	//
+	// A redacted user round-trips. The value every bulk read and Principal.User
+	// hands back has its credentials cleared, so the obvious profile handler —
+	// take the principal's user, change the name, save — is the one that has to
+	// work; it validates the columns it assigns rather than the whole user, and
+	// a caller therefore needs neither a password hash nor a status to save a
+	// display name.
 	UpdateUser(ctx context.Context, user *User) error
 
 	// UpdateAccount writes the account's name and billing address.

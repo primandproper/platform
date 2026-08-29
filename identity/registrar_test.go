@@ -156,11 +156,11 @@ func runRegistrarSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		noHash := newUser("ada")
-		noHash.HashedPassword = ""
+		noUsername := newUser("ada")
+		noUsername.Username = ""
 
 		err := inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
-			return store.CreateUser(ctx, q, noHash)
+			return store.CreateUser(ctx, q, noUsername)
 		})
 		must.Error(t, err)
 

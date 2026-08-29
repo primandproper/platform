@@ -145,6 +145,20 @@ func TestUser_Predicates(T *testing.T) {
 		test.False(t, nilUser.TwoFactorEnabled())
 		test.False(t, nilUser.EmailAddressVerified())
 		test.False(t, nilUser.Archived())
+		test.False(t, nilUser.HasPassword())
+	})
+
+	T.Run("a password is a hash that is there", func(t *testing.T) {
+		t.Parallel()
+
+		// The question a password sign-in asks before it compares: an engine
+		// handed an empty hash has no way to know it was never set.
+		test.False(t, (&User{}).HasPassword())
+		test.True(t, (&User{HashedPassword: "argon2$x"}).HasPassword())
+
+		// Redaction clears the hash, so a redacted user reports false. That is
+		// why this is a sign-in flow's question and not a profile page's.
+		test.False(t, (&User{HashedPassword: "argon2$x"}).Redacted().HasPassword())
 	})
 }
 
@@ -178,15 +192,17 @@ func TestUser_Validate(T *testing.T) {
 		must.ErrorIs(t, user.ValidateWithContext(t.Context()), tenancy.ErrNoScope)
 	})
 
-	T.Run("requires a password hash", func(t *testing.T) {
+	T.Run("accepts a user with no password", func(t *testing.T) {
 		t.Parallel()
 
 		user := valid()
 		user.HashedPassword = ""
 
-		// Catches the caller who forgot to hash, which is the failure that
-		// writes a plaintext password into the column.
-		must.Error(t, user.ValidateWithContext(t.Context()))
+		// A passkey-only or federated registration produces somebody there is
+		// no hash to store for, and the requirement this replaced never caught
+		// what it was written for: a plaintext password is a non-empty string
+		// and passed.
+		must.NoError(t, user.ValidateWithContext(t.Context()))
 	})
 
 	T.Run("refuses an unknown status", func(t *testing.T) {
@@ -231,6 +247,32 @@ func TestUser_Validate(T *testing.T) {
 
 		var user *User
 		must.ErrorIs(t, user.ValidateWithContext(t.Context()), ErrNilUser)
+		must.ErrorIs(t, user.validateProfile(t.Context()), ErrNilUser)
+	})
+
+	T.Run("the profile check covers what a profile write assigns", func(t *testing.T) {
+		t.Parallel()
+
+		// The status is AdminWriter's column, and a handler assembling a User
+		// out of a profile form has no reason to name one. Nor a password.
+		lean := &User{Scope: tenancy.Global(), Username: "ada", EmailAddress: "ada@example.com"}
+		must.NoError(t, lean.validateProfile(t.Context()))
+		must.ErrorIs(t, lean.ValidateWithContext(t.Context()), platformerrors.ErrUnrecognizedInputValue)
+
+		// Narrower is not laxer about the columns it does assign: the address
+		// rule is the same one registration is held to, so the two cannot
+		// drift.
+		noScope := valid()
+		noScope.Scope = tenancy.Scope{}
+		must.ErrorIs(t, noScope.validateProfile(t.Context()), tenancy.ErrNoScope)
+
+		noUsername := valid()
+		noUsername.Username = ""
+		must.Error(t, noUsername.validateProfile(t.Context()))
+
+		display := valid()
+		display.EmailAddress = "Ada <ada@example.com>"
+		must.Error(t, display.validateProfile(t.Context()))
 	})
 
 	T.Run("defaults to unverified", func(t *testing.T) {
