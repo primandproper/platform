@@ -15,8 +15,21 @@ driver from config — reaches the same handles behind two opt-in capabilities,
 obtained by type assertion: database.RawAccess for the *sql.DB, and this
 package's PgxAccess for the native pools.
 
-The database/sql layer carries the otelsql instrumentation (spans and the
-db.sql.* metric series, unchanged from earlier releases); queries issued
-natively through PgxAccess pools are not yet traced.
+Both surfaces are traced. The database/sql layer carries the otelsql
+instrumentation (spans and the db.sql.* metric series, unchanged from earlier
+releases), and the pools carry a pgx tracer for statements issued natively
+through PgxAccess — Query, QueryRow, Exec, SendBatch, CopyFrom, and Prepare —
+spanned in otelsql's own sql.* naming so that a trace reads as one database
+rather than two.
+
+Each statement is spanned once. The two surfaces run on the same connections,
+so pgx's tracer hook fires for the database/sql layer's statements as well; the
+client marks the contexts belonging to that layer and the pgx tracer skips them,
+leaving otelsql's span the only one. What arrives unmarked is exactly what came
+in through a pool a caller took from PgxAccess.
+
+Both instrumentations resolve the provider given to WithTracerProvider, and
+neither is installed without one — a client built with no tracer provider traces
+nowhere rather than falling back to OpenTelemetry's global provider.
 */
 package postgres
