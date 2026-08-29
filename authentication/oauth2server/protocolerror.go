@@ -23,6 +23,12 @@ const (
 	// does not mint tokens for.
 	ErrorCodeInvalidTarget = "invalid_target"
 
+	// The RFC 6750 §3.1 resource server errors. They are what a protected
+	// resource sends in a WWW-Authenticate challenge rather than in a body, and
+	// they are the two codes this package's Verifier emits.
+	ErrorCodeInvalidToken      = "invalid_token"
+	ErrorCodeInsufficientScope = "insufficient_scope"
+
 	// The RFC 7591 §3.2.2 registration errors.
 	ErrorCodeInvalidRedirectURI    = "invalid_redirect_uri"
 	ErrorCodeInvalidClientMetadata = "invalid_client_metadata"

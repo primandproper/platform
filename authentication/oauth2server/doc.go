@@ -99,6 +99,44 @@ it to find out which tokens exist. A deployment often needs to know anyway, to
 emit its own "this user signed out" event, and asks with WithRevocationObserver
 rather than by inspecting a response that deliberately carries nothing.
 
+# The resource server's half
+
+Everything above mints tokens. Verifier is what a protected resource does with
+one, and it is a separate type for the same reason ResourceMetadata is: the
+resource server and the authorization server are frequently not the same
+component even when they are the same process.
+
+	guard, _ := oauth2server.NewVerifier(metadata, srv)
+	router.Handle(http.MethodPost, "/mcp", mcpHandler,
+		guard.Middleware("recipes:read"))
+
+Three checks, and the middle one is why this exists.
+
+The token is live: delegated to Server.Authenticate, which reads the Store. The
+token names this resource: its RFC 8707 audience is compared against the
+resource identifier in the metadata document. The token carries the scopes the
+route asked for.
+
+Authenticate is the first of those three and only the first. It answers "is this
+a live token", because it is the authorization server's lookup and the
+authorization server serves every resource behind it — so a deployment running
+two protected resources against one authorization server has a cross-resource
+replay the moment either of them reads a non-nil return as an authorized
+request. The audience comparison is the one a resource server has to make for
+itself, and the only thing it needs in order to make it is its own identifier:
+naming that is what building a ResourceMetadata already is, so a Verifier is
+built from one rather than asking for the string a second time.
+
+A token that carries no audience at all is refused, and there is no option that
+accepts one. It is the token RFC 8707 exists to prevent; a deployment where this
+refuses everything has clients that are not sending the resource parameter.
+
+Verify is the same three checks without the HTTP, for a resource server that
+writes its own response envelope, and WriteChallenge writes the RFC 6750
+refusal — status and WWW-Authenticate — for one that only wants the header
+right. A handler underneath Middleware reads what was verified with
+TokenFromContext instead of looking it up again.
+
 # The decision with the most reach: what an access token is
 
 An access token here is opaque, and every resource-server request that carries
@@ -197,17 +235,28 @@ Token introspection (RFC 7662) and consent screens beyond the login form. The
 first is discussed above; the second is application-shaped in the same way the
 login form is, and WithLoginRenderer is the seam for it.
 
-An adapter for any one protocol built on top of this. A remote MCP server is the
-case that prompted asking, because it has to be an authorization server and this
-is that; what is left over is smaller than it looks. An MCP server is an
-http.Handler, so putting it beside these endpoints is a Handle call on the same
-router. Its SDK wants a token verifier, which is a function that calls
-Authenticate and copies an AccessToken's Subject, Scopes, and ExpiresAt into
-whatever the SDK's own token type is. The 401 challenge the SDK's bearer
-middleware sends is the one ResourceMetadata.Challenge already builds, and the
-verified subject a tool handler needs is what the SDK then carries for it. A
-package holding a mount call and a fifteen-line copy would pin this module to
-one SDK's API in exchange for the fifteen lines.
+An adapter for any one protocol built on top of this, and a dependency on any
+one protocol's SDK. A remote MCP server is the case that prompted asking, and it
+is worth saying where the line fell, because "the machinery is generic and the
+tools are not" is true and still does not put an mcp package in this module.
+
+What is generic about an OAuth-protected MCP server is not MCP. It is the
+resource server: extract a bearer token, check it is live, check it was minted
+for this resource, check its scopes, and answer a refusal with the RFC 9728
+pointer that starts a client's discovery. That is Verifier above, and it is the
+same code for a REST API behind the same tokens — so a package named mcp would
+have been a name a REST resource server either could not reach or had to import
+a protocol it does not speak to get at.
+
+What is left after that is genuinely MCP's, and genuinely the consumer's: the
+server assembly, the tool registration, the schemas. An MCP server is an
+http.Handler, so mounting it is Middleware around it and a Handle call on the
+same router. A deployment preferring its SDK's own bearer middleware hands that
+middleware a function calling Verify and copying Scopes and ExpiresAt into the
+SDK's token type — three lines, against an SDK version this module then never
+has to have an opinion about. Taking the dependency, or defining an interface
+for a consumer's SDK to satisfy, would both buy those three lines at the price
+of a vendor API in this module's go.mod or in its exported surface.
 
 # Choosing a store
 
@@ -224,7 +273,11 @@ do.Provide registration.
 # Watching it
 
 	oauth2server_requests                by endpoint: metadata, authorize, token,
-	                                     register, revoke.
+	                                     register, revoke, and verify — the last
+	                                     being a Verifier rather than an endpoint
+	                                     here, sharing the label so one panel
+	                                     covers the tokens minted and the
+	                                     requests they are spent on.
 	oauth2server_errors                  by endpoint and OAuth error code. A rising
 	                                     invalid_grant on the token endpoint is
 	                                     usually a client with a broken PKCE
@@ -246,6 +299,15 @@ do.Provide registration.
 	                                     here too — but never nothing.
 	oauth2server_revocations             records revoked, by /revoke and by reuse
 	                                     detection together.
+	oauth2server_audience_rejections     live tokens presented at a Verifier they
+	                                     were not minted for. An unknown token is
+	                                     background — sessions end all day, and
+	                                     those land on the shared error counter
+	                                     under endpoint "verify" with
+	                                     invalid_token — while a token that is
+	                                     good somewhere else arriving here is a
+	                                     client pointed at the wrong server or a
+	                                     replay, and is never nothing.
 
 No credential appears on a span or in a log line, hashed or otherwise: a hash of
 a bearer credential is the store's lookup key for it. The client identifier is

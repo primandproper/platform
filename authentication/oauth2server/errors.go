@@ -81,6 +81,49 @@ var (
 
 	// ErrNilRecord indicates a nil record reached a Store's create method.
 	ErrNilRecord = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil oauth2 record")
+
+	// ErrNilResourceMetadata indicates NewVerifier was called without a
+	// ResourceMetadata. It is where the resource identifier lives, so a
+	// Verifier without one would have nothing to compare a token's audience
+	// against.
+	ErrNilResourceMetadata = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil protected resource metadata")
+
+	// ErrNilTokenAuthenticator indicates NewVerifier was called without a
+	// TokenAuthenticator. There is no implicit one: a resource server that
+	// cannot reach the store has nothing to verify a token against.
+	ErrNilTokenAuthenticator = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil oauth2 token authenticator")
+)
+
+// Resource server sentinels. These are what Verify reports, and they are
+// separate errors rather than one because a resource server answers each of
+// them differently — see Verifier.WriteChallenge, which maps these three and
+// the store's ErrNotFound onto a status and an RFC 6750 error code.
+var (
+	// ErrNoBearerToken indicates a request that presented no Authorization:
+	// Bearer credential at all.
+	//
+	// Distinct from a token that failed, deliberately. RFC 6750 §3 answers this
+	// one with a challenge carrying no error code, because a client that has
+	// not tried yet has not got anything wrong — it is being told where to go
+	// and register, which is the entire discovery chain RFC 9728 exists for.
+	ErrNoBearerToken = platformerrors.Wrap(platformerrors.ErrEmptyInputParameter, "request carries no bearer token")
+
+	// ErrTokenAudienceMismatch indicates a live token whose RFC 8707 audience
+	// does not name this resource.
+	//
+	// It is the check a resource server is most likely to skip and the one that
+	// costs the most when skipped: an authorization server serves every
+	// resource behind it, so a token minted for one of them is a token the
+	// others will accept unless they compare. A token carrying no audience at
+	// all lands here too — see audienceFor for why that is the correct end of
+	// the trade rather than a case to make configurable.
+	ErrTokenAudienceMismatch = platformerrors.New("access token was not issued for this resource")
+
+	// ErrInsufficientScope indicates a live token, minted for this resource,
+	// that does not carry a scope the route required. It is the one resource
+	// server refusal that is a 403 rather than a 401: the credential is good
+	// and re-presenting it will not help.
+	ErrInsufficientScope = platformerrors.New("access token does not carry a required scope")
 )
 
 // Protocol sentinels. These are the failures the server renders as an OAuth

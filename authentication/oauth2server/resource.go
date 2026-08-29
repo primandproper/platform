@@ -128,6 +128,30 @@ func (m *ResourceMetadata) Mount(r *routing.Router, middleware ...routing.Middle
 // expired, revoked, or unknown; empty for a request that carried no token at
 // all, which is not an error so much as an absence.
 func (m *ResourceMetadata) Challenge(errorCode, description string) string {
+	return m.challenge(errorCode, description, nil)
+}
+
+// ScopeChallenge renders the WWW-Authenticate header for a request refused
+// because its token lacks a scope, naming the scopes that would have satisfied
+// it.
+//
+// It is a second method rather than a third parameter on Challenge because a
+// parameter added to an exported function is a change every caller has to
+// absorb, and because the scope attribute belongs to exactly one refusal: RFC
+// 6750 §3.1 defines it for insufficient_scope and for nothing else. The error
+// code is therefore not a parameter either — there is only one it can be.
+//
+// This is the refusal a client can act on. Every other one tells it that the
+// credential it holds is no good; this one tells it what to ask the
+// authorization server for instead.
+func (m *ResourceMetadata) ScopeChallenge(description string, scopes []string) string {
+	return m.challenge(ErrorCodeInsufficientScope, description, scopes)
+}
+
+// challenge builds a WWW-Authenticate value, and is the one place this package
+// spells that syntax. Two callers rendering it separately is how a header
+// acquires a stray comma in one of its branches.
+func (m *ResourceMetadata) challenge(errorCode, description string, scopes []string) string {
 	// The trailing slash is trimmed rather than assumed absent. A resource
 	// identifier is conventionally written with one — "https://api.example/" —
 	// and concatenating the path onto that renders a double slash, which some
@@ -143,6 +167,10 @@ func (m *ResourceMetadata) Challenge(errorCode, description string) string {
 
 	if description != "" {
 		challenge += fmt.Sprintf(`, error_description=%q`, description)
+	}
+
+	if len(scopes) > 0 {
+		challenge += fmt.Sprintf(`, scope=%q`, joinScopes(scopes))
 	}
 
 	return challenge
