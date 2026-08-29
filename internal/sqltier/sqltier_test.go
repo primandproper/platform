@@ -76,6 +76,7 @@ var rulings = map[string]ruling{
 	"notifications/internal/notificationsdb":                       {tier: unison},
 	"operations/internal/operationsdb":                             {tier: unison},
 	"timers/internal/timersdb":                                     {tier: unison},
+	"workqueue/internal/workqueuedb":                               {tier: unison},
 	"outbox/internal/outboxdb":                                     {tier: unison},
 	"metering/internal/meteringdb":                                 {tier: unison},
 
@@ -83,7 +84,6 @@ var rulings = map[string]ruling{
 	// corpus; nothing about the list is a decision, which is why none of them
 	// carries a reason.
 	"authentication/passwordreset": {tier: porting},
-	"workqueue":                    {tier: porting},
 
 	// Not table SQL. The corpus is a set of statements checked against a schema
 	// this module ships, and none of these is one.
@@ -102,6 +102,7 @@ var rulings = map[string]ruling{
 	"outbox/internal/queries":       {tier: exempt, why: "a corpus source rather than a store: the statements here are rendered into the committed .sql that sqlc checks and unison emits from, and the six this package writes out in full are the shapes database/querygen's doc rules out of it"},
 	"retention":                     {tier: exempt, why: "the table a pass deletes from, the column its age is measured from and the key its batches are bounded by all arrive from a Policy an application writes at run time, so this module ships no DDL for them and nothing committed is left for sqlc to check a statement against; what it takes from database/querygen's prune is the rules rather than the rendering, and a three-dialect container suite in place of the corpus"},
 	"timers/internal/queries":       {tier: exempt, why: "a corpus source whose statements are written out in full rather than rendered from database/querygen, for the reason its own doc gives: every one of them assigns an expression, and each is still checked by sqlc and executed through timers/internal/timersdb"},
+	"workqueue/internal/queries":    {tier: exempt, why: "a corpus source whose seven statements are written out in full rather than rendered from database/querygen, for the reason its own doc gives: this table carries no convention triple and every write assigns an expression, and each statement is still checked by sqlc and executed through workqueue/internal/workqueuedb"},
 	"search/vector/pgvector":        {tier: exempt, why: "the index table's name, dimension and metadata column are configuration, so its DDL is issued at run time and nothing committed is left for sqlc to check a statement against"},
 	"testutils/containers/pgtest":   {tier: exempt, why: "the schemas and databases a container test isolates itself with, created and dropped by the harness rather than by a store"},
 
@@ -115,6 +116,7 @@ var rulings = map[string]ruling{
 	"metering":                 {tier: none, why: "the twelve builders that composed its SQL as Go strings are gone: its statements are rendered by metering/internal/queries and executed through the querier above, so the package that used to compose them holds none"},
 	"outbox":                   {tier: none, why: "ported: its statements are rendered by outbox/internal/queries and executed through the querier above, and the one line of SQL it still names is database/dialect's NOTIFY, which is addressed to a channel rather than to a table"},
 	"timers":                   {tier: none, why: "ported: its statements are rendered by timers/internal/queries and executed through the querier above, and the one line of SQL it still names is database/dialect's NOTIFY, which is addressed to a channel rather than to a table"},
+	"workqueue":                {tier: none, why: "ported: the eight builders that composed its claim, its lock-ordering CTE and its bounded reaper are rendered by workqueue/internal/queries and executed through the querier above, and the one line of SQL it still names is database/dialect's NOTIFY, which is addressed to a channel rather than to a table"},
 }
 
 // TestEverySQLPackageIsClassified is the entry this file exists to make

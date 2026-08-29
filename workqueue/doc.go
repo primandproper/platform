@@ -51,13 +51,13 @@ Both of these came out of a production system running this pattern, and neither
 is obvious until it bites. They are the reason this package exists rather than
 the twenty lines of SQL underneath it.
 
-*Every writer takes its row locks in primary-key order.* Enqueue sorts its rows
-before building the statement, and Complete, Release, and Remove reach their rows
-through a CTE that orders and locks them explicitly. With one total order,
-contention between concurrent batch writers degrades into a queue; without it,
-two batches that overlap in opposite orders deadlock (SQLSTATE 40P01) the moment
-they meet. Claim is exempt and safe: SKIP LOCKED never waits, and a writer that
-never waits cannot be in a lock cycle.
+*Every writer takes its row locks in primary-key order.* Enqueue binds its rows
+in key order and the statement orders them again, and Complete, Release, and
+Remove reach their rows through a CTE that orders and locks them explicitly. With
+one total order, contention between concurrent batch writers degrades into a
+queue; without it, two batches that overlap in opposite orders deadlock
+(SQLSTATE 40P01) the moment they meet. Claim is exempt and safe: SKIP LOCKED
+never waits, and a writer that never waits cannot be in a lock cycle.
 
 *Enqueue group-commits.* One statement per caller does not survive contact with a
 read path. Every in-flight Enqueue on a process is merged into a single upsert,
@@ -144,6 +144,24 @@ has a canonical string form — supplies WithKeyCodec.
 The encoded key is the table's primary key and is bounded by MaxKeyLength; an
 over-long key is rejected at Enqueue rather than silently truncated.
 
+# Where the SQL comes from
+
+Nothing in this package composes a statement. The queries live in
+workqueue/internal/queries as a rendered, committed corpus — written out there
+rather than emitted by database/querygen, for the reason that package's comment
+gives — sqlc checks that corpus against the schema workqueue/migrations renders
+with no database running, and what the queue executes is the querier
+sqlc-gen-unison generated from it, in workqueue/internal/workqueuedb. A column
+renamed in a migration is a failed `make unison` rather than a scan error in
+production.
+
+A batch reaches those statements as one bound array per column rather than as a
+tuple or a placeholder run, so the text of a statement does not depend on how
+many items are in the call. Enqueue splits its merged batch into three parallel
+arrays — key, priority, delay — and Complete, Release, and Remove each bind one
+array of keys, in primary-key order, which is where the lock-ordering discipline
+above is applied.
+
 # Creating the table
 
 workqueue/migrations renders the DDL for a table prefix. If you already run
@@ -175,5 +193,13 @@ degrading to a lease-only claim that would look like it worked. If a second
 backend is ever wanted, the shape to reach for is this package as the interface
 with a workqueue/postgres beneath it, the way cache and cache/redis sit — nothing
 here forecloses that.
+
+The corpus reflects that decision rather than working around it. There is no
+MySQL rendering to reconcile, so the RETURNING split a portable corpus would
+have owed is not a shape this package has: sqlc's Postgres engine parses the
+lock-ordering CTE, the SKIP LOCKED claim, the interval arithmetic and the
+multi-column RETURNING exactly as they are written.
 */
 package workqueue
+
+//go:generate go run ./internal/queriesgen

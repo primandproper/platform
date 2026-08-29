@@ -623,6 +623,42 @@ func runQueueSuite(t *testing.T, client database.Client) {
 		test.SliceLen(t, 1, items)
 	})
 
+	// A batch crosses the seam as one array per column rather than as a tuple
+	// per row, so the nth key, the nth priority and the nth delay have to still
+	// describe one entry at the other end. Nothing in a rendered statement can
+	// say whether they do — a pairing that slipped by one would produce a
+	// statement that runs, writes every row, and gets each one wrong.
+	t.Run("a batch pairs each key with its own priority and delay", func(t *testing.T) {
+		t.Parallel()
+
+		q := newQueue(t, client, nil)
+
+		// Deliberately out of key order, and deliberately not in priority order
+		// either: the merge, the sort and the split that follow are what the
+		// pairing has to survive.
+		must.NoError(t, q.Enqueue(t.Context(),
+			Entry[string]{Key: "c", Priority: 2},
+			Entry[string]{Key: "a", Priority: 7},
+			Entry[string]{Key: "d", Priority: 9, Delay: time.Hour},
+			Entry[string]{Key: "b", Priority: 4},
+		))
+
+		items, err := q.Claim(t.Context(), 10, time.Minute)
+		must.NoError(t, err)
+
+		// d is the loudest and would lead the batch, so its absence is the
+		// delay landing on the row it was bound beside rather than on another.
+		must.SliceLen(t, 3, items)
+		test.Eq(t, []string{"a", "b", "c"}, claimedKeys(items))
+
+		byKey := map[string]int{}
+		for i := range items {
+			byKey[items[i].Key] = items[i].Priority
+		}
+
+		test.Eq(t, map[string]int{"a": 7, "b": 4, "c": 2}, byKey)
+	})
+
 	t.Run("a claim is capped by the configured batch", func(t *testing.T) {
 		t.Parallel()
 
