@@ -10,7 +10,8 @@
 //
 // Not every provider serves both halves. RevenueCat prices whole subscriptions
 // through the mobile stores and has no metered usage API, so selecting it
-// builds a payment manager and refuses a usage reporter — refuses, rather than
+// builds a payment manager and refuses a usage reporter with
+// revenuecat.ErrUsageReportingUnsupported — refuses, rather than
 // quietly handing back the noop one, because a worker that flushes usage into
 // nothing looks exactly like a worker that is billing.
 package capitalismcfg
@@ -183,7 +184,12 @@ func NewUsageReporter(ctx context.Context, cfg *Config, opts ...Option) (capital
 		// whole subscriptions and has no meter to post to, and a flush loop
 		// reporting into a reporter that discards everything is indistinguishable
 		// from one that is billing — right up until somebody reconciles the books.
-		return nil, errors.Wrap(revenuecat.ErrOutboundUnsupported, "reporting usage")
+		//
+		// Under the provider's own usage sentinel rather than the one its outbound
+		// PaymentManager methods report: those refuse because the store owns the
+		// purchase, and this refuses because the model does not meter. A caller
+		// matching on either gets the message that describes what it asked for.
+		return nil, errors.Wrap(revenuecat.ErrUsageReportingUnsupported, "reporting usage")
 	case NoopProvider:
 		return noop.NewUsageReporter(), nil
 	default:
