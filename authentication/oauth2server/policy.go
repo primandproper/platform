@@ -13,8 +13,9 @@ import (
 // They are not a security boundary on their own — a caller who can register one
 // client can register a thousand — but they bound what a single registration
 // costs, which is what keeps a row in the client table a row rather than a
-// place to store a megabyte. The actual defense against volume is rate limiting
-// middleware, which the policy cannot do; see RegistrationPolicy.
+// place to store a megabyte. The defense against volume is a rate limit, which
+// the policy cannot impose and WithRegistrationLimiter can; see
+// RegistrationPolicy.
 const (
 	// MaxRedirectURIs is how many callbacks one registration may declare.
 	MaxRedirectURIs = 16

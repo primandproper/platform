@@ -7,6 +7,7 @@ import (
 	"github.com/primandproper/platform-go/v13/observability/logging"
 	"github.com/primandproper/platform-go/v13/observability/metrics"
 	"github.com/primandproper/platform-go/v13/observability/tracing"
+	"github.com/primandproper/platform-go/v13/routing"
 )
 
 // The four lifetimes, and why they are these numbers.
@@ -63,10 +64,11 @@ type (
 		tracerProvider  tracing.Provider
 		metricsProvider metrics.Provider
 
-		subjectResolver    SubjectResolver
-		loginRenderer      LoginRenderer
-		registrationPolicy RegistrationPolicy
-		revocationObserver RevocationObserver
+		subjectResolver     SubjectResolver
+		loginRenderer       LoginRenderer
+		registrationPolicy  RegistrationPolicy
+		registrationLimiter routing.Middleware
+		revocationObserver  RevocationObserver
 
 		serviceDocumentation string
 
@@ -248,6 +250,47 @@ func WithRegistrationPolicy(policy RegistrationPolicy) Option {
 	return func(o *serverOptions) {
 		if policy != nil {
 			o.registrationPolicy = policy
+		}
+	}
+}
+
+// WithRegistrationLimiter puts a gate in front of /register.
+//
+// /register is unauthenticated by construction — RFC 7591 requires that, or a
+// client that discovered this server at runtime would have nothing to present —
+// so it is the one endpoint here an anonymous caller can write rows through,
+// and bounding how fast it may is a deployment's to decide. It is a deployment's
+// because *who a caller is* is: an address is a proxy's unless the proxy is
+// trusted, a header is whatever an API gateway was configured to set, and
+// neither fact is visible from in here. So this package supplies the seam and
+// the deployment supplies the answer.
+//
+// The gate is a routing.Middleware, which is what ratelimiting/http.NewMiddleware
+// returns:
+//
+//	limiter, err := ratelimiting.NewInMemoryRateLimiter(1, 5)
+//	gate, err := ratelimitinghttp.NewMiddleware(limiter, ratelimitinghttp.KeyByRemoteAddr())
+//	server, err := oauth2server.NewServer(issuer, store, authenticator,
+//		oauth2server.WithRegistrationLimiter(gate))
+//
+// It is an option rather than a Mount argument because a gate passed to Mount
+// is a gate on all six endpoints, and mounting the handlers individually to
+// reach one of them is a router-shaped answer that has to be rewritten for
+// every router. Set here it wraps RegisterHandler itself, so Mount, Handler,
+// and a deployment mounting the endpoint by hand all get it and none of them
+// had to know.
+//
+// The gate runs before anything this package does, so a refused request costs
+// no store read, spends no registration policy, and appears in the middleware's
+// own counters rather than in oauth2server_requests — a refusal is not an
+// attempt this server declined, it is one it never saw.
+//
+// A nil gate registers nothing, which is the behavior of every server built
+// before this option existed.
+func WithRegistrationLimiter(gate routing.Middleware) Option {
+	return func(o *serverOptions) {
+		if gate != nil {
+			o.registrationLimiter = gate
 		}
 	}
 }

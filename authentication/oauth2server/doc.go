@@ -80,6 +80,19 @@ takes it off the router and out of the discovery document in the same breath,
 because a document naming an endpoint that 404s is the failure the document
 exists to avoid.
 
+It is also the one of the six an anonymous caller can write rows through, so a
+deployment that keeps it wants a bound on how fast. This package will not guess
+what the bound is per: who a caller *is* depends on a deployment's proxy,
+gateway, and address handling, and an address read from in here is a load
+balancer's as often as a client's. So the decision is a deployment's and the
+seam is WithRegistrationLimiter, which takes the gate it built —
+ratelimiting/http.NewMiddleware over any ratelimiting.RateLimiter is the
+expected one — and wraps RegisterHandler in it. Wrapping the handler rather than
+taking middleware at Mount is what makes it survive the router: Handler, Mount,
+and a deployment routing the endpoint by hand are bounded by the same
+construction call, and a deployment that names no gate gets exactly what it got
+before.
+
 /revoke answers the same empty 200 whether it revoked a session or was handed a
 token nobody ever issued — RFC 7009 §2.2 requires that, so a client cannot use
 it to find out which tokens exist. A deployment often needs to know anyway, to
@@ -196,12 +209,6 @@ verified subject a tool handler needs is what the SDK then carries for it. A
 package holding a mount call and a fifteen-line copy would pin this module to
 one SDK's API in exchange for the fifteen lines.
 
-Rate limiting /register. It is unauthenticated by construction — RFC 7591
-requires that for discovery to work — so bounding it matters, but who a caller
-*is* depends on a deployment's proxy, gateway, and address handling in ways not
-visible from in here. Mount takes middleware for exactly this; ratelimiting has
-the middleware.
-
 # Choosing a store
 
 oauth2server/database keeps four SQL tables, and is what a deployment wants.
@@ -228,8 +235,11 @@ do.Provide registration.
 	oauth2server_tokens_issued           token pairs, from both grants.
 	oauth2server_clients_registered      dynamic registrations. This is the one an
 	                                     anonymous caller drives, so a spike here
-	                                     is the signal that /register needs a rate
-	                                     limiter in front of it.
+	                                     is the signal that /register wants a
+	                                     WithRegistrationLimiter gate — and once
+	                                     one is set, the refusals are the gate's
+	                                     own counters rather than this one, which
+	                                     counts what got through.
 	oauth2server_refresh_reuse_detected  replayed refresh tokens and codes. Not
 	                                     always an attack — a client that lost the
 	                                     response to a refresh and retried lands

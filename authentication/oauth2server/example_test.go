@@ -6,9 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 
 	"github.com/primandproper/platform-go/v13/authentication/oauth2server"
 	"github.com/primandproper/platform-go/v13/authentication/oauth2server/memory"
+	"github.com/primandproper/platform-go/v13/ratelimiting"
+	ratelimitinghttp "github.com/primandproper/platform-go/v13/ratelimiting/http"
 )
 
 // The two seams a deployment supplies: who the human is, and what a token
@@ -55,6 +58,70 @@ func ExampleNewServer() {
 	// https://auth.example/token
 	// [S256]
 	// [authorization_code refresh_token]
+}
+
+// /register is unauthenticated by construction, so a deployment bounds it with
+// a gate of its own choosing rather than one this package guessed at.
+func ExampleWithRegistrationLimiter() {
+	// One registration per second, and no burst beyond it. A real deployment
+	// picks these from its own traffic; what it cannot delegate is the next
+	// line.
+	limiter, err := ratelimiting.NewInMemoryRateLimiter(1, 1)
+	if err != nil {
+		panic(err)
+	}
+	defer func() { _ = limiter.Close() }()
+
+	// The address the connection came from, which is right for a server facing
+	// clients directly and wrong behind a proxy — there, KeyByForwardedFor with
+	// the number of proxies actually in front. That is the fact this package
+	// cannot know and the deployment cannot avoid knowing.
+	gate, err := ratelimitinghttp.NewMiddleware(limiter, ratelimitinghttp.KeyByRemoteAddr())
+	if err != nil {
+		panic(err)
+	}
+
+	authenticator := oauth2server.SubjectAuthenticatorFunc(
+		func(_ context.Context, _ *http.Request) (*oauth2server.Subject, error) {
+			return &oauth2server.Subject{ID: "user_1"}, nil
+		})
+
+	srv, err := oauth2server.NewServer("https://auth.example", memory.NewStore(), authenticator,
+		oauth2server.WithRegistrationLimiter(gate))
+	if err != nil {
+		panic(err)
+	}
+
+	// The gate is inside RegisterHandler, so Handler, Mount, and a deployment
+	// routing POST /register by hand are all behind it.
+	front := httptest.NewServer(srv.Handler())
+	defer front.Close()
+
+	register := func() int {
+		body := strings.NewReader(`{"redirect_uris":["https://client.example/callback"]}`)
+
+		req, reqErr := http.NewRequestWithContext(context.Background(),
+			http.MethodPost, front.URL+oauth2server.PathRegister, body)
+		if reqErr != nil {
+			panic(reqErr)
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		res, doErr := front.Client().Do(req)
+		if doErr != nil {
+			panic(doErr)
+		}
+		defer func() { _ = res.Body.Close() }()
+
+		return res.StatusCode
+	}
+
+	fmt.Println(register())
+	fmt.Println(register())
+
+	// Output:
+	// 201
+	// 429
 }
 
 // A resource owner who is already authenticated by other means never sees a
