@@ -220,3 +220,16 @@ func (l *recordingLogger) count(message string) int {
 
 	return n
 }
+
+// rowsIn counts the rows in one table, for the assertions about which table a
+// namespaced store addressed. It is raw SQL in a test, which is the one place
+// this package still has any: the point of the assertion is the table name.
+func rowsIn(t *testing.T, client database.Client, table string) int {
+	t.Helper()
+
+	var count int
+	must.NoError(t, client.Writer().
+		QueryRowContext(t.Context(), "SELECT COUNT(*) FROM "+table).Scan(&count))
+
+	return count
+}

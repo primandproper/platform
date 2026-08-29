@@ -6,10 +6,12 @@ import (
 	stderrors "errors"
 	"time"
 
+	"github.com/primandproper/platform-go/v13/authentication/passwordreset/internal/passwordresetdb"
 	"github.com/primandproper/platform-go/v13/authentication/passwordreset/migrations"
 	"github.com/primandproper/platform-go/v13/clock"
 	"github.com/primandproper/platform-go/v13/cryptography/hashing"
 	"github.com/primandproper/platform-go/v13/database"
+	"github.com/primandproper/platform-go/v13/database/ddl"
 	"github.com/primandproper/platform-go/v13/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/identifiers"
@@ -46,6 +48,7 @@ var _ Store = (*SQLStore)(nil)
 // no sweep, and a store that is not a table has no column.
 type SQLStore struct {
 	db        database.Client
+	q         passwordresetdb.Querier
 	clock     clock.Clock
 	generator random.Generator
 	hasher    hashing.Hasher
@@ -54,8 +57,6 @@ type SQLStore struct {
 	sweptCounter       metrics.Int64Counter
 	sweepErrorsCounter metrics.Int64Counter
 
-	table       string
-	dialect     dialect.Dialect
 	secretBytes int
 }
 
@@ -94,13 +95,26 @@ func NewSQLStore(cfg *Config, db database.Client, opts ...Option) (*SQLStore, er
 		clock:       o.clock,
 		generator:   o.generator,
 		hasher:      o.hasher,
-		table:       tableName(cfg.TablePrefix),
-		dialect:     d,
 		secretBytes: o.secretBytes,
 		o11y:        observability.NewObserver(serviceName, o.logger, o.tracerProvider),
 	}
 
-	var err error
+	// The generated querier, instantiated once the prefix is settled and the
+	// dialect is known — the only two things the generated statements do not
+	// already carry. What executes is what sqlc analyzed, with one marker
+	// substitution; see internal/passwordresetdb.
+	qd, err := querierDialect(d)
+	if err != nil {
+		return nil, err
+	}
+
+	// The table's name lives nowhere else in this package: the canonical
+	// spelling is internal/queries' and the separator is database/ddl's, so a
+	// namespaced deployment cannot end up with two renderings of one name.
+	if s.q, err = passwordresetdb.New(qd, ddl.Qualify(cfg.TablePrefix)); err != nil {
+		return nil, platformerrors.Wrap(err, "building the password reset token querier")
+	}
+
 	if s.sweptCounter, s.sweepErrorsCounter, err = newSweepInstruments(o.metricsProvider); err != nil {
 		return nil, err
 	}
@@ -110,6 +124,25 @@ func NewSQLStore(cfg *Config, db database.Client, opts ...Option) (*SQLStore, er
 	}
 
 	return s, nil
+}
+
+// querierDialect maps this module's dialect names onto the generated package's.
+// The set is closed on both sides — NewSQLStore has already rejected anything
+// d.Valid() declines — so the default arm is reachable only when this module
+// learns a dialect the generated package was not generated for. That is a
+// construction failure like any other, and it names the dialect.
+func querierDialect(d dialect.Dialect) (passwordresetdb.Dialect, error) {
+	switch d {
+	case dialect.Postgres:
+		return passwordresetdb.DialectPostgreSQL, nil
+	case dialect.MySQL:
+		return passwordresetdb.DialectMySQL, nil
+	case dialect.SQLite:
+		return passwordresetdb.DialectSQLite, nil
+	default:
+		return "", platformerrors.Wrapf(dialect.ErrUnsupported,
+			"no generated password reset token queries for dialect %q", d)
+	}
 }
 
 // Digest renders what the token_digest column holds for a secret.
@@ -159,9 +192,14 @@ func (s *SQLStore) Issue(ctx context.Context, scope tenancy.Scope, userID string
 		ExpiresAt: now.Add(ttl),
 	}
 
-	query, args := buildInsert(s.dialect, s.table, token, s.Digest(secret))
-
-	if _, err = s.db.Writer().ExecContext(ctx, query, args...); err != nil {
+	if err = s.q.InsertToken(ctx, s.db.Writer(), passwordresetdb.InsertTokenParams{
+		ID:            token.ID,
+		Scope:         token.Scope,
+		BelongsToUser: token.UserID,
+		TokenDigest:   s.Digest(secret),
+		ExpiresAt:     token.ExpiresAt,
+		CreatedAt:     token.CreatedAt,
+	}); err != nil {
 		return nil, op.Error(err, "storing password reset token row")
 	}
 
@@ -253,16 +291,12 @@ func (s *SQLStore) RevokeForUser(ctx context.Context, scope tenancy.Scope, userI
 
 	op.SetValues(map[string]any{userKey: userID, scopeKey: scope.String()})
 
-	query, args := buildRevokeForUser(s.dialect, s.table, scope, userID)
-
-	result, err := s.db.Writer().ExecContext(ctx, query, args...)
+	revoked, err := s.q.RevokeTokensForUser(ctx, s.db.Writer(), passwordresetdb.RevokeTokensForUserParams{
+		Scope:         scope,
+		BelongsToUser: userID,
+	})
 	if err != nil {
 		return 0, op.Error(err, "revoking password reset token rows")
-	}
-
-	revoked, err := result.RowsAffected()
-	if err != nil {
-		return 0, op.Error(err, "counting revoked password reset token rows")
 	}
 
 	return revoked, nil
@@ -292,16 +326,18 @@ func (s *SQLStore) redeem(
 
 	at := s.clock.Now().UTC()
 
-	query, args := buildRedeem(s.dialect, s.table, token.ID, at)
-
-	result, err := q.ExecContext(ctx, query, args...)
+	// The count is the answer, which is why the statement is annotated
+	// :execrows. A driver that declines to report it reaches this as an error
+	// rather than as an acknowledged unknown — the generated method has no seam
+	// between running the statement and reading the count — and that is the
+	// right reading here: a redemption whose count is unreadable cannot say who
+	// spent the token, and reporting zero would say somebody else did.
+	affected, err := s.q.RedeemToken(ctx, q, passwordresetdb.RedeemTokenParams{
+		RedeemedAt: &at,
+		ID:         token.ID,
+	})
 	if err != nil {
 		return nil, platformerrors.Wrap(err, "redeeming password reset token row")
-	}
-
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return nil, platformerrors.Wrap(err, "counting redeemed password reset token rows")
 	}
 
 	if affected == 0 {
@@ -321,18 +357,11 @@ func (s *SQLStore) read(
 	scope tenancy.Scope,
 	secret string,
 ) (*Token, error) {
-	query, args := buildSelectByDigest(s.dialect, s.table, s.Digest(secret), scope)
-
-	var (
-		token     Token
-		expiresAt any
-		redeemed  any
-		createdAt any
-	)
-
-	if err := q.QueryRowContext(ctx, query, args...).Scan(
-		&token.ID, &token.Scope, &token.UserID, &expiresAt, &redeemed, &createdAt,
-	); err != nil {
+	row, err := s.q.GetTokenByDigest(ctx, q, passwordresetdb.GetTokenByDigestParams{
+		TokenDigest: s.Digest(secret),
+		Scope:       scope,
+	})
+	if err != nil {
 		if stderrors.Is(err, sql.ErrNoRows) {
 			return nil, ErrTokenNotFound
 		}
@@ -340,20 +369,25 @@ func (s *SQLStore) read(
 		return nil, platformerrors.Wrap(err, "reading password reset token row")
 	}
 
-	if at, ok := database.CoerceTime(expiresAt); ok {
-		token.ExpiresAt = at.UTC()
+	token := &Token{
+		ID:        row.ID,
+		Scope:     row.Scope,
+		UserID:    row.BelongsToUser,
+		ExpiresAt: row.ExpiresAt.UTC(),
+		CreatedAt: row.CreatedAt.UTC(),
 	}
 
-	if at, ok := database.CoerceTime(createdAt); ok {
-		token.CreatedAt = at.UTC()
-	}
-
-	if at, ok := database.CoerceTime(redeemed); ok {
-		utc := at.UTC()
+	// Converted here rather than left as the driver chose. A location is not
+	// the instant, so nothing this package compares would change — but a Token
+	// is handed to a caller who prints it, serializes it, and shows it to
+	// somebody, and a timestamp that reads differently on Postgres than on
+	// SQLite is a difference in this package's output rather than in a driver's.
+	if row.RedeemedAt != nil {
+		utc := row.RedeemedAt.UTC()
 		token.RedeemedAt = &utc
 	}
 
-	return &token, nil
+	return token, nil
 }
 
 // liveness reports why a token cannot be spent, or nil when it can.

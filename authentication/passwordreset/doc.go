@@ -129,5 +129,33 @@ background delete of everything past its deadline; without it, and without a
 scheduler calling [SQLStore.Sweep], the table grows by a row for every password
 anybody ever forgot — including the requests nobody followed up, which are the
 ones no redemption ever removes.
+
+# Where the SQL comes from
+
+Every statement this package executes is generated. The table's facts — its
+name, its columns in projection order, and which of them a write assigns — are
+spelled once, in internal/queries. `make generate` renders them through
+database/querygen into the canonical .sql files beside that package, in sqlc's
+spelling: named statements whose arguments are sqlc.arg references. `make
+sqlc_compile` checks every one of them against the DDL migrations produces, on
+all three dialects, with no database running; sqlc-gen-unison emits
+internal/passwordresetdb from the same files — typed params and methods over
+driver placeholders — and that is what the store executes.
+
+So a column renamed in the DDL is a failed generate rather than a scan error at
+run time, and the pairing between what a SELECT projects and what a Scan reads
+is generated rather than maintained by eye. What this package writes by hand is
+which statements it wants; it writes no SQL.
+
+Three of this store's decisions are not consequences of the shapes those
+statements are rendered from, and each is argued where it now lives. The
+projection excludes token_digest, so nothing hands a caller a stored
+credential's digest. Every instant is bound in UTC, which is what makes the
+sweep's comparison chronological on SQLite, where a DATETIME column holds text.
+And liveness is compared in Go rather than in a predicate: the sweep deletes
+rows dead by any reading, but the boundary a user hits at the last second of a
+link's life is decided against one clock, in one place, on all three engines.
 */
 package passwordreset
+
+//go:generate go run ./internal/queriesgen
