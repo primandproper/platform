@@ -1,15 +1,3 @@
-// Package config provides helpers for populating configuration structs from
-// environment variables, .env files, and JSON, TOML, or YAML files. It builds
-// on the caarlos0/env struct-tag conventions (`env:`, `envPrefix:`,
-// `envDefault:`, ...) already used throughout platform-go's per-package config
-// subpackages, giving callers a single, application-agnostic place to mount
-// those tags onto their config values.
-//
-// It also runs in the other direction. RenderJSONFiles and its TOML and YAML
-// counterparts write config objects built in Go back out to the files the
-// LoadFrom* functions read, for a service that wants its checked-in
-// per-environment config to be a projection of type-checked, validated objects
-// rather than text maintained by hand alongside the struct it decodes into.
 package config
 
 import (

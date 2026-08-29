@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/observability/keys"
 )
@@ -104,12 +105,15 @@ func (m *StreamManager[S]) GetGroupStreams(ctx context.Context, groupID string) 
 	return streams
 }
 
-// BroadcastToGroup sends an event to all streams in a group.
+// BroadcastToGroup sends an event to all streams in a group, and returns the
+// joined Send failures of the streams that did not take it.
 //
-// TODO: this is intentionally fire-and-forget; a single stream's Send failure
-// shouldn't halt the broadcast. Revisit whether per-stream failures should be
-// aggregated and returned (as SendToMember returns its error).
-func (m *StreamManager[S]) BroadcastToGroup(ctx context.Context, groupID string, event *Event) {
+// A single stream's failure does not halt the broadcast: every stream in the
+// snapshot is attempted, and the failures are joined at the end. A caller that
+// gets a non-nil error therefore knows the event reached a subset, and can read
+// which sends failed off the joined error; a group with no streams, or one where
+// every send succeeded, returns nil.
+func (m *StreamManager[S]) BroadcastToGroup(ctx context.Context, groupID string, event *Event) error {
 	ctx, op := m.o11y.Begin(ctx,
 		observability.WithValue("group_id", groupID),
 		observability.WithValue("event.type", event.Type),
@@ -129,22 +133,30 @@ func (m *StreamManager[S]) BroadcastToGroup(ctx context.Context, groupID string,
 	}
 	m.mu.RUnlock()
 
+	var errs []error
 	if ok {
 		op.Set(keys.LengthKey, len(snapshot))
 		for _, s := range snapshot {
 			if err := s.Send(ctx, event); err != nil {
 				op.Acknowledge(err, "sending event to stream")
+				errs = append(errs, err)
 			}
 		}
 	}
+
+	return platformerrors.Join(errs...)
 }
 
-// BroadcastToGroupFiltered sends an event to streams in a group for which includeFunc returns true.
+// BroadcastToGroupFiltered sends an event to streams in a group for which
+// includeFunc returns true, and returns the joined Send failures of the included
+// streams that did not take it.
 //
-// TODO: this is intentionally fire-and-forget; a single stream's Send failure
-// shouldn't halt the broadcast. Revisit whether per-stream failures should be
-// aggregated and returned (as SendToMember returns its error).
-func (m *StreamManager[S]) BroadcastToGroupFiltered(ctx context.Context, groupID string, event *Event, includeFunc func(memberID string) bool) {
+// As with BroadcastToGroup, a single stream's failure does not halt the
+// broadcast: every included stream in the snapshot is attempted, and the
+// failures are joined at the end. Streams includeFunc excluded contribute
+// nothing, so a filter that matches nobody returns nil, as does one where every
+// included send succeeded.
+func (m *StreamManager[S]) BroadcastToGroupFiltered(ctx context.Context, groupID string, event *Event, includeFunc func(memberID string) bool) error {
 	ctx, op := m.o11y.Begin(ctx,
 		observability.WithValue("group_id", groupID),
 		observability.WithValue("event.type", event.Type),
@@ -162,13 +174,17 @@ func (m *StreamManager[S]) BroadcastToGroupFiltered(ctx context.Context, groupID
 	}
 	m.mu.RUnlock()
 
+	var errs []error
 	for i, s := range snapshot {
 		if includeFunc(memberIDs[i]) {
 			if err := s.Send(ctx, event); err != nil {
 				op.Acknowledge(err, "sending event to stream")
+				errs = append(errs, err)
 			}
 		}
 	}
+
+	return platformerrors.Join(errs...)
 }
 
 // SendToMember sends an event to a specific member in a group.

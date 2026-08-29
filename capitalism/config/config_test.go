@@ -1,6 +1,7 @@
 package capitalismcfg
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/primandproper/platform-go/v13/capitalism/revenuecat"
@@ -181,8 +182,19 @@ func TestNewUsageReporter(T *testing.T) {
 		}
 
 		reporter, err := NewUsageReporter(t.Context(), cfg)
-		test.ErrorIs(t, err, revenuecat.ErrOutboundUnsupported)
+		test.ErrorIs(t, err, revenuecat.ErrUsageReportingUnsupported)
 		test.Nil(t, reporter)
+
+		// Under the usage sentinel and not the outbound one: a caller told its
+		// flush failed because RevenueCat has no server-side purchase API would go
+		// looking for the wrong thing.
+		test.False(t, errors.Is(err, revenuecat.ErrOutboundUnsupported))
+
+		// The same config still builds a payment manager, which is what makes this
+		// a refusal of one half rather than of the provider.
+		pm, err := NewPaymentManager(t.Context(), cfg)
+		must.NoError(t, err)
+		test.NotNil(t, pm)
 	})
 
 	T.Run("disabled returns noop", func(t *testing.T) {

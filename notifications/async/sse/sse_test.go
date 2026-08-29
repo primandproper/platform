@@ -4,12 +4,14 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/primandproper/platform-go/v13/eventstream"
 	"github.com/primandproper/platform-go/v13/notifications/async"
 	"github.com/primandproper/platform-go/v13/observability"
 	"github.com/primandproper/platform-go/v13/observability/keys"
@@ -50,6 +52,16 @@ func (w *nonFlushingResponseWriter) Write(b []byte) (int, error) { return len(b)
 
 func (w *nonFlushingResponseWriter) WriteHeader(int) {}
 
+var errStub = errors.New("stub error")
+
+// failingStream is an eventstream.EventStream whose Send always fails, standing
+// in for a client the notifier can no longer reach.
+type failingStream struct{}
+
+func (*failingStream) Send(context.Context, *eventstream.Event) error { return errStub }
+func (*failingStream) Done() <-chan struct{}                          { return make(chan struct{}) }
+func (*failingStream) Close() error                                   { return nil }
+
 func TestNewNotifier(T *testing.T) {
 	T.Parallel()
 
@@ -72,6 +84,35 @@ func TestNewNotifier(T *testing.T) {
 
 func TestNotifier_Publish(T *testing.T) {
 	T.Parallel()
+
+	T.Run("propagates a client's send failure", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := t.Context()
+
+		n, obs := newRecordingNotifier(t)
+		n.manager.Add(ctx, "test-channel", "member-1", &failingStream{})
+
+		event := &async.Event{
+			Type: "test",
+			Data: json.RawMessage(`{"key":"value"}`),
+		}
+
+		err := n.Publish(ctx, "test-channel", event)
+
+		// A publish that reached nobody is no longer reported as a success: the
+		// broadcast's joined per-client failures come back from Publish.
+		must.ErrorIs(t, err, errStub)
+
+		must.SliceLen(t, 1, obs.Operations)
+		op := obs.ObservedOperationWithData(t, map[string]any{
+			keys.ChannelKey:   "test-channel",
+			keys.EventTypeKey: event.Type,
+			keys.LengthKey:    len(event.Data),
+		})
+		test.True(t, op.Ended)
+		must.SliceLen(t, 1, op.Errors)
+	})
 
 	T.Run("no connected clients", func(t *testing.T) {
 		t.Parallel()

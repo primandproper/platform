@@ -260,7 +260,7 @@ func (s *SQLStore) hydrateUsers(ctx context.Context, q database.SQLQueryExecutor
 	return nil
 }
 
-// GetAccount reads one of the scope's accounts, archived accounts included.
+// GetAccount reads one of the scope's live accounts.
 func (s *SQLStore) GetAccount(ctx context.Context, scope tenancy.Scope, accountID string) (*Account, error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
