@@ -2,6 +2,7 @@ package filtering
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"math"
 	"net/http"
@@ -42,29 +43,63 @@ func TestQueryFilter_AttachToLogger(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		qf := &QueryFilter{
-			Cursor:          new(t.Name()),
-			MaxResponseSize: new(MaxQueryFilterLimit),
-			CreatedAfter:    new(time.Now().Truncate(time.Second)),
-			CreatedBefore:   new(time.Now().Truncate(time.Second)),
-			UpdatedAfter:    new(time.Now().Truncate(time.Second)),
-			UpdatedBefore:   new(time.Now().Truncate(time.Second)),
-			SortBy:          SortDescending,
-			IncludeArchived: new(true),
-		}
+		qf := fullyPopulatedQueryFilter(t)
 
 		// Every set field, and only the set fields: what a nil guard is for is
 		// deciding which of these reach the line, so asserting that the returned
 		// logger is non-nil asserts nothing about any of them.
+		//
+		// The expectations are dereferenced, and an `any` holding a *string is
+		// not equal to one holding a string, so this is also what says the
+		// pointers stayed behind.
 		test.MapEq(t, map[string]any{
-			QueryKeyCursor:        qf.Cursor,
-			QueryKeyLimit:         qf.MaxResponseSize,
-			QueryKeySortBy:        qf.SortBy,
-			QueryKeyCreatedBefore: qf.CreatedBefore,
-			QueryKeyCreatedAfter:  qf.CreatedAfter,
-			QueryKeyUpdatedBefore: qf.UpdatedBefore,
-			QueryKeyUpdatedAfter:  qf.UpdatedAfter,
+			QueryKeyCursor:          *qf.Cursor,
+			QueryKeyLimit:           *qf.MaxResponseSize,
+			QueryKeySortBy:          *qf.SortBy,
+			QueryKeyCreatedBefore:   *qf.CreatedBefore,
+			QueryKeyCreatedAfter:    *qf.CreatedAfter,
+			QueryKeyUpdatedBefore:   *qf.UpdatedBefore,
+			QueryKeyUpdatedAfter:    *qf.UpdatedAfter,
+			QueryKeyIncludeArchived: *qf.IncludeArchived,
 		}, attachedValues(t, qf))
+	})
+
+	T.Run("renders values rather than addresses", func(t *testing.T) {
+		t.Parallel()
+
+		qf := fullyPopulatedQueryFilter(t)
+
+		// What a reader of a log actually sees. The comparison above asserts the
+		// dynamic types, which is a proxy for this; a backend that falls back to
+		// fmt renders a *string as 0xc000123456, and this is the thing itself.
+		//
+		// It does not cover the times, and cannot: time.Time's String method is
+		// in *time.Time's method set too, so fmt renders a time and a pointer to
+		// one identically, and only the type distinguishes them.
+		for key, value := range attachedValues(t, qf) {
+			rendered := fmt.Sprintf("%v", value)
+
+			test.StrNotContains(t, rendered, "0x", test.Sprintf("value for %q rendered as an address: %s", key, rendered))
+		}
+	})
+
+	T.Run("renders the scalars the way ToValues does", func(t *testing.T) {
+		t.Parallel()
+
+		qf := fullyPopulatedQueryFilter(t)
+
+		// The filter on the wire and the filter in the log are the same filter
+		// written for two readers, so the fields they carry are the same fields
+		// and the scalars read the same in both. Times are deliberately not
+		// compared here: the wire needs a string and a log line does not, so a
+		// backend gets the time.Time and formats it its own way.
+		attached := attachedValues(t, qf)
+		values := qf.ToValues()
+
+		for _, key := range []string{QueryKeyCursor, QueryKeyLimit, QueryKeySortBy, QueryKeyIncludeArchived} {
+			must.MapContainsKey(t, attached, key)
+			test.EqOp(t, values.Get(key), fmt.Sprintf("%v", attached[key]), test.Sprintf("rendering of %q", key))
+		}
 	})
 
 	T.Run("attaches nothing for a filter that holds nothing", func(t *testing.T) {
@@ -89,6 +124,26 @@ func TestQueryFilter_AttachToLogger(T *testing.T) {
 
 		test.NotNil(t, DefaultQueryFilter().AttachToLogger(nil))
 	})
+}
+
+// fullyPopulatedQueryFilter builds a filter with every field set, so that a
+// test of which fields reach a logger is not quietly passing because the field
+// it cares about was never populated.
+func fullyPopulatedQueryFilter(t *testing.T) *QueryFilter {
+	t.Helper()
+
+	now := time.Now().UTC().Truncate(time.Second)
+
+	return &QueryFilter{
+		Cursor:          new(t.Name()),
+		MaxResponseSize: new(MaxQueryFilterLimit),
+		CreatedAfter:    new(now.Add(-time.Hour)),
+		CreatedBefore:   new(now),
+		UpdatedAfter:    new(now.Add(-time.Minute)),
+		UpdatedBefore:   new(now),
+		SortBy:          SortDescending,
+		IncludeArchived: new(true),
+	}
 }
 
 // attachedValues runs qf.AttachToLogger against a recording logger and returns

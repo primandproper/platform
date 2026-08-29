@@ -297,6 +297,19 @@ func DefaultQueryFilter() *QueryFilter {
 }
 
 // AttachToLogger attaches a QueryFilter's values to a logging.Logger.
+//
+// The values, not the pointers holding them. Every field on a filter is
+// optional and therefore a pointer, and a *string or a *uint16 handed to a
+// logging backend as an `any` renders as an address wherever that backend falls
+// back to fmt rather than special-casing the type behind the pointer — so the
+// cursor a page was read with reaches the line as 0xc000123456. A filter's
+// values in a log are the debugging surface this package exists to standardize,
+// which makes the nil check that decides whether a field reaches the line the
+// place to dereference it too.
+//
+// The set of fields is ToValues's, IncludeArchived included: the two are the
+// same filter written for two readers, and a field that reaches the wire and
+// not the log is one that has to be inferred from the rows that came back.
 func (qf *QueryFilter) AttachToLogger(logger logging.Logger) logging.Logger {
 	l := logging.EnsureLogger(logger).Clone()
 
@@ -305,31 +318,35 @@ func (qf *QueryFilter) AttachToLogger(logger logging.Logger) logging.Logger {
 	}
 
 	if qf.Cursor != nil {
-		l = l.WithValue(QueryKeyCursor, qf.Cursor)
+		l = l.WithValue(QueryKeyCursor, *qf.Cursor)
 	}
 
 	if qf.MaxResponseSize != nil {
-		l = l.WithValue(QueryKeyLimit, qf.MaxResponseSize)
+		l = l.WithValue(QueryKeyLimit, *qf.MaxResponseSize)
 	}
 
 	if qf.SortBy != nil {
-		l = l.WithValue(QueryKeySortBy, qf.SortBy)
+		l = l.WithValue(QueryKeySortBy, *qf.SortBy)
 	}
 
 	if qf.CreatedBefore != nil {
-		l = l.WithValue(QueryKeyCreatedBefore, qf.CreatedBefore)
+		l = l.WithValue(QueryKeyCreatedBefore, *qf.CreatedBefore)
 	}
 
 	if qf.CreatedAfter != nil {
-		l = l.WithValue(QueryKeyCreatedAfter, qf.CreatedAfter)
+		l = l.WithValue(QueryKeyCreatedAfter, *qf.CreatedAfter)
 	}
 
 	if qf.UpdatedBefore != nil {
-		l = l.WithValue(QueryKeyUpdatedBefore, qf.UpdatedBefore)
+		l = l.WithValue(QueryKeyUpdatedBefore, *qf.UpdatedBefore)
 	}
 
 	if qf.UpdatedAfter != nil {
-		l = l.WithValue(QueryKeyUpdatedAfter, qf.UpdatedAfter)
+		l = l.WithValue(QueryKeyUpdatedAfter, *qf.UpdatedAfter)
+	}
+
+	if qf.IncludeArchived != nil {
+		l = l.WithValue(QueryKeyIncludeArchived, *qf.IncludeArchived)
 	}
 
 	return l
