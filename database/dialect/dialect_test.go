@@ -39,6 +39,28 @@ func TestDialect_SupportsSkipLocked(T *testing.T) {
 	})
 }
 
+func TestDialect_SupportsWriteLimit(T *testing.T) {
+	T.Parallel()
+
+	T.Run("per dialect", func(t *testing.T) {
+		t.Parallel()
+
+		// MySQL alone caps the write itself. Postgres does not parse the
+		// spelling and SQLite parses it only in a build most are not, so both
+		// bound a read and write away whatever it named — which is the shape
+		// database/querygen's prune renders and retention composes.
+		test.False(t, Postgres.SupportsWriteLimit())
+		test.True(t, MySQL.SupportsWriteLimit())
+		test.False(t, SQLite.SupportsWriteLimit())
+	})
+
+	T.Run("an unsupported dialect claims nothing", func(t *testing.T) {
+		t.Parallel()
+
+		test.False(t, Dialect("oracle").SupportsWriteLimit())
+	})
+}
+
 func TestDialect_SupportsNotify(T *testing.T) {
 	T.Parallel()
 

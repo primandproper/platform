@@ -84,7 +84,6 @@ var rulings = map[string]ruling{
 	"dataprivacy/auditerasure":     {tier: porting},
 	"metering":                     {tier: porting},
 	"outbox":                       {tier: porting},
-	"retention":                    {tier: porting},
 	"workqueue":                    {tier: porting},
 
 	// Not table SQL. The corpus is a set of statements checked against a schema
@@ -99,6 +98,7 @@ var rulings = map[string]ruling{
 	"saga/internal/queries":         {tier: exempt, why: "a corpus source on database/querygen's own terms: the statements it holds are rendered into saga's canonical .sql and executed from the generated package, never from here"},
 	"distributedlock/postgres":      {tier: exempt, why: "advisory-lock function calls; the lock is a number the server holds for a session, with no table, schema or projection"},
 	"operations/internal/queries":   {tier: exempt, why: "a corpus source, like the generator it renders through: its literals are the statements the committed .sql is rendered from, checked by sqlc and executed through operations/internal/operationsdb"},
+	"retention":                     {tier: exempt, why: "the table a pass deletes from, the column its age is measured from and the key its batches are bounded by all arrive from a Policy an application writes at run time, so this module ships no DDL for them and nothing committed is left for sqlc to check a statement against; what it takes from database/querygen's prune is the rules rather than the rendering, and a three-dialect container suite in place of the corpus"},
 	"timers/internal/queries":       {tier: exempt, why: "a corpus source whose statements are written out in full rather than rendered from database/querygen, for the reason its own doc gives: every one of them assigns an expression, and each is still checked by sqlc and executed through timers/internal/timersdb"},
 	"search/vector/pgvector":        {tier: exempt, why: "the index table's name, dimension and metadata column are configuration, so its DDL is issued at run time and nothing committed is left for sqlc to check a statement against"},
 	"testutils/containers/pgtest":   {tier: exempt, why: "the schemas and databases a container test isolates itself with, created and dropped by the harness rather than by a store"},
