@@ -181,9 +181,9 @@ func TestWriter_Enqueue_notify(T *testing.T) {
 
 		must.NoError(t, w.Enqueue(t.Context(), database.NewTxForTesting(exec), msg, msg, msg))
 
-		// One insert and one notification, however many messages: the
-		// notification says "there is work", not what the work is.
-		test.SliceLen(t, 2, exec.statements)
+		// One insert per message and one notification, however many messages:
+		// the notification says "there is work", not what the work is.
+		test.SliceLen(t, 4, exec.statements)
 
 		notifies := exec.notifies()
 		must.SliceLen(t, 1, notifies)

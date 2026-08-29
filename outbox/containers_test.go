@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -93,7 +94,7 @@ func countIn(t *testing.T, client database.Client, table, where string) int {
 // runDialectSuite is the behavioral contract every dialect owes. SQLite is
 // covered by the in-process tests; this exists so the SQL that only a real
 // server can validate — numbered placeholders, SKIP LOCKED, the correlated
-// ordering subquery, MySQL's derived-table DELETE, native boolean and
+// ordering subquery, MySQL's capped DELETE, native boolean and
 // timestamp handling — is actually executed rather than merely rendered.
 func runDialectSuite(t *testing.T, env *dialectEnv) {
 	t.Helper()
@@ -286,6 +287,64 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 		test.Eq(t, []string{`{"id":"first"}`, `{"id":"second"}`, `{"id":"third"}`}, rec.payloads())
 	})
 
+	// The lock clause is the one part of the claim that only a real server can
+	// answer for, and it is the part a lease cannot substitute for: two relays
+	// selecting at the same instant must take disjoint batches, or both publish
+	// the same message before either writes a lease. Under ClaimLease that is
+	// precisely what does happen, which is why this runs under the other mode.
+	t.Run("concurrent skip-locked relays divide the backlog", func(t *testing.T) {
+		t.Parallel()
+
+		if env.claimMode != ClaimSkipLocked {
+			t.Skip("lease-only claiming makes no disjointness promise")
+		}
+
+		const (
+			messages  = 24
+			batchSize = 4
+		)
+
+		c := newStubClock()
+		table := env.newTable(t)
+		w := env.writer(t, c, table)
+
+		// A batch smaller than the backlog is what forces several cycles each,
+		// so the two relays are actually selecting at once rather than one
+		// draining the table before the other starts.
+		divided := func(cfg *RelayConfig) {
+			cfg.ClaimMode = env.claimMode
+			cfg.TablePrefix = table
+			cfg.BatchSize = batchSize
+		}
+
+		first, firstRec := newTestRelay(t, env.client, c, divided)
+		second, secondRec := newTestRelay(t, env.client, c, divided)
+
+		for i := range messages {
+			must.NoError(t, env.client.WithTransaction(t.Context(), func(q database.Tx) error {
+				return w.Enqueue(t.Context(), q, Message{Topic: "orders", Payload: map[string]any{"id": i}})
+			}))
+		}
+
+		var wg sync.WaitGroup
+
+		for _, relay := range []*Relay{first, second} {
+			wg.Go(func() {
+				for range messages/batchSize + 1 {
+					relay.cycle(t.Context())
+				}
+			})
+		}
+
+		wg.Wait()
+
+		// Every message published, and none of them twice: the two counts are
+		// the two halves of "disjoint", and neither alone would catch a claim
+		// that stopped skipping.
+		test.EqOp(t, 0, countIn(t, env.client, table, "published_at IS NULL"))
+		test.SliceLen(t, messages, append(firstRec.payloads(), secondRec.payloads()...))
+	})
+
 	t.Run("reports backlog depth and age", func(t *testing.T) {
 		t.Parallel()
 
@@ -305,9 +364,9 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 
 		c.advance(90 * time.Second)
 
-		// MIN over a timestamp column is the one value this package reads back
-		// as a time, and every driver renders it differently — which is the
-		// whole reason database.CoerceTime exists and the reason this runs per dialect.
+		// The oldest instant is the one value this package reads back as a
+		// time, and every driver renders a timestamp column differently —
+		// which is why this runs per dialect rather than on SQLite alone.
 		depth, age, err = relay.backlog(t.Context())
 		must.NoError(t, err)
 		test.EqOp(t, int64(1), depth)
@@ -345,8 +404,9 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 			return w.Enqueue(t.Context(), q, Message{Topic: "orders", Payload: map[string]any{"id": "b"}})
 		}))
 
-		// On MySQL this exercises the derived-table wrapper, without which the
-		// server rejects reading the table being deleted from.
+		// Three grammars for one capped delete: MySQL bounds the DELETE
+		// itself, and the other two name the doomed rows through a subquery
+		// over the table being deleted from. See querygen's bounded prune.
 		relay.reap(t.Context())
 
 		test.EqOp(t, 0, countIn(t, env.client, table, "published_at IS NOT NULL"))
