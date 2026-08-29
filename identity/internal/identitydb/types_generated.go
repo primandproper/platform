@@ -14,7 +14,7 @@ import (
 // AnswerInvitationParams are the arguments to AnswerInvitation.
 type AnswerInvitationParams struct {
 	Status        string
-	Note          string
+	StatusNote    string
 	ToUser        *string
 	ID            string
 	Scope         tenancy.Scope
@@ -110,6 +110,7 @@ type CreateInvitationParams struct {
 	Token            string
 	Status           string
 	Note             string
+	StatusNote       string
 	ExpiresAt        time.Time
 }
 
@@ -212,6 +213,7 @@ type GetInvitationRow struct {
 	Token            string
 	Status           string
 	Note             string
+	StatusNote       string
 	ExpiresAt        time.Time
 	CreatedAt        time.Time
 	LastUpdatedAt    *time.Time
@@ -744,6 +746,7 @@ type ListInvitationsRow struct {
 	Token            string
 	Status           string
 	Note             string
+	StatusNote       string
 	ExpiresAt        time.Time
 	CreatedAt        time.Time
 	LastUpdatedAt    *time.Time
@@ -778,6 +781,7 @@ type ListInvitationsByFromUserRow struct {
 	Token            string
 	Status           string
 	Note             string
+	StatusNote       string
 	ExpiresAt        time.Time
 	CreatedAt        time.Time
 	LastUpdatedAt    *time.Time
@@ -812,6 +816,7 @@ type ListInvitationsByFromUserDescendingRow struct {
 	Token            string
 	Status           string
 	Note             string
+	StatusNote       string
 	ExpiresAt        time.Time
 	CreatedAt        time.Time
 	LastUpdatedAt    *time.Time
@@ -846,6 +851,7 @@ type ListInvitationsByToEmailRow struct {
 	Token            string
 	Status           string
 	Note             string
+	StatusNote       string
 	ExpiresAt        time.Time
 	CreatedAt        time.Time
 	LastUpdatedAt    *time.Time
@@ -880,6 +886,7 @@ type ListInvitationsByToEmailDescendingRow struct {
 	Token            string
 	Status           string
 	Note             string
+	StatusNote       string
 	ExpiresAt        time.Time
 	CreatedAt        time.Time
 	LastUpdatedAt    *time.Time
@@ -912,6 +919,7 @@ type ListInvitationsDescendingRow struct {
 	Token            string
 	Status           string
 	Note             string
+	StatusNote       string
 	ExpiresAt        time.Time
 	CreatedAt        time.Time
 	LastUpdatedAt    *time.Time

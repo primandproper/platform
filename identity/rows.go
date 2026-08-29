@@ -774,6 +774,7 @@ func invitationFromRow(r *identitydb.GetInvitationRow) *Invitation {
 		Token:            r.Token,
 		Status:           InvitationStatus(r.Status),
 		Note:             r.Note,
+		StatusNote:       r.StatusNote,
 		ExpiresAt:        r.ExpiresAt.UTC(),
 		CreatedAt:        r.CreatedAt.UTC(),
 		LastUpdatedAt:    utcPtr(r.LastUpdatedAt),
@@ -794,6 +795,7 @@ func invitationPageRowFromUser(r *identitydb.ListInvitationsByFromUserRow) pageR
 			Token:            r.Token,
 			Status:           r.Status,
 			Note:             r.Note,
+			StatusNote:       r.StatusNote,
 			ExpiresAt:        r.ExpiresAt,
 			CreatedAt:        r.CreatedAt,
 			LastUpdatedAt:    r.LastUpdatedAt,
@@ -817,6 +819,7 @@ func invitationPageRowToEmail(r *identitydb.ListInvitationsByToEmailRow) pageRow
 			Token:            r.Token,
 			Status:           r.Status,
 			Note:             r.Note,
+			StatusNote:       r.StatusNote,
 			ExpiresAt:        r.ExpiresAt,
 			CreatedAt:        r.CreatedAt,
 			LastUpdatedAt:    r.LastUpdatedAt,
@@ -839,6 +842,7 @@ func createInvitationParams(i *Invitation) identitydb.CreateInvitationParams {
 		Token:            i.Token,
 		Status:           i.Status.String(),
 		Note:             i.Note,
+		StatusNote:       i.StatusNote,
 		ExpiresAt:        i.ExpiresAt.UTC(),
 	}
 }

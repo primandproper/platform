@@ -181,6 +181,12 @@ CREATE INDEX {{PREFIX}}identity_membership_roles_role_idx
 -- because the common case is inviting somebody who has not registered yet.
 -- to_user is filled in on acceptance, which is the first moment there is a user
 -- to name.
+--
+-- The two notes are two columns because they are written by two people at two
+-- moments. note is the sender's message, written once at creation and rendered
+-- into the invite email; status_note is why the answer went the way it did,
+-- written by whoever answered. One column would mean the reply erasing the
+-- message it was replying to.
 CREATE TABLE IF NOT EXISTS {{PREFIX}}identity_invitations (
     id                 VARCHAR(64) NOT NULL PRIMARY KEY,
     scope              VARCHAR(255) NOT NULL,
@@ -192,6 +198,7 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}identity_invitations (
     token              VARCHAR(255) NOT NULL,
     status             VARCHAR(32) NOT NULL,
     note               VARCHAR(1024) NOT NULL DEFAULT '',
+    status_note        VARCHAR(1024) NOT NULL DEFAULT '',
     expires_at         DATETIME(6) NOT NULL,
     created_at         DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     last_updated_at    DATETIME(6),

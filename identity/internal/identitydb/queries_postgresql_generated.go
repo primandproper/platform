@@ -15,7 +15,7 @@ import (
 
 const answerInvitationPostgreSQL = `UPDATE {{prefix}}identity_invitations SET
 	status = $1,
-	note = $2,
+	status_note = $2,
 	to_user = $3,
 	last_updated_at = CURRENT_TIMESTAMP
 WHERE archived_at IS NULL
@@ -124,6 +124,7 @@ const createInvitationPostgreSQL = `INSERT INTO {{prefix}}identity_invitations (
 	token,
 	status,
 	note,
+	status_note,
 	expires_at
 ) VALUES (
 	$1,
@@ -136,7 +137,8 @@ const createInvitationPostgreSQL = `INSERT INTO {{prefix}}identity_invitations (
 	$8,
 	$9,
 	$10,
-	$11
+	$11,
+	$12
 )`
 
 const createUserPostgreSQL = `
@@ -232,6 +234,7 @@ const getInvitationPostgreSQL = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -870,6 +873,7 @@ const listInvitationsPostgreSQL = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -924,6 +928,7 @@ const listInvitationsByFromUserPostgreSQL = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -984,6 +989,7 @@ const listInvitationsByFromUserDescendingPostgreSQL = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -1044,6 +1050,7 @@ const listInvitationsByToEmailPostgreSQL = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -1104,6 +1111,7 @@ const listInvitationsByToEmailDescendingPostgreSQL = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -1164,6 +1172,7 @@ const listInvitationsDescendingPostgreSQL = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -1764,7 +1773,7 @@ func newPostgreSQL(prefix string) *postgresqlQueries {
 func (q *postgresqlQueries) AnswerInvitation(ctx context.Context, db DBTX, arg AnswerInvitationParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.answerInvitation,
 		arg.Status,
-		arg.Note,
+		arg.StatusNote,
 		arg.ToUser,
 		arg.ID,
 		arg.Scope,
@@ -1925,6 +1934,7 @@ func (q *postgresqlQueries) CreateInvitation(ctx context.Context, db DBTX, arg C
 		arg.Token,
 		arg.Status,
 		arg.Note,
+		arg.StatusNote,
 		arg.ExpiresAt,
 	)
 
@@ -2074,6 +2084,7 @@ func (q *postgresqlQueries) GetInvitation(ctx context.Context, db DBTX, arg GetI
 		&i.Token,
 		&i.Status,
 		&i.Note,
+		&i.StatusNote,
 		&i.ExpiresAt,
 		&i.CreatedAt,
 		&i.LastUpdatedAt,
@@ -2850,6 +2861,7 @@ func (q *postgresqlQueries) ListInvitations(ctx context.Context, db DBTX, arg Li
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -2906,6 +2918,7 @@ func (q *postgresqlQueries) ListInvitationsByFromUser(ctx context.Context, db DB
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -2962,6 +2975,7 @@ func (q *postgresqlQueries) ListInvitationsByFromUserDescending(ctx context.Cont
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3018,6 +3032,7 @@ func (q *postgresqlQueries) ListInvitationsByToEmail(ctx context.Context, db DBT
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3074,6 +3089,7 @@ func (q *postgresqlQueries) ListInvitationsByToEmailDescending(ctx context.Conte
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3128,6 +3144,7 @@ func (q *postgresqlQueries) ListInvitationsDescending(ctx context.Context, db DB
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3816,7 +3833,7 @@ func (q *postgresqlQueries) UpsertMembership(ctx context.Context, db DBTX, arg U
 var (
 	_ = struct {
 		Status        string
-		Note          string
+		StatusNote    string
 		ToUser        *string
 		ID            string
 		Scope         tenancy.Scope
@@ -3890,6 +3907,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 	}(CreateInvitationParams{})
 	_ = struct {
@@ -3970,6 +3988,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4412,6 +4431,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4442,6 +4462,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4472,6 +4493,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4502,6 +4524,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4532,6 +4555,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4560,6 +4584,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time

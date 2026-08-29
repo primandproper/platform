@@ -608,7 +608,7 @@ func TestFieldWrites_NameRealColumns(t *testing.T) {
 			billingStatusColumn, subscriptionPlanIDColumn,
 			paymentProcessorCustomerIDColumn, billingSyncedAtColumn,
 		},
-		&Invitations: {InvitationStatusColumn, invitationNoteColumn, invitationToUserColumn},
+		&Invitations: {InvitationStatusColumn, invitationStatusNoteColumn, invitationToUserColumn},
 	}
 
 	for table, columns := range assigned {
@@ -751,6 +751,71 @@ func TestFieldWrites_BillingWritesAreEnumerated(T *testing.T) {
 			}
 
 			test.SliceLen(t, len(assigned), seen)
+		})
+	}
+}
+
+// TestAnswerInvitation_LeavesTheSendersNote pins the one thing about this
+// statement that no compiler and no dialect will report: which of the two note
+// columns it assigns.
+//
+// The two are written by two people at two moments — note by the sender at
+// creation, status_note by whoever answered — and a SET list naming the first
+// destroys the message the invite email was built from at the moment a roster
+// most wants to show it beside the answer. That is a silent loss: the write
+// succeeds, the row is valid, and the only evidence is a column that used to
+// hold something.
+//
+// The projection is checked from the other end, because a note stored and never
+// selected is the same loss one statement later: both columns come back out of
+// the read and out of both paged lists.
+func TestAnswerInvitation_LeavesTheSendersNote(T *testing.T) {
+	T.Parallel()
+
+	const senderNoteColumn = "note"
+
+	projecting := []string{
+		"GetInvitation",
+		"ListInvitationsByFromUser", "ListInvitationsByFromUserDescending",
+		"ListInvitationsByToEmail", "ListInvitationsByToEmailDescending",
+	}
+
+	for _, d := range everyDialect {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			var answered, projected []string
+
+			for statement := range strings.SplitSeq(Render(d), "-- name: ") {
+				name, _, _ := strings.Cut(statement, " ")
+
+				switch {
+				case name == "AnswerInvitation":
+					test.StrContains(t, statement,
+						invitationStatusNoteColumn+" = sqlc.arg("+invitationStatusNoteColumn+")")
+
+					// The sender's column is not in the SET list. Anchored on
+					// the leading tab an assignment is rendered with, because
+					// status_note ends in note and the statement legitimately
+					// names the one it does assign.
+					test.StrNotContains(t, statement, "\n\t"+senderNoteColumn+" = sqlc.")
+
+					answered = append(answered, name)
+
+				case slices.Contains(projecting, name):
+					for _, column := range []string{senderNoteColumn, invitationStatusNoteColumn} {
+						test.StrContains(t, statement, InvitationsTable+"."+column,
+							test.Sprintf("statement %q", name))
+					}
+
+					projected = append(projected, name)
+				}
+			}
+
+			// Without these the loops above pass for a rendering that emits
+			// none of the statements, which is the failure they exist to catch.
+			test.SliceLen(t, 1, answered)
+			test.SliceLen(t, len(projecting), projected)
 		})
 	}
 }

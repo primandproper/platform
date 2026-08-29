@@ -15,7 +15,7 @@ import (
 
 const answerInvitationSQLite = `UPDATE {{prefix}}identity_invitations SET
 	status = ?1,
-	note = ?2,
+	status_note = ?2,
 	to_user = ?3,
 	last_updated_at = CURRENT_TIMESTAMP
 WHERE archived_at IS NULL
@@ -124,6 +124,7 @@ const createInvitationSQLite = `INSERT INTO {{prefix}}identity_invitations (
 	token,
 	status,
 	note,
+	status_note,
 	expires_at
 ) VALUES (
 	?1,
@@ -136,7 +137,8 @@ const createInvitationSQLite = `INSERT INTO {{prefix}}identity_invitations (
 	?8,
 	?9,
 	?10,
-	?11
+	?11,
+	?12
 )`
 
 const createUserSQLite = `
@@ -232,6 +234,7 @@ const getInvitationSQLite = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -870,6 +873,7 @@ const listInvitationsSQLite = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -924,6 +928,7 @@ const listInvitationsByFromUserSQLite = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -984,6 +989,7 @@ const listInvitationsByFromUserDescendingSQLite = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -1044,6 +1050,7 @@ const listInvitationsByToEmailSQLite = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -1104,6 +1111,7 @@ const listInvitationsByToEmailDescendingSQLite = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -1164,6 +1172,7 @@ const listInvitationsDescendingSQLite = `SELECT
 	{{prefix}}identity_invitations.token,
 	{{prefix}}identity_invitations.status,
 	{{prefix}}identity_invitations.note,
+	{{prefix}}identity_invitations.status_note,
 	{{prefix}}identity_invitations.expires_at,
 	{{prefix}}identity_invitations.created_at,
 	{{prefix}}identity_invitations.last_updated_at,
@@ -1794,7 +1803,7 @@ func timeTextPtr(t *time.Time) any {
 func (q *sqliteQueries) AnswerInvitation(ctx context.Context, db DBTX, arg AnswerInvitationParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.answerInvitation,
 		arg.Status,
-		arg.Note,
+		arg.StatusNote,
 		arg.ToUser,
 		arg.ID,
 		arg.Scope,
@@ -1955,6 +1964,7 @@ func (q *sqliteQueries) CreateInvitation(ctx context.Context, db DBTX, arg Creat
 		arg.Token,
 		arg.Status,
 		arg.Note,
+		arg.StatusNote,
 		timeText(arg.ExpiresAt),
 	)
 
@@ -2104,6 +2114,7 @@ func (q *sqliteQueries) GetInvitation(ctx context.Context, db DBTX, arg GetInvit
 		&i.Token,
 		&i.Status,
 		&i.Note,
+		&i.StatusNote,
 		&i.ExpiresAt,
 		&i.CreatedAt,
 		&i.LastUpdatedAt,
@@ -2888,6 +2899,7 @@ func (q *sqliteQueries) ListInvitations(ctx context.Context, db DBTX, arg ListIn
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -2944,6 +2956,7 @@ func (q *sqliteQueries) ListInvitationsByFromUser(ctx context.Context, db DBTX, 
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3000,6 +3013,7 @@ func (q *sqliteQueries) ListInvitationsByFromUserDescending(ctx context.Context,
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3056,6 +3070,7 @@ func (q *sqliteQueries) ListInvitationsByToEmail(ctx context.Context, db DBTX, a
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3112,6 +3127,7 @@ func (q *sqliteQueries) ListInvitationsByToEmailDescending(ctx context.Context, 
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3166,6 +3182,7 @@ func (q *sqliteQueries) ListInvitationsDescending(ctx context.Context, db DBTX, 
 			&i.Token,
 			&i.Status,
 			&i.Note,
+			&i.StatusNote,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.LastUpdatedAt,
@@ -3879,7 +3896,7 @@ func (q *sqliteQueries) UpsertMembership(ctx context.Context, db DBTX, arg Upser
 var (
 	_ = struct {
 		Status        string
-		Note          string
+		StatusNote    string
 		ToUser        *string
 		ID            string
 		Scope         tenancy.Scope
@@ -3953,6 +3970,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 	}(CreateInvitationParams{})
 	_ = struct {
@@ -4033,6 +4051,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4475,6 +4494,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4505,6 +4525,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4535,6 +4556,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4565,6 +4587,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4595,6 +4618,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time
@@ -4623,6 +4647,7 @@ var (
 		Token            string
 		Status           string
 		Note             string
+		StatusNote       string
 		ExpiresAt        time.Time
 		CreatedAt        time.Time
 		LastUpdatedAt    *time.Time

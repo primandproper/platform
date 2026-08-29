@@ -49,6 +49,29 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		test.Eq(t, []string{"account_member"}, read.Roles)
 		test.Nil(t, read.ToUser)
 		test.EqOp(t, time.UTC, read.ExpiresAt.Location())
+
+		// The sender's message is stored as sent, and nobody has answered yet,
+		// so there is no answer to explain.
+		test.EqOp(t, senderNote, read.Note)
+		test.EqOp(t, "", read.StatusNote)
+	})
+
+	t.Run("refuses an invitation created carrying a status note", func(t *testing.T) {
+		t.Parallel()
+
+		store, _, owner, account, _ := newInvitedStore(t)
+
+		// The same objection as an invitation created already answered: nobody
+		// has replied to a freshly sent invitation, so there is no answer to
+		// explain. status_note is written by the two status writes and by
+		// nothing else.
+		answered := newInvitation(owner, account.ID, "carol@example.com", "tok-6", baseTime.Add(time.Hour))
+		answered.StatusNote = "declined before it was sent"
+
+		must.ErrorIs(t,
+			store.CreateInvitation(t.Context(), answered),
+			platformerrors.ErrUnrecognizedInputValue,
+		)
 	})
 
 	t.Run("refuses an invitation created already answered", func(t *testing.T) {
@@ -143,7 +166,13 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		read, err := store.GetInvitation(t.Context(), testScope, invitation.ID)
 		must.NoError(t, err)
 		test.EqOp(t, InvitationAccepted, read.Status)
-		test.EqOp(t, "thanks", read.Note)
+
+		// The answer lands in its own column. The sender's message — the thing
+		// rendered into the invite email, and the thing a roster shows beside
+		// the acceptance — survives being replied to.
+		test.EqOp(t, "thanks", read.StatusNote)
+		test.EqOp(t, senderNote, read.Note)
+
 		must.NotNil(t, read.ToUser)
 		test.EqOp(t, recipient.ID, *read.ToUser)
 
@@ -257,7 +286,8 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		read, err := store.GetInvitation(t.Context(), testScope, invitation.ID)
 		must.NoError(t, err)
 		test.EqOp(t, InvitationRejected, read.Status)
-		test.EqOp(t, "no thanks", read.Note)
+		test.EqOp(t, "no thanks", read.StatusNote)
+		test.EqOp(t, senderNote, read.Note)
 		test.False(t, read.Status.Pending())
 
 		// A rejection cannot be overwritten by a later cancellation.
@@ -291,10 +321,17 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		test.EqOp(t, "", sent.Data[0].Token)
 		test.Eq(t, []string{"account_member"}, sent.Data[0].Roles)
 
+		// Both notes are in the projection, so a roster built from a page
+		// renders the message it was sent with rather than reading it back one
+		// invitation at a time.
+		test.EqOp(t, senderNote, sent.Data[0].Note)
+		test.EqOp(t, "", sent.Data[0].StatusNote)
+
 		received, err := store.ListInvitationsForEmailAddress(t.Context(), testScope, "brian@example.com", nil)
 		must.NoError(t, err)
 		must.SliceLen(t, 1, received.Data)
 		test.EqOp(t, "", received.Data[0].Token)
+		test.EqOp(t, senderNote, received.Data[0].Note)
 
 		none, err := store.ListInvitationsForEmailAddress(t.Context(), otherScope, "brian@example.com", nil)
 		must.NoError(t, err)
