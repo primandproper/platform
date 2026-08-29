@@ -156,6 +156,22 @@ var (
 	// artifact has expired and been deleted.
 	ErrArtifactUnavailable = platformerrors.New("dataprivacy artifact is unavailable")
 
+	// ErrUnexpiringArtifact indicates a write that would record an export
+	// artifact with no expiry.
+	//
+	// The two sweeps divide the table between them by the artifact reference:
+	// the expiry sweep visits completed rows that name one, and the reap visits
+	// rows that name none. A row naming an artifact with no expiry is visited by
+	// neither, so the packaged copy of everything held about a person that it
+	// points at is kept forever — which is the outcome this package exists to
+	// prevent, arrived at by failing open.
+	//
+	// It is refused rather than defaulted. How long an export stays fetchable is
+	// a retention decision, and a store that invented one on the caller's behalf
+	// would be making it in the place least able to say what it should be. See
+	// Store.CompleteExport.
+	ErrUnexpiringArtifact = platformerrors.New("dataprivacy artifact has no expiry")
+
 	// ErrArtifactEncrypted indicates a Download against a Service configured
 	// with an Encryptor.
 	//
@@ -341,6 +357,9 @@ type Request struct {
 	// ExpiresAt is when the artifact is deleted and an export moves to
 	// StatusExpired. For an erasure it is when the confirmation window lapses,
 	// and it is zero once the erasure is confirmed.
+	//
+	// It is never zero on a request that names an ArtifactRef. The store refuses
+	// that combination rather than storing it — see ErrUnexpiringArtifact.
 	ExpiresAt time.Time `json:"expiresAt"`
 
 	// CompletedAt is when the request reached a terminal state. Nil until it

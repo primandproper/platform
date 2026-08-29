@@ -156,6 +156,25 @@ func dataprivacydbDialect(d dialect.Dialect) (dataprivacydb.Dialect, error) {
 	}
 }
 
+// checkArtifactExpiry refuses a write that would record an artifact reference
+// with no expiry.
+//
+// Save and CompleteExport are the only statements that write a non-empty
+// artifact_ref — MarkExpired writes the empty one when the object is deleted,
+// and nothing else touches the column — so guarding both is what makes "every
+// artifact this table names is one a sweep will visit" a property of the store
+// rather than a habit of its callers. The exported Store surface invites those
+// callers, and the one who omitted the expiry is the one who has not thought
+// about how long a person's data footprint should sit in a bucket.
+func checkArtifactExpiry(req *Request) error {
+	if req.ArtifactRef == "" || !req.ExpiresAt.IsZero() {
+		return nil
+	}
+
+	return platformerrors.Wrapf(ErrUnexpiringArtifact,
+		"dataprivacy request %q names artifact %q", req.ID, req.ArtifactRef)
+}
+
 func (s *SQLStore) Save(ctx context.Context, q database.Tx, req *Request) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
@@ -174,6 +193,10 @@ func (s *SQLStore) Save(ctx context.Context, q database.Tx, req *Request) error 
 		statusKey:      string(req.Status),
 		subjectIDKey:   req.Subject.ID,
 	})
+
+	if err := checkArtifactExpiry(req); err != nil {
+		return op.Error(err, "saving dataprivacy request")
+	}
 
 	failures, retained, err := encodeMaps(req)
 	if err != nil {
@@ -502,6 +525,10 @@ func (s *SQLStore) CompleteExport(ctx context.Context, q database.Tx, req *Reque
 		artifactSizeKey: req.ArtifactBytes,
 		failureCountKey: len(req.Failures),
 	})
+
+	if err := checkArtifactExpiry(req); err != nil {
+		return op.Error(err, "completing dataprivacy export")
+	}
 
 	failures, err := encodeMap(req.Failures)
 	if err != nil {

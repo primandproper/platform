@@ -351,6 +351,13 @@ func utcValue(t *time.Time) time.Time {
 // value reads back as a moment long past, which every horizon comparison in the
 // sweeps would treat as overdue — so an erasure with no confirmation window
 // would be lapsed by the first sweep that saw it.
+//
+// The export side reads the same NULL the other way round, and is protected by
+// a guard rather than by a second encoding. The artifact sweep matches only rows
+// whose expires_at is set, so there a NULL means never swept rather than no
+// deadline — and never swept, for a row that names an artifact, means a person's
+// entire data footprint kept forever. checkArtifactExpiry refuses that write, so
+// nothing carrying an artifact reference reaches this with a zero expiry.
 func instant(t time.Time) *time.Time {
 	if t.IsZero() {
 		return nil
