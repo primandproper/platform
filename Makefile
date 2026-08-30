@@ -5,7 +5,6 @@ PWD := $(shell pwd)
 THIS          := github.com/primandproper/platform-go/v13
 ARTIFACTS_DIR := artifacts
 SCRIPTS_DIR   := .scripts
-COVERAGE_OUT  := $(ARTIFACTS_DIR)/coverage.out
 
 # COMPUTED
 #
