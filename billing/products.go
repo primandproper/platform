@@ -20,13 +20,16 @@ var _ ProductStore = (*SQLStore)(nil)
 
 // CreateProduct adds a product to the scope's catalog.
 //
-// The collision check, the insert and the read-back of the creation time share
-// one transaction. The check is a read rather than a caught constraint violation
-// for the reason every other uniqueness in this module is checked that way: the
-// caller's next move differs between "this provider product is already in the
-// catalog" and "the database is unwell", and asking them to parse a SQLSTATE to
-// find out is how that distinction gets skipped. The index behind it is still
-// what makes the guarantee.
+// The insert and the read-back of the creation time share one transaction. The
+// insert decides the collision itself — it is an insert-ignore over the (scope,
+// external id) unique index, so a provider product already in the catalog leaves
+// the row that is there unchanged and reports a zero affected count. That is
+// still not a caught constraint violation, for the reason every uniqueness in
+// this module avoids being one: the caller's next move differs between "this
+// provider product is already in the catalog" and "the database is unwell", and
+// asking them to parse a SQLSTATE to find out is how that distinction gets
+// skipped. What the count cannot say is which identifier it lost to, which is
+// refuseProductCreate's one read on the losing path.
 func (s *SQLStore) CreateProduct(ctx context.Context, scope tenancy.Scope, product *Product) (*Product, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
@@ -54,12 +57,13 @@ func (s *SQLStore) CreateProduct(ctx context.Context, scope tenancy.Scope, produ
 	op.Set(productKey, created.ID)
 
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		if err := s.ensureProductExternalIDFree(ctx, q, scope, created.ExternalProductID, ""); err != nil {
-			return err
+		count, err := s.q.CreateProduct(ctx, q, createProductParams(&created, scope))
+		if err != nil {
+			return platformerrors.Wrap(err, "creating product")
 		}
 
-		if err := s.q.CreateProduct(ctx, q, createProductParams(&created, scope)); err != nil {
-			return platformerrors.Wrap(err, "creating product")
+		if count == 0 {
+			return s.refuseProductCreate(ctx, q, scope, &created)
 		}
 
 		row, err := s.q.GetProductCreatedAt(ctx, q, billingdb.GetProductCreatedAtParams{ID: created.ID})
@@ -317,12 +321,33 @@ func (s *SQLStore) readProductByExternalID(
 	return productFromRow((*billingdb.GetProductRow)(&row)), nil
 }
 
+// refuseProductCreate says which identifier the create lost to. See refuseCreate.
+func (s *SQLStore) refuseProductCreate(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	created *Product,
+) error {
+	return refuseCreate(created.ExternalProductID, created.ID, func() error {
+		_, err := s.readProductByExternalID(ctx, q, scope, created.ExternalProductID)
+
+		return err
+	}, ErrProductNotFound, ErrProductExists, nil)
+}
+
 // ensureProductExternalIDFree reports whether a provider-side product id is
-// available in this scope, excluding the row it belongs to already.
+// available to an update in this scope, excluding the row it belongs to already.
 //
 // An empty identifier is always free: it is stored as NULL, and NULL repeats —
 // which is the whole reason a product with no provider behind it is storable at
 // all. See billing/migrations.
+//
+// The creates do not use it. Theirs is the insert-ignore, which decides the same
+// question inside the statement and so has no window between deciding and
+// writing; an update has no such spelling, and does not need one — a redelivered
+// sync writes the row's own external id back to it, which the exceptID branch
+// and the index both allow. What is left for this to refuse is two different
+// rows genuinely claiming one provider identifier.
 func (s *SQLStore) ensureProductExternalIDFree(
 	ctx context.Context,
 	q database.SQLQueryExecutor,

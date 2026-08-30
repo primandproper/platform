@@ -52,12 +52,17 @@ func (s *SQLStore) CreatePurchase(
 	op.Set(accountKey, created.BelongsToAccount)
 
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		if err := s.ensurePurchaseExternalIDFree(ctx, q, scope, created.ExternalTransactionID); err != nil {
+		if err := s.requireProduct(ctx, q, scope, created.ProductID); err != nil {
 			return err
 		}
 
-		if err := s.q.CreatePurchase(ctx, q, createPurchaseParams(&created, scope)); err != nil {
+		count, err := s.q.CreatePurchase(ctx, q, createPurchaseParams(&created, scope))
+		if err != nil {
 			return platformerrors.Wrap(err, "creating purchase")
+		}
+
+		if count == 0 {
+			return s.refusePurchaseCreate(ctx, q, scope, &created)
 		}
 
 		row, err := s.q.GetPurchaseCreatedAt(ctx, q, billingdb.GetPurchaseCreatedAtParams{ID: created.ID})
@@ -341,31 +346,21 @@ func (s *SQLStore) readPurchaseByExternalID(
 	return purchaseFromRow((*billingdb.GetPurchaseRow)(&row)), nil
 }
 
-// ensurePurchaseExternalIDFree reports whether a provider-side transaction id is
-// available to a purchase in this scope.
+// refusePurchaseCreate says which identifier the create lost to.
 //
-// There is no exception argument, because there is no write that carries one: a
-// purchase's provider id is set when the row is written and there is no statement
-// able to change it. An empty identifier is always free — it is stored as NULL,
-// and NULL repeats.
-func (s *SQLStore) ensurePurchaseExternalIDFree(
+// There is no update counterpart, as there is for products and subscriptions: a
+// purchase's provider id is written with the row and there is no statement able
+// to change it, so the insert-ignore is the only place the question is ever
+// asked. See refuseCreate.
+func (s *SQLStore) refusePurchaseCreate(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
-	externalTransactionID string,
+	created *Purchase,
 ) error {
-	if externalTransactionID == "" {
-		return nil
-	}
+	return refuseCreate(created.ExternalTransactionID, created.ID, func() error {
+		_, err := s.readPurchaseByExternalID(ctx, q, scope, created.ExternalTransactionID)
 
-	_, err := s.readPurchaseByExternalID(ctx, q, scope, externalTransactionID)
-
-	switch {
-	case errors.Is(err, ErrPurchaseNotFound):
-		return nil
-	case err != nil:
 		return err
-	default:
-		return platformerrors.Wrapf(ErrPurchaseExists, "external transaction id %q", externalTransactionID)
-	}
+	}, ErrPurchaseNotFound, ErrPurchaseExists, nil)
 }

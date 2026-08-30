@@ -49,19 +49,35 @@ type Querier interface {
 	ArchiveTransaction(ctx context.Context, db DBTX, arg ArchiveTransactionParams) (int64, error)
 	// CheckProductExistence runs the :one query.
 	CheckProductExistence(ctx context.Context, db DBTX, arg CheckProductExistenceParams) (CheckProductExistenceRow, error)
+	// CheckPurchasePresence runs the :one query.
+	CheckPurchasePresence(ctx context.Context, db DBTX, arg CheckPurchasePresenceParams) (CheckPurchasePresenceRow, error)
+	// CheckSubscriptionPresence runs the :one query.
+	CheckSubscriptionPresence(ctx context.Context, db DBTX, arg CheckSubscriptionPresenceParams) (CheckSubscriptionPresenceRow, error)
 	// CompletePurchase runs the :execrows query.
 	//
 	// The count means different things on different engines; see the note
 	// on Querier.
 	CompletePurchase(ctx context.Context, db DBTX, arg CompletePurchaseParams) (int64, error)
-	// CreateProduct runs the :exec query.
-	CreateProduct(ctx context.Context, db DBTX, arg CreateProductParams) error
-	// CreatePurchase runs the :exec query.
-	CreatePurchase(ctx context.Context, db DBTX, arg CreatePurchaseParams) error
-	// CreateSubscription runs the :exec query.
-	CreateSubscription(ctx context.Context, db DBTX, arg CreateSubscriptionParams) error
-	// CreateTransaction runs the :exec query.
-	CreateTransaction(ctx context.Context, db DBTX, arg CreateTransactionParams) error
+	// CreateProduct runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	CreateProduct(ctx context.Context, db DBTX, arg CreateProductParams) (int64, error)
+	// CreatePurchase runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	CreatePurchase(ctx context.Context, db DBTX, arg CreatePurchaseParams) (int64, error)
+	// CreateSubscription runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	CreateSubscription(ctx context.Context, db DBTX, arg CreateSubscriptionParams) (int64, error)
+	// CreateTransaction runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	CreateTransaction(ctx context.Context, db DBTX, arg CreateTransactionParams) (int64, error)
 	// GetProduct runs the :one query.
 	GetProduct(ctx context.Context, db DBTX, arg GetProductParams) (GetProductRow, error)
 	// GetProductByExternalID runs the :one query.

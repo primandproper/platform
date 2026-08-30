@@ -100,11 +100,12 @@ const CurrentAsOfArg = "current_as_of"
 // Products is the catalog: what a deployment sells, at what price, on what
 // recurrence.
 //
-// It takes the whole standard set, existence check included. The existence
-// question is a real one here and nowhere else in this schema: writing a
-// subscription or a purchase means naming a product, and a caller that wants to
-// refuse a bad product id before it opens a transaction is asking exactly what
-// that statement answers.
+// It takes the standard set bar the create — every table here renders that from
+// [guardedCreates] instead — existence check included. The existence question is
+// a real one here and nowhere else in this schema: writing a subscription or a
+// purchase means naming a product, and the create of either asks it before it
+// inserts, which is what keeps a bad product id one answer on all three dialects
+// rather than a foreign key error on two of them and a skipped row on the third.
 //
 // Nullable is the two columns a product may genuinely lack. A one-time product
 // has no billing interval, and a product never mirrored to a payment provider
@@ -138,6 +139,7 @@ var Products = Table{
 		ProductIntervalColumn,
 		ExternalProductColumn,
 	},
+	Omitted: []querygen.StandardQuery{querygen.CreateQuery},
 }
 
 // Subscriptions is a recurring agreement: one account, one product, for as long
@@ -179,7 +181,7 @@ var Subscriptions = Table{
 		PeriodStartColumn,
 		PeriodEndColumn,
 	},
-	Omitted: []querygen.StandardQuery{querygen.ExistsQuery},
+	Omitted: []querygen.StandardQuery{querygen.CreateQuery, querygen.ExistsQuery},
 }
 
 // Purchases is a one-time sale: bought once, owned afterwards.
@@ -210,7 +212,7 @@ var Purchases = Table{
 		querygen.ArchivedAtColumn,
 	},
 	Nullable: []string{ExternalTransactionColumn, CompletedAtColumn},
-	Omitted:  []querygen.StandardQuery{querygen.ExistsQuery, querygen.UpdateQuery},
+	Omitted:  []querygen.StandardQuery{querygen.CreateQuery, querygen.ExistsQuery, querygen.UpdateQuery},
 }
 
 // Transactions is the ledger: what each payment attempt left behind.
@@ -241,7 +243,7 @@ var Transactions = Table{
 		querygen.ArchivedAtColumn,
 	},
 	Nullable: []string{SubscriptionColumn, PurchaseColumn, ExternalTransactionColumn},
-	Omitted:  []querygen.StandardQuery{querygen.ExistsQuery, querygen.UpdateQuery},
+	Omitted:  []querygen.StandardQuery{querygen.CreateQuery, querygen.ExistsQuery, querygen.UpdateQuery},
 }
 
 // Emitted is the tables the canonical .sql covers with the standard set, in the
@@ -275,12 +277,103 @@ func Render(d dialect.Dialect) string {
 		rendered = append(rendered, g.StandardCRUD(table.Name, table.Columns, table.Options()...)...)
 	}
 
+	rendered = append(rendered, guardedCreates(g)...)
+	rendered = append(rendered, referentChecks(g)...)
 	rendered = append(rendered, createdAtReads(g)...)
 	rendered = append(rendered, externalIDReads(g)...)
 	rendered = append(rendered, accountReads(g)...)
 	rendered = append(rendered, guardedWrites(g)...)
 
 	return querygen.RenderFile(rendered)
+}
+
+// guardedCreates is every table's insert, rendered so that a row already holding
+// the provider's identifier wins rather than raising.
+//
+// All four are here rather than in [querygen.Generator.StandardCRUD]'s standard
+// set, and the reason is the property the whole schema is shaped around. A
+// payment provider redelivers, and the plain create answers a redelivery with
+// whatever SQLSTATE the driver raises — so a store built on it has to decide
+// beforehand whether the identifier is free, which is a read and a write with a
+// gap between them. Two deliveries that cross in that gap both find it free, the
+// unique index stops the second row, and the caller gets a driver error where the
+// documented answer is billing.ErrTransactionExists — on precisely the delivery
+// the sentinel exists for.
+//
+// [querygen.Generator.InsertIgnoreQuery] closes the gap by putting the decision
+// in the statement: the row already there wins unchanged, and the affected-row
+// count is how the caller learns it lost. There is no window, because there is
+// only one statement.
+//
+// The conflict target is each table's (scope, external id) unique index, spelled
+// exactly as the index is — which is what Postgres requires, and what makes a
+// create with no provider behind it insert rather than collide, since all three
+// engines treat NULLs in a unique index as distinct.
+//
+// # What the count does not say, and what the store does about it
+//
+// A zero count says the row lost and not what it lost to, and on MySQL that is
+// broader than it looks: IGNORE downgrades every constraint on the table, a
+// foreign key included, so a create naming a product nobody has reports zero
+// there where Postgres and SQLite raise. Left alone that would make one mistake
+// answer as another, on one dialect only.
+//
+// So it is not left alone at either end. The creates of the two tables that
+// reference a product ask [querygen.ExistsQuery] first, inside the same
+// transaction, so a bad product id is ErrProductNotFound before any dialect's
+// insert sees it; and the store attributes a zero count by reading, on the losing
+// path only, which of the identifiers is taken. Between them the three dialects
+// answer every one of these the same way.
+func guardedCreates(g *querygen.Generator) []*querygen.Query {
+	scope := querygen.Match{Column: ScopeColumn}
+
+	return []*querygen.Query{
+		g.InsertIgnoreQuery("CreateProduct", ProductsTable,
+			Products.InsertColumns(), Products.Nullable,
+			scope, querygen.Match{Column: ExternalProductColumn}),
+
+		g.InsertIgnoreQuery("CreateSubscription", SubscriptionsTable,
+			Subscriptions.InsertColumns(), Subscriptions.Nullable,
+			scope, querygen.Match{Column: ExternalSubscriptionColumn}),
+
+		g.InsertIgnoreQuery("CreatePurchase", PurchasesTable,
+			Purchases.InsertColumns(), Purchases.Nullable,
+			scope, querygen.Match{Column: ExternalTransactionColumn}),
+
+		g.InsertIgnoreQuery("CreateTransaction", TransactionsTable,
+			Transactions.InsertColumns(), Transactions.Nullable,
+			scope, querygen.Match{Column: ExternalTransactionColumn}),
+	}
+}
+
+// referentChecks answer whether the row a ledger write names is there at all,
+// archived or not.
+//
+// A transaction points at the subscription or the purchase it settled, and both
+// foreign keys reference the row rather than a live one — archiving a
+// subscription deliberately leaves the ledger rows pointing at it alone. So
+// these are rendered from the table's columns without archived_at, which is how
+// a statement says it must see archived rows, and they project the id alone
+// because the question is presence rather than content.
+//
+// They are read on a losing insert rather than before a winning one. Every
+// RecordTransaction would otherwise pay for them, and the answer only matters
+// when the insert already wrote nothing: on MySQL, where IGNORE downgrades the
+// foreign key to a warning and a zero count, this is what tells a ledger row
+// naming a subscription nobody has from the redelivery the zero count usually
+// means. Postgres and SQLite raise that case at the insert and never reach here.
+func referentChecks(g *querygen.Generator) []*querygen.Query {
+	scope := querygen.Match{Column: ScopeColumn}
+
+	return []*querygen.Query{
+		g.ReadQuery("CheckSubscriptionPresence", SubscriptionsTable,
+			Subscriptions.ColumnsExcept(querygen.ArchivedAtColumn),
+			querygen.Read{Projection: []string{querygen.IDColumn}}, scope),
+
+		g.ReadQuery("CheckPurchasePresence", PurchasesTable,
+			Purchases.ColumnsExcept(querygen.ArchivedAtColumn),
+			querygen.Read{Projection: []string{querygen.IDColumn}}, scope),
+	}
 }
 
 // createdAtReads is the read-back of the one column a create does not carry: the

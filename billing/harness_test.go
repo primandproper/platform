@@ -14,25 +14,43 @@ import (
 	clockmock "github.com/primandproper/platform-go/v13/clock/mock"
 	"github.com/primandproper/platform-go/v13/database"
 	"github.com/primandproper/platform-go/v13/database/dialect"
+	"github.com/primandproper/platform-go/v13/database/mysql"
+	"github.com/primandproper/platform-go/v13/database/postgres"
 	"github.com/primandproper/platform-go/v13/database/sqlite"
 	"github.com/primandproper/platform-go/v13/tenancy"
 
 	"github.com/shoenig/test/must"
 )
 
-// testClientConfig is the minimum database.ClientConfig a SQLite client needs.
+// testClientConfig is the minimum database.ClientConfig a client needs.
+//
+// maxOpenConns is a field rather than the constant it used to be because one of
+// these tests is about concurrency, and a suite whose pool opens a single
+// connection cannot have any: database/sql queues the callers, every statement
+// runs alone, and an assertion about two writes crossing passes without either
+// of them crossing anything. Zero means one, which is what every test but that
+// one wants — SQLite serializes its writers regardless, and a shared file
+// database with several of them is SQLITE_BUSY rather than a finding.
 type testClientConfig struct {
 	connectionString string
+	maxOpenConns     int
 }
 
 var _ database.ClientConfig = (*testClientConfig)(nil)
 
-func (c *testClientConfig) GetReadConnectionString() string   { return c.connectionString }
-func (c *testClientConfig) GetWriteConnectionString() string  { return c.connectionString }
-func (c *testClientConfig) GetMaxPingAttempts() uint64        { return 1 }
-func (c *testClientConfig) GetPingWaitPeriod() time.Duration  { return time.Millisecond }
-func (c *testClientConfig) GetMaxIdleConns() int              { return 2 }
-func (c *testClientConfig) GetMaxOpenConns() int              { return 1 }
+func (c *testClientConfig) GetReadConnectionString() string  { return c.connectionString }
+func (c *testClientConfig) GetWriteConnectionString() string { return c.connectionString }
+func (c *testClientConfig) GetMaxPingAttempts() uint64       { return 1 }
+func (c *testClientConfig) GetPingWaitPeriod() time.Duration { return time.Millisecond }
+func (c *testClientConfig) GetMaxIdleConns() int             { return 2 }
+func (c *testClientConfig) GetMaxOpenConns() int {
+	if c.maxOpenConns > 0 {
+		return c.maxOpenConns
+	}
+
+	return 1
+}
+
 func (c *testClientConfig) GetConnMaxLifetime() time.Duration { return time.Minute }
 
 // prefixCounter names a fresh table set per subtest. Subtests share one database
@@ -68,9 +86,44 @@ const (
 var testNow = time.Date(2026, time.March, 1, 12, 0, 0, 0, time.UTC)
 
 // storeEnv is one live database plus the dialect it speaks.
+//
+// connectionString is kept so that a test needing its own pool can open one onto
+// the same database. Only the concurrency test does, and only on the two engines
+// where concurrent writers are a real thing.
 type storeEnv struct {
-	client  database.Client
-	dialect dialect.Dialect
+	client           database.Client
+	dialect          dialect.Dialect
+	connectionString string
+}
+
+// concurrentEnv returns an environment onto the same database whose pool is wide
+// enough for conns writers at once, and whether there is one to be had.
+//
+// It is false for SQLite, whose writer is single however wide the pool is, so a
+// test asking for this is asking for something that engine does not have.
+func (e *storeEnv) concurrentEnv(tb testing.TB, conns int) (*storeEnv, bool) {
+	tb.Helper()
+
+	cfg := &testClientConfig{connectionString: e.connectionString, maxOpenConns: conns}
+
+	var (
+		client database.Client
+		err    error
+	)
+
+	switch e.dialect {
+	case dialect.Postgres:
+		client, err = postgres.NewDatabaseClient(tb.Context(), cfg)
+	case dialect.MySQL:
+		client, err = mysql.NewDatabaseClient(tb.Context(), cfg)
+	default:
+		return nil, false
+	}
+
+	must.NoError(tb, err)
+	tb.Cleanup(func() { _ = client.Close() })
+
+	return &storeEnv{client: client, dialect: e.dialect, connectionString: e.connectionString}, true
 }
 
 // newSQLiteEnv builds a SQLite-backed environment. SQLite exercises the real SQL
@@ -79,12 +132,14 @@ type storeEnv struct {
 func newSQLiteEnv(tb testing.TB) *storeEnv {
 	tb.Helper()
 
+	connectionString := filepath.Join(tb.TempDir(), "billing.db")
+
 	client, err := sqlite.NewDatabaseClient(tb.Context(),
-		&testClientConfig{connectionString: filepath.Join(tb.TempDir(), "billing.db")})
+		&testClientConfig{connectionString: connectionString})
 	must.NoError(tb, err)
 	tb.Cleanup(func() { _ = client.Close() })
 
-	return &storeEnv{client: client, dialect: dialect.SQLite}
+	return &storeEnv{client: client, dialect: dialect.SQLite, connectionString: connectionString}
 }
 
 // newStore migrates a uniquely prefixed table set and returns a store over it, on

@@ -69,8 +69,21 @@ the statement rather than in whatever the caller does next:
 The three provider-identifier columns are unique within a scope, so a second
 delivery of a charge collides instead of recording it twice — which is the
 difference between a ledger somebody can sum and a number somebody reconciles by
-hand. The store reports the collision as [ErrTransactionExists] and its siblings,
-so a handler acknowledges the delivery rather than retrying it forever.
+hand. Every create is an insert-ignore over that index rather than a plain insert:
+the row already there wins unchanged and the affected count is how the caller
+learns it lost, so nothing decides the identifier is free in a statement before
+the one that uses it. The store reports the loss as [ErrTransactionExists] and its
+siblings, so a handler acknowledges the delivery rather than retrying it forever.
+
+A zero count says the row lost and not what it lost to, so the store reads once
+more to attribute it, on the losing path and therefore never on the hot one. That
+read is also what keeps the three engines saying the same thing: MySQL's IGNORE
+covers every constraint on the table rather than the one index, so a create naming
+a product nobody has arrives there as a zero count where Postgres and SQLite raise
+a foreign key. The two creates that reference a product ask for it before they
+insert, and the ledger's create asks about its referents when it loses. See
+[ErrIDTaken] for the one case the three engines report differently, and why
+nothing but a caller's own bug reaches it.
 
 The two status writes are guarded on the column they assign — `SET status = X
 WHERE status <> X` — so a redelivered event touches nothing and is told

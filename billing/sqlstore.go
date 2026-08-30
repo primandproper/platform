@@ -17,6 +17,7 @@ import (
 	"github.com/primandproper/platform-go/v13/observability/logging"
 	"github.com/primandproper/platform-go/v13/observability/metrics"
 	"github.com/primandproper/platform-go/v13/observability/tracing"
+	"github.com/primandproper/platform-go/v13/tenancy"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -186,6 +187,96 @@ func guardCount(count int64, err, missing error, operation string) error {
 
 	if count == 0 {
 		return missing
+	}
+
+	return nil
+}
+
+// refuseCreate says which of a create's identifiers the insert lost to, having
+// written nothing.
+//
+// The insert-ignore behind every create here reports a loss as a zero affected
+// count and cannot say what it lost to — and on MySQL that is broader than the
+// conflict target it names, because IGNORE downgrades every constraint on the
+// table rather than the one index. So the attribution is a read, made on the
+// losing path and therefore never on the hot one, in the same shape
+// refuseStatusWrite uses for the same reason.
+//
+// The provider's identifier is asked about first, because that is the collision
+// this schema is shaped around: a redelivered webhook, whose whole answer is the
+// exists sentinel the caller acknowledges the delivery on. What is left — no
+// provider identifier on the row, or one nobody else holds — is the id, which
+// only a caller that supplied its own can collide on.
+//
+// residual is what a table asks after the provider's identifier has come back
+// clean and before the id is blamed. Only the ledger has one — its row points at
+// two others, and MySQL's IGNORE reports a foreign key it could not satisfy with
+// the same zero count as a collision. Every other table passes nil.
+func refuseCreate(externalID, id string, lookup func() error, notFound, exists error, residual func() error) error {
+	if externalID != "" {
+		switch err := lookup(); {
+		case err == nil:
+			return platformerrors.Wrapf(exists, "external id %q", externalID)
+		case !errors.Is(err, notFound):
+			return platformerrors.Wrap(err, "attributing a skipped insert")
+		}
+	}
+
+	if residual != nil {
+		if err := residual(); err != nil {
+			return err
+		}
+	}
+
+	return platformerrors.Wrapf(ErrIDTaken, "%q", id)
+}
+
+// requirePresence turns a presence read's outcome into the answer a ledger write
+// wants: nothing missing, the referent's own not-found sentinel, or the failure
+// as it came.
+//
+// The statement behind the read it interprets is archived-blind, because
+// archiving a subscription deliberately leaves the ledger rows pointing at it
+// alone — so an archived referent is present as far as both the foreign key and
+// this question are concerned. See queries.referentChecks.
+func requirePresence(err, missing error, id string) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, sql.ErrNoRows):
+		return platformerrors.Wrapf(missing, "%q", id)
+	default:
+		return platformerrors.Wrap(err, "checking the row a ledger write names")
+	}
+}
+
+// requireProduct refuses a write naming a product this scope does not have.
+//
+// It is asked inside the write's own transaction, before the insert, and it is
+// why billing_products is the one table here that keeps the standard existence
+// check. The foreign key would refuse the row anyway on Postgres and SQLite — but
+// MySQL's INSERT IGNORE downgrades a foreign key violation to a warning and a
+// zero count, which is indistinguishable from the uniqueness collision that count
+// exists to report. Asking first is what makes a bad product id one answer on all
+// three dialects instead of two errors and a lie.
+func (s *SQLStore) requireProduct(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	productID string,
+) error {
+	row, err := s.q.CheckProductExistence(ctx, q,
+		billingdb.CheckProductExistenceParams{ID: productID, Scope: scope})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return platformerrors.Wrapf(ErrProductNotFound, "product %q", productID)
+		}
+
+		return platformerrors.Wrap(err, "checking the product a write names")
+	}
+
+	if !row.Exists {
+		return platformerrors.Wrapf(ErrProductNotFound, "product %q", productID)
 	}
 
 	return nil

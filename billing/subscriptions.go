@@ -53,12 +53,17 @@ func (s *SQLStore) CreateSubscription(
 	op.Set(accountKey, created.BelongsToAccount)
 
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		if err := s.ensureSubscriptionExternalIDFree(ctx, q, scope, created.ExternalSubscriptionID, ""); err != nil {
+		if err := s.requireProduct(ctx, q, scope, created.ProductID); err != nil {
 			return err
 		}
 
-		if err := s.q.CreateSubscription(ctx, q, createSubscriptionParams(&created, scope)); err != nil {
+		count, err := s.q.CreateSubscription(ctx, q, createSubscriptionParams(&created, scope))
+		if err != nil {
 			return platformerrors.Wrap(err, "creating subscription")
+		}
+
+		if count == 0 {
+			return s.refuseSubscriptionCreate(ctx, q, scope, &created)
 		}
 
 		row, err := s.q.GetSubscriptionCreatedAt(ctx, q,
@@ -468,11 +473,32 @@ func (s *SQLStore) readSubscriptionByExternalID(
 	return subscriptionFromRow((*billingdb.GetSubscriptionRow)(&row)), nil
 }
 
+// refuseSubscriptionCreate says which identifier the create lost to. See
+// refuseCreate.
+func (s *SQLStore) refuseSubscriptionCreate(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	created *Subscription,
+) error {
+	return refuseCreate(created.ExternalSubscriptionID, created.ID, func() error {
+		_, err := s.readSubscriptionByExternalID(ctx, q, scope, created.ExternalSubscriptionID)
+
+		return err
+	}, ErrSubscriptionNotFound, ErrSubscriptionExists, nil)
+}
+
 // ensureSubscriptionExternalIDFree reports whether a provider-side subscription
-// id is available in this scope, excluding the row it belongs to already.
+// id is available to an update in this scope, excluding the row it belongs to
+// already.
 //
 // An empty identifier is always free: it is stored as NULL, and NULL repeats —
 // which is what makes a subscription granted by hand storable at all.
+//
+// Only the update asks. The create decides the same question inside its
+// insert-ignore, where there is no window between deciding and writing — see
+// ensureProductExternalIDFree for why the update neither has that spelling nor
+// needs it.
 func (s *SQLStore) ensureSubscriptionExternalIDFree(
 	ctx context.Context,
 	q database.SQLQueryExecutor,

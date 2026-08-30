@@ -57,12 +57,13 @@ func (s *SQLStore) RecordTransaction(
 	op.Set(statusKey, string(recorded.Status))
 
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		if err := s.ensureTransactionExternalIDFree(ctx, q, scope, recorded.ExternalTransactionID); err != nil {
-			return err
+		count, err := s.q.CreateTransaction(ctx, q, createTransactionParams(&recorded, scope))
+		if err != nil {
+			return platformerrors.Wrap(err, "recording transaction")
 		}
 
-		if err := s.q.CreateTransaction(ctx, q, createTransactionParams(&recorded, scope)); err != nil {
-			return platformerrors.Wrap(err, "recording transaction")
+		if count == 0 {
+			return s.refuseTransactionCreate(ctx, q, scope, &recorded)
 		}
 
 		row, err := s.q.GetTransactionCreatedAt(ctx, q,
@@ -356,31 +357,51 @@ func (s *SQLStore) readTransactionByExternalID(
 	return transactionFromRow((*billingdb.GetTransactionRow)(&row)), nil
 }
 
-// ensureTransactionExternalIDFree reports whether a provider-side transaction id
-// is already recorded in this scope.
+// refuseTransactionCreate says what the ledger insert lost to, having written
+// nothing.
 //
-// There is no exception argument, for the reason the purchase check has none: a
-// ledger row's provider id is written once and no statement can change it. An
-// empty identifier is always free — it is stored as NULL, and NULL repeats,
-// which is what lets a deployment record an adjustment no provider knows about.
-func (s *SQLStore) ensureTransactionExternalIDFree(
+// The provider's identifier is asked about first, because a redelivered charge is
+// what this count almost always means and ErrTransactionExists is the whole answer
+// to it. Then the two rows this one points at, which is the residual only this
+// table has: MySQL's IGNORE downgrades a foreign key it could not satisfy to the
+// same zero count as a collision, so without asking, a ledger row naming a
+// subscription nobody has would be reported as an id somebody else holds.
+// Postgres and SQLite raise that case at the insert and never arrive here, so the
+// two engines differ in which error names a caller's bad reference and agree in
+// refusing to store it.
+//
+// There is no update counterpart. A ledger row's provider id is written once and
+// no statement can change it, so the insert-ignore is the only place any of this
+// is asked.
+func (s *SQLStore) refuseTransactionCreate(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
-	externalTransactionID string,
+	recorded *Transaction,
 ) error {
-	if externalTransactionID == "" {
-		return nil
-	}
+	return refuseCreate(recorded.ExternalTransactionID, recorded.ID, func() error {
+		_, err := s.readTransactionByExternalID(ctx, q, scope, recorded.ExternalTransactionID)
 
-	_, err := s.readTransactionByExternalID(ctx, q, scope, externalTransactionID)
-
-	switch {
-	case errors.Is(err, ErrTransactionNotFound):
-		return nil
-	case err != nil:
 		return err
-	default:
-		return platformerrors.Wrapf(ErrTransactionExists, "external transaction id %q", externalTransactionID)
-	}
+	}, ErrTransactionNotFound, ErrTransactionExists, func() error {
+		if recorded.SubscriptionID != "" {
+			_, err := s.q.CheckSubscriptionPresence(ctx, q, billingdb.CheckSubscriptionPresenceParams{
+				ID: recorded.SubscriptionID, Scope: scope,
+			})
+			if err = requirePresence(err, ErrSubscriptionNotFound, recorded.SubscriptionID); err != nil {
+				return err
+			}
+		}
+
+		if recorded.PurchaseID != "" {
+			_, err := s.q.CheckPurchasePresence(ctx, q, billingdb.CheckPurchasePresenceParams{
+				ID: recorded.PurchaseID, Scope: scope,
+			})
+			if err = requirePresence(err, ErrPurchaseNotFound, recorded.PurchaseID); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
 }

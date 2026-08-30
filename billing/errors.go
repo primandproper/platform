@@ -142,6 +142,23 @@ var (
 	// than retry it forever. See billing/migrations.
 	ErrTransactionExists = platformerrors.New("a transaction with that external id already recorded")
 
+	// ErrIDTaken indicates a create whose id another row in this scope already
+	// carries.
+	//
+	// It is reachable only from a caller that supplied the id — a create that
+	// leaves it empty is given a minted one — and it is distinct from the four
+	// exists sentinels because it names a different mistake: those are a
+	// provider's identifier arriving twice, which is the ordinary redelivery,
+	// and this is an application handing out an identifier it has used before.
+	//
+	// MySQL and SQLite report it here. Postgres raises its own primary key
+	// violation instead, because the create's conflict target names the external
+	// id index and a Postgres ON CONFLICT absorbs only the index it names, where
+	// the IGNORE the other two spell covers every constraint on the table. The
+	// three dialects agree on refusing the row and differ on which error says so;
+	// nothing that is not a caller's own bug reaches either.
+	ErrIDTaken = platformerrors.New("another row in this scope already has that id")
+
 	// ErrStatusUnchanged indicates a status write that found the row already
 	// holding the status it was going to write.
 	//

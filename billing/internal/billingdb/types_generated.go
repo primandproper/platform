@@ -46,6 +46,28 @@ type CheckProductExistenceRow struct {
 	Exists bool
 }
 
+// CheckPurchasePresenceParams are the arguments to CheckPurchasePresence.
+type CheckPurchasePresenceParams struct {
+	ID    string
+	Scope tenancy.Scope
+}
+
+// CheckPurchasePresenceRow is one row of CheckPurchasePresence's result.
+type CheckPurchasePresenceRow struct {
+	ID string
+}
+
+// CheckSubscriptionPresenceParams are the arguments to CheckSubscriptionPresence.
+type CheckSubscriptionPresenceParams struct {
+	ID    string
+	Scope tenancy.Scope
+}
+
+// CheckSubscriptionPresenceRow is one row of CheckSubscriptionPresence's result.
+type CheckSubscriptionPresenceRow struct {
+	ID string
+}
+
 // CompletePurchaseParams are the arguments to CompletePurchase.
 type CompletePurchaseParams struct {
 	CompletedAt *time.Time

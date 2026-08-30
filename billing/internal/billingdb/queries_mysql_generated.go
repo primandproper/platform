@@ -45,6 +45,18 @@ const checkProductExistenceMySQL = `SELECT EXISTS (
 		AND {{prefix}}billing_products.scope = ?
 )`
 
+const checkPurchasePresenceMySQL = `SELECT
+	{{prefix}}billing_purchases.id
+FROM {{prefix}}billing_purchases
+WHERE {{prefix}}billing_purchases.id = ?
+	AND {{prefix}}billing_purchases.scope = ?`
+
+const checkSubscriptionPresenceMySQL = `SELECT
+	{{prefix}}billing_subscriptions.id
+FROM {{prefix}}billing_subscriptions
+WHERE {{prefix}}billing_subscriptions.id = ?
+	AND {{prefix}}billing_subscriptions.scope = ?`
+
 const completePurchaseMySQL = `UPDATE {{prefix}}billing_purchases SET
 	completed_at = ?,
 	last_updated_at = CURRENT_TIMESTAMP(6)
@@ -53,8 +65,7 @@ WHERE archived_at IS NULL
 	AND scope = ?
 	AND completed_at IS NULL`
 
-const createProductMySQL = `
-INSERT INTO {{prefix}}billing_products (
+const createProductMySQL = `INSERT IGNORE INTO {{prefix}}billing_products (
 	id,
 	scope,
 	name,
@@ -76,7 +87,7 @@ INSERT INTO {{prefix}}billing_products (
 	?
 )`
 
-const createPurchaseMySQL = `INSERT INTO {{prefix}}billing_purchases (
+const createPurchaseMySQL = `INSERT IGNORE INTO {{prefix}}billing_purchases (
 	id,
 	scope,
 	belongs_to_account,
@@ -96,7 +107,7 @@ const createPurchaseMySQL = `INSERT INTO {{prefix}}billing_purchases (
 	?
 )`
 
-const createSubscriptionMySQL = `INSERT INTO {{prefix}}billing_subscriptions (
+const createSubscriptionMySQL = `INSERT IGNORE INTO {{prefix}}billing_subscriptions (
 	id,
 	scope,
 	belongs_to_account,
@@ -116,7 +127,7 @@ const createSubscriptionMySQL = `INSERT INTO {{prefix}}billing_subscriptions (
 	?
 )`
 
-const createTransactionMySQL = `INSERT INTO {{prefix}}billing_transactions (
+const createTransactionMySQL = `INSERT IGNORE INTO {{prefix}}billing_transactions (
 	id,
 	scope,
 	belongs_to_account,
@@ -138,7 +149,8 @@ const createTransactionMySQL = `INSERT INTO {{prefix}}billing_transactions (
 	?
 )`
 
-const getProductMySQL = `SELECT
+const getProductMySQL = `
+SELECT
 	{{prefix}}billing_products.id,
 	{{prefix}}billing_products.scope,
 	{{prefix}}billing_products.name,
@@ -1193,6 +1205,8 @@ type mysqlQueries struct {
 	archiveSubscription                   string
 	archiveTransaction                    string
 	checkProductExistence                 string
+	checkPurchasePresence                 string
+	checkSubscriptionPresence             string
 	completePurchase                      string
 	createProduct                         string
 	createPurchase                        string
@@ -1241,6 +1255,8 @@ func newMySQL(prefix string) *mysqlQueries {
 		archiveSubscription:                   strings.ReplaceAll(archiveSubscriptionMySQL, prefixMarker, prefix),
 		archiveTransaction:                    strings.ReplaceAll(archiveTransactionMySQL, prefixMarker, prefix),
 		checkProductExistence:                 strings.ReplaceAll(checkProductExistenceMySQL, prefixMarker, prefix),
+		checkPurchasePresence:                 strings.ReplaceAll(checkPurchasePresenceMySQL, prefixMarker, prefix),
+		checkSubscriptionPresence:             strings.ReplaceAll(checkSubscriptionPresenceMySQL, prefixMarker, prefix),
 		completePurchase:                      strings.ReplaceAll(completePurchaseMySQL, prefixMarker, prefix),
 		createProduct:                         strings.ReplaceAll(createProductMySQL, prefixMarker, prefix),
 		createPurchase:                        strings.ReplaceAll(createPurchaseMySQL, prefixMarker, prefix),
@@ -1349,6 +1365,38 @@ func (q *mysqlQueries) CheckProductExistence(ctx context.Context, db DBTX, arg C
 	return i, err
 }
 
+// CheckPurchasePresence runs the :one query against mysql.
+func (q *mysqlQueries) CheckPurchasePresence(ctx context.Context, db DBTX, arg CheckPurchasePresenceParams) (CheckPurchasePresenceRow, error) {
+	row := db.QueryRowContext(ctx, q.checkPurchasePresence,
+		arg.ID,
+		arg.Scope,
+	)
+
+	var i CheckPurchasePresenceRow
+
+	err := row.Scan(
+		&i.ID,
+	)
+
+	return i, err
+}
+
+// CheckSubscriptionPresence runs the :one query against mysql.
+func (q *mysqlQueries) CheckSubscriptionPresence(ctx context.Context, db DBTX, arg CheckSubscriptionPresenceParams) (CheckSubscriptionPresenceRow, error) {
+	row := db.QueryRowContext(ctx, q.checkSubscriptionPresence,
+		arg.ID,
+		arg.Scope,
+	)
+
+	var i CheckSubscriptionPresenceRow
+
+	err := row.Scan(
+		&i.ID,
+	)
+
+	return i, err
+}
+
 // CompletePurchase runs the :execrows query against mysql.
 func (q *mysqlQueries) CompletePurchase(ctx context.Context, db DBTX, arg CompletePurchaseParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.completePurchase,
@@ -1363,9 +1411,9 @@ func (q *mysqlQueries) CompletePurchase(ctx context.Context, db DBTX, arg Comple
 	return result.RowsAffected()
 }
 
-// CreateProduct runs the :exec query against mysql.
-func (q *mysqlQueries) CreateProduct(ctx context.Context, db DBTX, arg CreateProductParams) error {
-	_, err := db.ExecContext(ctx, q.createProduct,
+// CreateProduct runs the :execrows query against mysql.
+func (q *mysqlQueries) CreateProduct(ctx context.Context, db DBTX, arg CreateProductParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.createProduct,
 		arg.ID,
 		arg.Scope,
 		arg.Name,
@@ -1376,13 +1424,16 @@ func (q *mysqlQueries) CreateProduct(ctx context.Context, db DBTX, arg CreatePro
 		arg.BillingIntervalMonths,
 		arg.ExternalProductID,
 	)
+	if err != nil {
+		return 0, err
+	}
 
-	return err
+	return result.RowsAffected()
 }
 
-// CreatePurchase runs the :exec query against mysql.
-func (q *mysqlQueries) CreatePurchase(ctx context.Context, db DBTX, arg CreatePurchaseParams) error {
-	_, err := db.ExecContext(ctx, q.createPurchase,
+// CreatePurchase runs the :execrows query against mysql.
+func (q *mysqlQueries) CreatePurchase(ctx context.Context, db DBTX, arg CreatePurchaseParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.createPurchase,
 		arg.ID,
 		arg.Scope,
 		arg.BelongsToAccount,
@@ -1392,13 +1443,16 @@ func (q *mysqlQueries) CreatePurchase(ctx context.Context, db DBTX, arg CreatePu
 		arg.Currency,
 		arg.CompletedAt,
 	)
+	if err != nil {
+		return 0, err
+	}
 
-	return err
+	return result.RowsAffected()
 }
 
-// CreateSubscription runs the :exec query against mysql.
-func (q *mysqlQueries) CreateSubscription(ctx context.Context, db DBTX, arg CreateSubscriptionParams) error {
-	_, err := db.ExecContext(ctx, q.createSubscription,
+// CreateSubscription runs the :execrows query against mysql.
+func (q *mysqlQueries) CreateSubscription(ctx context.Context, db DBTX, arg CreateSubscriptionParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.createSubscription,
 		arg.ID,
 		arg.Scope,
 		arg.BelongsToAccount,
@@ -1408,13 +1462,16 @@ func (q *mysqlQueries) CreateSubscription(ctx context.Context, db DBTX, arg Crea
 		arg.CurrentPeriodStart,
 		arg.CurrentPeriodEnd,
 	)
+	if err != nil {
+		return 0, err
+	}
 
-	return err
+	return result.RowsAffected()
 }
 
-// CreateTransaction runs the :exec query against mysql.
-func (q *mysqlQueries) CreateTransaction(ctx context.Context, db DBTX, arg CreateTransactionParams) error {
-	_, err := db.ExecContext(ctx, q.createTransaction,
+// CreateTransaction runs the :execrows query against mysql.
+func (q *mysqlQueries) CreateTransaction(ctx context.Context, db DBTX, arg CreateTransactionParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.createTransaction,
 		arg.ID,
 		arg.Scope,
 		arg.BelongsToAccount,
@@ -1425,8 +1482,11 @@ func (q *mysqlQueries) CreateTransaction(ctx context.Context, db DBTX, arg Creat
 		arg.AmountCents,
 		arg.Currency,
 	)
+	if err != nil {
+		return 0, err
+	}
 
-	return err
+	return result.RowsAffected()
 }
 
 // GetProduct runs the :one query against mysql.
@@ -2787,6 +2847,20 @@ var (
 	_ = struct {
 		Exists bool
 	}(CheckProductExistenceRow{})
+	_ = struct {
+		ID    string
+		Scope tenancy.Scope
+	}(CheckPurchasePresenceParams{})
+	_ = struct {
+		ID string
+	}(CheckPurchasePresenceRow{})
+	_ = struct {
+		ID    string
+		Scope tenancy.Scope
+	}(CheckSubscriptionPresenceParams{})
+	_ = struct {
+		ID string
+	}(CheckSubscriptionPresenceRow{})
 	_ = struct {
 		CompletedAt *time.Time
 		ID          string

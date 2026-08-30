@@ -1,10 +1,12 @@
 package billing
 
 import (
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/primandproper/platform-go/v13/capitalism"
+	"github.com/primandproper/platform-go/v13/database/dialect"
 	platformerrors "github.com/primandproper/platform-go/v13/errors"
 	"github.com/primandproper/platform-go/v13/tenancy"
 
@@ -49,6 +51,205 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 	t.Run("transactions", func(t *testing.T) {
 		t.Parallel()
 		runTransactionSuite(t, env)
+	})
+
+	t.Run("create guards", func(t *testing.T) {
+		t.Parallel()
+		runCreateGuardSuite(t, env)
+	})
+}
+
+// runCreateGuardSuite is what the four creates promise when the row does not go
+// in, which is one group rather than four because one statement shape makes all
+// of those promises.
+//
+// Every create here is an insert-ignore keyed on the table's (scope, external id)
+// unique index, so a collision is an affected count rather than a driver error
+// and there is no window between deciding the identifier is free and using it.
+// What the count cannot say is what was collided with, and these are the
+// assertions that the store says it correctly — including on the two mistakes it
+// has to read to tell apart from a redelivery.
+func runCreateGuardSuite(t *testing.T, env *storeEnv) {
+	t.Helper()
+
+	t.Run("reports one winner when a provider redelivers a charge concurrently", func(t *testing.T) {
+		t.Parallel()
+
+		const racers = 8
+
+		// Its own environment, because the suite's pool opens one connection and
+		// eight writers through one connection take turns. See concurrentEnv for
+		// why SQLite has none to give.
+		concurrent, ok := env.concurrentEnv(t, racers)
+		if !ok {
+			t.Skip("this engine has no concurrent writers to race")
+		}
+
+		store := concurrent.newStore(t)
+
+		product := mustCreateProduct(t, store, testScope, oneTimeProduct("guide"))
+		purchase := mustCreatePurchase(t, store, testScope, outstandingPurchase(product.ID, testAccount))
+
+		// What the ledger promises when the same charge arrives more than once at
+		// the same time: one row, and every loser told so by the sentinel it
+		// documents rather than by a driver's constraint violation.
+		//
+		// It asserts the contract rather than reproducing its absence. The shape
+		// this replaced decided the identifier was free in a statement before the
+		// one that used it, which is a window by construction — but not one this
+		// harness can open: the racers reach RecordTransaction together and the
+		// pool still hands them the server one at a time, so every loser here
+		// would find the row committed and report the same sentinel. The reason
+		// to believe the fix is that there is no longer a second statement to
+		// cross, and the reason to keep the test is that a future shape which
+		// reintroduces one has somewhere to fail.
+
+		var (
+			start   = make(chan struct{})
+			results = make(chan error, racers)
+			wg      sync.WaitGroup
+		)
+
+		for range racers {
+			wg.Go(func() {
+				attempt := pendingTransaction(testAccount)
+				attempt.PurchaseID = purchase.ID
+				attempt.ExternalTransactionID = "ch_redelivered"
+
+				<-start
+
+				_, err := store.RecordTransaction(t.Context(), testScope, attempt)
+				results <- err
+			})
+		}
+
+		close(start)
+		wg.Wait()
+		close(results)
+
+		var won int
+
+		for err := range results {
+			if err == nil {
+				won++
+
+				continue
+			}
+
+			test.ErrorIs(t, err, ErrTransactionExists)
+		}
+
+		test.EqOp(t, 1, won)
+
+		// And the ledger holds what the winners wrote, which is the reason any of
+		// this matters: a sum over these rows is a number nobody reconciles by
+		// hand.
+		page, err := store.ListTransactionsForAccount(t.Context(), testScope, testAccount, nil)
+		must.NoError(t, err)
+		test.SliceLen(t, 1, page.Data)
+	})
+
+	t.Run("refuses a subscription naming a product nobody has", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		_, err := store.CreateSubscription(t.Context(), testScope,
+			currentSubscription("no-such-product", testAccount))
+		test.ErrorIs(t, err, ErrProductNotFound)
+	})
+
+	t.Run("refuses a purchase naming a product nobody has", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		_, err := store.CreatePurchase(t.Context(), testScope,
+			outstandingPurchase("no-such-product", testAccount))
+		test.ErrorIs(t, err, ErrProductNotFound)
+	})
+
+	t.Run("refuses a subscription naming a product in another scope", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		// The existence check is scoped, so a product that exists is still not a
+		// product this scope may sell. Without that the foreign key would admit
+		// the row, since the key spans ids and knows nothing about tenancy.
+		product := mustCreateProduct(t, store, otherScope, recurringProduct("pro"))
+
+		_, err := store.CreateSubscription(t.Context(), testScope,
+			currentSubscription(product.ID, testAccount))
+		test.ErrorIs(t, err, ErrProductNotFound)
+	})
+
+	t.Run("lets a ledger row name an archived subscription", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		product := mustCreateProduct(t, store, testScope, recurringProduct("pro"))
+		subscription := mustCreateSubscription(t, store, testScope,
+			currentSubscription(product.ID, testAccount))
+
+		must.NoError(t, store.ArchiveSubscription(t.Context(), testScope, subscription.ID))
+
+		// Archiving is administrative and deliberately leaves the ledger alone,
+		// so the presence check behind a losing insert is archived-blind. A check
+		// that read only live rows would refuse the refund of something since
+		// retired.
+		attempt := pendingTransaction(testAccount)
+		attempt.SubscriptionID = subscription.ID
+
+		mustRecordTransaction(t, store, testScope, attempt)
+	})
+
+	t.Run("refuses a ledger row naming a subscription nobody has", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		attempt := pendingTransaction(testAccount)
+		attempt.SubscriptionID = "no-such-subscription"
+
+		_, err := store.RecordTransaction(t.Context(), testScope, attempt)
+		must.Error(t, err)
+
+		// All three engines refuse the row and they differ in which error says
+		// so. Postgres and SQLite raise the foreign key at the insert; MySQL's
+		// IGNORE downgrades it to a warning and a zero affected count, which is
+		// the count a collision produces — so there the store reads to tell the
+		// two apart, and names the missing subscription. Asserting the sentinel
+		// on the engines that never reach that read would assert somebody else's
+		// error message.
+		if env.dialect == dialect.MySQL {
+			test.ErrorIs(t, err, ErrSubscriptionNotFound)
+		}
+	})
+
+	t.Run("refuses a create whose id another row already carries", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		first := recurringProduct("pro")
+		first.ID = "product-chosen-by-hand"
+		mustCreateProduct(t, store, testScope, first)
+
+		second := recurringProduct("pro-annual")
+		second.ID = "product-chosen-by-hand"
+
+		_, err := store.CreateProduct(t.Context(), testScope, second)
+		must.Error(t, err)
+
+		// Reachable only from a caller that supplies its own id, and reported by
+		// the two engines whose IGNORE covers every constraint on the table.
+		// Postgres absorbs only the index its ON CONFLICT names, so the primary
+		// key raises there instead — see ErrIDTaken.
+		if env.dialect != dialect.Postgres {
+			test.ErrorIs(t, err, ErrIDTaken)
+		}
 	})
 }
 

@@ -44,15 +44,23 @@ func TestSQLStore_RealServers(T *testing.T) {
 			must.NoError(t, err)
 			t.Cleanup(func() { _ = client.Close() })
 
-			runStoreSuite(t, &storeEnv{client: client, dialect: dialect.Postgres})
+			runStoreSuite(t, &storeEnv{
+				client:           client,
+				dialect:          dialect.Postgres,
+				connectionString: pg.ConnectionString,
+			})
 		})
 	})
 
 	T.Run("mysql", func(t *testing.T) {
 		t.Parallel()
 
-		runWithMySQL(t, func(_ context.Context, client database.Client) {
-			runStoreSuite(t, &storeEnv{client: client, dialect: dialect.MySQL})
+		runWithMySQL(t, func(_ context.Context, client database.Client, connectionString string) {
+			runStoreSuite(t, &storeEnv{
+				client:           client,
+				dialect:          dialect.MySQL,
+				connectionString: connectionString,
+			})
 		})
 	})
 }
@@ -89,7 +97,7 @@ func TestMigrations_RealServers(T *testing.T) {
 	T.Run("mysql", func(t *testing.T) {
 		t.Parallel()
 
-		runWithMySQL(t, func(ctx context.Context, client database.Client) {
+		runWithMySQL(t, func(ctx context.Context, client database.Client, _ string) {
 			stmts, err := migrations.Statements(dialect.MySQL, "ddl_check")
 			must.NoError(t, err)
 
@@ -105,7 +113,7 @@ func TestMigrations_RealServers(T *testing.T) {
 
 // runWithMySQL starts a MySQL-flavored container and hands the closure a
 // database.Client against it.
-func runWithMySQL(t *testing.T, fn func(ctx context.Context, client database.Client)) {
+func runWithMySQL(t *testing.T, fn func(ctx context.Context, client database.Client, connectionString string)) {
 	t.Helper()
 
 	mysqltest.Run(t, func(ctx context.Context, my *mysqltest.Instance) {
@@ -114,6 +122,6 @@ func runWithMySQL(t *testing.T, fn func(ctx context.Context, client database.Cli
 		must.NoError(t, err)
 		t.Cleanup(func() { _ = client.Close() })
 
-		fn(ctx, client)
+		fn(ctx, client, my.ConnectionString)
 	}, mysqltest.WithImage(defaultMySQLImage))
 }

@@ -45,6 +45,18 @@ const checkProductExistenceSQLite = `SELECT EXISTS (
 		AND {{prefix}}billing_products.scope = ?2
 )`
 
+const checkPurchasePresenceSQLite = `SELECT
+	{{prefix}}billing_purchases.id
+FROM {{prefix}}billing_purchases
+WHERE {{prefix}}billing_purchases.id = ?1
+	AND {{prefix}}billing_purchases.scope = ?2`
+
+const checkSubscriptionPresenceSQLite = `SELECT
+	{{prefix}}billing_subscriptions.id
+FROM {{prefix}}billing_subscriptions
+WHERE {{prefix}}billing_subscriptions.id = ?1
+	AND {{prefix}}billing_subscriptions.scope = ?2`
+
 const completePurchaseSQLite = `UPDATE {{prefix}}billing_purchases SET
 	completed_at = ?1,
 	last_updated_at = CURRENT_TIMESTAMP
@@ -53,8 +65,7 @@ WHERE archived_at IS NULL
 	AND scope = ?3
 	AND completed_at IS NULL`
 
-const createProductSQLite = `
-INSERT INTO {{prefix}}billing_products (
+const createProductSQLite = `INSERT OR IGNORE INTO {{prefix}}billing_products (
 	id,
 	scope,
 	name,
@@ -76,7 +87,7 @@ INSERT INTO {{prefix}}billing_products (
 	?9
 )`
 
-const createPurchaseSQLite = `INSERT INTO {{prefix}}billing_purchases (
+const createPurchaseSQLite = `INSERT OR IGNORE INTO {{prefix}}billing_purchases (
 	id,
 	scope,
 	belongs_to_account,
@@ -96,7 +107,7 @@ const createPurchaseSQLite = `INSERT INTO {{prefix}}billing_purchases (
 	?8
 )`
 
-const createSubscriptionSQLite = `INSERT INTO {{prefix}}billing_subscriptions (
+const createSubscriptionSQLite = `INSERT OR IGNORE INTO {{prefix}}billing_subscriptions (
 	id,
 	scope,
 	belongs_to_account,
@@ -116,7 +127,7 @@ const createSubscriptionSQLite = `INSERT INTO {{prefix}}billing_subscriptions (
 	?8
 )`
 
-const createTransactionSQLite = `INSERT INTO {{prefix}}billing_transactions (
+const createTransactionSQLite = `INSERT OR IGNORE INTO {{prefix}}billing_transactions (
 	id,
 	scope,
 	belongs_to_account,
@@ -138,7 +149,8 @@ const createTransactionSQLite = `INSERT INTO {{prefix}}billing_transactions (
 	?9
 )`
 
-const getProductSQLite = `SELECT
+const getProductSQLite = `
+SELECT
 	{{prefix}}billing_products.id,
 	{{prefix}}billing_products.scope,
 	{{prefix}}billing_products.name,
@@ -1193,6 +1205,8 @@ type sqliteQueries struct {
 	archiveSubscription                   string
 	archiveTransaction                    string
 	checkProductExistence                 string
+	checkPurchasePresence                 string
+	checkSubscriptionPresence             string
 	completePurchase                      string
 	createProduct                         string
 	createPurchase                        string
@@ -1241,6 +1255,8 @@ func newSQLite(prefix string) *sqliteQueries {
 		archiveSubscription:                   strings.ReplaceAll(archiveSubscriptionSQLite, prefixMarker, prefix),
 		archiveTransaction:                    strings.ReplaceAll(archiveTransactionSQLite, prefixMarker, prefix),
 		checkProductExistence:                 strings.ReplaceAll(checkProductExistenceSQLite, prefixMarker, prefix),
+		checkPurchasePresence:                 strings.ReplaceAll(checkPurchasePresenceSQLite, prefixMarker, prefix),
+		checkSubscriptionPresence:             strings.ReplaceAll(checkSubscriptionPresenceSQLite, prefixMarker, prefix),
 		completePurchase:                      strings.ReplaceAll(completePurchaseSQLite, prefixMarker, prefix),
 		createProduct:                         strings.ReplaceAll(createProductSQLite, prefixMarker, prefix),
 		createPurchase:                        strings.ReplaceAll(createPurchaseSQLite, prefixMarker, prefix),
@@ -1379,6 +1395,38 @@ func (q *sqliteQueries) CheckProductExistence(ctx context.Context, db DBTX, arg 
 	return i, err
 }
 
+// CheckPurchasePresence runs the :one query against sqlite.
+func (q *sqliteQueries) CheckPurchasePresence(ctx context.Context, db DBTX, arg CheckPurchasePresenceParams) (CheckPurchasePresenceRow, error) {
+	row := db.QueryRowContext(ctx, q.checkPurchasePresence,
+		arg.ID,
+		arg.Scope,
+	)
+
+	var i CheckPurchasePresenceRow
+
+	err := row.Scan(
+		&i.ID,
+	)
+
+	return i, err
+}
+
+// CheckSubscriptionPresence runs the :one query against sqlite.
+func (q *sqliteQueries) CheckSubscriptionPresence(ctx context.Context, db DBTX, arg CheckSubscriptionPresenceParams) (CheckSubscriptionPresenceRow, error) {
+	row := db.QueryRowContext(ctx, q.checkSubscriptionPresence,
+		arg.ID,
+		arg.Scope,
+	)
+
+	var i CheckSubscriptionPresenceRow
+
+	err := row.Scan(
+		&i.ID,
+	)
+
+	return i, err
+}
+
 // CompletePurchase runs the :execrows query against sqlite.
 func (q *sqliteQueries) CompletePurchase(ctx context.Context, db DBTX, arg CompletePurchaseParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.completePurchase,
@@ -1393,9 +1441,9 @@ func (q *sqliteQueries) CompletePurchase(ctx context.Context, db DBTX, arg Compl
 	return result.RowsAffected()
 }
 
-// CreateProduct runs the :exec query against sqlite.
-func (q *sqliteQueries) CreateProduct(ctx context.Context, db DBTX, arg CreateProductParams) error {
-	_, err := db.ExecContext(ctx, q.createProduct,
+// CreateProduct runs the :execrows query against sqlite.
+func (q *sqliteQueries) CreateProduct(ctx context.Context, db DBTX, arg CreateProductParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.createProduct,
 		arg.ID,
 		arg.Scope,
 		arg.Name,
@@ -1406,13 +1454,16 @@ func (q *sqliteQueries) CreateProduct(ctx context.Context, db DBTX, arg CreatePr
 		arg.BillingIntervalMonths,
 		arg.ExternalProductID,
 	)
+	if err != nil {
+		return 0, err
+	}
 
-	return err
+	return result.RowsAffected()
 }
 
-// CreatePurchase runs the :exec query against sqlite.
-func (q *sqliteQueries) CreatePurchase(ctx context.Context, db DBTX, arg CreatePurchaseParams) error {
-	_, err := db.ExecContext(ctx, q.createPurchase,
+// CreatePurchase runs the :execrows query against sqlite.
+func (q *sqliteQueries) CreatePurchase(ctx context.Context, db DBTX, arg CreatePurchaseParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.createPurchase,
 		arg.ID,
 		arg.Scope,
 		arg.BelongsToAccount,
@@ -1422,13 +1473,16 @@ func (q *sqliteQueries) CreatePurchase(ctx context.Context, db DBTX, arg CreateP
 		arg.Currency,
 		timeTextPtr(arg.CompletedAt),
 	)
+	if err != nil {
+		return 0, err
+	}
 
-	return err
+	return result.RowsAffected()
 }
 
-// CreateSubscription runs the :exec query against sqlite.
-func (q *sqliteQueries) CreateSubscription(ctx context.Context, db DBTX, arg CreateSubscriptionParams) error {
-	_, err := db.ExecContext(ctx, q.createSubscription,
+// CreateSubscription runs the :execrows query against sqlite.
+func (q *sqliteQueries) CreateSubscription(ctx context.Context, db DBTX, arg CreateSubscriptionParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.createSubscription,
 		arg.ID,
 		arg.Scope,
 		arg.BelongsToAccount,
@@ -1438,13 +1492,16 @@ func (q *sqliteQueries) CreateSubscription(ctx context.Context, db DBTX, arg Cre
 		timeText(arg.CurrentPeriodStart),
 		timeText(arg.CurrentPeriodEnd),
 	)
+	if err != nil {
+		return 0, err
+	}
 
-	return err
+	return result.RowsAffected()
 }
 
-// CreateTransaction runs the :exec query against sqlite.
-func (q *sqliteQueries) CreateTransaction(ctx context.Context, db DBTX, arg CreateTransactionParams) error {
-	_, err := db.ExecContext(ctx, q.createTransaction,
+// CreateTransaction runs the :execrows query against sqlite.
+func (q *sqliteQueries) CreateTransaction(ctx context.Context, db DBTX, arg CreateTransactionParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.createTransaction,
 		arg.ID,
 		arg.Scope,
 		arg.BelongsToAccount,
@@ -1455,8 +1512,11 @@ func (q *sqliteQueries) CreateTransaction(ctx context.Context, db DBTX, arg Crea
 		arg.AmountCents,
 		arg.Currency,
 	)
+	if err != nil {
+		return 0, err
+	}
 
-	return err
+	return result.RowsAffected()
 }
 
 // GetProduct runs the :one query against sqlite.
@@ -2659,6 +2719,20 @@ var (
 	_ = struct {
 		Exists bool
 	}(CheckProductExistenceRow{})
+	_ = struct {
+		ID    string
+		Scope tenancy.Scope
+	}(CheckPurchasePresenceParams{})
+	_ = struct {
+		ID string
+	}(CheckPurchasePresenceRow{})
+	_ = struct {
+		ID    string
+		Scope tenancy.Scope
+	}(CheckSubscriptionPresenceParams{})
+	_ = struct {
+		ID string
+	}(CheckSubscriptionPresenceRow{})
 	_ = struct {
 		CompletedAt *time.Time
 		ID          string

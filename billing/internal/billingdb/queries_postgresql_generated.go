@@ -45,6 +45,18 @@ const checkProductExistencePostgreSQL = `SELECT EXISTS (
 		AND {{prefix}}billing_products.scope = $2
 )`
 
+const checkPurchasePresencePostgreSQL = `SELECT
+	{{prefix}}billing_purchases.id
+FROM {{prefix}}billing_purchases
+WHERE {{prefix}}billing_purchases.id = $1
+	AND {{prefix}}billing_purchases.scope = $2`
+
+const checkSubscriptionPresencePostgreSQL = `SELECT
+	{{prefix}}billing_subscriptions.id
+FROM {{prefix}}billing_subscriptions
+WHERE {{prefix}}billing_subscriptions.id = $1
+	AND {{prefix}}billing_subscriptions.scope = $2`
+
 const completePurchasePostgreSQL = `UPDATE {{prefix}}billing_purchases SET
 	completed_at = $1,
 	last_updated_at = CURRENT_TIMESTAMP
@@ -53,8 +65,7 @@ WHERE archived_at IS NULL
 	AND scope = $3
 	AND completed_at IS NULL`
 
-const createProductPostgreSQL = `
-INSERT INTO {{prefix}}billing_products (
+const createProductPostgreSQL = `INSERT INTO {{prefix}}billing_products (
 	id,
 	scope,
 	name,
@@ -74,7 +85,8 @@ INSERT INTO {{prefix}}billing_products (
 	$7,
 	$8,
 	$9
-)`
+)
+ON CONFLICT (scope, external_product_id) DO NOTHING`
 
 const createPurchasePostgreSQL = `INSERT INTO {{prefix}}billing_purchases (
 	id,
@@ -94,7 +106,8 @@ const createPurchasePostgreSQL = `INSERT INTO {{prefix}}billing_purchases (
 	$6,
 	$7,
 	$8
-)`
+)
+ON CONFLICT (scope, external_transaction_id) DO NOTHING`
 
 const createSubscriptionPostgreSQL = `INSERT INTO {{prefix}}billing_subscriptions (
 	id,
@@ -114,7 +127,8 @@ const createSubscriptionPostgreSQL = `INSERT INTO {{prefix}}billing_subscription
 	$6,
 	$7,
 	$8
-)`
+)
+ON CONFLICT (scope, external_subscription_id) DO NOTHING`
 
 const createTransactionPostgreSQL = `INSERT INTO {{prefix}}billing_transactions (
 	id,
@@ -136,9 +150,11 @@ const createTransactionPostgreSQL = `INSERT INTO {{prefix}}billing_transactions 
 	$7,
 	$8,
 	$9
-)`
+)
+ON CONFLICT (scope, external_transaction_id) DO NOTHING`
 
-const getProductPostgreSQL = `SELECT
+const getProductPostgreSQL = `
+SELECT
 	{{prefix}}billing_products.id,
 	{{prefix}}billing_products.scope,
 	{{prefix}}billing_products.name,
@@ -1193,6 +1209,8 @@ type postgresqlQueries struct {
 	archiveSubscription                   string
 	archiveTransaction                    string
 	checkProductExistence                 string
+	checkPurchasePresence                 string
+	checkSubscriptionPresence             string
 	completePurchase                      string
 	createProduct                         string
 	createPurchase                        string
@@ -1241,6 +1259,8 @@ func newPostgreSQL(prefix string) *postgresqlQueries {
 		archiveSubscription:                   strings.ReplaceAll(archiveSubscriptionPostgreSQL, prefixMarker, prefix),
 		archiveTransaction:                    strings.ReplaceAll(archiveTransactionPostgreSQL, prefixMarker, prefix),
 		checkProductExistence:                 strings.ReplaceAll(checkProductExistencePostgreSQL, prefixMarker, prefix),
+		checkPurchasePresence:                 strings.ReplaceAll(checkPurchasePresencePostgreSQL, prefixMarker, prefix),
+		checkSubscriptionPresence:             strings.ReplaceAll(checkSubscriptionPresencePostgreSQL, prefixMarker, prefix),
 		completePurchase:                      strings.ReplaceAll(completePurchasePostgreSQL, prefixMarker, prefix),
 		createProduct:                         strings.ReplaceAll(createProductPostgreSQL, prefixMarker, prefix),
 		createPurchase:                        strings.ReplaceAll(createPurchasePostgreSQL, prefixMarker, prefix),
@@ -1349,6 +1369,38 @@ func (q *postgresqlQueries) CheckProductExistence(ctx context.Context, db DBTX, 
 	return i, err
 }
 
+// CheckPurchasePresence runs the :one query against postgresql.
+func (q *postgresqlQueries) CheckPurchasePresence(ctx context.Context, db DBTX, arg CheckPurchasePresenceParams) (CheckPurchasePresenceRow, error) {
+	row := db.QueryRowContext(ctx, q.checkPurchasePresence,
+		arg.ID,
+		arg.Scope,
+	)
+
+	var i CheckPurchasePresenceRow
+
+	err := row.Scan(
+		&i.ID,
+	)
+
+	return i, err
+}
+
+// CheckSubscriptionPresence runs the :one query against postgresql.
+func (q *postgresqlQueries) CheckSubscriptionPresence(ctx context.Context, db DBTX, arg CheckSubscriptionPresenceParams) (CheckSubscriptionPresenceRow, error) {
+	row := db.QueryRowContext(ctx, q.checkSubscriptionPresence,
+		arg.ID,
+		arg.Scope,
+	)
+
+	var i CheckSubscriptionPresenceRow
+
+	err := row.Scan(
+		&i.ID,
+	)
+
+	return i, err
+}
+
 // CompletePurchase runs the :execrows query against postgresql.
 func (q *postgresqlQueries) CompletePurchase(ctx context.Context, db DBTX, arg CompletePurchaseParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.completePurchase,
@@ -1363,9 +1415,9 @@ func (q *postgresqlQueries) CompletePurchase(ctx context.Context, db DBTX, arg C
 	return result.RowsAffected()
 }
 
-// CreateProduct runs the :exec query against postgresql.
-func (q *postgresqlQueries) CreateProduct(ctx context.Context, db DBTX, arg CreateProductParams) error {
-	_, err := db.ExecContext(ctx, q.createProduct,
+// CreateProduct runs the :execrows query against postgresql.
+func (q *postgresqlQueries) CreateProduct(ctx context.Context, db DBTX, arg CreateProductParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.createProduct,
 		arg.ID,
 		arg.Scope,
 		arg.Name,
@@ -1376,13 +1428,16 @@ func (q *postgresqlQueries) CreateProduct(ctx context.Context, db DBTX, arg Crea
 		arg.BillingIntervalMonths,
 		arg.ExternalProductID,
 	)
+	if err != nil {
+		return 0, err
+	}
 
-	return err
+	return result.RowsAffected()
 }
 
-// CreatePurchase runs the :exec query against postgresql.
-func (q *postgresqlQueries) CreatePurchase(ctx context.Context, db DBTX, arg CreatePurchaseParams) error {
-	_, err := db.ExecContext(ctx, q.createPurchase,
+// CreatePurchase runs the :execrows query against postgresql.
+func (q *postgresqlQueries) CreatePurchase(ctx context.Context, db DBTX, arg CreatePurchaseParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.createPurchase,
 		arg.ID,
 		arg.Scope,
 		arg.BelongsToAccount,
@@ -1392,13 +1447,16 @@ func (q *postgresqlQueries) CreatePurchase(ctx context.Context, db DBTX, arg Cre
 		arg.Currency,
 		arg.CompletedAt,
 	)
+	if err != nil {
+		return 0, err
+	}
 
-	return err
+	return result.RowsAffected()
 }
 
-// CreateSubscription runs the :exec query against postgresql.
-func (q *postgresqlQueries) CreateSubscription(ctx context.Context, db DBTX, arg CreateSubscriptionParams) error {
-	_, err := db.ExecContext(ctx, q.createSubscription,
+// CreateSubscription runs the :execrows query against postgresql.
+func (q *postgresqlQueries) CreateSubscription(ctx context.Context, db DBTX, arg CreateSubscriptionParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.createSubscription,
 		arg.ID,
 		arg.Scope,
 		arg.BelongsToAccount,
@@ -1408,13 +1466,16 @@ func (q *postgresqlQueries) CreateSubscription(ctx context.Context, db DBTX, arg
 		arg.CurrentPeriodStart,
 		arg.CurrentPeriodEnd,
 	)
+	if err != nil {
+		return 0, err
+	}
 
-	return err
+	return result.RowsAffected()
 }
 
-// CreateTransaction runs the :exec query against postgresql.
-func (q *postgresqlQueries) CreateTransaction(ctx context.Context, db DBTX, arg CreateTransactionParams) error {
-	_, err := db.ExecContext(ctx, q.createTransaction,
+// CreateTransaction runs the :execrows query against postgresql.
+func (q *postgresqlQueries) CreateTransaction(ctx context.Context, db DBTX, arg CreateTransactionParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.createTransaction,
 		arg.ID,
 		arg.Scope,
 		arg.BelongsToAccount,
@@ -1425,8 +1486,11 @@ func (q *postgresqlQueries) CreateTransaction(ctx context.Context, db DBTX, arg 
 		arg.AmountCents,
 		arg.Currency,
 	)
+	if err != nil {
+		return 0, err
+	}
 
-	return err
+	return result.RowsAffected()
 }
 
 // GetProduct runs the :one query against postgresql.
@@ -2629,6 +2693,20 @@ var (
 	_ = struct {
 		Exists bool
 	}(CheckProductExistenceRow{})
+	_ = struct {
+		ID    string
+		Scope tenancy.Scope
+	}(CheckPurchasePresenceParams{})
+	_ = struct {
+		ID string
+	}(CheckPurchasePresenceRow{})
+	_ = struct {
+		ID    string
+		Scope tenancy.Scope
+	}(CheckSubscriptionPresenceParams{})
+	_ = struct {
+		ID string
+	}(CheckSubscriptionPresenceRow{})
 	_ = struct {
 		CompletedAt *time.Time
 		ID          string
