@@ -57,6 +57,16 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 		runCreateGuardSuite(t, env)
 	})
+
+	t.Run("administrative", func(t *testing.T) {
+		t.Parallel()
+		runAdministrativeSuite(t, env)
+	})
+
+	t.Run("paging", func(t *testing.T) {
+		t.Parallel()
+		runPagingSuite(t, env)
+	})
 }
 
 // runCreateGuardSuite is what the four creates promise when the row does not go

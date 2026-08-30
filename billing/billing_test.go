@@ -251,6 +251,112 @@ func TestTransaction_validate(T *testing.T) {
 
 		test.ErrorIs(t, transaction.validate(), ErrNegativeAmount)
 	})
+
+	T.Run("refuses a nil row", func(t *testing.T) {
+		t.Parallel()
+
+		test.ErrorIs(t, (*Transaction)(nil).validate(), ErrNilTransaction)
+	})
+
+	T.Run("refuses a row belonging to nobody", func(t *testing.T) {
+		t.Parallel()
+
+		transaction := valid()
+		transaction.BelongsToAccount = ""
+
+		test.ErrorIs(t, transaction.validate(), ErrEmptyAccount)
+	})
+
+	T.Run("refuses a status this package does not implement", func(t *testing.T) {
+		t.Parallel()
+
+		transaction := valid()
+		transaction.Status = "reticulating"
+
+		test.ErrorIs(t, transaction.validate(), ErrInvalidStatus)
+	})
+
+	T.Run("refuses a currency that is not three characters", func(t *testing.T) {
+		t.Parallel()
+
+		// The length check is the whole of it: this package stores what ISO 4217
+		// codes look like, and does not carry a table of which ones exist.
+		for _, currency := range []string{"", "US", "USDD"} {
+			transaction := valid()
+			transaction.Currency = currency
+
+			test.ErrorIs(t, transaction.validate(), ErrInvalidCurrency,
+				test.Sprintf("currency %q", currency))
+		}
+	})
+}
+
+func TestPurchase_validate(T *testing.T) {
+	T.Parallel()
+
+	valid := func() *Purchase {
+		return &Purchase{
+			BelongsToAccount: testAccount,
+			ProductID:        "product-1",
+			Currency:         "USD",
+			AmountCents:      999,
+		}
+	}
+
+	T.Run("accepts an outstanding sale", func(t *testing.T) {
+		t.Parallel()
+
+		test.NoError(t, valid().validate())
+	})
+
+	T.Run("refuses a nil sale", func(t *testing.T) {
+		t.Parallel()
+
+		test.ErrorIs(t, (*Purchase)(nil).validate(), ErrNilPurchase)
+	})
+
+	T.Run("refuses a sale belonging to nobody", func(t *testing.T) {
+		t.Parallel()
+
+		purchase := valid()
+		purchase.BelongsToAccount = ""
+
+		test.ErrorIs(t, purchase.validate(), ErrEmptyAccount)
+	})
+
+	T.Run("refuses a sale of nothing", func(t *testing.T) {
+		t.Parallel()
+
+		// Unlike a ledger row, which may name neither a subscription nor a
+		// purchase, a sale is always a sale of something.
+		purchase := valid()
+		purchase.ProductID = ""
+
+		test.ErrorIs(t, purchase.validate(), ErrEmptyProduct)
+	})
+
+	T.Run("refuses a currency that is not three characters", func(t *testing.T) {
+		t.Parallel()
+
+		for _, currency := range []string{"", "US", "USDD"} {
+			purchase := valid()
+			purchase.Currency = currency
+
+			test.ErrorIs(t, purchase.validate(), ErrInvalidCurrency,
+				test.Sprintf("currency %q", currency))
+		}
+	})
+
+	T.Run("refuses a negative amount", func(t *testing.T) {
+		t.Parallel()
+
+		// A refund is its own positive row rather than a negative one, so a
+		// negative amount here is a mistake rather than a reversal.
+		purchase := valid()
+		purchase.AmountCents = -1
+
+		test.ErrorIs(t, purchase.validate(), ErrNegativeAmount)
+	})
 }
 
 func TestPurchase_Complete(t *testing.T) {

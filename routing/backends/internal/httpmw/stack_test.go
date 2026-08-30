@@ -62,11 +62,11 @@ func TestChain(T *testing.T) {
 
 		var order []string
 
+		mws := []func(http.Handler) http.Handler{nil, tagging(&order, "only"), nil}
+
 		h := Chain(
 			http.HandlerFunc(func(http.ResponseWriter, *http.Request) { order = append(order, "handler") }),
-			nil,
-			tagging(&order, "only"),
-			nil,
+			mws...,
 		)
 
 		serve(t, h, http.MethodGet, "/")
@@ -92,9 +92,10 @@ func TestConvert(T *testing.T) {
 	T.Run("drops nil entries so optional middleware needs no guard", func(t *testing.T) {
 		t.Parallel()
 
-		passthrough := func(h http.Handler) http.Handler { return h }
+		first := func(h http.Handler) http.Handler { return h }
+		second := func(h http.Handler) http.Handler { return h }
 
-		out := Convert(routing.Middleware(passthrough), nil, routing.Middleware(passthrough))
+		out := Convert(routing.Middleware(first), nil, routing.Middleware(second))
 
 		test.SliceLen(t, 2, out)
 	})

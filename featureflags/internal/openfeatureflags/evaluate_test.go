@@ -93,7 +93,8 @@ func evaluatorFor(t *testing.T, provider openfeature.FeatureProvider) (*Evaluato
 	}, v
 }
 
-var evalCtx = featureflags.EvaluationContext{TargetingKey: "user-1", Attributes: map[string]any{"plan": "pro"}}
+// sharedEvalCtx is the context every evaluation here is made under.
+var sharedEvalCtx = featureflags.EvaluationContext{TargetingKey: "user-1", Attributes: map[string]any{"plan": "pro"}}
 
 func TestEvaluator_AnsweredEvaluations(T *testing.T) {
 	T.Parallel()
@@ -106,23 +107,23 @@ func TestEvaluator_AnsweredEvaluations(T *testing.T) {
 		// evaluation is counted, and the breaker hears a success.
 		e, v := evaluatorFor(t, openfeature.NoopProvider{})
 
-		allowed, err := e.CanUseFeature(t.Context(), "flag", evalCtx)
+		allowed, err := e.CanUseFeature(t.Context(), "flag", sharedEvalCtx)
 		test.NoError(t, err)
 		test.False(t, allowed)
 
-		str, err := e.GetStringValue(t.Context(), "flag", "fallback", evalCtx)
+		str, err := e.GetStringValue(t.Context(), "flag", "fallback", sharedEvalCtx)
 		test.NoError(t, err)
 		test.EqOp(t, "fallback", str)
 
-		i, err := e.GetInt64Value(t.Context(), "flag", 7, evalCtx)
+		i, err := e.GetInt64Value(t.Context(), "flag", 7, sharedEvalCtx)
 		test.NoError(t, err)
 		test.EqOp(t, int64(7), i)
 
-		f, err := e.GetFloat64Value(t.Context(), "flag", 1.5, evalCtx)
+		f, err := e.GetFloat64Value(t.Context(), "flag", 1.5, sharedEvalCtx)
 		test.NoError(t, err)
 		test.EqOp(t, 1.5, f)
 
-		obj, err := e.GetObjectValue(t.Context(), "flag", "fallback", evalCtx)
+		obj, err := e.GetObjectValue(t.Context(), "flag", "fallback", sharedEvalCtx)
 		test.NoError(t, err)
 		test.EqOp(t, "fallback", obj)
 
@@ -143,7 +144,7 @@ func TestEvaluator_NotFound(T *testing.T) {
 		// answer, not a failing service.
 		e, v := evaluatorFor(t, codedProvider{err: openfeature.NewFlagNotFoundResolutionError("nope")})
 
-		_, err := e.GetStringValue(t.Context(), "unshipped", "fallback", evalCtx)
+		_, err := e.GetStringValue(t.Context(), "unshipped", "fallback", sharedEvalCtx)
 		test.ErrorIs(t, err, featureflags.ErrFlagNotFound)
 
 		test.EqOp(t, 1, v.succeeded)
@@ -155,7 +156,7 @@ func TestEvaluator_NotFound(T *testing.T) {
 
 		e, _ := evaluatorFor(t, codedProvider{err: openfeature.NewFlagNotFoundResolutionError("nope")})
 
-		_, err := e.GetInt64Value(t.Context(), "unshipped", 3, evalCtx)
+		_, err := e.GetInt64Value(t.Context(), "unshipped", 3, sharedEvalCtx)
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), `"unshipped"`)
 	})
@@ -165,15 +166,15 @@ func TestEvaluator_NotFound(T *testing.T) {
 
 		e, _ := evaluatorFor(t, codedProvider{err: openfeature.NewFlagNotFoundResolutionError("nope")})
 
-		str, err := e.GetStringValue(t.Context(), "unshipped", "fallback", evalCtx)
+		str, err := e.GetStringValue(t.Context(), "unshipped", "fallback", sharedEvalCtx)
 		test.ErrorIs(t, err, featureflags.ErrFlagNotFound)
 		test.EqOp(t, "fallback", str)
 
-		f, err := e.GetFloat64Value(t.Context(), "unshipped", 2.5, evalCtx)
+		f, err := e.GetFloat64Value(t.Context(), "unshipped", 2.5, sharedEvalCtx)
 		test.ErrorIs(t, err, featureflags.ErrFlagNotFound)
 		test.EqOp(t, 2.5, f)
 
-		obj, err := e.GetObjectValue(t.Context(), "unshipped", "fallback", evalCtx)
+		obj, err := e.GetObjectValue(t.Context(), "unshipped", "fallback", sharedEvalCtx)
 		test.ErrorIs(t, err, featureflags.ErrFlagNotFound)
 		test.EqOp(t, "fallback", obj)
 	})
@@ -183,8 +184,8 @@ func TestEvaluator_FailedEvaluations(T *testing.T) {
 	T.Parallel()
 
 	for _, tc := range []struct {
-		name string
 		err  openfeature.ResolutionError
+		name string
 	}{
 		{name: "a general error", err: openfeature.NewGeneralResolutionError("boom")},
 		{name: "a provider that is not ready", err: openfeature.NewProviderNotReadyResolutionError("starting")},
@@ -199,7 +200,7 @@ func TestEvaluator_FailedEvaluations(T *testing.T) {
 			// for, the SDK's pre-evaluation short circuits included.
 			e, v := evaluatorFor(t, codedProvider{err: tc.err})
 
-			_, err := e.GetStringValue(t.Context(), "flag", "fallback", evalCtx)
+			_, err := e.GetStringValue(t.Context(), "flag", "fallback", sharedEvalCtx)
 			must.Error(t, err)
 			test.False(t, stderrors.Is(err, featureflags.ErrFlagNotFound))
 
@@ -213,15 +214,15 @@ func TestEvaluator_FailedEvaluations(T *testing.T) {
 
 		e, _ := evaluatorFor(t, codedProvider{err: openfeature.NewGeneralResolutionError("boom")})
 
-		str, err := e.GetStringValue(t.Context(), "flag", "fallback", evalCtx)
+		str, err := e.GetStringValue(t.Context(), "flag", "fallback", sharedEvalCtx)
 		must.Error(t, err)
 		test.EqOp(t, "fallback", str)
 
-		i, err := e.GetInt64Value(t.Context(), "flag", 7, evalCtx)
+		i, err := e.GetInt64Value(t.Context(), "flag", 7, sharedEvalCtx)
 		must.Error(t, err)
 		test.EqOp(t, int64(7), i)
 
-		allowed, err := e.CanUseFeature(t.Context(), "flag", evalCtx)
+		allowed, err := e.CanUseFeature(t.Context(), "flag", sharedEvalCtx)
 		must.Error(t, err)
 		test.False(t, allowed)
 	})

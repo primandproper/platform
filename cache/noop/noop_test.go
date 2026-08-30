@@ -128,3 +128,62 @@ func TestCache_Ping(T *testing.T) {
 		test.NoError(t, err)
 	})
 }
+
+func TestCache_DeleteMany(T *testing.T) {
+	T.Parallel()
+
+	T.Run("returns no error", func(t *testing.T) {
+		t.Parallel()
+
+		c := NewCache[string]()
+
+		test.NoError(t, c.DeleteMany(t.Context(), []string{"a", "b"}))
+		test.NoError(t, c.DeleteMany(t.Context(), nil))
+	})
+}
+
+func TestCache_DeleteByPrefix(T *testing.T) {
+	T.Parallel()
+
+	T.Run("returns no error", func(t *testing.T) {
+		t.Parallel()
+
+		// "Deleted" is a claim about a store the caller already knows is
+		// absent, so it is one this cache can make honestly.
+		c := NewCache[string]()
+
+		test.NoError(t, c.DeleteByPrefix(t.Context(), "session:"))
+	})
+}
+
+func TestCache_Flush(T *testing.T) {
+	T.Parallel()
+
+	T.Run("returns no error", func(t *testing.T) {
+		t.Parallel()
+
+		c := NewCache[string]()
+
+		test.NoError(t, c.Flush(t.Context()))
+	})
+}
+
+func TestCache_Close(T *testing.T) {
+	T.Parallel()
+
+	T.Run("releases nothing", func(t *testing.T) {
+		t.Parallel()
+
+		c := NewCache[string]()
+
+		test.NoError(t, c.Close())
+
+		// Nothing was held, so a second close is not a mistake, and the cache
+		// still answers afterwards.
+		test.NoError(t, c.Close())
+		test.ErrorIs(t, mustErr(c.Get(t.Context(), "any-key")), cache.ErrNotFound)
+	})
+}
+
+// mustErr drops a read's value so a test can assert on the error alone.
+func mustErr[T any](_ *T, err error) error { return err }

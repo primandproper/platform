@@ -368,6 +368,13 @@ func TestOperationIDFromPath(T *testing.T) {
 	test.EqOp(T, "op1", operationIDFromPath("/operations/op1/events"))
 	test.EqOp(T, "op1", operationIDFromPath("/v1/jobs/op1/events"))
 	test.EqOp(T, "op1", operationIDFromPath("/operations/op1/events/"))
+
+	// A path with no separator left after the suffix is trimmed is the whole
+	// of what remains. It reaches this function only from a mount nothing here
+	// registers, and answering with the segment rather than the empty string
+	// keeps the failure a not-found on a nonsense id.
+	test.EqOp(T, "op1", operationIDFromPath("op1"))
+	test.EqOp(T, "", operationIDFromPath(""))
 }
 
 func TestHandlers_openAPI(T *testing.T) {
