@@ -22,6 +22,14 @@ import (
 // rather than the billing. The provider tells you when a subscription changes;
 // what it changed to belongs in your database by the time anybody asks.
 //
+// The seam stays, and this module now ships one implementation of it:
+// github.com/primandproper/platform-go/v13/billing/plans reads the account's
+// current subscriptions out of a billing store and hands them to a function the
+// consumer writes. That does not weaken anything above — the judgement about
+// which reported status leaves an account entitled is still the consumer's, and
+// is now a tested function rather than a column somebody remembered to maintain.
+// What it removes is the hand-written table underneath it.
+//
 // Returning an error wrapping ErrNoPlan means the account has no plan, which is
 // an answer rather than a failure — see ErrNoPlan. Any other error is a failure,
 // and CheckerConfig.FallbackPlan decides what happens next.

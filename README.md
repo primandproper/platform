@@ -119,7 +119,8 @@ Implementations are listed in parentheses; most concerns also provide a `noop`. 
 ### Domain & coordination
 | Package           | Purpose                    | Implementations         |
 |-------------------|----------------------------|-------------------------|
-| `capitalism`      | Payments                   | stripe                  |
+| `capitalism`      | Payment provider adapters  | stripe, revenuecat      |
+| `billing`         | What a deployment sells, and what its customers paid: catalog, subscriptions, purchases, ledger | postgres, mysql, sqlite |
 | `entitlements`    | Feature access & remaining quota | —                 |
 | `settings`        | Per-user and per-account runtime settings: admin-defined definitions, per-subject values | postgres, mysql, sqlite |
 | `issuereports`    | User-submitted issue reports with a triage lifecycle | postgres, mysql, sqlite |
@@ -147,11 +148,11 @@ the error envelope a client sees are the application's, and a library that
 shipped them would be versioning your `/api/v1/users` on its own release
 cadence, in types your proto does not have, under a scoping rule it guessed.
 
-So `identity`, `webhooks` endpoint management, `settings`, `notifications`,
-`metering`, `audit`, `dataprivacy`, `saga`, `timers` and `workqueue` ship a
-store and no handlers. `identity` states the bargain plainly: a consumer keeps
-its service layer, its HTTP handlers, its proto and whatever columns are
-genuinely its own — it does not keep a users table.
+So `identity`, `webhooks` endpoint management, `billing`, `settings`,
+`notifications`, `metering`, `audit`, `dataprivacy`, `saga`, `timers` and
+`workqueue` ship a store and no handlers. `identity` states the bargain plainly:
+a consumer keeps its service layer, its HTTP handlers, its proto and whatever
+columns are genuinely its own — it does not keep a users table.
 
 The line is not "no transports". It is this:
 
@@ -216,6 +217,7 @@ construction, never a partial store or a migration that creates nothing.
 | `authentication/passwordreset`         | ✓        | ✓     | ✓      |
 | `authentication/webauthn/database`     | ✓        | ✓     | ✓      |
 | `authorization/database`               | ✓        | ✓     | ✓      |
+| `billing`                              | ✓        | ✓     | ✓      |
 | `comments`                             | ✓        | ✓     | ✓      |
 | `cryptography/shredding`               | ✓        | ✓     | ✓      |
 | `dataprivacy`                          | ✓        | ✓     | ✓      |

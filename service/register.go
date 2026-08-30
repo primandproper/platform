@@ -5,6 +5,7 @@ import (
 	auditcfg "github.com/primandproper/platform-go/v13/audit/config"
 	tokenscfg "github.com/primandproper/platform-go/v13/authentication/tokens/config"
 	authorizationcfg "github.com/primandproper/platform-go/v13/authorization/config"
+	billingcfg "github.com/primandproper/platform-go/v13/billing/config"
 	capitalismcfg "github.com/primandproper/platform-go/v13/capitalism/config"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v13/circuitbreaking/config"
 	partitionedcfg "github.com/primandproper/platform-go/v13/circuitbreaking/partitioned/config"
@@ -177,6 +178,17 @@ func registerPlatformServices(i do.Injector, cfg *Config) {
 		do.ProvideValue(i, cfg.Capitalism)
 		capitalismcfg.RegisterPaymentManager(i)
 		capitalismcfg.RegisterUsageReporter(i)
+	}
+
+	// The billing store is registered here and its two seams are not. The
+	// entitlements PlanSource in billing/plans takes a function saying which
+	// reported statuses leave an account entitled, and billing/privacy's
+	// collector takes a mapping from a person to the accounts they are billed
+	// under; both are judgements a deployment makes, and no environment variable
+	// can express either.
+	if cfg.Billing != nil {
+		do.ProvideValue(i, cfg.Billing)
+		billingcfg.RegisterStore(i)
 	}
 
 	// The store only, and it resolves a comments.Targets the application
