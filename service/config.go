@@ -56,6 +56,7 @@ import (
 	auditcfg "github.com/primandproper/platform-go/v13/audit/config"
 	tokenscfg "github.com/primandproper/platform-go/v13/authentication/tokens/config"
 	authorizationcfg "github.com/primandproper/platform-go/v13/authorization/config"
+	billingcfg "github.com/primandproper/platform-go/v13/billing/config"
 	capitalismcfg "github.com/primandproper/platform-go/v13/capitalism/config"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v13/circuitbreaking/config"
 	partitionedcfg "github.com/primandproper/platform-go/v13/circuitbreaking/partitioned/config"
@@ -130,6 +131,7 @@ type Config struct {
 	AsyncNotifications   *asyncnotifcfg.Config      `env:",init" envPrefix:"ASYNC_NOTIFICATIONS_"    json:"asyncNotifications,omitempty"   yaml:"asyncNotifications,omitempty"`
 	Audit                *auditcfg.Config           `env:",init" envPrefix:"AUDIT_"                  json:"audit,omitempty"                yaml:"audit,omitempty"`
 	Authorization        *authorizationcfg.Config   `env:",init" envPrefix:"AUTHORIZATION_"          json:"authorization,omitempty"        yaml:"authorization,omitempty"`
+	Billing              *billingcfg.Config         `env:",init" envPrefix:"BILLING_"                json:"billing,omitempty"              yaml:"billing,omitempty"`
 	Capitalism           *capitalismcfg.Config      `env:",init" envPrefix:"CAPITALISM_"             json:"capitalism,omitempty"           yaml:"capitalism,omitempty"`
 	CircuitBreaking      *circuitbreakingcfg.Config `env:",init" envPrefix:"CIRCUIT_BREAKING_"       json:"circuitBreaking,omitempty"      yaml:"circuitBreaking,omitempty"`
 	Comments             *commentscfg.Config        `env:",init" envPrefix:"COMMENTS_"               json:"comments,omitempty"             yaml:"comments,omitempty"`
@@ -281,6 +283,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.AsyncNotifications),
 		validation.Field(&cfg.Audit),
 		validation.Field(&cfg.Authorization),
+		validation.Field(&cfg.Billing),
 		validation.Field(&cfg.Capitalism),
 		validation.Field(&cfg.CircuitBreaking),
 		validation.Field(&cfg.Comments),

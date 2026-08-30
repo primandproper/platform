@@ -83,6 +83,7 @@ var rulings = map[string]ruling{
 	"metering/internal/meteringdb":                                 {tier: unison},
 	"authentication/passwordreset/internal/passwordresetdb":        {tier: unison},
 	"waitlists/internal/waitlistsdb":                               {tier: unison},
+	"billing/internal/billingdb":                                   {tier: unison},
 
 	// Still composing SQL in Go: nothing, since authentication/passwordreset —
 	// the last one, and the one no roster had listed — landed on the tier. The
