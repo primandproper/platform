@@ -5,7 +5,7 @@
 A Go library providing infrastructure abstractions for cloud-native services. Each package defines a stable interface with one or more provider implementations, selected at runtime via config. Layers that touch the network — HTTP, gRPC, database, messaging — instrument with OpenTelemetry.
 
 **Module:** `github.com/primandproper/platform-go/v13`
-**Go:** 1.26
+**Go:** 1.27
 
 ## Project Status & Stability
 
