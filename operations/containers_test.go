@@ -65,6 +65,15 @@ func descendingFilter() *filtering.QueryFilter {
 // newHarnessIn.
 const reapPrefix = "reaptest"
 
+// runLoopPrefix namespaces the tables the running-worker subtest works against.
+//
+// It needs its own for the same reason the retention one does, from the other
+// direction: Stranded and Reap are table-wide because retention is a property of
+// a table rather than of a logical queue, so a subtest that leaves a running
+// worker claiming for its whole duration will have somebody else's recovery
+// hand it an operation of a kind its registry has never heard of.
+const runLoopPrefix = "runlooptest"
+
 // createTables renders and executes both schemas this package needs, under a
 // namespace.
 func createTables(t *testing.T, client database.Client, prefix string) {
@@ -183,6 +192,7 @@ func TestOperations_Postgres(T *testing.T) {
 
 		createTables(T, client, DefaultTablePrefix)
 		createTables(T, client, reapPrefix)
+		createTables(T, client, runLoopPrefix)
 
 		runOperationsSuite(T, client)
 	})
@@ -191,6 +201,131 @@ func TestOperations_Postgres(T *testing.T) {
 //nolint:maintidx // one behavioral contract per subtest; splitting it would only hide the list.
 func runOperationsSuite(t *testing.T, client database.Client) {
 	t.Helper()
+
+	// Run and Enqueue are the two paths the rest of this suite drives around:
+	// every other subtest calls worker.pass directly so it can control how many
+	// passes happen, and starts work through Start rather than re-enqueueing it.
+	// Both need a real queue, so this is the only place they can be exercised.
+	t.Run("the worker loop runs what a handler started, and stops when its context is done", func(t *testing.T) {
+		t.Parallel()
+
+		done := make(chan struct{})
+
+		h := newHarnessIn(t, client, runLoopPrefix, func(r *Registry) {
+			must.NoError(t, Register(r, Definition[exportRequest]{
+				Kind: "export",
+				Run: func(_ context.Context, req exportRequest, _ Reporter) (*Result, error) {
+					return &Result{URI: "s3://" + req.SubjectID}, nil
+				},
+			}))
+		})
+
+		ctx, cancel := context.WithCancel(t.Context())
+
+		var runErr error
+
+		go func() {
+			defer close(done)
+			runErr = h.worker.Run(ctx)
+		}()
+
+		op, err := h.svc.Start(t.Context(), "export", exportRequest{SubjectID: "subject-1"})
+		must.NoError(t, err)
+
+		// Polled rather than drained: this is the loop claiming on its own,
+		// which is the thing under test.
+		deadline := time.Now().Add(30 * time.Second)
+		for time.Now().Before(deadline) {
+			current, getErr := h.svc.Get(t.Context(), op.ID)
+			must.NoError(t, getErr)
+
+			if current.Terminal() {
+				test.EqOp(t, StateSucceeded, current.State)
+
+				break
+			}
+
+			time.Sleep(20 * time.Millisecond)
+		}
+
+		// Nothing short of a cancelled context stops it, and a cancelled one
+		// stops it promptly rather than at the end of the next poll.
+		cancel()
+
+		select {
+		case <-done:
+			must.Error(t, runErr)
+			test.ErrorIs(t, runErr, context.Canceled)
+		case <-time.After(30 * time.Second):
+			t.Fatal("the worker loop did not return after its context was cancelled")
+		}
+	})
+
+	t.Run("a context that is already done stops the loop before it claims", func(t *testing.T) {
+		t.Parallel()
+
+		h := newHarnessIn(t, client, runLoopPrefix, nil)
+
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		test.ErrorIs(t, h.worker.Run(ctx), context.Canceled)
+	})
+
+	t.Run("re-enqueueing an operation makes a worker claim it again", func(t *testing.T) {
+		t.Parallel()
+
+		var runs atomic.Uint64
+
+		h := newHarness(t, client, func(r *Registry) {
+			must.NoError(t, Register(r, Definition[exportRequest]{
+				Kind: "export",
+				Run: func(context.Context, exportRequest, Reporter) (*Result, error) {
+					runs.Add(1)
+
+					return &Result{URI: "s3://bundle"}, nil
+				},
+			}))
+		})
+
+		op, err := h.svc.Start(t.Context(), "export", exportRequest{SubjectID: "subject-1"})
+		must.NoError(t, err)
+
+		finished := h.drain(t, op.ID)
+		test.EqOp(t, StateSucceeded, finished.State)
+		must.EqOp(t, uint64(1), runs.Load())
+
+		// The row is terminal, so the second claim finds nothing to begin and
+		// the operation is not run twice — Enqueue puts a key back on the queue,
+		// it does not reopen the operation.
+		must.NoError(t, h.svc.Enqueue(t.Context(), op.ID))
+
+		_, passErr := h.worker.pass(t.Context())
+		must.NoError(t, passErr)
+
+		test.EqOp(t, uint64(1), runs.Load())
+	})
+
+	t.Run("a hurried re-enqueue carries its priority and delay", func(t *testing.T) {
+		t.Parallel()
+
+		h := newHarness(t, client, func(r *Registry) {
+			must.NoError(t, Register(r, Definition[exportRequest]{
+				Kind: "export",
+				Run: func(context.Context, exportRequest, Reporter) (*Result, error) {
+					return &Result{URI: "s3://bundle"}, nil
+				},
+			}))
+		})
+
+		op, err := h.svc.Start(t.Context(), "export", exportRequest{SubjectID: "subject-1"})
+		must.NoError(t, err)
+
+		// Held back an hour, so the pass that follows must not see it.
+		must.NoError(t, h.svc.Enqueue(t.Context(), op.ID, WithPriority(9), WithDelay(time.Hour)))
+
+		test.EqOp(t, StatePending, mustGet(t, h, op.ID).State)
+	})
 
 	// The whole promise, end to end: a handler starts work, a worker somewhere
 	// else runs it, and the row says what happened.
@@ -928,4 +1063,15 @@ func runOperationsSuite(t *testing.T, client database.Client) {
 		test.True(t, sawUnitOne)
 		test.EqOp(t, int64(1000), last.Progress.Count)
 	})
+}
+
+// mustGet reads an operation through the service and fails the test if it is
+// not there.
+func mustGet(t *testing.T, h *harness, id string) *Operation {
+	t.Helper()
+
+	op, err := h.svc.Get(t.Context(), id)
+	must.NoError(t, err)
+
+	return op
 }

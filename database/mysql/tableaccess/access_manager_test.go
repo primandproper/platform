@@ -389,3 +389,176 @@ func TestManager_DatabaseExists(T *testing.T) {
 		})
 	})
 }
+
+func TestManager_UserCanAccessDatabase(T *testing.T) {
+	T.Parallel()
+
+	T.Run("reports access a grant actually conferred", func(t *testing.T) {
+		t.Parallel()
+
+		runWithTestMySQL(t, func(ctx context.Context, adminDB *sql.DB) {
+			mgr := NewManager(adminDB)
+
+			username := "accessuser"
+			databaseName := "accessdb"
+
+			must.NoError(t, mgr.CreateUser(ctx, username, "testpass123"))
+			must.NoError(t, mgr.CreateDatabase(ctx, databaseName, username))
+
+			canAccess, err := mgr.UserCanAccessDatabase(ctx, username, databaseName)
+			test.NoError(t, err)
+			test.True(t, canAccess)
+		})
+	})
+
+	T.Run("reports no access to a database nobody granted", func(t *testing.T) {
+		t.Parallel()
+
+		runWithTestMySQL(t, func(ctx context.Context, adminDB *sql.DB) {
+			mgr := NewManager(adminDB)
+
+			username := "noaccessuser"
+			ownerName := "owneruser"
+			databaseName := "noaccessdb"
+
+			must.NoError(t, mgr.CreateUser(ctx, username, "testpass123"))
+			must.NoError(t, mgr.CreateUser(ctx, ownerName, "testpass123"))
+			must.NoError(t, mgr.CreateDatabase(ctx, databaseName, ownerName))
+
+			canAccess, err := mgr.UserCanAccessDatabase(ctx, username, databaseName)
+			test.NoError(t, err)
+			test.False(t, canAccess)
+		})
+	})
+
+	T.Run("reports no access for a user nobody created", func(t *testing.T) {
+		t.Parallel()
+
+		runWithTestMySQL(t, func(ctx context.Context, adminDB *sql.DB) {
+			mgr := NewManager(adminDB)
+
+			// A grantee with no row is the same answer as a grantee with no
+			// grant, and neither is an error: the question was "can this user
+			// reach that database", and the answer is no either way.
+			canAccess, err := mgr.UserCanAccessDatabase(ctx, "nobody", "somedb")
+			test.NoError(t, err)
+			test.False(t, canAccess)
+		})
+	})
+
+	T.Run("does not confuse one user's grant for another's", func(t *testing.T) {
+		t.Parallel()
+
+		runWithTestMySQL(t, func(ctx context.Context, adminDB *sql.DB) {
+			mgr := NewManager(adminDB)
+
+			// The grantee is matched whole, quotes and host included. A prefix
+			// match here would report every user whose name starts with another's
+			// as having their access.
+			must.NoError(t, mgr.CreateUser(ctx, "granted", "testpass123"))
+			must.NoError(t, mgr.CreateUser(ctx, "grantedextra", "testpass123"))
+			must.NoError(t, mgr.CreateDatabase(ctx, "sharedname", "granted"))
+
+			canAccess, err := mgr.UserCanAccessDatabase(ctx, "grantedextra", "sharedname")
+			test.NoError(t, err)
+			test.False(t, canAccess)
+		})
+	})
+}
+
+func TestManager_GrantUserAccessToTable(T *testing.T) {
+	T.Parallel()
+
+	T.Run("grants a privilege on one table", func(t *testing.T) {
+		t.Parallel()
+
+		runWithTestMySQL(t, func(ctx context.Context, adminDB *sql.DB) {
+			mgr := NewManager(adminDB)
+
+			username := "granttableuser"
+			schema := "granttabledb"
+			table := "things"
+
+			must.NoError(t, mgr.CreateUser(ctx, username, "testpass123"))
+			must.NoError(t, mgr.CreateDatabase(ctx, schema, username))
+
+			_, err := adminDB.ExecContext(ctx,
+				fmt.Sprintf("CREATE TABLE `%s`.`%s` (id INT PRIMARY KEY)", schema, table))
+			must.NoError(t, err)
+
+			test.NoError(t, mgr.GrantUserAccessToTable(ctx, username, schema, table, string(PrivilegeSelect)))
+		})
+	})
+
+	T.Run("grants each privilege this package admits", func(t *testing.T) {
+		t.Parallel()
+
+		runWithTestMySQL(t, func(ctx context.Context, adminDB *sql.DB) {
+			mgr := NewManager(adminDB)
+
+			username := "grantalluser"
+			schema := "grantalldb"
+			table := "things"
+
+			must.NoError(t, mgr.CreateUser(ctx, username, "testpass123"))
+			must.NoError(t, mgr.CreateDatabase(ctx, schema, username))
+
+			_, err := adminDB.ExecContext(ctx,
+				fmt.Sprintf("CREATE TABLE `%s`.`%s` (id INT PRIMARY KEY)", schema, table))
+			must.NoError(t, err)
+
+			// CONNECT is Postgres' word and is on the shared list; MySQL has no
+			// such table privilege, so it is deliberately not asked for here.
+			for _, privilege := range []Privilege{
+				PrivilegeSelect,
+				PrivilegeInsert,
+				PrivilegeUpdate,
+				PrivilegeDelete,
+				PrivilegeReferences,
+				PrivilegeTrigger,
+			} {
+				test.NoError(t, mgr.GrantUserAccessToTable(ctx, username, schema, table, string(privilege)),
+					test.Sprintf("privilege %q", privilege))
+			}
+		})
+	})
+
+	T.Run("refuses a privilege that is not one, before reaching the server", func(t *testing.T) {
+		t.Parallel()
+
+		runWithTestMySQL(t, func(ctx context.Context, adminDB *sql.DB) {
+			mgr := NewManager(adminDB)
+
+			// The privilege is interpolated into the statement rather than
+			// bound, because GRANT takes no parameters — so the allowlist is
+			// what stands between a caller's string and the SQL.
+			must.Error(t, mgr.GrantUserAccessToTable(ctx, "user", "schema", "table", "SELECT; DROP DATABASE mysql"))
+		})
+	})
+
+	T.Run("refuses a lower-cased privilege", func(t *testing.T) {
+		t.Parallel()
+
+		runWithTestMySQL(t, func(ctx context.Context, adminDB *sql.DB) {
+			mgr := NewManager(adminDB)
+
+			// The allowlist is compared exactly. Accepting "select" here would
+			// mean the set of accepted strings is larger than the set written
+			// down, which is the property the allowlist exists to have.
+			must.Error(t, mgr.GrantUserAccessToTable(ctx, "user", "schema", "table", "select"))
+		})
+	})
+
+	T.Run("reports a grant on a table nobody has", func(t *testing.T) {
+		t.Parallel()
+
+		runWithTestMySQL(t, func(ctx context.Context, adminDB *sql.DB) {
+			mgr := NewManager(adminDB)
+
+			must.NoError(t, mgr.CreateUser(ctx, "granttarget", "testpass123"))
+			must.NoError(t, mgr.CreateDatabase(ctx, "grantmissingdb", "granttarget"))
+
+			must.Error(t, mgr.GrantUserAccessToTable(ctx, "granttarget", "grantmissingdb", "nosuchtable", "SELECT"))
+		})
+	})
+}

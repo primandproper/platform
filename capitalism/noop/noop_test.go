@@ -36,6 +36,66 @@ func TestPaymentManager_ImplementsInterface(T *testing.T) {
 	})
 }
 
+func TestPaymentManager_ProviderSideWrites(T *testing.T) {
+	T.Parallel()
+
+	// The three operations that would create state at a provider all report
+	// ErrPaymentsDisabled rather than the empty IDs and nil errors they once
+	// returned. An empty customer ID stored as though it were real is a bug that
+	// surfaces months later, against a provider that has never heard of the
+	// account — so this manager is deliberately loud where its webhook handler
+	// is quiet.
+	T.Run("CreateCustomer reports payments are disabled", func(t *testing.T) {
+		t.Parallel()
+
+		mgr := NewPaymentManager()
+
+		customerID, err := mgr.CreateCustomer(t.Context(), &capitalism.CustomerCreationInput{Name: "Acme"})
+		test.ErrorIs(t, err, capitalism.ErrPaymentsDisabled)
+		test.EqOp(t, "", customerID)
+	})
+
+	T.Run("CreatePaymentIntent reports payments are disabled", func(t *testing.T) {
+		t.Parallel()
+
+		mgr := NewPaymentManager()
+
+		intent, err := mgr.CreatePaymentIntent(t.Context(), &capitalism.PaymentIntentCreationInput{})
+		test.ErrorIs(t, err, capitalism.ErrPaymentsDisabled)
+
+		// Nil rather than a zero intent, which would describe a charge that
+		// never happened.
+		test.Nil(t, intent)
+	})
+
+	T.Run("CreateSubscription reports payments are disabled", func(t *testing.T) {
+		t.Parallel()
+
+		mgr := NewPaymentManager()
+
+		subscriptionID, err := mgr.CreateSubscription(t.Context(), &capitalism.SubscriptionCreationInput{})
+		test.ErrorIs(t, err, capitalism.ErrPaymentsDisabled)
+		test.EqOp(t, "", subscriptionID)
+	})
+
+	T.Run("a nil input is refused the same way", func(t *testing.T) {
+		t.Parallel()
+
+		// There is no provider to validate against, so the answer does not
+		// depend on what was asked.
+		mgr := NewPaymentManager()
+
+		_, err := mgr.CreateCustomer(t.Context(), nil)
+		test.ErrorIs(t, err, capitalism.ErrPaymentsDisabled)
+
+		_, err = mgr.CreatePaymentIntent(t.Context(), nil)
+		test.ErrorIs(t, err, capitalism.ErrPaymentsDisabled)
+
+		_, err = mgr.CreateSubscription(t.Context(), nil)
+		test.ErrorIs(t, err, capitalism.ErrPaymentsDisabled)
+	})
+}
+
 func TestUsageReporter_ReportUsage(T *testing.T) {
 	T.Parallel()
 
