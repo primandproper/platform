@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/authentication/oauth2server"
-	"github.com/primandproper/platform-go/v13/clock"
-	"github.com/primandproper/platform-go/v13/observability"
+	"github.com/primandproper/platform-go/v14/authentication/oauth2server"
+	"github.com/primandproper/platform-go/v14/clock"
+	"github.com/primandproper/platform-go/v14/observability"
 )
 
 // serviceName names the loggers and spans this store emits.

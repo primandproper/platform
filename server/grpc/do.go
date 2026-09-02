@@ -3,9 +3,9 @@ package grpc
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v13/healthcheck"
-	"github.com/primandproper/platform-go/v13/internal/injection"
-	"github.com/primandproper/platform-go/v13/observability"
+	"github.com/primandproper/platform-go/v14/healthcheck"
+	"github.com/primandproper/platform-go/v14/internal/injection"
+	"github.com/primandproper/platform-go/v14/observability"
 
 	"github.com/samber/do/v2"
 	"google.golang.org/grpc"

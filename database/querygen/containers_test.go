@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/database/dialect"
-	"github.com/primandproper/platform-go/v13/testutils/containers/mysqltest"
-	"github.com/primandproper/platform-go/v13/testutils/containers/pgtest"
+	"github.com/primandproper/platform-go/v14/database/dialect"
+	"github.com/primandproper/platform-go/v14/testutils/containers/mysqltest"
+	"github.com/primandproper/platform-go/v14/testutils/containers/pgtest"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

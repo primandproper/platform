@@ -3,7 +3,7 @@ package cfgnorm
 import (
 	"reflect"
 
-	"github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v14/errors"
 
 	"github.com/caarlos0/env/v11"
 )

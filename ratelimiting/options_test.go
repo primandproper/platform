@@ -3,8 +3,8 @@ package ratelimiting
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/clock"
-	metricsnoop "github.com/primandproper/platform-go/v13/observability/metrics/noop"
+	"github.com/primandproper/platform-go/v14/clock"
+	metricsnoop "github.com/primandproper/platform-go/v14/observability/metrics/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

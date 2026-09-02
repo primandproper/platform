@@ -3,8 +3,8 @@ package identity
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v13/database"
-	"github.com/primandproper/platform-go/v13/identity/internal/identitydb"
+	"github.com/primandproper/platform-go/v14/database"
+	"github.com/primandproper/platform-go/v14/identity/internal/identitydb"
 )
 
 // The SQLStore's Registrar: the three writes that make a registration, each

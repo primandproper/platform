@@ -3,8 +3,8 @@ package retrycfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v13/observability"
-	"github.com/primandproper/platform-go/v13/retry"
+	"github.com/primandproper/platform-go/v14/observability"
+	"github.com/primandproper/platform-go/v14/retry"
 
 	"github.com/samber/do/v2"
 )

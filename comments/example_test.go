@@ -7,12 +7,12 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/comments"
-	"github.com/primandproper/platform-go/v13/comments/migrations"
-	"github.com/primandproper/platform-go/v13/database"
-	"github.com/primandproper/platform-go/v13/database/dialect"
-	"github.com/primandproper/platform-go/v13/database/sqlite"
-	"github.com/primandproper/platform-go/v13/tenancy"
+	"github.com/primandproper/platform-go/v14/comments"
+	"github.com/primandproper/platform-go/v14/comments/migrations"
+	"github.com/primandproper/platform-go/v14/database"
+	"github.com/primandproper/platform-go/v14/database/dialect"
+	"github.com/primandproper/platform-go/v14/database/sqlite"
+	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
 // The application's own vocabulary, declared as constants so the catalog below
@@ -160,6 +160,62 @@ func ExampleStore_DeleteCommentsForTarget() {
 
 	// Output:
 	// swept: 2
+}
+
+// A comment is rarely the only row a write produces. CreateCommentTx puts it in
+// the transaction that carries its companions — here an audit entry naming who
+// said it — so neither can land without the other.
+func ExampleStore_CreateCommentTx() {
+	ctx := context.Background()
+
+	client := exampleClient(ctx)
+
+	// The consumer's own table, standing in for whatever a real application
+	// writes beside a comment: an audit entry, a data change event on an outbox.
+	if _, err := client.Writer().ExecContext(ctx,
+		`CREATE TABLE audit_log (comment_id TEXT NOT NULL, actor TEXT NOT NULL)`); err != nil {
+		panic(err)
+	}
+
+	store, err := comments.NewSQLStore(client,
+		comments.WithTargets(comments.Targets{recipeTarget: {Description: "a recipe"}}))
+	if err != nil {
+		panic(err)
+	}
+
+	comment := &comments.Comment{
+		Scope:  tenancy.Of("acct_1"),
+		Target: comments.Target{Type: recipeTarget, ID: "recipe_1"},
+		Author: "user_1",
+		Body:   "this wants more salt",
+	}
+
+	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		if txErr := store.CreateCommentTx(ctx, tx, comment); txErr != nil {
+			return txErr
+		}
+
+		// A failure here takes the comment back with it, which is the whole
+		// reason this is one transaction rather than two.
+		_, txErr := tx.ExecContext(ctx,
+			`INSERT INTO audit_log (comment_id, actor) VALUES (?, ?)`,
+			comment.ID, comment.Author)
+
+		return txErr
+	}); err != nil {
+		panic(err)
+	}
+
+	var actor string
+	if err = client.Reader().QueryRowContext(ctx,
+		`SELECT actor FROM audit_log WHERE comment_id = ?`, comment.ID).Scan(&actor); err != nil {
+		panic(err)
+	}
+
+	fmt.Println("audited:", actor)
+
+	// Output:
+	// audited: user_1
 }
 
 // exampleClient is a throwaway SQLite database with the comments table in it, so

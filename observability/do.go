@@ -3,16 +3,16 @@ package observability
 import (
 	stderrors "errors"
 
-	"github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/internal/injection"
-	"github.com/primandproper/platform-go/v13/observability/logging"
-	loggingcfg "github.com/primandproper/platform-go/v13/observability/logging/config"
-	"github.com/primandproper/platform-go/v13/observability/metrics"
-	metricscfg "github.com/primandproper/platform-go/v13/observability/metrics/config"
-	"github.com/primandproper/platform-go/v13/observability/profiling"
-	profilingcfg "github.com/primandproper/platform-go/v13/observability/profiling/config"
-	"github.com/primandproper/platform-go/v13/observability/tracing"
-	tracingcfg "github.com/primandproper/platform-go/v13/observability/tracing/config"
+	"github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/internal/injection"
+	"github.com/primandproper/platform-go/v14/observability/logging"
+	loggingcfg "github.com/primandproper/platform-go/v14/observability/logging/config"
+	"github.com/primandproper/platform-go/v14/observability/metrics"
+	metricscfg "github.com/primandproper/platform-go/v14/observability/metrics/config"
+	"github.com/primandproper/platform-go/v14/observability/profiling"
+	profilingcfg "github.com/primandproper/platform-go/v14/observability/profiling/config"
+	"github.com/primandproper/platform-go/v14/observability/tracing"
+	tracingcfg "github.com/primandproper/platform-go/v14/observability/tracing/config"
 
 	"github.com/samber/do/v2"
 )

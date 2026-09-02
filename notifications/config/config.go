@@ -31,10 +31,10 @@ package notificationscfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v13/database"
-	"github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/notifications"
-	"github.com/primandproper/platform-go/v13/notifications/migrations"
+	"github.com/primandproper/platform-go/v14/database"
+	"github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/notifications"
+	"github.com/primandproper/platform-go/v14/notifications/migrations"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

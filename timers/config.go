@@ -5,8 +5,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/database/ddl"
-	"github.com/primandproper/platform-go/v13/timers/internal/queries"
+	"github.com/primandproper/platform-go/v14/database/ddl"
+	"github.com/primandproper/platform-go/v14/timers/internal/queries"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

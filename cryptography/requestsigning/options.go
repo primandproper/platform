@@ -3,7 +3,7 @@ package requestsigning
 import (
 	"time"
 
-	"github.com/primandproper/platform-go/v13/clock"
+	"github.com/primandproper/platform-go/v14/clock"
 )
 
 // Option configures signing and verification. One type serves Sign's

@@ -3,11 +3,11 @@ package dataprivacycfg
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/observability"
-	"github.com/primandproper/platform-go/v13/observability/logging"
-	loggingnoop "github.com/primandproper/platform-go/v13/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v13/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v13/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v14/observability"
+	"github.com/primandproper/platform-go/v14/observability/logging"
+	loggingnoop "github.com/primandproper/platform-go/v14/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform-go/v14/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform-go/v14/observability/tracing/noop"
 
 	"github.com/shoenig/test"
 )

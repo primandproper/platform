@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	textsearch "github.com/primandproper/platform-go/v13/search/text"
+	textsearch "github.com/primandproper/platform-go/v14/search/text"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"

@@ -18,7 +18,7 @@ package noop
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v13/llm"
+	"github.com/primandproper/platform-go/v14/llm"
 )
 
 var _ llm.Provider = (*Provider)(nil)

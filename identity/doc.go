@@ -11,7 +11,7 @@ thousand hand-written non-test lines, and eighteen of the twenty fields on its
 user type were fields every application has.
 
 So this package owns the four things — users, accounts, memberships, invitations —
-in the same way [github.com/primandproper/platform-go/v13/webhooks] owns
+in the same way [github.com/primandproper/platform-go/v14/webhooks] owns
 endpoints: a Store interface, a SQL implementation of it, the DDL for three
 dialects, and a mock. A consumer keeps its service layer, its HTTP handlers,
 its proto, and whatever columns are genuinely its own; it does not keep a
@@ -25,9 +25,9 @@ That is the load-bearing decision in this package and it is worth being
 explicit about, because the obvious alternative — identity holds who somebody
 is, authentication holds how they prove it — reads cleaner and is wrong for the
 shape this module already has. The authentication subpackages are engines:
-[github.com/primandproper/platform-go/v13/authentication/argon2] hashes and
-compares, [github.com/primandproper/platform-go/v13/authentication/totp]
-generates and validates, [github.com/primandproper/platform-go/v13/authentication/webauthn]
+[github.com/primandproper/platform-go/v14/authentication/argon2] hashes and
+compares, [github.com/primandproper/platform-go/v14/authentication/totp]
+generates and validates, [github.com/primandproper/platform-go/v14/authentication/webauthn]
 attests. None of them stores anything, none of them wants to, and giving one of
 them a table would mean an application that hashes passwords in a different
 package still ends up with a credential store it did not choose.
@@ -53,11 +53,11 @@ than a column on one, each has a lifecycle of its own (a credential is
 registered and revoked, a reset token is issued and burned, a session expires),
 and each is consumed by exactly one engine. Their home is beside that engine —
 the same rule that put the password hash here, applied to a fact that is not a
-column. Sessions live in [github.com/primandproper/platform-go/v13/sessions],
+column. Sessions live in [github.com/primandproper/platform-go/v14/sessions],
 WebAuthn credentials and ceremonies in
-[github.com/primandproper/platform-go/v13/authentication/webauthn/database], and
+[github.com/primandproper/platform-go/v14/authentication/webauthn/database], and
 password reset tokens in
-[github.com/primandproper/platform-go/v13/authentication/passwordreset], which
+[github.com/primandproper/platform-go/v14/authentication/passwordreset], which
 also owns the two properties a consumer writing that table by hand gets wrong:
 the token is stored as a digest, and single use is enforced by the store rather
 than by whoever called it.
@@ -80,7 +80,7 @@ The empty string means the user holds no password credential. What it must
 never be read as is "any password will do". This package stores what an engine
 produced and never compares, so that obligation lands on the sign-in flow: ask
 [User.HasPassword] before reaching for
-[github.com/primandproper/platform-go/v13/authentication/argon2], rather than
+[github.com/primandproper/platform-go/v14/authentication/argon2], rather than
 handing the engine an empty hash and trusting it to error. A user who has no
 password should be refused a password sign-in and sent to the credential they
 do have — which is a different answer from "wrong password", and only the flow
@@ -98,7 +98,7 @@ having an opinion, rather than acquiring the opposite one.
 
 # Scope is not the account
 
-Every row here carries a [github.com/primandproper/platform-go/v13/tenancy.Scope],
+Every row here carries a [github.com/primandproper/platform-go/v14/tenancy.Scope],
 and every read filters on it — the module's rule, not an exception to it. The
 scope is *not* the account. Accounts are rows in this schema; the scope is
 whoever owns the directory those accounts and users live in.
@@ -134,7 +134,7 @@ of thing a side table holds well.
 
 # Getting the tables
 
-The DDL lives in [github.com/primandproper/platform-go/v13/identity/migrations],
+The DDL lives in [github.com/primandproper/platform-go/v14/identity/migrations],
 rendered per dialect and table prefix, and hands to database/migrate's
 WithGeneratedMigration so nothing is copied into a consumer's repository. See
 that package for why no numbered migration file ships.

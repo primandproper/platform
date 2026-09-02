@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/batching"
+	"github.com/primandproper/platform-go/v14/batching"
 )
 
 // exampleTimeout bounds every wait in this file.

@@ -3,7 +3,7 @@ package featureflags
 import (
 	"context"
 
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
 )
 
 // ErrFlagNotFound reports that the provider resolved the evaluation and the flag

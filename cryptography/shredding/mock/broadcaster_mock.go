@@ -7,7 +7,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/primandproper/platform-go/v13/cryptography/shredding"
+	"github.com/primandproper/platform-go/v14/cryptography/shredding"
 )
 
 // Ensure, that BroadcasterMock does implement shredding.Broadcaster.

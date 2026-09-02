@@ -3,8 +3,8 @@ package registry
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v13/filtering"
-	"github.com/primandproper/platform-go/v13/tenancy"
+	"github.com/primandproper/platform-go/v14/filtering"
+	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
 // Store is the registry: the rows that say what the objects in storage are.

@@ -13,13 +13,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/circuitbreaking"
-	circuitbreakingcfg "github.com/primandproper/platform-go/v13/circuitbreaking/config"
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/observability"
-	"github.com/primandproper/platform-go/v13/observability/keys"
-	"github.com/primandproper/platform-go/v13/observability/metrics"
-	vectorsearch "github.com/primandproper/platform-go/v13/search/vector"
+	"github.com/primandproper/platform-go/v14/circuitbreaking"
+	circuitbreakingcfg "github.com/primandproper/platform-go/v14/circuitbreaking/config"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/observability"
+	"github.com/primandproper/platform-go/v14/observability/keys"
+	"github.com/primandproper/platform-go/v14/observability/metrics"
+	vectorsearch "github.com/primandproper/platform-go/v14/search/vector"
 )
 
 const serviceName = "qdrant_index"

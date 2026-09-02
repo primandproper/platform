@@ -29,10 +29,10 @@ package issuereportscfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v13/database"
-	"github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/issuereports"
-	"github.com/primandproper/platform-go/v13/issuereports/migrations"
+	"github.com/primandproper/platform-go/v14/database"
+	"github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/issuereports"
+	"github.com/primandproper/platform-go/v14/issuereports/migrations"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

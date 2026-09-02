@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/secrets"
-	"github.com/primandproper/platform-go/v13/secrets/env"
+	"github.com/primandproper/platform-go/v14/secrets"
+	"github.com/primandproper/platform-go/v14/secrets/env"
 )
 
 func Example_envSecretSource() {

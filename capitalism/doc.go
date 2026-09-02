@@ -18,7 +18,7 @@ holds the policy — identity stores the answer, this package supplies a closed
 set to derive it from, and nothing here imports identity.
 
 Where the reported status is stored is
-github.com/primandproper/platform-go/v13/billing, along with the catalog, the
+github.com/primandproper/platform-go/v14/billing, along with the catalog, the
 one-time sales and the ledger of payment attempts. That is a separate package
 rather than a table here, and the split is the same one this paragraph draws: a
 subscription row is a fact a processor owns, restated so that deciding an

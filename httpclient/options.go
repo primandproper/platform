@@ -4,16 +4,16 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/cache"
-	"github.com/primandproper/platform-go/v13/circuitbreaking"
-	"github.com/primandproper/platform-go/v13/circuitbreaking/partitioned"
-	"github.com/primandproper/platform-go/v13/cryptography/requestsigning"
-	"github.com/primandproper/platform-go/v13/observability"
-	"github.com/primandproper/platform-go/v13/observability/logging"
-	"github.com/primandproper/platform-go/v13/observability/metrics"
-	"github.com/primandproper/platform-go/v13/observability/tracing"
-	"github.com/primandproper/platform-go/v13/ratelimiting"
-	"github.com/primandproper/platform-go/v13/retry"
+	"github.com/primandproper/platform-go/v14/cache"
+	"github.com/primandproper/platform-go/v14/circuitbreaking"
+	"github.com/primandproper/platform-go/v14/circuitbreaking/partitioned"
+	"github.com/primandproper/platform-go/v14/cryptography/requestsigning"
+	"github.com/primandproper/platform-go/v14/observability"
+	"github.com/primandproper/platform-go/v14/observability/logging"
+	"github.com/primandproper/platform-go/v14/observability/metrics"
+	"github.com/primandproper/platform-go/v14/observability/tracing"
+	"github.com/primandproper/platform-go/v14/ratelimiting"
+	"github.com/primandproper/platform-go/v14/retry"
 )
 
 // Option customizes the HTTP client returned by NewHTTPClient. Options are

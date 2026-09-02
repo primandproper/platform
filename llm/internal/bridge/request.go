@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/llm"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/llm"
 
 	anyllm "github.com/mozilla-ai/any-llm-go"
 )

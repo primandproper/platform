@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/distributedlock"
+	"github.com/primandproper/platform-go/v14/distributedlock"
 )
 
 // Ensure, that LockerMock does implement distributedlock.Locker.

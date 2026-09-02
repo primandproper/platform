@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/audit/migrations"
-	"github.com/primandproper/platform-go/v13/database/dialect"
-	"github.com/primandproper/platform-go/v13/database/querygen"
+	"github.com/primandproper/platform-go/v14/audit/migrations"
+	"github.com/primandproper/platform-go/v14/database/dialect"
+	"github.com/primandproper/platform-go/v14/database/querygen"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

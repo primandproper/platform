@@ -5,10 +5,10 @@ import (
 	"encoding/base64"
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/authentication/tokens"
-	loggingnoop "github.com/primandproper/platform-go/v13/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v13/observability/tracing/noop"
-	"github.com/primandproper/platform-go/v13/random"
+	"github.com/primandproper/platform-go/v14/authentication/tokens"
+	loggingnoop "github.com/primandproper/platform-go/v14/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform-go/v14/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v14/random"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"

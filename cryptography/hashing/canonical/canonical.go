@@ -6,9 +6,9 @@ import (
 	"slices"
 	"unicode/utf8"
 
-	"github.com/primandproper/platform-go/v13/cryptography/hashing"
-	"github.com/primandproper/platform-go/v13/cryptography/hashing/sha256"
-	"github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v14/cryptography/hashing"
+	"github.com/primandproper/platform-go/v14/cryptography/hashing/sha256"
+	"github.com/primandproper/platform-go/v14/errors"
 )
 
 // Option configures canonicalization.

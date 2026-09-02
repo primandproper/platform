@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/authentication/oauth2server"
-	"github.com/primandproper/platform-go/v13/observability/logging"
+	"github.com/primandproper/platform-go/v14/authentication/oauth2server"
+	"github.com/primandproper/platform-go/v14/observability/logging"
 
 	otelcodes "go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"

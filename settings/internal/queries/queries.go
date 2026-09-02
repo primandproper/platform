@@ -1,8 +1,8 @@
 package queries
 
 import (
-	"github.com/primandproper/platform-go/v13/database/dialect"
-	"github.com/primandproper/platform-go/v13/database/querygen"
+	"github.com/primandproper/platform-go/v14/database/dialect"
+	"github.com/primandproper/platform-go/v14/database/querygen"
 )
 
 // The tables this package owns, at their canonical spelling — what the emitted

@@ -14,7 +14,7 @@ import (
 	"encoding/binary"
 	"hash/fnv"
 
-	"github.com/primandproper/platform-go/v13/cryptography/hashing"
+	"github.com/primandproper/platform-go/v14/cryptography/hashing"
 )
 
 var (

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing/fstest"
 
-	"github.com/primandproper/platform-go/v13/charset"
-	"github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v14/charset"
+	"github.com/primandproper/platform-go/v14/errors"
 )
 
 // generatedMigration is a migration supplied as text rather than as a file on

@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/authentication/oauth2server"
-	"github.com/primandproper/platform-go/v13/authentication/oauth2server/memory"
-	loggingnoop "github.com/primandproper/platform-go/v13/observability/logging/noop"
-	tracingnoop "github.com/primandproper/platform-go/v13/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v14/authentication/oauth2server"
+	"github.com/primandproper/platform-go/v14/authentication/oauth2server/memory"
+	loggingnoop "github.com/primandproper/platform-go/v14/observability/logging/noop"
+	tracingnoop "github.com/primandproper/platform-go/v14/observability/tracing/noop"
 
 	"github.com/shoenig/test/must"
 )
