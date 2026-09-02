@@ -43,6 +43,24 @@ var providers = []string{ProviderDatabase, ProviderCache}
 // cache provider, which reclaims its own entries.
 const DefaultSweepInterval = 5 * time.Minute
 
+// NoSweep is the SweepInterval that starts no sweeper, for a deployment whose
+// scheduler calls Sweep instead — one sweep for the fleet rather than one per
+// replica.
+//
+// It is negative rather than zero because zero is what an unset environment
+// variable and an unset struct field both produce, and EnsureDefaults cannot
+// tell an operator who wants no sweeper from one who said nothing. The two
+// readings do not cost the same: a sweeper nobody needed is a periodic DELETE
+// that finds nothing, while a sweeper nobody started is a table growing by a
+// row for every ceremony ever begun. So zero takes DefaultSweepInterval under
+// the database provider, and turning the sweeper off is a decision that has to
+// be spelled.
+//
+// Spelled in the environment, that is SWEEP_INTERVAL=-1ns: the value is a
+// duration the environment parses like any other, and it is the only negative
+// one ValidateWithContext accepts.
+const NoSweep = time.Duration(-1)
+
 // Config assembles a webauthn.RelyingParty and its ceremony store from
 // environment configuration.
 type Config struct {
@@ -65,18 +83,26 @@ type Config struct {
 	Cache cachecfg.Config `env:",init" envPrefix:"CACHE_" json:"cache,omitzero" yaml:"cache,omitempty"`
 
 	// SweepInterval is how often the database provider removes rows whose
-	// deadlines have passed. It is ignored by the cache provider.
+	// deadlines have passed. It is ignored by the cache provider. Zero takes
+	// DefaultSweepInterval; NoSweep starts no sweeper.
 	//
-	// A non-positive value starts no sweeper, which is right when a scheduler
-	// calls Sweep instead — one sweep for the fleet rather than one per replica
-	// — and wrong when nothing else does, since the table then grows by a row
-	// for every ceremony ever begun.
+	// Starting no sweeper is right when a scheduler calls Sweep instead — one
+	// sweep for the fleet rather than one per replica — and wrong when nothing
+	// else does, since the table then grows by a row for every ceremony ever
+	// begun. That asymmetry is why the sweeper is what an unconfigured database
+	// Config gets, and why the other answer is a named value rather than the
+	// zero an unset field already has.
 	SweepInterval time.Duration `env:"SWEEP_INTERVAL" json:"sweepInterval,omitempty" yaml:"sweepInterval,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // EnsureDefaults fills in zero fields, including the relying party's own.
+//
+// SweepInterval is defaulted here so that a Config reads as what it will
+// actually do, which is what NoSweep exists to work around: a zero reaching
+// this method is an unset field, never an off-switch. It is left alone under
+// the cache provider, which has nothing to sweep.
 func (cfg *Config) EnsureDefaults() {
 	if cfg.Provider == "" {
 		cfg.Provider = ProviderDatabase
@@ -114,7 +140,28 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.Cache,
 			validation.Skip.When(cfg.provider() != ProviderCache),
 			validation.By(func(any) error { return cfg.Cache.ValidateWithContext(ctx) })),
+		validation.Field(&cfg.SweepInterval, validation.By(func(any) error { return cfg.validateSweepInterval() })),
 	)
+}
+
+// validateSweepInterval permits a non-negative interval and NoSweep, and
+// nothing else below zero.
+//
+// Below zero there is no magnitude to mean anything — every negative duration
+// reaches the store as "start nothing" — so a deployment that picked one is
+// describing a cadence it will not get. Naming NoSweep is the same decision
+// made where a reader of the Config can see it.
+//
+// It is checked under both providers. The cache provider ignores the field
+// rather than permitting nonsense in it, and a configuration that moves to the
+// database provider should not start failing validation on a value it has
+// carried all along.
+func (cfg *Config) validateSweepInterval() error {
+	if cfg.SweepInterval < 0 && cfg.SweepInterval != NoSweep {
+		return errors.New("must be a non-negative duration, or NoSweep to start no sweeper")
+	}
+
+	return nil
 }
 
 // provider normalizes the configured provider name, so that trailing whitespace

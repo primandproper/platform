@@ -2,12 +2,14 @@ package webauthncfg
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/primandproper/platform-go/v13/authentication/webauthn"
 	webauthncache "github.com/primandproper/platform-go/v13/authentication/webauthn/cache"
 	webauthndatabase "github.com/primandproper/platform-go/v13/authentication/webauthn/database"
 	cachecfg "github.com/primandproper/platform-go/v13/cache/config"
+	"github.com/primandproper/platform-go/v13/database"
 	"github.com/primandproper/platform-go/v13/errors"
 
 	"github.com/shoenig/test"
@@ -52,6 +54,18 @@ func TestConfig_EnsureDefaults(T *testing.T) {
 
 		test.EqOp(t, time.Hour, cfg.SweepInterval)
 		test.EqOp(t, 30*time.Second, cfg.RelyingParty.CeremonyTimeout)
+	})
+
+	// The zero is the default and NoSweep is the off-switch, which is only true
+	// while this method can tell them apart. Defaulting NoSweep would put the
+	// off-switch back out of reach.
+	T.Run("leaves NoSweep alone", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Provider: ProviderDatabase, SweepInterval: NoSweep}
+		cfg.EnsureDefaults()
+
+		test.EqOp(t, NoSweep, cfg.SweepInterval)
 	})
 }
 
@@ -121,6 +135,27 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 		cfg := databaseConfig()
 		cfg.Database = webauthndatabase.Config{TablePrefix: "ddb_"}
+
+		test.Error(t, cfg.ValidateWithContext(t.Context()))
+	})
+
+	T.Run("accepts NoSweep by rule rather than by omission", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := databaseConfig()
+		cfg.SweepInterval = NoSweep
+
+		test.NoError(t, cfg.ValidateWithContext(t.Context()))
+	})
+
+	// Below zero there is no cadence to configure — every negative duration
+	// reaches the store as "start nothing" — so a magnitude is somebody
+	// describing a sweep they will not get.
+	T.Run("rejects a negative interval that is not NoSweep", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := databaseConfig()
+		cfg.SweepInterval = -30 * time.Minute
 
 		test.Error(t, cfg.ValidateWithContext(t.Context()))
 	})
@@ -220,6 +255,71 @@ func TestNewSessionStore(T *testing.T) {
 		must.NoError(t, err)
 		test.NotNil(t, store)
 	})
+}
+
+// TestConfig_SweepInterval exercises the field's documented contract where it
+// is actually decided. The store's own WithSweeper has always honored a
+// non-positive interval; what could not reach it was a configured one, because
+// EnsureDefaults mapped every zero to the default before the option was built.
+func TestConfig_SweepInterval(T *testing.T) {
+	T.Parallel()
+
+	// The wall clock is deliberate: inside a synctest bubble clock.NewClock
+	// reads the bubble's time, so the store's ticker advances with time.Sleep
+	// and needs no test double.
+	T.Run("NoSweep leaves dead rows for somebody else to remove", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			client := newTestClient(t)
+
+			cfg := databaseConfig()
+			cfg.SweepInterval = NoSweep
+
+			store, err := NewSessionStore(t.Context(), cfg, client)
+			must.NoError(t, err)
+			must.NoError(t, store.Save(t.Context(), testSession("abandoned"), time.Minute))
+
+			// Past the ceremony's deadline and past every tick a defaulted
+			// interval would have taken.
+			time.Sleep(time.Hour)
+			synctest.Wait()
+
+			// Still there, waiting for the scheduled Sweep this deployment runs
+			// instead. An abandoned ceremony is the common case — a user who
+			// closed the tab — so the row nobody removes is the ordinary one.
+			test.EqOp(t, 1, ceremonyRowCount(t, client))
+		})
+	})
+
+	T.Run("an unset interval sweeps, because a table nobody sweeps only grows", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			client := newTestClient(t)
+
+			store, err := NewSessionStore(t.Context(), databaseConfig(), client)
+			must.NoError(t, err)
+			must.NoError(t, store.Save(t.Context(), testSession("abandoned"), time.Minute))
+
+			time.Sleep(time.Hour)
+			synctest.Wait()
+
+			test.EqOp(t, 0, ceremonyRowCount(t, client))
+		})
+	})
+}
+
+// ceremonyRowCount reads the ceremony table directly, because Consume refuses
+// an expired session whether or not the row is still there — and whether the
+// row is still there is the whole question.
+func ceremonyRowCount(t *testing.T, client database.Client) int {
+	t.Helper()
+
+	var count int
+	must.NoError(t, client.Reader().QueryRowContext(t.Context(), "SELECT COUNT(*) FROM webauthn_sessions").Scan(&count))
+
+	return count
 }
 
 func TestNewRelyingParty(T *testing.T) {

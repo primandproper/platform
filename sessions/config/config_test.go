@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	cachecfg "github.com/primandproper/platform-go/v13/cache/config"
@@ -117,6 +118,18 @@ func TestConfig_EnsureDefaults(T *testing.T) {
 		dbCfg.EnsureDefaults()
 		test.EqOp(t, DefaultSweepInterval, dbCfg.SweepInterval)
 	})
+
+	// The zero is the default and NoSweep is the off-switch, which is only true
+	// while this method can tell them apart. Defaulting NoSweep would put the
+	// off-switch back out of reach.
+	T.Run("leaves NoSweep alone", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Provider: ProviderDatabase, SweepInterval: NoSweep}
+		cfg.EnsureDefaults()
+
+		test.EqOp(t, NoSweep, cfg.SweepInterval)
+	})
 }
 
 func TestConfig_ValidateWithContext(T *testing.T) {
@@ -171,6 +184,104 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 
 		must.Error(t, cfg.ValidateWithContext(t.Context()))
 	})
+
+	T.Run("accepts NoSweep by rule rather than by omission", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Provider: ProviderDatabase, SweepInterval: NoSweep}
+		cfg.EnsureDefaults()
+
+		must.NoError(t, cfg.ValidateWithContext(t.Context()))
+	})
+
+	// Below zero there is no cadence to configure — every negative duration
+	// reaches the backend as "start nothing" — so a magnitude is somebody
+	// describing a sweep they will not get.
+	T.Run("rejects a negative interval that is not NoSweep", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Provider: ProviderDatabase, SweepInterval: -30 * time.Minute}
+		cfg.EnsureDefaults()
+
+		must.Error(t, cfg.ValidateWithContext(t.Context()))
+	})
+}
+
+// TestConfig_SweepInterval exercises the field's documented contract where it
+// is actually decided. The store's own WithSweeper has always honored a
+// non-positive interval; what could not reach it was a configured one, because
+// EnsureDefaults mapped every zero to the default before the option was built.
+func TestConfig_SweepInterval(T *testing.T) {
+	T.Parallel()
+
+	// The wall clock is deliberate: inside a synctest bubble clock.NewClock
+	// reads the bubble's time, so the sweeper's ticker advances with
+	// time.Sleep and the store needs no test double.
+	T.Run("NoSweep leaves dead rows for somebody else to remove", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			client := newTestClient(t, "")
+
+			store, err := NewStore[principal](t.Context(), &Config{
+				Provider:        ProviderDatabase,
+				AbsoluteTimeout: time.Minute,
+				IdleTimeout:     time.Minute,
+				SweepInterval:   NoSweep,
+			}, client)
+			must.NoError(t, err)
+
+			_, err = store.New(t.Context(), &principal{UserID: "u_1"})
+			must.NoError(t, err)
+
+			// Well past the row's deadline — which is the session's plus
+			// Policy.Grace, since the store keeps an expired record around
+			// long enough to tell a signed-out user why — and past every tick
+			// a defaulted interval would have taken.
+			time.Sleep(3 * time.Hour)
+			synctest.Wait()
+
+			// Still there, waiting for the scheduled Sweep this deployment runs
+			// instead. Before NoSweep existed the row was gone by now, and the
+			// configuration said it would not be.
+			test.EqOp(t, 1, sessionRowCount(t, client))
+		})
+	})
+
+	T.Run("an unset interval sweeps, because a table nobody sweeps only grows", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			client := newTestClient(t, "")
+
+			store, err := NewStore[principal](t.Context(), &Config{
+				Provider:        ProviderDatabase,
+				AbsoluteTimeout: time.Minute,
+				IdleTimeout:     time.Minute,
+			}, client)
+			must.NoError(t, err)
+
+			_, err = store.New(t.Context(), &principal{UserID: "u_1"})
+			must.NoError(t, err)
+
+			time.Sleep(3 * time.Hour)
+			synctest.Wait()
+
+			test.EqOp(t, 0, sessionRowCount(t, client))
+		})
+	})
+}
+
+// sessionRowCount reads the session table directly, because a Store read
+// refuses an expired session whether or not the row is still there — and
+// whether the row is still there is the whole question.
+func sessionRowCount(t *testing.T, client database.Client) int {
+	t.Helper()
+
+	var count int
+	must.NoError(t, client.Reader().QueryRowContext(t.Context(), "SELECT COUNT(*) FROM sessions").Scan(&count))
+
+	return count
 }
 
 func TestNewStore(T *testing.T) {

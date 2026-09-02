@@ -40,6 +40,24 @@ const (
 	ProviderDatabase = "database"
 )
 
+// NoSweep is the SweepInterval that starts no sweeper, for a deployment whose
+// scheduler calls Store.Sweep instead — one sweep for the fleet rather than one
+// per replica.
+//
+// It is negative rather than zero because zero is what an unset environment
+// variable and an unset struct field both produce, and EnsureDefaults cannot
+// tell an operator who wants no sweeper from one who said nothing. The two
+// readings do not cost the same: a sweeper nobody needed is a periodic DELETE
+// that finds nothing, while a sweeper nobody started is four tables growing —
+// one of them from an unauthenticated endpoint. So zero takes
+// oauth2server.DefaultSweepInterval, and turning the sweeper off is a decision
+// that has to be spelled.
+//
+// Spelled in the environment, that is SWEEP_INTERVAL=-1ns: the value is a
+// duration the environment parses like any other, and it is the only negative
+// one ValidateWithContext accepts.
+const NoSweep = time.Duration(-1)
+
 // Config assembles an authorization server from environment configuration.
 type Config struct {
 	_ struct{} `json:"-" yaml:"-"`
@@ -97,12 +115,15 @@ type Config struct {
 	ClientRegistrationTTL time.Duration `env:"CLIENT_REGISTRATION_TTL" json:"clientRegistrationTTL,omitempty" yaml:"clientRegistrationTTL,omitempty"`
 
 	// SweepInterval is how often the store removes records past their
-	// deadlines.
+	// deadlines. Zero takes oauth2server.DefaultSweepInterval; NoSweep starts
+	// no sweeper.
 	//
-	// A non-positive value starts no sweeper, which is right when a scheduler
-	// calls Sweep instead — one sweep for the fleet rather than one per replica
-	// — and wrong when nothing else does, since the tables then grow with every
-	// login attempt and every anonymous registration.
+	// Starting no sweeper is right when a scheduler calls Sweep instead — one
+	// sweep for the fleet rather than one per replica — and wrong when nothing
+	// else does, since the tables then grow with every login attempt and every
+	// anonymous registration. That asymmetry is why the sweeper is what an
+	// unconfigured Config gets, and why the other answer is a named value
+	// rather than the zero an unset field already has.
 	SweepInterval time.Duration `env:"SWEEP_INTERVAL" json:"sweepInterval,omitempty" yaml:"sweepInterval,omitempty"`
 
 	// DisableDynamicRegistration stops this server serving RFC 7591 dynamic
@@ -134,7 +155,9 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 //
 // The lifetimes are defaulted here as well as in the Server so that a Config
 // reads as what it will actually do, rather than as a set of zeroes whose
-// meaning is somewhere else.
+// meaning is somewhere else. SweepInterval is defaulted on the same terms,
+// which is what NoSweep exists to work around: a zero reaching this method is
+// an unset field, never an off-switch.
 func (cfg *Config) EnsureDefaults() {
 	if cfg.Provider == "" {
 		cfg.Provider = ProviderDatabase
@@ -175,7 +198,23 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.AccessTokenTTL, validation.Min(time.Duration(0))),
 		validation.Field(&cfg.RefreshTokenTTL, validation.Min(time.Duration(0))),
 		validation.Field(&cfg.ClientRegistrationTTL, validation.Min(time.Duration(0))),
+		validation.Field(&cfg.SweepInterval, validation.By(func(any) error { return cfg.validateSweepInterval() })),
 	)
+}
+
+// validateSweepInterval permits a non-negative interval and NoSweep, and
+// nothing else below zero.
+//
+// Below zero there is no magnitude to mean anything — every negative duration
+// reaches the store as "start nothing" — so a deployment that picked one is
+// describing a cadence it will not get. Naming NoSweep is the same decision
+// made where a reader of the Config can see it.
+func (cfg *Config) validateSweepInterval() error {
+	if cfg.SweepInterval < 0 && cfg.SweepInterval != NoSweep {
+		return errors.New("must be a non-negative duration, or NoSweep to start no sweeper")
+	}
+
+	return nil
 }
 
 // provider normalizes the configured provider name, so that trailing whitespace
