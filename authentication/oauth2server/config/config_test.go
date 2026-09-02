@@ -10,6 +10,7 @@ import (
 	"github.com/primandproper/platform-go/v14/authentication/oauth2server"
 	oauth2database "github.com/primandproper/platform-go/v14/authentication/oauth2server/database"
 	"github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/pointer"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -36,7 +37,7 @@ func TestConfig_EnsureDefaults(T *testing.T) {
 		test.EqOp(t, oauth2server.DefaultAccessTokenTTL, cfg.AccessTokenTTL)
 		test.EqOp(t, oauth2server.DefaultRefreshTokenTTL, cfg.RefreshTokenTTL)
 		test.EqOp(t, oauth2server.DefaultClientRegistrationTTL, cfg.ClientRegistrationTTL)
-		test.EqOp(t, oauth2server.DefaultSweepInterval, cfg.SweepInterval)
+		test.EqOp(t, oauth2server.DefaultSweepInterval, pointer.Dereference(cfg.SweepInterval))
 	})
 
 	T.Run("defaults to the durable provider", func(t *testing.T) {
@@ -60,16 +61,16 @@ func TestConfig_EnsureDefaults(T *testing.T) {
 		test.EqOp(t, time.Minute, cfg.AccessTokenTTL)
 	})
 
-	// The zero is the default and NoSweep is the off-switch, which is only true
-	// while this method can tell them apart. Defaulting NoSweep would put the
-	// off-switch back out of reach.
-	T.Run("leaves NoSweep alone", func(t *testing.T) {
+	// Nil is the default and a spelled zero is the off-switch, which is only
+	// true while this method can tell them apart. Defaulting the zero would put
+	// the off-switch back out of reach.
+	T.Run("leaves a spelled zero alone", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{SweepInterval: NoSweep}
+		cfg := &Config{SweepInterval: pointer.To(time.Duration(0))}
 		cfg.EnsureDefaults()
 
-		test.EqOp(t, NoSweep, cfg.SweepInterval)
+		test.EqOp(t, time.Duration(0), pointer.Dereference(cfg.SweepInterval))
 	})
 }
 
@@ -92,10 +93,10 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		test.Error(t, cfg.ValidateWithContext(t.Context()))
 	})
 
-	T.Run("accepts NoSweep by rule rather than by omission", func(t *testing.T) {
+	T.Run("accepts the off-switch by rule rather than by omission", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{Issuer: "https://auth.example", SweepInterval: NoSweep}
+		cfg := &Config{Issuer: "https://auth.example", SweepInterval: pointer.To(time.Duration(0))}
 		cfg.EnsureDefaults()
 
 		test.NoError(t, cfg.ValidateWithContext(t.Context()))
@@ -104,10 +105,10 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 	// Below zero there is no cadence to configure — every negative duration
 	// reaches the store as "start nothing" — so a magnitude is somebody
 	// describing a sweep they will not get.
-	T.Run("refuses a negative interval that is not NoSweep", func(t *testing.T) {
+	T.Run("refuses a negative interval", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := &Config{Issuer: "https://auth.example", SweepInterval: -30 * time.Minute}
+		cfg := &Config{Issuer: "https://auth.example", SweepInterval: pointer.To(-30 * time.Minute)}
 		cfg.EnsureDefaults()
 
 		test.Error(t, cfg.ValidateWithContext(t.Context()))
@@ -194,12 +195,12 @@ func TestConfig_SweepInterval(T *testing.T) {
 	// The wall clock is deliberate: inside a synctest bubble clock.NewClock
 	// reads the bubble's time, so the store's ticker advances with time.Sleep
 	// and needs no test double.
-	T.Run("NoSweep leaves dead records for somebody else to remove", func(t *testing.T) {
+	T.Run("a zero interval leaves dead records for somebody else to remove", func(t *testing.T) {
 		t.Parallel()
 
 		synctest.Test(t, func(t *testing.T) {
 			store, err := NewStore(t.Context(),
-				&Config{Provider: ProviderMemory, SweepInterval: NoSweep}, nil)
+				&Config{Provider: ProviderMemory, SweepInterval: pointer.To(time.Duration(0))}, nil)
 			must.NoError(t, err)
 			t.Cleanup(func() { _ = store.Close() })
 

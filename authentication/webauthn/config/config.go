@@ -22,6 +22,7 @@ import (
 	"github.com/primandproper/platform-go/v14/database"
 	"github.com/primandproper/platform-go/v14/errors"
 	"github.com/primandproper/platform-go/v14/internal/cfgnorm"
+	"github.com/primandproper/platform-go/v14/pointer"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -43,44 +44,41 @@ var providers = []string{ProviderDatabase, ProviderCache}
 // cache provider, which reclaims its own entries.
 const DefaultSweepInterval = 5 * time.Minute
 
-// NoSweep is the SweepInterval that starts no sweeper, for a deployment
-// whose scheduler calls Sweep instead. It is the shared constant, and
-// cfgnorm.NoSweep documents why the off-switch is a named negative rather
-// than the zero an unset field already has.
-const NoSweep = cfgnorm.NoSweep
-
 // Config assembles a webauthn.RelyingParty and its ceremony store from
 // environment configuration.
 type Config struct {
 	_ struct{} `json:"-" yaml:"-"`
 
-	// Provider selects where ceremony state lives: database or cache.
-	Provider string `env:"PROVIDER" envDefault:"database" json:"provider,omitempty" yaml:"provider,omitempty"`
-
-	// RelyingParty is the WebAuthn relying party itself — the domain, the
-	// display name, the permitted origins, and the ceremony deadline.
-	RelyingParty webauthn.Config `env:",init" envPrefix:"RP_" json:"relyingParty,omitzero" yaml:"relyingParty,omitempty"`
-
-	// Database configures the store when Provider is database. The dialect
-	// comes from the database.Client rather than from here.
-	Database webauthndatabase.Config `env:",init" envPrefix:"DATABASE_" json:"database,omitzero" yaml:"database,omitempty"`
-
-	// Cache configures the store when Provider is cache. Use the redis
-	// provider: the memory provider is per-process, so a challenge issued by
-	// one replica cannot be answered on another.
-	Cache cachecfg.Config `env:",init" envPrefix:"CACHE_" json:"cache,omitzero" yaml:"cache,omitempty"`
-
 	// SweepInterval is how often the database provider removes rows whose
-	// deadlines have passed. It is ignored by the cache provider. Zero takes
-	// DefaultSweepInterval; NoSweep starts no sweeper.
+	// deadlines have passed. It is ignored by the cache provider. Unset takes
+	// DefaultSweepInterval; zero starts no sweeper.
 	//
 	// Starting no sweeper is right when a scheduler calls Sweep instead — one
 	// sweep for the fleet rather than one per replica — and wrong when nothing
 	// else does, since the table then grows by a row for every ceremony ever
 	// begun. That asymmetry is why the sweeper is what an unconfigured database
-	// Config gets, and why the other answer is a named value rather than the
-	// zero an unset field already has.
-	SweepInterval time.Duration `env:"SWEEP_INTERVAL" json:"sweepInterval,omitempty" yaml:"sweepInterval,omitempty"`
+	// Config gets, and why the pointer is here: unset and zero are different
+	// answers, and a time.Duration has only one way to say both.
+	//
+	// In the environment that is an absent SWEEP_INTERVAL against
+	// SWEEP_INTERVAL=0.
+	SweepInterval *time.Duration `env:"SWEEP_INTERVAL" json:"sweepInterval,omitempty" yaml:"sweepInterval,omitempty"`
+
+	// Provider selects where ceremony state lives: database or cache.
+	Provider string `env:"PROVIDER" envDefault:"database" json:"provider,omitempty" yaml:"provider,omitempty"`
+
+	// Database configures the store when Provider is database. The dialect
+	// comes from the database.Client rather than from here.
+	Database webauthndatabase.Config `env:",init" envPrefix:"DATABASE_" json:"database,omitzero" yaml:"database,omitempty"`
+
+	// RelyingParty is the WebAuthn relying party itself — the domain, the
+	// display name, the permitted origins, and the ceremony deadline.
+	RelyingParty webauthn.Config `env:",init" envPrefix:"RP_" json:"relyingParty,omitzero" yaml:"relyingParty,omitempty"`
+
+	// Cache configures the store when Provider is cache. Use the redis
+	// provider: the memory provider is per-process, so a challenge issued by
+	// one replica cannot be answered on another.
+	Cache cachecfg.Config `env:",init" envPrefix:"CACHE_" json:"cache,omitzero" yaml:"cache,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)
@@ -88,9 +86,9 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 // EnsureDefaults fills in zero fields, including the relying party's own.
 //
 // SweepInterval is defaulted here so that a Config reads as what it will
-// actually do, which is what NoSweep exists to work around: a zero reaching
-// this method is an unset field, never an off-switch. It is left alone under
-// the cache provider, which has nothing to sweep.
+// actually do, and needs a pointer to do it: only a nil is unset, so a zero
+// reaching this method is a deployment asking for no sweeper and is left alone.
+// It is left alone under the cache provider too, which has nothing to sweep.
 func (cfg *Config) EnsureDefaults() {
 	if cfg.Provider == "" {
 		cfg.Provider = ProviderDatabase
@@ -191,7 +189,7 @@ func newSessionStore(
 			webauthndatabase.WithMetricsProvider(o.metricsProvider),
 			// Bound to the caller's context: the sweep stops when whatever
 			// scope owns this store does.
-			webauthndatabase.WithSweeper(ctx, cfg.SweepInterval),
+			webauthndatabase.WithSweeper(ctx, pointer.Dereference(cfg.SweepInterval)),
 		}, o.databaseStore...)...)
 	case ProviderCache:
 		// cacheErr rather than the err above: this one is returned on the spot,
