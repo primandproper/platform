@@ -4,9 +4,9 @@ import (
 	"context"
 	"slices"
 
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
-	textsearch "github.com/primandproper/platform-go/v13/search/text"
-	vectorsearch "github.com/primandproper/platform-go/v13/search/vector"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
+	textsearch "github.com/primandproper/platform-go/v14/search/text"
+	vectorsearch "github.com/primandproper/platform-go/v14/search/vector"
 )
 
 // TextTarget adapts a textsearch.IndexManager — Algolia, Elasticsearch, or the

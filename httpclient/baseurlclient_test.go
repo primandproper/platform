@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

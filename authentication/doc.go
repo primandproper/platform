@@ -3,20 +3,20 @@ Package authentication holds the password engine and names the boundary the
 sign-in flow sits on the other side of.
 
 [Authenticator] hashes a password and compares one against a stored hash, and
-[github.com/primandproper/platform-go/v13/authentication/argon2] is the
+[github.com/primandproper/platform-go/v14/authentication/argon2] is the
 implementation this module recommends and the only one it ships. Every other
 piece a sign-in touches is a package beside this one:
-[github.com/primandproper/platform-go/v13/authentication/totp] verifies the
-second factor, [github.com/primandproper/platform-go/v13/authentication/webauthn]
+[github.com/primandproper/platform-go/v14/authentication/totp] verifies the
+second factor, [github.com/primandproper/platform-go/v14/authentication/webauthn]
 is the relying party a passkey answers to,
-[github.com/primandproper/platform-go/v13/authentication/passwordreset] holds the
+[github.com/primandproper/platform-go/v14/authentication/passwordreset] holds the
 token for somebody who can present neither,
-[github.com/primandproper/platform-go/v13/authentication/tokens] mints the bearer
+[github.com/primandproper/platform-go/v14/authentication/tokens] mints the bearer
 credential a proven identity is exchanged for,
-[github.com/primandproper/platform-go/v13/authentication/oauth2server] is the
-authorization server, [github.com/primandproper/platform-go/v13/identity]'s
+[github.com/primandproper/platform-go/v14/authentication/oauth2server] is the
+authorization server, [github.com/primandproper/platform-go/v14/identity]'s
 SignInReader is the read a submitted handle resolves through, and
-[github.com/primandproper/platform-go/v13/sessions] is what a proven identity
+[github.com/primandproper/platform-go/v14/sessions] is what a proven identity
 becomes.
 
 What no package here ships is the function that calls them in order. That is a
@@ -63,7 +63,7 @@ would have to be specified against.
 # The order, and what each step's mistake costs
 
 Rate-limit before reading anything.
-[github.com/primandproper/platform-go/v13/ratelimiting] is what this module ships
+[github.com/primandproper/platform-go/v14/ratelimiting] is what this module ships
 for that, and it is a limiter rather than a lockout: nothing here counts a user's
 failures or freezes an account after N of them. That is left out because a
 per-account lockout is a denial of service anybody can aim at somebody else by
@@ -80,7 +80,7 @@ statistics to read. Compare against a fixed decoy hash minted at startup, and
 refuse both with one error.
 
 Check the password before the status.
-[github.com/primandproper/platform-go/v13/identity.AccountStatus.AdmitsSignIn] is
+[github.com/primandproper/platform-go/v14/identity.AccountStatus.AdmitsSignIn] is
 the rule for who may authenticate, and it is asked after the comparison, never
 before. A ban tested first tells anyone who can guess a username that the account
 exists and that its owner is suspended — two facts about somebody else, handed
@@ -90,7 +90,7 @@ written.
 
 Gate the second factor, and mint nothing before it. A password that verified is
 not a sign-in. What says a user holds a second factor is
-[github.com/primandproper/platform-go/v13/identity.User.TwoFactorSecretVerifiedAt]
+[github.com/primandproper/platform-go/v14/identity.User.TwoFactorSecretVerifiedAt]
 rather than a non-empty secret — a secret issued and never proven is a QR code
 somebody may have closed — and when it is set and no code arrived, the answer is
 that a code is required and nothing else: no session, no token, no cookie, no
@@ -103,7 +103,7 @@ short-lived, single-use, and bound to the account it was minted for.
 The passkey branch is shorter, and it drops exactly two of these. There is no
 password, so there is no decoy comparison and no second factor to gate — the
 assertion is both. Everything else survives.
-[github.com/primandproper/platform-go/v13/authentication/webauthn.RelyingParty.BeginLogin]
+[github.com/primandproper/platform-go/v14/authentication/webauthn.RelyingParty.BeginLogin]
 names a user and therefore answers with that user's credential IDs, which tells
 whoever asked that the handle exists and how many keys are on it;
 BeginDiscoverableLogin names nobody, and it is what a sign-in page open to the
@@ -114,7 +114,7 @@ which is evidence of a cloned key only if the last one was written back — a st
 with no analog on the password path and no default that supplies it.
 
 Establish a new session identifier, every time.
-[github.com/primandproper/platform-go/v13/sessions.Store.NewFor] mints one and
+[github.com/primandproper/platform-go/v14/sessions.Store.NewFor] mints one and
 records who holds it; anything the client was carrying before must stop
 resolving. sessions' documentation has the long form under "Renewal is not
 optional" — an identifier planted in a victim's browser before sign-in and still
@@ -122,8 +122,8 @@ valid after it is session fixation, and it is a defect in the flow rather than i
 the cookie.
 
 Record the outcome, refusals included. The event vocabulary is the consumer's —
-[github.com/primandproper/platform-go/v13/audit] for the tamper-evident trail,
-[github.com/primandproper/platform-go/v13/eventstream] for what other services
+[github.com/primandproper/platform-go/v14/audit] for the tamper-evident trail,
+[github.com/primandproper/platform-go/v14/eventstream] for what other services
 react to — but the shape of the mistake is not: a sign-in recorded before the
 session exists records sign-ins that did not happen, and a refusal that records
 nothing is how a stuffing run stays invisible. A password that worked followed by
@@ -135,7 +135,7 @@ why totp's verifier already records its own rejections.
 [Authenticator.PasswordMatches] reports a wrong password as (false, nil) and
 populates err only when the comparison could not be performed — a malformed
 stored hash, a runtime failure. That is the shape
-[github.com/primandproper/platform-go/v13/ratelimiting.RateLimiter] uses for a
+[github.com/primandproper/platform-go/v14/ratelimiting.RateLimiter] uses for a
 refusal, for the same reason: the caller is deciding what to do next rather than
 propagating a failure, and a refusal delivered as an error is one that gets
 logged at error level, alerted on, and retried.
@@ -147,7 +147,7 @@ unknown handle, the wrong password, and the wrong second-factor code alike —
 three refusals from three packages, of which a sentinel declared here could speak
 for exactly one. Owning it here would make the other two the ones a caller
 forgot to translate. Declare it beside the flow, map it in
-[github.com/primandproper/platform-go/v13/errors/http], and convert where the
+[github.com/primandproper/platform-go/v14/errors/http], and convert where the
 boolean is read:
 
 	matched, err := authenticator.PasswordMatches(ctx, user.HashedPassword, password)
@@ -164,7 +164,7 @@ failed sign-in as an error is not.
 
 # The principal a session carries is opaque, and that is a boundary
 
-[github.com/primandproper/platform-go/v13/sessions.Holder]'s principal is a
+[github.com/primandproper/platform-go/v14/sessions.Holder]'s principal is a
 string, and Store is generic over whatever the application puts in the record.
 Neither knows what a user is. identity has a Principal of its own — the user,
 their memberships, and the account the request is against — and it is
@@ -193,7 +193,7 @@ absence is easy to paper over. A support engineer acting as a user is two
 identities — the actor and the subject — and every layer beneath this one has
 room for exactly one: a session holder is one principal, identity's Principal is
 one user with their memberships, authorization resolves one subject's
-permissions, and an [github.com/primandproper/platform-go/v13/audit.Entry] has
+permissions, and an [github.com/primandproper/platform-go/v14/audit.Entry] has
 one Actor.
 
 The papering-over is to put the subject's ID where the actor's belongs. That

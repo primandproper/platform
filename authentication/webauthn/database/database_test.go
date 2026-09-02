@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/authentication/webauthn"
-	"github.com/primandproper/platform-go/v13/authentication/webauthn/webauthntest"
-	"github.com/primandproper/platform-go/v13/database"
-	"github.com/primandproper/platform-go/v13/database/dialect"
-	"github.com/primandproper/platform-go/v13/encoding"
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v14/authentication/webauthn"
+	"github.com/primandproper/platform-go/v14/authentication/webauthn/webauthntest"
+	"github.com/primandproper/platform-go/v14/database"
+	"github.com/primandproper/platform-go/v14/database/dialect"
+	"github.com/primandproper/platform-go/v14/encoding"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

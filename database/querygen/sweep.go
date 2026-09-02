@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
 )
 
 // ErrUnpredicatedStatement indicates a statement whose WHERE clause would name

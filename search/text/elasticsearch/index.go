@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/circuitbreaking"
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/observability/keys"
-	textsearch "github.com/primandproper/platform-go/v13/search/text"
+	"github.com/primandproper/platform-go/v14/circuitbreaking"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/observability/keys"
+	textsearch "github.com/primandproper/platform-go/v14/search/text"
 
 	"github.com/elastic/go-elasticsearch/v8/esapi"
 )

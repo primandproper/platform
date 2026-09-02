@@ -7,10 +7,10 @@ import (
 	"context"
 	"sync"
 
-	"github.com/primandproper/platform-go/v13/database"
-	"github.com/primandproper/platform-go/v13/filtering"
-	"github.com/primandproper/platform-go/v13/issuereports"
-	"github.com/primandproper/platform-go/v13/tenancy"
+	"github.com/primandproper/platform-go/v14/database"
+	"github.com/primandproper/platform-go/v14/filtering"
+	"github.com/primandproper/platform-go/v14/issuereports"
+	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
 // Ensure, that StoreMock does implement issuereports.Store.

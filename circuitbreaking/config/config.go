@@ -19,11 +19,11 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"github.com/primandproper/platform-go/v13/circuitbreaking"
-	"github.com/primandproper/platform-go/v13/circuitbreaking/noop"
-	"github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/observability/logging"
-	"github.com/primandproper/platform-go/v13/observability/metrics"
+	"github.com/primandproper/platform-go/v14/circuitbreaking"
+	"github.com/primandproper/platform-go/v14/circuitbreaking/noop"
+	"github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/observability/logging"
+	"github.com/primandproper/platform-go/v14/observability/metrics"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	circuit "github.com/rubyist/circuitbreaker"

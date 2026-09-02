@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
 )
 
 // V1Signer mints v1 signatures over a keyring it re-reads per request. It is

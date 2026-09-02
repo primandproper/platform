@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/comments/migrations"
-	"github.com/primandproper/platform-go/v13/database"
-	"github.com/primandproper/platform-go/v13/database/dialect"
-	"github.com/primandproper/platform-go/v13/database/sqlite"
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/tenancy"
+	"github.com/primandproper/platform-go/v14/comments/migrations"
+	"github.com/primandproper/platform-go/v14/database"
+	"github.com/primandproper/platform-go/v14/database/dialect"
+	"github.com/primandproper/platform-go/v14/database/sqlite"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/tenancy"
 
 	"github.com/shoenig/test/must"
 )
@@ -56,6 +56,11 @@ var testTarget = Target{Type: recipeType, ID: "recipe_1"}
 // errCheckUnavailable stands in for an existence check that cannot reach the
 // table it would have to read.
 var errCheckUnavailable = platformerrors.New("the target table is unavailable")
+
+// errCompanionWrite stands in for the write a consumer makes beside a comment —
+// the audit entry, the outbox event — failing after the comment itself is in the
+// transaction.
+var errCompanionWrite = platformerrors.New("the companion write failed")
 
 // errCounterUnavailable stands in for a metrics provider that cannot build an
 // instrument.

@@ -17,7 +17,7 @@ decided by a cycle.
 package pushfeedback
 
 import (
-	"github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v14/errors"
 )
 
 // ErrTokenInvalid marks a send that failed because the device token will never

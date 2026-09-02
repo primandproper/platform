@@ -4,12 +4,12 @@ import (
 	"context"
 	"strings"
 
-	"github.com/primandproper/platform-go/v13/comments/internal/commentsdb"
-	"github.com/primandproper/platform-go/v13/database"
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/identifiers"
-	"github.com/primandproper/platform-go/v13/observability"
-	"github.com/primandproper/platform-go/v13/tenancy"
+	"github.com/primandproper/platform-go/v14/comments/internal/commentsdb"
+	"github.com/primandproper/platform-go/v14/database"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/identifiers"
+	"github.com/primandproper/platform-go/v14/observability"
+	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
 // CreateComment writes one comment and reads back the creation time the database
@@ -25,6 +25,42 @@ func (s *SQLStore) CreateComment(ctx context.Context, comment *Comment) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
+	return s.createComment(ctx, op, s.client.Writer(), comment)
+}
+
+// CreateCommentTx is CreateComment inside the caller's transaction.
+//
+// Every check CreateComment makes is made here, and the reads behind them go
+// through q rather than through the store's own writer — so a reply whose parent
+// was written earlier in the same transaction resolves its parent instead of
+// reporting it absent, and the creation time read back is the one this
+// transaction just wrote.
+//
+// The catalog's existence hook is the one check that does not move, because it
+// takes no executor and has none of this to run on. See [Store.CreateCommentTx].
+func (s *SQLStore) CreateCommentTx(ctx context.Context, q database.Tx, comment *Comment) error {
+	ctx, op := s.o11y.Begin(ctx)
+	defer op.End()
+
+	if q == nil {
+		return op.Error(ErrNilExecutor, "writing comment")
+	}
+
+	return s.createComment(ctx, op, q, comment)
+}
+
+// createComment is the shared body of CreateComment and CreateCommentTx.
+//
+// It takes the executor rather than reaching for one, which is the whole of the
+// difference between the two: every check, every statement, and the order they
+// run in are the same on both paths, so neither can drift into accepting a
+// comment the other refuses.
+func (s *SQLStore) createComment(
+	ctx context.Context,
+	op observability.Operation,
+	q commentsdb.DBTX,
+	comment *Comment,
+) error {
 	if comment == nil {
 		return op.Error(ErrNilComment, "writing comment")
 	}
@@ -41,7 +77,7 @@ func (s *SQLStore) CreateComment(ctx context.Context, comment *Comment) error {
 
 	// The parent first, because a reply's target is its parent's and the catalog
 	// check below is made against whatever this settles on.
-	if err := s.adoptParent(ctx, comment); err != nil {
+	if err := s.adoptParent(ctx, q, comment); err != nil {
 		return op.Error(err, "writing comment")
 	}
 
@@ -59,11 +95,11 @@ func (s *SQLStore) CreateComment(ctx context.Context, comment *Comment) error {
 
 	op.Set(commentIDKey, comment.ID)
 
-	if err := s.q.CreateComment(ctx, s.client.Writer(), createCommentParams(comment)); err != nil {
+	if err := s.q.CreateComment(ctx, q, createCommentParams(comment)); err != nil {
 		return op.Error(err, "writing comment")
 	}
 
-	created, err := s.q.GetCommentCreatedAt(ctx, s.client.Writer(),
+	created, err := s.q.GetCommentCreatedAt(ctx, q,
 		commentsdb.GetCommentCreatedAtParams{ID: comment.ID, Scope: comment.Scope})
 	if err != nil {
 		return op.Error(err, "reading back the comment's creation time")
@@ -89,18 +125,20 @@ func (s *SQLStore) CreateComment(ctx context.Context, comment *Comment) error {
 // package's reads cannot walk; and a target that disagrees with the parent's is a
 // comment that shows up under something nobody said it about.
 //
-// The read goes to the writer rather than to whatever GetComment would reach. A
-// reply written immediately after its parent is the ordinary case in a
-// discussion, and a read replica still holding the moment before would report
-// the parent absent.
-func (s *SQLStore) adoptParent(ctx context.Context, comment *Comment) error {
+// The read goes to the executor the write is running on rather than to whatever
+// GetComment would reach. A reply written immediately after its parent is the
+// ordinary case in a discussion, and a read replica still holding the moment
+// before would report the parent absent — as would the writer, on the
+// transactional path, for a parent this caller has written and not yet
+// committed.
+func (s *SQLStore) adoptParent(ctx context.Context, q commentsdb.DBTX, comment *Comment) error {
 	// A root is about whatever it says it is about, and checkTarget is where
 	// that is vetted. There is nothing to settle here.
 	if comment.Root() {
 		return nil
 	}
 
-	row, err := s.q.GetComment(ctx, s.client.Writer(),
+	row, err := s.q.GetComment(ctx, q,
 		commentsdb.GetCommentParams{ID: comment.ParentID, Scope: comment.Scope})
 	if err != nil {
 		return notFound(err, platformerrors.Wrapf(ErrParentNotFound, "comment %q", comment.ParentID))
@@ -182,6 +220,31 @@ func (s *SQLStore) UpdateComment(ctx context.Context, comment *Comment) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
+	return s.updateComment(ctx, op, s.client.Writer(), comment)
+}
+
+// UpdateCommentTx is UpdateComment inside the caller's transaction, so the
+// revision and whatever the caller records about it commit together or not at
+// all. See [Store.UpdateCommentTx].
+func (s *SQLStore) UpdateCommentTx(ctx context.Context, q database.Tx, comment *Comment) error {
+	ctx, op := s.o11y.Begin(ctx)
+	defer op.End()
+
+	if q == nil {
+		return op.Error(ErrNilExecutor, "editing comment")
+	}
+
+	return s.updateComment(ctx, op, q, comment)
+}
+
+// updateComment is the shared body of UpdateComment and UpdateCommentTx, which
+// differ in the executor they run on and in nothing else.
+func (s *SQLStore) updateComment(
+	ctx context.Context,
+	op observability.Operation,
+	q commentsdb.DBTX,
+	comment *Comment,
+) error {
 	if comment == nil {
 		return op.Error(ErrNilComment, "editing comment")
 	}
@@ -200,7 +263,7 @@ func (s *SQLStore) UpdateComment(ctx context.Context, comment *Comment) error {
 		return op.Error(ErrEmptyBody, "editing comment %q", comment.ID)
 	}
 
-	count, err := s.q.UpdateComment(ctx, s.client.Writer(), updateCommentParams(comment))
+	count, err := s.q.UpdateComment(ctx, q, updateCommentParams(comment))
 
 	return op.Error(
 		guardCount(count, err, ErrCommentNotFound, "editing the comment"),
@@ -223,11 +286,45 @@ func (s *SQLStore) ArchiveComment(
 	)
 	defer op.End()
 
+	return s.archiveComment(ctx, op, s.client.Writer(), scope, commentID)
+}
+
+// ArchiveCommentTx is ArchiveComment inside the caller's transaction, so the
+// removal and whatever the caller records about it commit together or not at
+// all. See [Store.ArchiveCommentTx].
+func (s *SQLStore) ArchiveCommentTx(
+	ctx context.Context,
+	q database.Tx,
+	scope tenancy.Scope,
+	commentID string,
+) error {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(commentIDKey, commentID),
+	)
+	defer op.End()
+
+	if q == nil {
+		return op.Error(ErrNilExecutor, "archiving comment %q", commentID)
+	}
+
+	return s.archiveComment(ctx, op, q, scope, commentID)
+}
+
+// archiveComment is the shared body of ArchiveComment and ArchiveCommentTx,
+// which differ in the executor they run on and in nothing else.
+func (s *SQLStore) archiveComment(
+	ctx context.Context,
+	op observability.Operation,
+	q commentsdb.DBTX,
+	scope tenancy.Scope,
+	commentID string,
+) error {
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "archiving comment %q", commentID)
 	}
 
-	count, err := s.q.ArchiveComment(ctx, s.client.Writer(),
+	count, err := s.q.ArchiveComment(ctx, q,
 		commentsdb.ArchiveCommentParams{ID: commentID, Scope: scope})
 
 	return op.Error(

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/eventstream"
-	"github.com/primandproper/platform-go/v13/observability"
+	"github.com/primandproper/platform-go/v14/eventstream"
+	"github.com/primandproper/platform-go/v14/observability"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

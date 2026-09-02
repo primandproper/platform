@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/filtering"
-	searchpagination "github.com/primandproper/platform-go/v13/search/pagination"
-	textsearch "github.com/primandproper/platform-go/v13/search/text"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/filtering"
+	searchpagination "github.com/primandproper/platform-go/v14/search/pagination"
+	textsearch "github.com/primandproper/platform-go/v14/search/text"
 )
 
 // widgetSubset is what the index holds: the handful of fields worth searching,

@@ -3,9 +3,9 @@ package comments
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v13/database"
-	"github.com/primandproper/platform-go/v13/filtering"
-	"github.com/primandproper/platform-go/v13/tenancy"
+	"github.com/primandproper/platform-go/v14/database"
+	"github.com/primandproper/platform-go/v14/filtering"
+	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
 // Store is the persistence seam for comments.
@@ -61,6 +61,35 @@ type Store interface {
 	// names no target adopts the parent's, and one that names a different target
 	// is ErrTargetMismatch.
 	CreateComment(ctx context.Context, comment *Comment) error
+
+	// CreateCommentTx is CreateComment inside the caller's transaction, so the
+	// comment commits with whatever the caller writes beside it. A nil q is an
+	// error wrapping ErrNilExecutor.
+	//
+	// It exists for the same reason the two deletes take an executor, at the other
+	// end of a comment's life. A row in a consumer's schema is rarely written
+	// alone: an audit entry naming who did what and a data change event on an
+	// outbox somebody fans out are the ordinary companions, and a companion is
+	// worth what its atomicity with the row is worth. Written after this method's
+	// own write has committed, they are a window in which the comment exists and
+	// nothing downstream has been told — narrow, one-directional, and still not
+	// something a consumer can close from outside this package.
+	//
+	// Every check CreateComment makes is made here, and the reads behind them run
+	// on q. A reply whose parent was written earlier in the same transaction
+	// resolves its parent, where the non-transactional path would have to wait for
+	// a commit to see it.
+	//
+	// One check does not move into the transaction, and it is worth stating rather
+	// than leaving to be found. A TargetExistsFunc is handed a scope and a target
+	// id and no executor — the row it answers for lives in a table this package
+	// has never seen, sometimes in another database — so it reads on whatever
+	// connection the consumer built it over, which is not this one. A comment
+	// filed in the same transaction that creates the thing it is about is
+	// therefore ErrTargetNotFound where that target type registers a hook, and is
+	// written where it does not. The alternative is an executor on the hook's
+	// signature, which is a connection to a table most hooks do not read.
+	CreateCommentTx(ctx context.Context, q database.Tx, comment *Comment) error
 
 	// GetComment reads one of the scope's live comments. It returns an error
 	// wrapping ErrCommentNotFound when the comment does not exist, has been
@@ -123,6 +152,16 @@ type Store interface {
 	// is an error wrapping ErrCommentNotFound.
 	UpdateComment(ctx context.Context, comment *Comment) error
 
+	// UpdateCommentTx is UpdateComment inside the caller's transaction, so the
+	// revision commits with whatever the caller records about it. A nil q is an
+	// error wrapping ErrNilExecutor.
+	//
+	// An edit is a moderation event as much as it is a write — who changed what,
+	// and when — and the entry saying so belongs in the transaction that made the
+	// change rather than in one after it. See CreateCommentTx for the argument in
+	// full.
+	UpdateCommentTx(ctx context.Context, q database.Tx, comment *Comment) error
+
 	// ArchiveComment removes one comment from the discussion, leaving the row for
 	// whoever asks later what was said.
 	//
@@ -137,6 +176,15 @@ type Store interface {
 	// because an archived comment is not in the discussion and this method
 	// addresses the discussion.
 	ArchiveComment(ctx context.Context, scope tenancy.Scope, commentID string) error
+
+	// ArchiveCommentTx is ArchiveComment inside the caller's transaction, so the
+	// removal commits with whatever the caller records about it. A nil q is an
+	// error wrapping ErrNilExecutor.
+	//
+	// It is the variant a moderation action reaches for: the comment leaves the
+	// discussion and the entry naming who removed it land together, or neither
+	// does. See CreateCommentTx for the argument in full.
+	ArchiveCommentTx(ctx context.Context, q database.Tx, scope tenancy.Scope, commentID string) error
 
 	// DeleteCommentsForTarget destroys every comment about one thing — replies
 	// and archived rows included — and reports how many that was.

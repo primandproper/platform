@@ -3,12 +3,12 @@ package entitlements
 import (
 	"maps"
 
-	"github.com/primandproper/platform-go/v13/cache"
-	"github.com/primandproper/platform-go/v13/featureflags"
-	"github.com/primandproper/platform-go/v13/metering"
-	"github.com/primandproper/platform-go/v13/observability/logging"
-	"github.com/primandproper/platform-go/v13/observability/metrics"
-	"github.com/primandproper/platform-go/v13/observability/tracing"
+	"github.com/primandproper/platform-go/v14/cache"
+	"github.com/primandproper/platform-go/v14/featureflags"
+	"github.com/primandproper/platform-go/v14/metering"
+	"github.com/primandproper/platform-go/v14/observability/logging"
+	"github.com/primandproper/platform-go/v14/observability/metrics"
+	"github.com/primandproper/platform-go/v14/observability/tracing"
 )
 
 // CheckerOption configures a PlanChecker.

@@ -3,10 +3,10 @@ package audit
 import (
 	"time"
 
-	"github.com/primandproper/platform-go/v13/audit/internal/auditdb"
-	"github.com/primandproper/platform-go/v13/database/ddl"
-	"github.com/primandproper/platform-go/v13/database/dialect"
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v14/audit/internal/auditdb"
+	"github.com/primandproper/platform-go/v14/database/ddl"
+	"github.com/primandproper/platform-go/v14/database/dialect"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
 )
 
 // newQuerier builds the generated querier for a dialect at a table prefix.

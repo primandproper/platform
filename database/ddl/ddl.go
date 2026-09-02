@@ -46,9 +46,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/primandproper/platform-go/v13/charset"
-	"github.com/primandproper/platform-go/v13/database/dialect"
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v14/charset"
+	"github.com/primandproper/platform-go/v14/database/dialect"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
 )
 
 // Placeholder is the token every schema in this module uses for its table

@@ -4,11 +4,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/database"
-	"github.com/primandproper/platform-go/v13/database/dialect"
-	"github.com/primandproper/platform-go/v13/filtering"
-	"github.com/primandproper/platform-go/v13/pointer"
-	"github.com/primandproper/platform-go/v13/tenancy"
+	"github.com/primandproper/platform-go/v14/database"
+	"github.com/primandproper/platform-go/v14/database/dialect"
+	"github.com/primandproper/platform-go/v14/filtering"
+	"github.com/primandproper/platform-go/v14/pointer"
+	"github.com/primandproper/platform-go/v14/tenancy"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -62,6 +62,12 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		runSweepSuite(t, env)
+	})
+
+	t.Run("transactions", func(t *testing.T) {
+		t.Parallel()
+
+		runTransactionSuite(t, env)
 	})
 }
 
@@ -771,6 +777,228 @@ func runSweepSuite(t *testing.T, env *storeEnv) {
 
 		_, err = store.DeleteCommentsForTarget(t.Context(), nil, testScope, testTarget)
 		must.ErrorIs(t, err, ErrNilExecutor)
+	})
+}
+
+// runTransactionSuite is the three single-row writes run inside a transaction
+// the caller owns, which is what CreateCommentTx, UpdateCommentTx and
+// ArchiveCommentTx exist for.
+//
+// What is actually under test is the commit boundary: that a comment written
+// here lands with the caller's own rows, and that a caller's failure takes the
+// comment back with it. Everything else is parity — the transactional path must
+// refuse exactly what its own non-transactional twin refuses, or the two drift
+// into being two stores.
+func runTransactionSuite(t *testing.T, env *storeEnv) {
+	t.Helper()
+
+	t.Run("the three writes commit with the caller's transaction", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		created := newComment(testAuthor, "written inside")
+		edited := written(t, store, newComment(testAuthor, "before the edit"))
+		doomed := written(t, store, newComment(testAuthor, "on the way out"))
+
+		must.NoError(t, store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+			if err := store.CreateCommentTx(t.Context(), tx, created); err != nil {
+				return err
+			}
+
+			edited.Body = "after the edit"
+			if err := store.UpdateCommentTx(t.Context(), tx, edited); err != nil {
+				return err
+			}
+
+			return store.ArchiveCommentTx(t.Context(), tx, testScope, doomed.ID)
+		}))
+
+		// The create reads its creation time back through the caller's executor,
+		// so the value the caller is handed is the row this transaction wrote
+		// rather than a zero time waiting on a commit.
+		test.NotEqOp(t, "", created.ID)
+		test.False(t, created.CreatedAt.IsZero())
+
+		read, err := store.GetComment(t.Context(), testScope, created.ID)
+		must.NoError(t, err)
+		test.EqOp(t, "written inside", read.Body)
+
+		read, err = store.GetComment(t.Context(), testScope, edited.ID)
+		must.NoError(t, err)
+		test.EqOp(t, "after the edit", read.Body)
+
+		_, err = store.GetComment(t.Context(), testScope, doomed.ID)
+		must.ErrorIs(t, err, ErrCommentNotFound)
+	})
+
+	t.Run("a rolled back transaction takes all three writes with it", func(t *testing.T) {
+		t.Parallel()
+
+		// This is the whole point of the variants, seen from the side that
+		// matters: the consumer's companion write fails, and the comment goes
+		// back with it rather than surviving in a transaction it was never part
+		// of.
+		store := env.newStore(t)
+
+		created := newComment(testAuthor, "never committed")
+		edited := written(t, store, newComment(testAuthor, "the original"))
+		doomed := written(t, store, newComment(testAuthor, "still here"))
+
+		err := store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+			if txErr := store.CreateCommentTx(t.Context(), tx, created); txErr != nil {
+				return txErr
+			}
+
+			edited.Body = "the edit"
+			if txErr := store.UpdateCommentTx(t.Context(), tx, edited); txErr != nil {
+				return txErr
+			}
+
+			if txErr := store.ArchiveCommentTx(t.Context(), tx, testScope, doomed.ID); txErr != nil {
+				return txErr
+			}
+
+			return errCompanionWrite
+		})
+		must.ErrorIs(t, err, errCompanionWrite)
+
+		// The id was minted onto the caller's value on the way through. Nothing
+		// undoes that, and nothing should: what rolled back is the row.
+		test.NotEqOp(t, "", created.ID)
+
+		_, err = store.GetComment(t.Context(), testScope, created.ID)
+		must.ErrorIs(t, err, ErrCommentNotFound)
+
+		read, err := store.GetComment(t.Context(), testScope, edited.ID)
+		must.NoError(t, err)
+		test.EqOp(t, "the original", read.Body)
+
+		read, err = store.GetComment(t.Context(), testScope, doomed.ID)
+		must.NoError(t, err)
+		test.EqOp(t, "still here", read.Body)
+		test.Nil(t, read.ArchivedAt)
+	})
+
+	t.Run("a reply finds a parent written in the same transaction", func(t *testing.T) {
+		t.Parallel()
+
+		// The parent read runs on the caller's executor rather than on the
+		// store's writer, so a discussion opened and answered in one transaction
+		// resolves instead of reporting the parent absent.
+		store := env.newStore(t)
+
+		root := newComment(testAuthor, "root")
+		child := reply("", otherAuthor, "child")
+
+		must.NoError(t, store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+			if err := store.CreateCommentTx(t.Context(), tx, root); err != nil {
+				return err
+			}
+
+			child.ParentID = root.ID
+
+			return store.CreateCommentTx(t.Context(), tx, child)
+		}))
+
+		// And it adopted the target it never named, which it could only do
+		// having read the parent.
+		test.EqOp(t, testTarget, child.Target)
+
+		replies, err := store.ListReplies(t.Context(), testScope, testTarget, root.ID, nil)
+		must.NoError(t, err)
+		must.SliceLen(t, 1, replies.Data)
+		test.EqOp(t, child.ID, replies.Data[0].ID)
+	})
+
+	t.Run("a transactional write refuses a nil executor", func(t *testing.T) {
+		t.Parallel()
+
+		// Every one of the three, not a representative one: a variant that
+		// reached for the store's writer when handed nothing would be a write
+		// outside the transaction its caller believes it is in.
+		store := env.newStore(t)
+
+		must.ErrorIs(t,
+			store.CreateCommentTx(t.Context(), nil, newComment(testAuthor, "words")),
+			ErrNilExecutor)
+		must.ErrorIs(t,
+			store.UpdateCommentTx(t.Context(), nil, newComment(testAuthor, "words")),
+			ErrNilExecutor)
+		must.ErrorIs(t,
+			store.ArchiveCommentTx(t.Context(), nil, testScope, "cmt_1"),
+			ErrNilExecutor)
+	})
+
+	t.Run("the transactional writes refuse what their own path refuses", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		unscoped := newComment(testAuthor, "words")
+		unscoped.Scope = tenancy.Scope{}
+
+		unknown := newComment(testAuthor, "about something this application does not have")
+		unknown.Target = Target{Type: unknownType, ID: "whatever_1"}
+
+		// Collected inside one transaction and asserted outside it, so a failed
+		// check does not abort the transaction the next one needs.
+		var (
+			nilCreate, unscopedCreate, unknownCreate, emptyBody error
+			nilUpdate, missingUpdate, missingArchive            error
+		)
+
+		must.NoError(t, store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+			nilCreate = store.CreateCommentTx(t.Context(), tx, nil)
+			unscopedCreate = store.CreateCommentTx(t.Context(), tx, unscoped)
+			unknownCreate = store.CreateCommentTx(t.Context(), tx, unknown)
+
+			nilUpdate = store.UpdateCommentTx(t.Context(), tx, nil)
+
+			silent := newComment(testAuthor, "  ")
+			silent.ID = "cmt_never_written"
+			emptyBody = store.UpdateCommentTx(t.Context(), tx, silent)
+
+			absent := newComment(testAuthor, "an edit to nothing")
+			absent.ID = "cmt_never_written"
+			missingUpdate = store.UpdateCommentTx(t.Context(), tx, absent)
+
+			missingArchive = store.ArchiveCommentTx(t.Context(), tx, testScope, "cmt_never_written")
+
+			return nil
+		}))
+
+		must.ErrorIs(t, nilCreate, ErrNilComment)
+		test.Error(t, unscopedCreate)
+		must.ErrorIs(t, unknownCreate, ErrUnknownTargetType)
+		must.ErrorIs(t, nilUpdate, ErrNilComment)
+		must.ErrorIs(t, emptyBody, ErrEmptyBody)
+		must.ErrorIs(t, missingUpdate, ErrCommentNotFound)
+		must.ErrorIs(t, missingArchive, ErrCommentNotFound)
+	})
+
+	t.Run("the existence hook runs on the transactional path and reads outside it", func(t *testing.T) {
+		t.Parallel()
+
+		// The hook takes a scope and an id and no executor, so whatever it reads,
+		// it does not read through the caller's transaction. That is the
+		// documented limit of CreateCommentTx, and this is what it looks like:
+		// the check still gates the write, and it still answers for the world as
+		// it was committed.
+		check := newRecordingCheck(false, nil)
+		store := env.newStore(t, WithTargets(Targets{
+			recipeType: {Description: "a recipe", Exists: check.exists},
+		}))
+
+		err := store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+			return store.CreateCommentTx(t.Context(), tx,
+				newComment(testAuthor, "about a recipe nobody can find"))
+		})
+		must.ErrorIs(t, err, ErrTargetNotFound)
+
+		must.SliceLen(t, 1, check.asked)
+		test.EqOp(t, testTarget.ID, check.asked[0])
+		test.EqOp(t, testScope, check.scopes[0])
 	})
 }
 

@@ -3,7 +3,7 @@ package billing
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/filtering"
+	"github.com/primandproper/platform-go/v14/filtering"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

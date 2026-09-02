@@ -3,8 +3,8 @@ package encryptioncfg
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/cryptography/encryption"
-	perrors "github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v14/cryptography/encryption"
+	perrors "github.com/primandproper/platform-go/v14/errors"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

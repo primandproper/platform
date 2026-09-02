@@ -5,10 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/analytics"
-	analyticsmock "github.com/primandproper/platform-go/v13/analytics/mock"
-	"github.com/primandproper/platform-go/v13/analytics/noop"
-	"github.com/primandproper/platform-go/v13/observability"
+	"github.com/primandproper/platform-go/v14/analytics"
+	analyticsmock "github.com/primandproper/platform-go/v14/analytics/mock"
+	"github.com/primandproper/platform-go/v14/analytics/noop"
+	"github.com/primandproper/platform-go/v14/observability"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

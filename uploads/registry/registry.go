@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/tenancy"
+	"github.com/primandproper/platform-go/v14/tenancy"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

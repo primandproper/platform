@@ -7,10 +7,10 @@
 // puts the module's proto directory on protoc's path and imports this file by
 // its canonical name:
 //
-//	PLATFORM_PROTO := $(shell go list -m -f '{{.Dir}}' github.com/primandproper/platform-go/v13)/filtering/proto
+//	PLATFORM_PROTO := $(shell go list -m -f '{{.Dir}}' github.com/primandproper/platform-go/v14)/filtering/proto
 //
 //	protoc --proto_path proto/ --proto_path $(PLATFORM_PROTO) \
-//	    --go_opt=Mprimandproper/platform/filtering/v1/filtering.proto=github.com/primandproper/platform-go/v13/filtering/filteringpb \
+//	    --go_opt=Mprimandproper/platform/filtering/v1/filtering.proto=github.com/primandproper/platform-go/v14/filtering/filteringpb \
 //	    $(CONSUMER_PROTO_FILES)   # this file deliberately absent from that list
 //
 // which is how google/protobuf/timestamp.proto already works in a consumer's
@@ -19,7 +19,7 @@
 // there is no protos repository to stand up and nothing to vendor.
 //
 // The Go bindings are pre-generated into
-// github.com/primandproper/platform-go/v13/filtering/filteringpb, and the
+// github.com/primandproper/platform-go/v14/filtering/filteringpb, and the
 // converters between them and the Go types live beside them in
 // .../filtering/grpc. Go is the language that needs shared *code* rather than
 // shared *schema*: the page-size clamp, the default, and the cursor asymmetry
@@ -346,7 +346,7 @@ const file_primandproper_platform_filtering_v1_filtering_proto_rawDesc = "" +
 	"\vtotal_count\x18\x05 \x01(\x04R\n" +
 	"totalCount\x12*\n" +
 	"\x11max_response_size\x18\x06 \x01(\rR\x0fmaxResponseSize\x12!\n" +
-	"\fcounts_known\x18\a \x01(\bR\vcountsKnownBLZJgithub.com/primandproper/platform-go/v13/filtering/filteringpb;filteringpbb\x06proto3"
+	"\fcounts_known\x18\a \x01(\bR\vcountsKnownBLZJgithub.com/primandproper/platform-go/v14/filtering/filteringpb;filteringpbb\x06proto3"
 
 var (
 	file_primandproper_platform_filtering_v1_filtering_proto_rawDescOnce sync.Once

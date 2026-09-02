@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/observability"
+	"github.com/primandproper/platform-go/v14/observability"
 
 	"github.com/keith-turner/ecoji/v2"
 	"github.com/shoenig/test"

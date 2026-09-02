@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/capitalism"
-	"github.com/primandproper/platform-go/v13/database/dialect"
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/tenancy"
+	"github.com/primandproper/platform-go/v14/capitalism"
+	"github.com/primandproper/platform-go/v14/database/dialect"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/tenancy"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

@@ -3,8 +3,8 @@ package settings
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v13/filtering"
-	"github.com/primandproper/platform-go/v13/tenancy"
+	"github.com/primandproper/platform-go/v14/filtering"
+	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
 // Store is the whole of what this package persists: the catalog and the

@@ -16,10 +16,10 @@ package identitycfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v13/database"
-	"github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/identity"
-	"github.com/primandproper/platform-go/v13/identity/migrations"
+	"github.com/primandproper/platform-go/v14/database"
+	"github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/identity"
+	"github.com/primandproper/platform-go/v14/identity/migrations"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

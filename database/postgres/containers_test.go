@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/database"
-	"github.com/primandproper/platform-go/v13/observability/tracing"
-	"github.com/primandproper/platform-go/v13/testutils/containers/pgtest"
+	"github.com/primandproper/platform-go/v14/database"
+	"github.com/primandproper/platform-go/v14/observability/tracing"
+	"github.com/primandproper/platform-go/v14/testutils/containers/pgtest"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/shoenig/test"

@@ -8,7 +8,7 @@ package commentsdb
 import (
 	"time"
 
-	"github.com/primandproper/platform-go/v13/tenancy"
+	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
 // ArchiveCommentParams are the arguments to ArchiveComment.

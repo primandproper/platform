@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
 )
 
 // ErrDegenerateUpsert indicates an upsert that is not one, in any of the three

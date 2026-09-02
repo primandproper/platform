@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/observability/tracing"
-	tracingnoop "github.com/primandproper/platform-go/v13/observability/tracing/noop"
+	"github.com/primandproper/platform-go/v14/observability/tracing"
+	tracingnoop "github.com/primandproper/platform-go/v14/observability/tracing/noop"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"

@@ -3,7 +3,7 @@ package redis
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v14/errors"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

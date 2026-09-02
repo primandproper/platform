@@ -26,7 +26,7 @@ boilerplate — code that is short enough to look like it does not need a librar
 and dangerous enough that the mistakes are vulnerabilities rather than bugs.
 
 The token is stored as a digest and never as itself. What goes in the column is
-[github.com/primandproper/platform-go/v13/cryptography/hashing.Hasher] applied
+[github.com/primandproper/platform-go/v14/cryptography/hashing.Hasher] applied
 to the secret, hex-encoded; the secret exists once, in the [Issuance] returned
 by [Store.Issue], and this package never has a place to put it again. That is
 what makes a database copy — a backup, a read replica, a support engineer's
@@ -69,16 +69,16 @@ so the other links that were outstanding stop working too.
 
 # This is not links, and the difference is the table
 
-[github.com/primandproper/platform-go/v13/links] mints single-use, expiring URLs
+[github.com/primandproper/platform-go/v14/links] mints single-use, expiring URLs
 for four flows and names password reset as one of them. It digests its token,
 refuses a replay, and separates Inspect from Redeem exactly as this package
 separates Verify from Consume, so the question of which one an application wants
 is a fair one and the answer is not "whichever you find first".
 
 links is a cache. Its records live in a
-[github.com/primandproper/platform-go/v13/cache.Cache], Redis in production, and
+[github.com/primandproper/platform-go/v14/cache.Cache], Redis in production, and
 its single-use guarantee is a
-[github.com/primandproper/platform-go/v13/distributedlock] lock held across the
+[github.com/primandproper/platform-go/v14/distributedlock] lock held across the
 read and the write — which is why the locker is a required argument there with
 no default. It mints whole URLs from a registry of action policies, so one
 primitive serves magic login, unsubscribe, and verification without knowing what
@@ -87,7 +87,7 @@ any of them means.
 This is a table, and three things follow from that. Single use is the affected
 row count of a guarded UPDATE inside one transaction, so it needs no lock
 service and holds when Redis is not in the deployment at all. Every row carries
-a [github.com/primandproper/platform-go/v13/tenancy.Scope], which links has no
+a [github.com/primandproper/platform-go/v14/tenancy.Scope], which links has no
 notion of. And a reset token is stored against a user rather than an opaque
 subject, which is what makes [Store.RevokeForUser] a statement — the question
 links documents as unanswerable from its own store, needing an audit-log query
@@ -104,11 +104,11 @@ table.
 # Tenancy
 
 Every row carries a
-[github.com/primandproper/platform-go/v13/tenancy.Scope] and every statement
+[github.com/primandproper/platform-go/v14/tenancy.Scope] and every statement
 binds it — the module's rule, not an exception to it. A token identifies a
 principal in a scope, and there is no unscoped read: an application with one
 directory passes
-[github.com/primandproper/platform-go/v13/tenancy.Global] everywhere and
+[github.com/primandproper/platform-go/v14/tenancy.Global] everywhere and
 behaves exactly as an unscoped store would.
 
 The store's own machinery is the one exception, and it is narrow. [SQLStore.Sweep]
@@ -117,7 +117,7 @@ deployment, and it deletes by deadline rather than answering a read.
 
 # The table is yours to create
 
-[github.com/primandproper/platform-go/v13/authentication/passwordreset/migrations]
+[github.com/primandproper/platform-go/v14/authentication/passwordreset/migrations]
 renders the DDL for a dialect and prefix. Nothing here creates a table on its
 own: a library that ran DDL against a caller's database would be a library that
 decided when a deployment's schema changed.

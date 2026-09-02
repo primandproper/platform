@@ -3,10 +3,10 @@ package comments
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v13/comments/internal/commentsdb"
-	"github.com/primandproper/platform-go/v13/filtering"
-	"github.com/primandproper/platform-go/v13/observability"
-	"github.com/primandproper/platform-go/v13/tenancy"
+	"github.com/primandproper/platform-go/v14/comments/internal/commentsdb"
+	"github.com/primandproper/platform-go/v14/filtering"
+	"github.com/primandproper/platform-go/v14/observability"
+	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
 // GetComment reads one of the scope's live comments.

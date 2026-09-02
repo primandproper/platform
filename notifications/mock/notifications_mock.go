@@ -7,9 +7,9 @@ import (
 	"context"
 	"sync"
 
-	"github.com/primandproper/platform-go/v13/filtering"
-	"github.com/primandproper/platform-go/v13/notifications"
-	"github.com/primandproper/platform-go/v13/tenancy"
+	"github.com/primandproper/platform-go/v14/filtering"
+	"github.com/primandproper/platform-go/v14/notifications"
+	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
 // Ensure, that InboxMock does implement notifications.Inbox.

@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/observability"
-	"github.com/primandproper/platform-go/v13/observability/logging"
-	loggingnoop "github.com/primandproper/platform-go/v13/observability/logging/noop"
+	"github.com/primandproper/platform-go/v14/observability"
+	"github.com/primandproper/platform-go/v14/observability/logging"
+	loggingnoop "github.com/primandproper/platform-go/v14/observability/logging/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

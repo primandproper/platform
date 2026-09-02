@@ -18,12 +18,12 @@ package openfeatureflags
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v13/circuitbreaking"
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/featureflags"
-	"github.com/primandproper/platform-go/v13/observability"
-	"github.com/primandproper/platform-go/v13/observability/keys"
-	"github.com/primandproper/platform-go/v13/observability/metrics"
+	"github.com/primandproper/platform-go/v14/circuitbreaking"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/featureflags"
+	"github.com/primandproper/platform-go/v14/observability"
+	"github.com/primandproper/platform-go/v14/observability/keys"
+	"github.com/primandproper/platform-go/v14/observability/metrics"
 
 	"github.com/open-feature/go-sdk/openfeature"
 )

@@ -3,7 +3,7 @@ package metrics
 import (
 	"context"
 
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
 
 	"go.opentelemetry.io/otel/metric"
 )

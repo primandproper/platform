@@ -7,7 +7,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/primandproper/platform-go/v13/cryptography/encryption"
+	"github.com/primandproper/platform-go/v14/cryptography/encryption"
 )
 
 // Ensure, that KeyWrapperMock does implement encryption.KeyWrapper.

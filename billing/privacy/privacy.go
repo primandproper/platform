@@ -57,11 +57,11 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/primandproper/platform-go/v13/billing"
-	"github.com/primandproper/platform-go/v13/dataprivacy"
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/filtering"
-	"github.com/primandproper/platform-go/v13/tenancy"
+	"github.com/primandproper/platform-go/v14/billing"
+	"github.com/primandproper/platform-go/v14/dataprivacy"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/filtering"
+	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
 // DefaultKey is the registry key this collector is normally registered under. It
