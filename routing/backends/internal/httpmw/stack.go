@@ -5,8 +5,8 @@ import (
 	"net/url"
 	"slices"
 
-	"github.com/primandproper/platform-go/v13/observability"
-	"github.com/primandproper/platform-go/v13/observability/tracing"
+	"github.com/primandproper/platform-go/v14/observability"
+	"github.com/primandproper/platform-go/v14/observability/tracing"
 
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"

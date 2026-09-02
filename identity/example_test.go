@@ -8,13 +8,13 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/database"
-	"github.com/primandproper/platform-go/v13/database/dialect"
-	"github.com/primandproper/platform-go/v13/database/sqlite"
-	"github.com/primandproper/platform-go/v13/identifiers"
-	"github.com/primandproper/platform-go/v13/identity"
-	"github.com/primandproper/platform-go/v13/identity/migrations"
-	"github.com/primandproper/platform-go/v13/tenancy"
+	"github.com/primandproper/platform-go/v14/database"
+	"github.com/primandproper/platform-go/v14/database/dialect"
+	"github.com/primandproper/platform-go/v14/database/sqlite"
+	"github.com/primandproper/platform-go/v14/identifiers"
+	"github.com/primandproper/platform-go/v14/identity"
+	"github.com/primandproper/platform-go/v14/identity/migrations"
+	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
 // Example_registration shows the flow this package exists for: a user, an

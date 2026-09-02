@@ -3,7 +3,7 @@ package entitlements
 import (
 	"context"
 
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
 )
 
 // PlanSource answers which plan an account is on.
@@ -23,7 +23,7 @@ import (
 // what it changed to belongs in your database by the time anybody asks.
 //
 // The seam stays, and this module now ships one implementation of it:
-// github.com/primandproper/platform-go/v13/billing/plans reads the account's
+// github.com/primandproper/platform-go/v14/billing/plans reads the account's
 // current subscriptions out of a billing store and hands them to a function the
 // consumer writes. That does not weaken anything above — the judgement about
 // which reported status leaves an account entitled is still the consumer's, and

@@ -5,9 +5,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/observability/metrics"
-	metricsmock "github.com/primandproper/platform-go/v13/observability/metrics/mock"
-	metricsnoop "github.com/primandproper/platform-go/v13/observability/metrics/noop"
+	"github.com/primandproper/platform-go/v14/observability/metrics"
+	metricsmock "github.com/primandproper/platform-go/v14/observability/metrics/mock"
+	metricsnoop "github.com/primandproper/platform-go/v14/observability/metrics/noop"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

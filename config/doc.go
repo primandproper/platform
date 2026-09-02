@@ -49,12 +49,12 @@ are hand-maintained text has no compiler between an edit and a deployment; one
 that builds those files from Go values gets the type checking and the validation
 before the file exists, and the checked-in file becomes a projection of an object
 rather than a second source of truth. Encoding runs through
-[github.com/primandproper/platform-go/v13/encoding], so what is written is what
+[github.com/primandproper/platform-go/v14/encoding], so what is written is what
 the LoadFrom* side reads.
 
 # The variables themselves
 
-[github.com/primandproper/platform-go/v13/config/envvars] answers what the
+[github.com/primandproper/platform-go/v14/config/envvars] answers what the
 overlay can actually read. The `env:` tags reachable from a configuration struct
 are a closed, derivable set, and nothing at runtime knows it — a variable one
 underscore off its tag is not read, the file value stands, and the process comes

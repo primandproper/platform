@@ -1,11 +1,11 @@
 package mobilecfg
 
 import (
-	"github.com/primandproper/platform-go/v13/notifications/mobile"
-	"github.com/primandproper/platform-go/v13/observability"
-	"github.com/primandproper/platform-go/v13/observability/logging"
-	"github.com/primandproper/platform-go/v13/observability/metrics"
-	"github.com/primandproper/platform-go/v13/observability/tracing"
+	"github.com/primandproper/platform-go/v14/notifications/mobile"
+	"github.com/primandproper/platform-go/v14/observability"
+	"github.com/primandproper/platform-go/v14/observability/logging"
+	"github.com/primandproper/platform-go/v14/observability/metrics"
+	"github.com/primandproper/platform-go/v14/observability/tracing"
 )
 
 // Option configures how NewPushSender assembles its sender.

@@ -3,9 +3,9 @@ package oteltrace
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/observability/tracing"
-	o11yutils "github.com/primandproper/platform-go/v13/observability/utils"
+	"github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/observability/tracing"
+	o11yutils "github.com/primandproper/platform-go/v14/observability/utils"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"

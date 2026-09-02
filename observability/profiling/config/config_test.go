@@ -4,10 +4,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/errors"
-	loggingnoop "github.com/primandproper/platform-go/v13/observability/logging/noop"
-	"github.com/primandproper/platform-go/v13/observability/profiling/pprof"
-	"github.com/primandproper/platform-go/v13/observability/profiling/pyroscope"
+	"github.com/primandproper/platform-go/v14/errors"
+	loggingnoop "github.com/primandproper/platform-go/v14/observability/logging/noop"
+	"github.com/primandproper/platform-go/v14/observability/profiling/pprof"
+	"github.com/primandproper/platform-go/v14/observability/profiling/pyroscope"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

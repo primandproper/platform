@@ -4,8 +4,8 @@ import (
 	"context"
 	stderrors "errors"
 
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/secrets"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/secrets"
 )
 
 // KeySource resolves the keyring a signature is minted or checked under, at the

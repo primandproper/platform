@@ -1,7 +1,7 @@
 package routing
 
 import (
-	"github.com/primandproper/platform-go/v13/encoding"
+	"github.com/primandproper/platform-go/v14/encoding"
 )
 
 type (

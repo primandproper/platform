@@ -5,7 +5,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v14/errors"
 )
 
 // ErrUnknownEvictionPolicy indicates WithMaxEntries was given a policy that is

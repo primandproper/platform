@@ -3,7 +3,7 @@ package querygen
 import (
 	"fmt"
 
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
 )
 
 // CountQuery renders the read that answers how many rows a predicate names, and

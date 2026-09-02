@@ -1,13 +1,13 @@
 package webauthncfg
 
 import (
-	"github.com/primandproper/platform-go/v13/authentication/webauthn"
-	webauthncache "github.com/primandproper/platform-go/v13/authentication/webauthn/cache"
-	webauthndatabase "github.com/primandproper/platform-go/v13/authentication/webauthn/database"
-	"github.com/primandproper/platform-go/v13/observability"
-	"github.com/primandproper/platform-go/v13/observability/logging"
-	"github.com/primandproper/platform-go/v13/observability/metrics"
-	"github.com/primandproper/platform-go/v13/observability/tracing"
+	"github.com/primandproper/platform-go/v14/authentication/webauthn"
+	webauthncache "github.com/primandproper/platform-go/v14/authentication/webauthn/cache"
+	webauthndatabase "github.com/primandproper/platform-go/v14/authentication/webauthn/database"
+	"github.com/primandproper/platform-go/v14/observability"
+	"github.com/primandproper/platform-go/v14/observability/logging"
+	"github.com/primandproper/platform-go/v14/observability/metrics"
+	"github.com/primandproper/platform-go/v14/observability/tracing"
 )
 
 // Option configures how NewSessionStore and NewRelyingParty assemble their

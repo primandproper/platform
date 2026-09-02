@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/authentication/oauth2server"
-	"github.com/primandproper/platform-go/v13/authentication/oauth2server/memory"
-	"github.com/primandproper/platform-go/v13/clock"
-	clockmock "github.com/primandproper/platform-go/v13/clock/mock"
+	"github.com/primandproper/platform-go/v14/authentication/oauth2server"
+	"github.com/primandproper/platform-go/v14/authentication/oauth2server/memory"
+	"github.com/primandproper/platform-go/v14/clock"
+	clockmock "github.com/primandproper/platform-go/v14/clock/mock"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

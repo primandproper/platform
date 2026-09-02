@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/cryptography/hashing"
-	"github.com/primandproper/platform-go/v13/cryptography/hashing/hmac"
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v14/cryptography/hashing"
+	"github.com/primandproper/platform-go/v14/cryptography/hashing/hmac"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
 )
 
 const (

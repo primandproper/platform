@@ -3,9 +3,9 @@ package registry
 import (
 	"time"
 
-	"github.com/primandproper/platform-go/v13/filtering"
-	"github.com/primandproper/platform-go/v13/tenancy"
-	"github.com/primandproper/platform-go/v13/uploads/registry/internal/registrydb"
+	"github.com/primandproper/platform-go/v14/filtering"
+	"github.com/primandproper/platform-go/v14/tenancy"
+	"github.com/primandproper/platform-go/v14/uploads/registry/internal/registrydb"
 )
 
 // The typed seam between the generated package and the domain type.

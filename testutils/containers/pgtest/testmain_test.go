@@ -9,7 +9,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/testutils/containers"
+	"github.com/primandproper/platform-go/v14/testutils/containers"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

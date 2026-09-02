@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/notifications/mobile/internal/pushfeedback"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/notifications/mobile/internal/pushfeedback"
 
 	"github.com/shoenig/test"
 )

@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
 )
 
 // A closure read is the one statement in this module that is recursive: a set

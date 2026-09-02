@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/primandproper/platform-go/v13/filtering"
+	"github.com/primandproper/platform-go/v14/filtering"
 )
 
 // The columns this module has opinions about. A table is free to hold any others

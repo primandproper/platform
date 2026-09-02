@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/llm"
+	"github.com/primandproper/platform-go/v14/llm"
 
 	anyllm "github.com/mozilla-ai/any-llm-go"
 	anyllmerrors "github.com/mozilla-ai/any-llm-go/errors"

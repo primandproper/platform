@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v14/errors"
 )
 
 // Provider canonicalizes a provider name: trimmed of surrounding whitespace and

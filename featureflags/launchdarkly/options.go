@@ -1,9 +1,9 @@
 package launchdarkly
 
 import (
-	"github.com/primandproper/platform-go/v13/observability/logging"
-	"github.com/primandproper/platform-go/v13/observability/metrics"
-	"github.com/primandproper/platform-go/v13/observability/tracing"
+	"github.com/primandproper/platform-go/v14/observability/logging"
+	"github.com/primandproper/platform-go/v14/observability/metrics"
+	"github.com/primandproper/platform-go/v14/observability/tracing"
 
 	ld "github.com/launchdarkly/go-server-sdk/v6"
 )

@@ -3,9 +3,9 @@ package timerscfg
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/clock"
-	"github.com/primandproper/platform-go/v13/observability/logging"
-	"github.com/primandproper/platform-go/v13/timers"
+	"github.com/primandproper/platform-go/v14/clock"
+	"github.com/primandproper/platform-go/v14/observability/logging"
+	"github.com/primandproper/platform-go/v14/timers"
 
 	"github.com/shoenig/test"
 )

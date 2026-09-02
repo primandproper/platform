@@ -6,8 +6,8 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/observability"
+	"github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/observability"
 
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 )

@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/primandproper/platform-go/v13/database/dialect"
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v14/database/dialect"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
 )
 
 // ErrMissingSetColumn indicates a batched read whose [SetKey] names no column.

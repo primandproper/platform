@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
 )
 
 // ErrNoSuchMember is returned by SendToMember when the named member has no

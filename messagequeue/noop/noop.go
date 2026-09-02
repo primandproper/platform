@@ -17,7 +17,7 @@ package noop
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v13/messagequeue"
+	"github.com/primandproper/platform-go/v14/messagequeue"
 )
 
 var (

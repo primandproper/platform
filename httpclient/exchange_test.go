@@ -9,9 +9,9 @@ import (
 	"testing"
 	"testing/iotest"
 
-	"github.com/primandproper/platform-go/v13/encoding"
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/retry"
+	"github.com/primandproper/platform-go/v14/encoding"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/retry"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

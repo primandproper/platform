@@ -3,9 +3,9 @@ package featureflagscfg
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/featureflags"
-	"github.com/primandproper/platform-go/v13/observability/metrics"
+	"github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/featureflags"
+	"github.com/primandproper/platform-go/v14/observability/metrics"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"

@@ -7,9 +7,9 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/authentication/oauth2server"
-	oauth2database "github.com/primandproper/platform-go/v13/authentication/oauth2server/database"
-	"github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v14/authentication/oauth2server"
+	oauth2database "github.com/primandproper/platform-go/v14/authentication/oauth2server/database"
+	"github.com/primandproper/platform-go/v14/errors"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

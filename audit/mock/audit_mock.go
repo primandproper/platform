@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/audit"
-	"github.com/primandproper/platform-go/v13/database"
-	"github.com/primandproper/platform-go/v13/filtering"
+	"github.com/primandproper/platform-go/v14/audit"
+	"github.com/primandproper/platform-go/v14/database"
+	"github.com/primandproper/platform-go/v14/filtering"
 )
 
 // Ensure, that RecorderMock does implement audit.Recorder.

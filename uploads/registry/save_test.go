@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/tenancy"
-	"github.com/primandproper/platform-go/v13/uploads"
-	uploadsmock "github.com/primandproper/platform-go/v13/uploads/mock"
-	"github.com/primandproper/platform-go/v13/uploads/registry"
-	registrymock "github.com/primandproper/platform-go/v13/uploads/registry/mock"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/tenancy"
+	"github.com/primandproper/platform-go/v14/uploads"
+	uploadsmock "github.com/primandproper/platform-go/v14/uploads/mock"
+	"github.com/primandproper/platform-go/v14/uploads/registry"
+	registrymock "github.com/primandproper/platform-go/v14/uploads/registry/mock"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

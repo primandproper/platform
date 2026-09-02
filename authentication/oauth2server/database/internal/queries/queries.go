@@ -3,8 +3,8 @@ package queries
 import (
 	"slices"
 
-	"github.com/primandproper/platform-go/v13/database/dialect"
-	"github.com/primandproper/platform-go/v13/database/querygen"
+	"github.com/primandproper/platform-go/v14/database/dialect"
+	"github.com/primandproper/platform-go/v14/database/querygen"
 )
 
 // The four tables at their canonical, unprefixed spellings — what the emitted

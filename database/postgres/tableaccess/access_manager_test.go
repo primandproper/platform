@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/database"
-	"github.com/primandproper/platform-go/v13/database/dialect"
-	"github.com/primandproper/platform-go/v13/testutils/containers/pgtest"
+	"github.com/primandproper/platform-go/v14/database"
+	"github.com/primandproper/platform-go/v14/database/dialect"
+	"github.com/primandproper/platform-go/v14/testutils/containers/pgtest"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"

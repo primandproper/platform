@@ -7,10 +7,10 @@ import (
 	"context"
 	"sync"
 
-	"github.com/primandproper/platform-go/v13/comments"
-	"github.com/primandproper/platform-go/v13/database"
-	"github.com/primandproper/platform-go/v13/filtering"
-	"github.com/primandproper/platform-go/v13/tenancy"
+	"github.com/primandproper/platform-go/v14/comments"
+	"github.com/primandproper/platform-go/v14/database"
+	"github.com/primandproper/platform-go/v14/filtering"
+	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
 // Ensure, that StoreMock does implement comments.Store.
@@ -26,8 +26,14 @@ var _ comments.Store = &StoreMock{}
 //			ArchiveCommentFunc: func(ctx context.Context, scope tenancy.Scope, commentID string) error {
 //				panic("mock out the ArchiveComment method")
 //			},
+//			ArchiveCommentTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, commentID string) error {
+//				panic("mock out the ArchiveCommentTx method")
+//			},
 //			CreateCommentFunc: func(ctx context.Context, comment *comments.Comment) error {
 //				panic("mock out the CreateComment method")
+//			},
+//			CreateCommentTxFunc: func(ctx context.Context, q database.Tx, comment *comments.Comment) error {
+//				panic("mock out the CreateCommentTx method")
 //			},
 //			DeleteCommentsByAuthorFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, author string) (int64, error) {
 //				panic("mock out the DeleteCommentsByAuthor method")
@@ -53,6 +59,9 @@ var _ comments.Store = &StoreMock{}
 //			UpdateCommentFunc: func(ctx context.Context, comment *comments.Comment) error {
 //				panic("mock out the UpdateComment method")
 //			},
+//			UpdateCommentTxFunc: func(ctx context.Context, q database.Tx, comment *comments.Comment) error {
+//				panic("mock out the UpdateCommentTx method")
+//			},
 //		}
 //
 //		// use mockedStore in code that requires comments.Store
@@ -63,8 +72,14 @@ type StoreMock struct {
 	// ArchiveCommentFunc mocks the ArchiveComment method.
 	ArchiveCommentFunc func(ctx context.Context, scope tenancy.Scope, commentID string) error
 
+	// ArchiveCommentTxFunc mocks the ArchiveCommentTx method.
+	ArchiveCommentTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, commentID string) error
+
 	// CreateCommentFunc mocks the CreateComment method.
 	CreateCommentFunc func(ctx context.Context, comment *comments.Comment) error
+
+	// CreateCommentTxFunc mocks the CreateCommentTx method.
+	CreateCommentTxFunc func(ctx context.Context, q database.Tx, comment *comments.Comment) error
 
 	// DeleteCommentsByAuthorFunc mocks the DeleteCommentsByAuthor method.
 	DeleteCommentsByAuthorFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, author string) (int64, error)
@@ -90,6 +105,9 @@ type StoreMock struct {
 	// UpdateCommentFunc mocks the UpdateComment method.
 	UpdateCommentFunc func(ctx context.Context, comment *comments.Comment) error
 
+	// UpdateCommentTxFunc mocks the UpdateCommentTx method.
+	UpdateCommentTxFunc func(ctx context.Context, q database.Tx, comment *comments.Comment) error
+
 	// calls tracks calls to the methods.
 	calls struct {
 		// ArchiveComment holds details about calls to the ArchiveComment method.
@@ -101,10 +119,30 @@ type StoreMock struct {
 			// CommentID is the commentID argument value.
 			CommentID string
 		}
+		// ArchiveCommentTx holds details about calls to the ArchiveCommentTx method.
+		ArchiveCommentTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// CommentID is the commentID argument value.
+			CommentID string
+		}
 		// CreateComment holds details about calls to the CreateComment method.
 		CreateComment []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Comment is the comment argument value.
+			Comment *comments.Comment
+		}
+		// CreateCommentTx holds details about calls to the CreateCommentTx method.
+		CreateCommentTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
 			// Comment is the comment argument value.
 			Comment *comments.Comment
 		}
@@ -192,9 +230,20 @@ type StoreMock struct {
 			// Comment is the comment argument value.
 			Comment *comments.Comment
 		}
+		// UpdateCommentTx holds details about calls to the UpdateCommentTx method.
+		UpdateCommentTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
+			// Comment is the comment argument value.
+			Comment *comments.Comment
+		}
 	}
 	lockArchiveComment           sync.RWMutex
+	lockArchiveCommentTx         sync.RWMutex
 	lockCreateComment            sync.RWMutex
+	lockCreateCommentTx          sync.RWMutex
 	lockDeleteCommentsByAuthor   sync.RWMutex
 	lockDeleteCommentsForTarget  sync.RWMutex
 	lockGetComment               sync.RWMutex
@@ -203,6 +252,7 @@ type StoreMock struct {
 	lockListReplies              sync.RWMutex
 	lockListRootComments         sync.RWMutex
 	lockUpdateComment            sync.RWMutex
+	lockUpdateCommentTx          sync.RWMutex
 }
 
 // ArchiveComment calls ArchiveCommentFunc.
@@ -245,6 +295,50 @@ func (mock *StoreMock) ArchiveCommentCalls() []struct {
 	return calls
 }
 
+// ArchiveCommentTx calls ArchiveCommentTxFunc.
+func (mock *StoreMock) ArchiveCommentTx(ctx context.Context, q database.Tx, scope tenancy.Scope, commentID string) error {
+	if mock.ArchiveCommentTxFunc == nil {
+		panic("StoreMock.ArchiveCommentTxFunc: method is nil but Store.ArchiveCommentTx was just called")
+	}
+	callInfo := struct {
+		Ctx       context.Context
+		Q         database.Tx
+		Scope     tenancy.Scope
+		CommentID string
+	}{
+		Ctx:       ctx,
+		Q:         q,
+		Scope:     scope,
+		CommentID: commentID,
+	}
+	mock.lockArchiveCommentTx.Lock()
+	mock.calls.ArchiveCommentTx = append(mock.calls.ArchiveCommentTx, callInfo)
+	mock.lockArchiveCommentTx.Unlock()
+	return mock.ArchiveCommentTxFunc(ctx, q, scope, commentID)
+}
+
+// ArchiveCommentTxCalls gets all the calls that were made to ArchiveCommentTx.
+// Check the length with:
+//
+//	len(mockedStore.ArchiveCommentTxCalls())
+func (mock *StoreMock) ArchiveCommentTxCalls() []struct {
+	Ctx       context.Context
+	Q         database.Tx
+	Scope     tenancy.Scope
+	CommentID string
+} {
+	var calls []struct {
+		Ctx       context.Context
+		Q         database.Tx
+		Scope     tenancy.Scope
+		CommentID string
+	}
+	mock.lockArchiveCommentTx.RLock()
+	calls = mock.calls.ArchiveCommentTx
+	mock.lockArchiveCommentTx.RUnlock()
+	return calls
+}
+
 // CreateComment calls CreateCommentFunc.
 func (mock *StoreMock) CreateComment(ctx context.Context, comment *comments.Comment) error {
 	if mock.CreateCommentFunc == nil {
@@ -278,6 +372,46 @@ func (mock *StoreMock) CreateCommentCalls() []struct {
 	mock.lockCreateComment.RLock()
 	calls = mock.calls.CreateComment
 	mock.lockCreateComment.RUnlock()
+	return calls
+}
+
+// CreateCommentTx calls CreateCommentTxFunc.
+func (mock *StoreMock) CreateCommentTx(ctx context.Context, q database.Tx, comment *comments.Comment) error {
+	if mock.CreateCommentTxFunc == nil {
+		panic("StoreMock.CreateCommentTxFunc: method is nil but Store.CreateCommentTx was just called")
+	}
+	callInfo := struct {
+		Ctx     context.Context
+		Q       database.Tx
+		Comment *comments.Comment
+	}{
+		Ctx:     ctx,
+		Q:       q,
+		Comment: comment,
+	}
+	mock.lockCreateCommentTx.Lock()
+	mock.calls.CreateCommentTx = append(mock.calls.CreateCommentTx, callInfo)
+	mock.lockCreateCommentTx.Unlock()
+	return mock.CreateCommentTxFunc(ctx, q, comment)
+}
+
+// CreateCommentTxCalls gets all the calls that were made to CreateCommentTx.
+// Check the length with:
+//
+//	len(mockedStore.CreateCommentTxCalls())
+func (mock *StoreMock) CreateCommentTxCalls() []struct {
+	Ctx     context.Context
+	Q       database.Tx
+	Comment *comments.Comment
+} {
+	var calls []struct {
+		Ctx     context.Context
+		Q       database.Tx
+		Comment *comments.Comment
+	}
+	mock.lockCreateCommentTx.RLock()
+	calls = mock.calls.CreateCommentTx
+	mock.lockCreateCommentTx.RUnlock()
 	return calls
 }
 
@@ -622,5 +756,45 @@ func (mock *StoreMock) UpdateCommentCalls() []struct {
 	mock.lockUpdateComment.RLock()
 	calls = mock.calls.UpdateComment
 	mock.lockUpdateComment.RUnlock()
+	return calls
+}
+
+// UpdateCommentTx calls UpdateCommentTxFunc.
+func (mock *StoreMock) UpdateCommentTx(ctx context.Context, q database.Tx, comment *comments.Comment) error {
+	if mock.UpdateCommentTxFunc == nil {
+		panic("StoreMock.UpdateCommentTxFunc: method is nil but Store.UpdateCommentTx was just called")
+	}
+	callInfo := struct {
+		Ctx     context.Context
+		Q       database.Tx
+		Comment *comments.Comment
+	}{
+		Ctx:     ctx,
+		Q:       q,
+		Comment: comment,
+	}
+	mock.lockUpdateCommentTx.Lock()
+	mock.calls.UpdateCommentTx = append(mock.calls.UpdateCommentTx, callInfo)
+	mock.lockUpdateCommentTx.Unlock()
+	return mock.UpdateCommentTxFunc(ctx, q, comment)
+}
+
+// UpdateCommentTxCalls gets all the calls that were made to UpdateCommentTx.
+// Check the length with:
+//
+//	len(mockedStore.UpdateCommentTxCalls())
+func (mock *StoreMock) UpdateCommentTxCalls() []struct {
+	Ctx     context.Context
+	Q       database.Tx
+	Comment *comments.Comment
+} {
+	var calls []struct {
+		Ctx     context.Context
+		Q       database.Tx
+		Comment *comments.Comment
+	}
+	mock.lockUpdateCommentTx.RLock()
+	calls = mock.calls.UpdateCommentTx
+	mock.lockUpdateCommentTx.RUnlock()
 	return calls
 }

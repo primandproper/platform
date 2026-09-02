@@ -24,13 +24,13 @@ Six vendors and a noop, because near-identical translations to seven different
 APIs are seven files a reader opens for the lines that differ. They are left
 that way deliberately; see llm/doc.go for the long form of that decision.
 
-[github.com/primandproper/platform-go/v13/email/config] is what selects one from
+[github.com/primandproper/platform-go/v14/email/config] is what selects one from
 configuration and wraps it in a circuit breaker. Its provider roster is the
 ground truth for the list above, which is checked against it rather than
 maintained beside it.
 
 noop is not a fallback. An unset or misspelled provider is
-[github.com/primandproper/platform-go/v13/errors.ErrUnknownProvider], because
+[github.com/primandproper/platform-go/v14/errors.ErrUnknownProvider], because
 outbound mail that silently goes nowhere is discovered by the people who never
 received it. Discarding mail has to be asked for by name.
 

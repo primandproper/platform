@@ -1,7 +1,7 @@
 package querygen
 
 import (
-	"github.com/primandproper/platform-go/v13/filtering"
+	"github.com/primandproper/platform-go/v14/filtering"
 )
 
 // Direction is which way a keyset walk pages: oldest first, or newest first.

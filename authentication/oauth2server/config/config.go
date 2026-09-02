@@ -20,12 +20,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/authentication/oauth2server"
-	oauth2database "github.com/primandproper/platform-go/v13/authentication/oauth2server/database"
-	oauth2memory "github.com/primandproper/platform-go/v13/authentication/oauth2server/memory"
-	"github.com/primandproper/platform-go/v13/database"
-	"github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/internal/cfgnorm"
+	"github.com/primandproper/platform-go/v14/authentication/oauth2server"
+	oauth2database "github.com/primandproper/platform-go/v14/authentication/oauth2server/database"
+	oauth2memory "github.com/primandproper/platform-go/v14/authentication/oauth2server/memory"
+	"github.com/primandproper/platform-go/v14/database"
+	"github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/internal/cfgnorm"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

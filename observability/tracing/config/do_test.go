@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	loggingnoop "github.com/primandproper/platform-go/v13/observability/logging/noop"
-	"github.com/primandproper/platform-go/v13/observability/tracing"
+	loggingnoop "github.com/primandproper/platform-go/v14/observability/logging/noop"
+	"github.com/primandproper/platform-go/v14/observability/tracing"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"

@@ -3,8 +3,8 @@ package httpclient
 import (
 	"net/http"
 
-	"github.com/primandproper/platform-go/v13/encoding"
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	"github.com/primandproper/platform-go/v14/encoding"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
 )
 
 // DefaultErrorBodyLimit is how much of a refused response's body a StatusError

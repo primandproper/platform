@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/routing"
+	"github.com/primandproper/platform-go/v14/routing"
 
 	"github.com/shoenig/test"
 )

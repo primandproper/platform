@@ -3,10 +3,10 @@ package mobilecfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v13/internal/injection"
-	"github.com/primandproper/platform-go/v13/notifications"
-	"github.com/primandproper/platform-go/v13/notifications/mobile"
-	"github.com/primandproper/platform-go/v13/observability"
+	"github.com/primandproper/platform-go/v14/internal/injection"
+	"github.com/primandproper/platform-go/v14/notifications"
+	"github.com/primandproper/platform-go/v14/notifications/mobile"
+	"github.com/primandproper/platform-go/v14/observability"
 
 	"github.com/samber/do/v2"
 )

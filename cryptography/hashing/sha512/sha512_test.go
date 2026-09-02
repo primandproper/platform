@@ -3,7 +3,7 @@ package sha512
 import (
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/cryptography/hashing"
+	"github.com/primandproper/platform-go/v14/cryptography/hashing"
 
 	"github.com/shoenig/test"
 )

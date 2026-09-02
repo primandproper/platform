@@ -11,7 +11,7 @@ against, that came to roughly four and a half thousand hand-written non-test
 lines, and not one column in them was that application's own.
 
 So this package owns those four, in the same way
-[github.com/primandproper/platform-go/v13/identity] owns users: a Store
+[github.com/primandproper/platform-go/v14/identity] owns users: a Store
 interface, a SQL implementation of it, the DDL for three dialects, and a mock. A
 consumer keeps its service layer, its handlers, its proto, its checkout flow and
 every judgement about what a status means; it does not keep a subscriptions
@@ -36,7 +36,7 @@ declines to interpret a single one of them: nothing here reads
 deployment's idea of "entitled" could be written.
 
 What that buys is the thing entitlements said it could not have. Its PlanSource
-seam is filled by [github.com/primandproper/platform-go/v13/billing/plans], which
+seam is filled by [github.com/primandproper/platform-go/v14/billing/plans], which
 is this store's current-subscription read plus a function the consumer writes —
 so the policy stays exactly where that package put it, and stops being written
 against a hand-rolled table.
@@ -114,7 +114,7 @@ only thing that changes about a purchase is whether the money arrived.
 
 # Getting the tables
 
-The DDL lives in [github.com/primandproper/platform-go/v13/billing/migrations],
+The DDL lives in [github.com/primandproper/platform-go/v14/billing/migrations],
 rendered per dialect and table prefix, and hands to database/migrate's
 WithGeneratedMigration so nothing is copied into a consumer's repository. See that
 package for why no numbered migration file ships.
@@ -139,7 +139,7 @@ processor reports.
 
 # Subject access, and the erasure that is deliberately absent
 
-[github.com/primandproper/platform-go/v13/billing/privacy] is a
+[github.com/primandproper/platform-go/v14/billing/privacy] is a
 dataprivacy.Collector and no Eraser. Financial records carry a statutory retention
 that outranks a right to erasure in every jurisdiction that grants both, so an
 Eraser here would be a seam whose only correct implementation erases nothing.

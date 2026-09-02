@@ -1,7 +1,7 @@
 package textsearch
 
 import (
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
 )
 
 // The refusals a text index makes about the request rather than about itself.

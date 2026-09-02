@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/capitalism/revenuecat"
-	"github.com/primandproper/platform-go/v13/capitalism/stripe"
+	"github.com/primandproper/platform-go/v14/capitalism/revenuecat"
+	"github.com/primandproper/platform-go/v14/capitalism/stripe"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

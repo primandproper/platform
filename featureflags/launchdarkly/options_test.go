@@ -3,9 +3,9 @@ package launchdarkly
 import (
 	"testing"
 
-	loggingnoop "github.com/primandproper/platform-go/v13/observability/logging/noop"
-	metricsnoop "github.com/primandproper/platform-go/v13/observability/metrics/noop"
-	tracingnoop "github.com/primandproper/platform-go/v13/observability/tracing/noop"
+	loggingnoop "github.com/primandproper/platform-go/v14/observability/logging/noop"
+	metricsnoop "github.com/primandproper/platform-go/v14/observability/metrics/noop"
+	tracingnoop "github.com/primandproper/platform-go/v14/observability/tracing/noop"
 
 	ld "github.com/launchdarkly/go-server-sdk/v6"
 	"github.com/shoenig/test"

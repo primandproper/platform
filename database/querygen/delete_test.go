@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/primandproper/platform-go/v13/database/dialect"
+	"github.com/primandproper/platform-go/v14/database/dialect"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"

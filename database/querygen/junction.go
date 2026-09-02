@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
 )
 
 // A junction list is the one read this package emits that spans two tables: a

@@ -1,6 +1,6 @@
 /*
 Package http is the module's HTTP server: a listener, a
-[github.com/primandproper/platform-go/v13/routing] router, a graceful shutdown,
+[github.com/primandproper/platform-go/v14/routing] router, a graceful shutdown,
 and the handful of endpoints that belong to the process rather than to the API
 it serves.
 
@@ -19,7 +19,7 @@ it serves.
 Serve blocks until Shutdown is called or ctx is done, and reports a bind failure
 as an error rather than panicking through a hard-wired panicker: a library
 cannot decide that a port already in use should take the host process down.
-[github.com/primandproper/platform-go/v13/server/grpc] is the sibling, and the
+[github.com/primandproper/platform-go/v14/server/grpc] is the sibling, and the
 options the two share are spelled the same way in both.
 
 # What the process serves, as opposed to what the service serves
@@ -67,7 +67,7 @@ tracer provider down — the provider was handed to this server, not built by it
 and closing its exporter would silence the gRPC sibling still draining and every
 background loop whose Close runs after ingress stops. Whoever built the provider
 shuts it down;
-[github.com/primandproper/platform-go/v13/observability.Pillars.Shutdown] is that
+[github.com/primandproper/platform-go/v14/observability.Pillars.Shutdown] is that
 owner, and service.Service runs it last.
 
 # Where the handlers are not

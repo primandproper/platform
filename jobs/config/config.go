@@ -12,11 +12,11 @@ package jobscfg
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v13/database"
-	distributedlockcfg "github.com/primandproper/platform-go/v13/distributedlock/config"
-	"github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/jobs"
-	messagequeuecfg "github.com/primandproper/platform-go/v13/messagequeue/config"
+	"github.com/primandproper/platform-go/v14/database"
+	distributedlockcfg "github.com/primandproper/platform-go/v14/distributedlock/config"
+	"github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/jobs"
+	messagequeuecfg "github.com/primandproper/platform-go/v14/messagequeue/config"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

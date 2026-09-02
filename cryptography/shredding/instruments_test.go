@@ -3,9 +3,9 @@ package shredding
 import (
 	"testing"
 
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/observability/metrics"
-	metricsmock "github.com/primandproper/platform-go/v13/observability/metrics/mock"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/observability/metrics"
+	metricsmock "github.com/primandproper/platform-go/v14/observability/metrics/mock"
 
 	"github.com/shoenig/test"
 	"go.opentelemetry.io/otel/metric"

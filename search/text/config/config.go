@@ -12,13 +12,13 @@ import (
 	"context"
 	"strings"
 
-	circuitbreakingcfg "github.com/primandproper/platform-go/v13/circuitbreaking/config"
-	"github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/internal/cfgnorm"
-	textsearch "github.com/primandproper/platform-go/v13/search/text"
-	"github.com/primandproper/platform-go/v13/search/text/algolia"
-	"github.com/primandproper/platform-go/v13/search/text/elasticsearch"
-	"github.com/primandproper/platform-go/v13/search/text/noop"
+	circuitbreakingcfg "github.com/primandproper/platform-go/v14/circuitbreaking/config"
+	"github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/internal/cfgnorm"
+	textsearch "github.com/primandproper/platform-go/v14/search/text"
+	"github.com/primandproper/platform-go/v14/search/text/algolia"
+	"github.com/primandproper/platform-go/v14/search/text/elasticsearch"
+	"github.com/primandproper/platform-go/v14/search/text/noop"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

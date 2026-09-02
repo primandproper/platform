@@ -8,12 +8,12 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/primandproper/platform-go/v13/authentication/passwordreset"
-	"github.com/primandproper/platform-go/v13/authentication/passwordreset/migrations"
-	"github.com/primandproper/platform-go/v13/database"
-	"github.com/primandproper/platform-go/v13/database/dialect"
-	"github.com/primandproper/platform-go/v13/database/sqlite"
-	"github.com/primandproper/platform-go/v13/tenancy"
+	"github.com/primandproper/platform-go/v14/authentication/passwordreset"
+	"github.com/primandproper/platform-go/v14/authentication/passwordreset/migrations"
+	"github.com/primandproper/platform-go/v14/database"
+	"github.com/primandproper/platform-go/v14/database/dialect"
+	"github.com/primandproper/platform-go/v14/database/sqlite"
+	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
 // The whole flow, in the order that fails safe: issue a token, mail the secret,

@@ -88,6 +88,28 @@ reply, [Store.ListReplies] still finds it by parent id, and "in reply to a
 removed comment" is what every discussion UI already renders. A consumer that
 wants the subtree gone enumerates the replies and archives them too.
 
+# Joining a caller's transaction
+
+Every write here has a form that runs inside a transaction the caller owns:
+[Store.CreateCommentTx], [Store.UpdateCommentTx] and [Store.ArchiveCommentTx],
+plus the two deletes, which have no other form. Each takes a database.Tx rather
+than reaching for the store's own writer, and the type is what says so — only
+database.RunInTransaction produces one, so the obligation is the compiler's
+rather than a doc comment's.
+
+The reason is that a comment is rarely the only row a consumer writes. An audit
+entry naming who said it and a data change event on an outbox somebody fans out
+are the ordinary companions, and a companion written after the comment's own
+write has committed is a companion that can go missing while the comment stays.
+The gap is narrow and it is one-directional — a comment with no event, never an
+event naming a comment that was not written — and nothing outside this package
+can close it, which is why these are here rather than left to a consumer to work
+around.
+
+What does not move into that transaction is the target existence hook, which
+takes no executor and reads on whatever connection the consumer built it over.
+[Store.CreateCommentTx] says what that costs.
+
 # Tenancy
 
 Every read and write takes a tenancy.Scope, and there is no variant of anything

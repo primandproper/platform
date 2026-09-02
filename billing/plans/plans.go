@@ -1,7 +1,7 @@
 /*
 Package plans answers entitlements' plan question from the billing store.
 
-[github.com/primandproper/platform-go/v13/entitlements] names PlanSource as the
+[github.com/primandproper/platform-go/v14/entitlements] names PlanSource as the
 one seam it cannot fill, on the grounds that the join between an account and a
 purchased plan is application data. It is — and it is application data this
 module now owns a table for, which is what this package is: the read, plus the
@@ -45,12 +45,12 @@ package plans
 import (
 	"context"
 
-	"github.com/primandproper/platform-go/v13/billing"
-	"github.com/primandproper/platform-go/v13/capitalism"
-	"github.com/primandproper/platform-go/v13/entitlements"
-	platformerrors "github.com/primandproper/platform-go/v13/errors"
-	"github.com/primandproper/platform-go/v13/filtering"
-	"github.com/primandproper/platform-go/v13/tenancy"
+	"github.com/primandproper/platform-go/v14/billing"
+	"github.com/primandproper/platform-go/v14/capitalism"
+	"github.com/primandproper/platform-go/v14/entitlements"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/filtering"
+	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
 // The sentinels this package returns.
