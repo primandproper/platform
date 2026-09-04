@@ -27,6 +27,29 @@ The moves the lifecycle admits are checked in Go before the statement runs, so a
 nonsensical move is refused rather than merely failing to match; see
 [Status.CanTransitionTo].
 
+# Joining a caller's transaction
+
+Every write here has a form that runs inside a transaction the caller owns:
+[Store.CreateReportTx], [Store.UpdateReportTx], [Store.TransitionReportTx] and
+[Store.ArchiveReportTx], plus the erasure, which has no other form. Each takes a
+database.Tx rather than reaching for the store's own writer, and the type is
+what says so — only database.RunInTransaction produces one, so the obligation is
+the compiler's rather than a doc comment's.
+
+The reason is that a report is rarely the only row a consumer writes. An audit
+entry naming who filed or decided it and a data change event on an outbox
+somebody fans out are the ordinary companions, and a companion written after the
+report's own write has committed is a companion that can go missing while the
+report stays. The gap is narrow and it is one-directional — a report with no
+event, never an event naming a report that was not written — and nothing outside
+this package can close it, which is why these are here rather than left to a
+consumer to work around.
+
+The transition is the one whose transactional form does more than change where
+it commits: its guard and the reads around it see the caller's uncommitted
+writes, so a report filed and decided in one transaction resolves rather than
+reading as absent. [Store.TransitionReportTx] says so.
+
 # Tenancy
 
 Every read and write takes a tenancy.Scope, and there is no variant of anything

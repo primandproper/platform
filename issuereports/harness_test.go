@@ -38,6 +38,11 @@ const (
 	otherReporter = "user_2"
 )
 
+// errCompanionWrite stands in for the write a consumer makes beside a report —
+// the audit entry, the outbox event — failing after the report itself is in the
+// transaction.
+var errCompanionWrite = platformerrors.New("the companion write failed")
+
 // errCounterUnavailable stands in for a metrics provider that cannot build an
 // instrument.
 var errCounterUnavailable = platformerrors.New("the instrument is unavailable")

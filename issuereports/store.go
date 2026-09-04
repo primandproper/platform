@@ -39,6 +39,25 @@ type Store interface {
 	// resolved is one nobody resolved.
 	CreateReport(ctx context.Context, report *Report) error
 
+	// CreateReportTx is CreateReport inside the caller's transaction, so the
+	// report commits with whatever the caller writes beside it. A nil q is an
+	// error wrapping ErrNilExecutor.
+	//
+	// It exists for the reason DeleteReportsByReporter takes an executor, at the
+	// other end of a report's life. A row in a consumer's schema is rarely
+	// written alone: an audit entry naming who filed it and a data change event
+	// on an outbox somebody fans out are the ordinary companions, and a
+	// companion is worth what its atomicity with the row is worth. Written after
+	// this method's own write has committed, they are a window in which the
+	// report exists and nothing downstream has been told — narrow,
+	// one-directional, and still not something a consumer can close from
+	// outside this package.
+	//
+	// Every check CreateReport makes is made here, and the read-back of the
+	// creation time runs on q, so the value handed back is the row this
+	// transaction wrote rather than one waiting on a commit.
+	CreateReportTx(ctx context.Context, q database.Tx, report *Report) error
+
 	// GetReport reads one of the scope's live reports. It returns an error
 	// wrapping ErrReportNotFound when the report does not exist, has been
 	// archived, or belongs to another scope — which are the same answer from
@@ -86,6 +105,16 @@ type Store interface {
 	// is an error wrapping ErrReportNotFound.
 	UpdateReport(ctx context.Context, report *Report) error
 
+	// UpdateReportTx is UpdateReport inside the caller's transaction, so the
+	// revision commits with whatever the caller records about it. A nil q is an
+	// error wrapping ErrNilExecutor.
+	//
+	// A revision is an event as much as it is a write — who changed what, and
+	// when — and the entry saying so belongs in the transaction that made the
+	// change rather than in one after it. See CreateReportTx for the argument
+	// in full.
+	UpdateReportTx(ctx context.Context, q database.Tx, report *Report) error
+
 	// TransitionReport moves a report from one status to another and returns it
 	// as stored.
 	//
@@ -104,6 +133,25 @@ type Store interface {
 	// nothing is written. See [Status.CanTransitionTo].
 	TransitionReport(ctx context.Context, scope tenancy.Scope, reportID string, from, to Status, resolution string) (*Report, error)
 
+	// TransitionReportTx is TransitionReport inside the caller's transaction,
+	// so the move commits with the entry naming who made it and why. A nil q is
+	// an error wrapping ErrNilExecutor. See CreateReportTx for the argument in
+	// full.
+	//
+	// It differs from its twin in one more way than where it commits, and the
+	// difference is worth naming. The guard and the two reads around it — the
+	// one that separates a moved report from an absent one when the guard
+	// matches nothing, and the read-back of the row on a hit — all run on q,
+	// so they see what the caller has written and not yet committed. A report
+	// filed earlier in the same transaction can be moved by this call, where
+	// TransitionReport would report it absent until the commit; and the report
+	// handed back is the row as this transaction has it, which is what a caller
+	// recording the outcome beside it wants to be describing. What does not
+	// change is the guard's meaning: a report somebody else moved between the
+	// caller's read and this write is ErrStatusConflict on both paths, and
+	// nothing is written.
+	TransitionReportTx(ctx context.Context, q database.Tx, scope tenancy.Scope, reportID string, from, to Status, resolution string) (*Report, error)
+
 	// ArchiveReport removes a report from the queue, leaving the row for
 	// whoever asks later what was reported.
 	//
@@ -112,6 +160,15 @@ type Store interface {
 	// error wrapping ErrReportNotFound, because an archived report is not in the
 	// queue and this method addresses the queue.
 	ArchiveReport(ctx context.Context, scope tenancy.Scope, reportID string) error
+
+	// ArchiveReportTx is ArchiveReport inside the caller's transaction, so the
+	// removal commits with whatever the caller records about it. A nil q is an
+	// error wrapping ErrNilExecutor.
+	//
+	// It is the variant a moderation action reaches for: the report leaves the
+	// queue and the entry naming who removed it land together, or neither does.
+	// See CreateReportTx for the argument in full.
+	ArchiveReportTx(ctx context.Context, q database.Tx, scope tenancy.Scope, reportID string) error
 
 	// DeleteReportsByReporter destroys every report one person filed within the
 	// scope, archived ones included, and reports how many that was.

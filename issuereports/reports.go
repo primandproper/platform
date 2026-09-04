@@ -26,6 +26,38 @@ func (s *SQLStore) CreateReport(ctx context.Context, report *Report) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
+	return s.createReport(ctx, op, s.client.Writer(), report)
+}
+
+// CreateReportTx is CreateReport inside the caller's transaction.
+//
+// Every check CreateReport makes is made here, and the read-back of the creation
+// time goes through q rather than through the store's own writer — so the value
+// the caller is handed is the row this transaction wrote, not a read of a row
+// nothing else can see yet. See [Store.CreateReportTx].
+func (s *SQLStore) CreateReportTx(ctx context.Context, q database.Tx, report *Report) error {
+	ctx, op := s.o11y.Begin(ctx)
+	defer op.End()
+
+	if q == nil {
+		return op.Error(ErrNilExecutor, "creating issue report")
+	}
+
+	return s.createReport(ctx, op, q, report)
+}
+
+// createReport is the shared body of CreateReport and CreateReportTx.
+//
+// It takes the executor rather than reaching for one, which is the whole of the
+// difference between the two: every check, every statement, and the order they
+// run in are the same on both paths, so neither can drift into accepting a
+// report the other refuses.
+func (s *SQLStore) createReport(
+	ctx context.Context,
+	op observability.Operation,
+	q issuereportsdb.DBTX,
+	report *Report,
+) error {
 	if report == nil {
 		return op.Error(ErrNilReport, "creating issue report")
 	}
@@ -61,11 +93,11 @@ func (s *SQLStore) CreateReport(ctx context.Context, report *Report) error {
 
 	op.Set(reportIDKey, report.ID).Set(statusKey, report.Status.String())
 
-	if err := s.q.CreateReport(ctx, s.client.Writer(), createReportParams(report)); err != nil {
+	if err := s.q.CreateReport(ctx, q, createReportParams(report)); err != nil {
 		return op.Error(err, "creating issue report")
 	}
 
-	created, err := s.q.GetReportCreatedAt(ctx, s.client.Writer(),
+	created, err := s.q.GetReportCreatedAt(ctx, q,
 		issuereportsdb.GetReportCreatedAtParams{ID: report.ID, Scope: report.Scope})
 	if err != nil {
 		return op.Error(err, "reading back the issue report's creation time")
@@ -102,14 +134,17 @@ func (s *SQLStore) GetReport(
 
 // reportOn reads one live report through the executor it is given.
 //
-// It exists because the two reads TransitionReport makes must go to the write
-// database rather than to whatever GetReport would reach. The transition has just
-// written, and a read replica can still be holding the row as it was before it —
-// so the report handed back would say it never moved, and the disambiguation of a
-// missed guard would report a report that is there as absent.
+// It exists because the two reads a transition makes must go where the
+// transition wrote rather than to whatever GetReport would reach. On the store's
+// own path that is the write database: the transition has just written, and a
+// read replica can still be holding the row as it was before it — so the report
+// handed back would say it never moved, and the disambiguation of a missed guard
+// would report a report that is there as absent. On the transactional path it is
+// the caller's transaction, for the same reason one step further in: a row that
+// transaction wrote and has not committed is visible on no other connection.
 func (s *SQLStore) reportOn(
 	ctx context.Context,
-	exec database.SQLQueryExecutor,
+	exec issuereportsdb.DBTX,
 	scope tenancy.Scope,
 	reportID string,
 ) (*Report, error) {
@@ -373,6 +408,31 @@ func (s *SQLStore) UpdateReport(ctx context.Context, report *Report) error {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
+	return s.updateReport(ctx, op, s.client.Writer(), report)
+}
+
+// UpdateReportTx is UpdateReport inside the caller's transaction, so the
+// revision and whatever the caller records about it commit together or not at
+// all. See [Store.UpdateReportTx].
+func (s *SQLStore) UpdateReportTx(ctx context.Context, q database.Tx, report *Report) error {
+	ctx, op := s.o11y.Begin(ctx)
+	defer op.End()
+
+	if q == nil {
+		return op.Error(ErrNilExecutor, "updating issue report")
+	}
+
+	return s.updateReport(ctx, op, q, report)
+}
+
+// updateReport is the shared body of UpdateReport and UpdateReportTx, which
+// differ in the executor they run on and in nothing else.
+func (s *SQLStore) updateReport(
+	ctx context.Context,
+	op observability.Operation,
+	q issuereportsdb.DBTX,
+	report *Report,
+) error {
 	if report == nil {
 		return op.Error(ErrNilReport, "updating issue report")
 	}
@@ -383,7 +443,7 @@ func (s *SQLStore) UpdateReport(ctx context.Context, report *Report) error {
 		return op.Error(err, "updating issue report %q", report.ID)
 	}
 
-	count, err := s.q.UpdateReport(ctx, s.client.Writer(), updateReportParams(report))
+	count, err := s.q.UpdateReport(ctx, q, updateReportParams(report))
 
 	return op.Error(
 		guardCount(count, err, ErrReportNotFound, "updating the issue report"),
@@ -412,6 +472,51 @@ func (s *SQLStore) TransitionReport(
 	)
 	defer op.End()
 
+	return s.transitionReport(ctx, op, s.client.Writer(), scope, reportID, from, to, resolution)
+}
+
+// TransitionReportTx is TransitionReport inside the caller's transaction.
+//
+// The guard and the two reads around it all run on q, which is what makes a
+// report filed earlier in the same transaction reachable from here; the
+// non-transactional path could not see it until the commit. See
+// [Store.TransitionReportTx] for what that means to a caller.
+func (s *SQLStore) TransitionReportTx(
+	ctx context.Context,
+	q database.Tx,
+	scope tenancy.Scope,
+	reportID string,
+	from, to Status,
+	resolution string,
+) (*Report, error) {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(reportIDKey, reportID),
+		observability.WithValue(fromStatusKey, from.String()),
+		observability.WithValue(statusKey, to.String()),
+	)
+	defer op.End()
+
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "transitioning issue report %q", reportID)
+	}
+
+	return s.transitionReport(ctx, op, q, scope, reportID, from, to, resolution)
+}
+
+// transitionReport is the shared body of TransitionReport and
+// TransitionReportTx, which differ in the executor they run on and in nothing
+// else — the lifecycle check, the guarded statement, the disambiguating read on
+// a miss and the read-back on a hit are the same four steps on both paths.
+func (s *SQLStore) transitionReport(
+	ctx context.Context,
+	op observability.Operation,
+	q issuereportsdb.DBTX,
+	scope tenancy.Scope,
+	reportID string,
+	from, to Status,
+	resolution string,
+) (*Report, error) {
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "transitioning issue report %q", reportID)
 	}
@@ -436,7 +541,7 @@ func (s *SQLStore) TransitionReport(
 		resolution = ""
 	}
 
-	affected, err := s.q.TransitionReport(ctx, s.client.Writer(), issuereportsdb.TransitionReportParams{
+	affected, err := s.q.TransitionReport(ctx, q, issuereportsdb.TransitionReportParams{
 		Status:        to.String(),
 		Resolution:    resolution,
 		ClosedAt:      closedAt,
@@ -455,7 +560,7 @@ func (s *SQLStore) TransitionReport(
 		// before the miss is reported, and an absent report does not land in the
 		// series a dashboard reads as a busy queue. It costs a round trip only on
 		// the path that already wrote nothing.
-		if _, readErr := s.reportOn(ctx, s.client.Writer(), scope, reportID); readErr != nil {
+		if _, readErr := s.reportOn(ctx, q, scope, reportID); readErr != nil {
 			return nil, op.Error(readErr, "transitioning issue report %q", reportID)
 		}
 
@@ -463,7 +568,7 @@ func (s *SQLStore) TransitionReport(
 			"transition", "transitioning the issue report")
 	}
 
-	moved, err := s.reportOn(ctx, s.client.Writer(), scope, reportID)
+	moved, err := s.reportOn(ctx, q, scope, reportID)
 	if err != nil {
 		return nil, op.Error(err, "reading back the transitioned issue report")
 	}
@@ -487,11 +592,45 @@ func (s *SQLStore) ArchiveReport(
 	)
 	defer op.End()
 
+	return s.archiveReport(ctx, op, s.client.Writer(), scope, reportID)
+}
+
+// ArchiveReportTx is ArchiveReport inside the caller's transaction, so the
+// removal and whatever the caller records about it commit together or not at
+// all. See [Store.ArchiveReportTx].
+func (s *SQLStore) ArchiveReportTx(
+	ctx context.Context,
+	q database.Tx,
+	scope tenancy.Scope,
+	reportID string,
+) error {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(reportIDKey, reportID),
+	)
+	defer op.End()
+
+	if q == nil {
+		return op.Error(ErrNilExecutor, "archiving issue report %q", reportID)
+	}
+
+	return s.archiveReport(ctx, op, q, scope, reportID)
+}
+
+// archiveReport is the shared body of ArchiveReport and ArchiveReportTx, which
+// differ in the executor they run on and in nothing else.
+func (s *SQLStore) archiveReport(
+	ctx context.Context,
+	op observability.Operation,
+	q issuereportsdb.DBTX,
+	scope tenancy.Scope,
+	reportID string,
+) error {
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "archiving issue report %q", reportID)
 	}
 
-	count, err := s.q.ArchiveReport(ctx, s.client.Writer(),
+	count, err := s.q.ArchiveReport(ctx, q,
 		issuereportsdb.ArchiveReportParams{ID: reportID, Scope: scope})
 
 	return op.Error(

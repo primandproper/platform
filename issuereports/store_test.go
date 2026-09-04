@@ -58,6 +58,12 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		runErasureSuite(t, env)
 	})
+
+	t.Run("transactions", func(t *testing.T) {
+		t.Parallel()
+
+		runTransactionSuite(t, env)
+	})
 }
 
 func runWriteSuite(t *testing.T, env *storeEnv) {
@@ -658,6 +664,277 @@ func runErasureSuite(t *testing.T, env *storeEnv) {
 
 			return nil
 		}))
+	})
+}
+
+// runTransactionSuite is the four writes run inside a transaction the caller
+// owns, which is what CreateReportTx, UpdateReportTx, TransitionReportTx and
+// ArchiveReportTx exist for.
+//
+// What is actually under test is the commit boundary: that a report written here
+// lands with the caller's own rows, and that a caller's failure takes the report
+// back with it. Everything else is parity — the transactional path must refuse
+// exactly what its own non-transactional twin refuses, or the two drift into
+// being two stores.
+func runTransactionSuite(t *testing.T, env *storeEnv) {
+	t.Helper()
+
+	t.Run("the four writes commit with the caller's transaction", func(t *testing.T) {
+		t.Parallel()
+
+		c := newStubClock()
+		store := env.newStore(t, WithClock(c))
+
+		created := newReport(testReporter, "bug", "written inside")
+		edited := filed(t, store, newReport(testReporter, "bug", "before the edit"))
+		decided := filed(t, store, newReport(testReporter, "bug", "to be resolved"))
+		doomed := filed(t, store, newReport(testReporter, "bug", "on the way out"))
+
+		var moved *Report
+
+		must.NoError(t, store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+			if err := store.CreateReportTx(t.Context(), tx, created); err != nil {
+				return err
+			}
+
+			edited.Details = "after the edit"
+			if err := store.UpdateReportTx(t.Context(), tx, edited); err != nil {
+				return err
+			}
+
+			var err error
+			if moved, err = store.TransitionReportTx(t.Context(), tx, testScope, decided.ID,
+				StatusOpen, StatusResolved, "fixed in 1.4"); err != nil {
+				return err
+			}
+
+			return store.ArchiveReportTx(t.Context(), tx, testScope, doomed.ID)
+		}))
+
+		// The create reads its creation time back through the caller's executor,
+		// so the value the caller is handed is the row this transaction wrote
+		// rather than a zero time waiting on a commit.
+		test.NotEqOp(t, "", created.ID)
+		test.False(t, created.CreatedAt.IsZero())
+		test.EqOp(t, StatusOpen, created.Status)
+
+		// And the transition read its result back the same way, before the
+		// commit: the row as the transaction had it, stamp and note included.
+		must.NotNil(t, moved)
+		test.EqOp(t, StatusResolved, moved.Status)
+		test.EqOp(t, "fixed in 1.4", moved.Resolution)
+		must.NotNil(t, moved.ClosedAt)
+		test.EqOp(t, baseTime, moved.ClosedAt.UTC())
+
+		read, err := store.GetReport(t.Context(), testScope, created.ID)
+		must.NoError(t, err)
+		test.EqOp(t, "written inside", read.Details)
+
+		read, err = store.GetReport(t.Context(), testScope, edited.ID)
+		must.NoError(t, err)
+		test.EqOp(t, "after the edit", read.Details)
+
+		read, err = store.GetReport(t.Context(), testScope, decided.ID)
+		must.NoError(t, err)
+		test.EqOp(t, StatusResolved, read.Status)
+		test.EqOp(t, "fixed in 1.4", read.Resolution)
+
+		_, err = store.GetReport(t.Context(), testScope, doomed.ID)
+		must.ErrorIs(t, err, ErrReportNotFound)
+	})
+
+	t.Run("a rolled back transaction takes all four writes with it", func(t *testing.T) {
+		t.Parallel()
+
+		// This is the whole point of the variants, seen from the side that
+		// matters: the consumer's companion write fails, and the report goes back
+		// with it rather than surviving in a transaction it was never part of.
+		store := env.newStore(t)
+
+		created := newReport(testReporter, "bug", "never committed")
+		edited := filed(t, store, newReport(testReporter, "bug", "the original"))
+		decided := filed(t, store, newReport(testReporter, "bug", "still open"))
+		doomed := filed(t, store, newReport(testReporter, "bug", "still here"))
+
+		err := store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+			if txErr := store.CreateReportTx(t.Context(), tx, created); txErr != nil {
+				return txErr
+			}
+
+			edited.Details = "the edit"
+			if txErr := store.UpdateReportTx(t.Context(), tx, edited); txErr != nil {
+				return txErr
+			}
+
+			if _, txErr := store.TransitionReportTx(t.Context(), tx, testScope, decided.ID,
+				StatusOpen, StatusDeclined, "duplicate"); txErr != nil {
+				return txErr
+			}
+
+			if txErr := store.ArchiveReportTx(t.Context(), tx, testScope, doomed.ID); txErr != nil {
+				return txErr
+			}
+
+			return errCompanionWrite
+		})
+		must.ErrorIs(t, err, errCompanionWrite)
+
+		// The id was minted onto the caller's value on the way through. Nothing
+		// undoes that, and nothing should: what rolled back is the row.
+		test.NotEqOp(t, "", created.ID)
+
+		_, err = store.GetReport(t.Context(), testScope, created.ID)
+		must.ErrorIs(t, err, ErrReportNotFound)
+
+		read, err := store.GetReport(t.Context(), testScope, edited.ID)
+		must.NoError(t, err)
+		test.EqOp(t, "the original", read.Details)
+
+		read, err = store.GetReport(t.Context(), testScope, decided.ID)
+		must.NoError(t, err)
+		test.EqOp(t, StatusOpen, read.Status)
+		test.EqOp(t, "", read.Resolution)
+		test.Nil(t, read.ClosedAt)
+
+		read, err = store.GetReport(t.Context(), testScope, doomed.ID)
+		must.NoError(t, err)
+		test.EqOp(t, "still here", read.Details)
+	})
+
+	t.Run("a transition finds a report filed in the same transaction", func(t *testing.T) {
+		t.Parallel()
+
+		// The guard and the read-back run on the caller's executor rather than
+		// on the store's writer, so a report filed and decided in one
+		// transaction resolves instead of reporting the report absent.
+		store := env.newStore(t, WithClock(newStubClock()))
+
+		r := newReport(testReporter, "bug", "filed and decided at once")
+
+		var moved *Report
+
+		must.NoError(t, store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+			if err := store.CreateReportTx(t.Context(), tx, r); err != nil {
+				return err
+			}
+
+			var err error
+			moved, err = store.TransitionReportTx(t.Context(), tx, testScope, r.ID,
+				StatusOpen, StatusDeclined, "working as intended")
+
+			return err
+		}))
+
+		must.NotNil(t, moved)
+		test.EqOp(t, r.ID, moved.ID)
+		test.EqOp(t, StatusDeclined, moved.Status)
+		test.EqOp(t, "working as intended", moved.Resolution)
+		must.NotNil(t, moved.ClosedAt)
+
+		read, err := store.GetReport(t.Context(), testScope, r.ID)
+		must.NoError(t, err)
+		test.EqOp(t, StatusDeclined, read.Status)
+	})
+
+	t.Run("a transactional write refuses a nil executor", func(t *testing.T) {
+		t.Parallel()
+
+		// Every one of the four, not a representative one: a variant that
+		// reached for the store's writer when handed nothing would be a write
+		// outside the transaction its caller believes it is in.
+		store := env.newStore(t)
+
+		must.ErrorIs(t,
+			store.CreateReportTx(t.Context(), nil, newReport(testReporter, "bug", "details")),
+			ErrNilExecutor)
+		must.ErrorIs(t,
+			store.UpdateReportTx(t.Context(), nil, newReport(testReporter, "bug", "details")),
+			ErrNilExecutor)
+
+		_, err := store.TransitionReportTx(t.Context(), nil, testScope, "report_1",
+			StatusOpen, StatusResolved, "fixed")
+		must.ErrorIs(t, err, ErrNilExecutor)
+
+		must.ErrorIs(t,
+			store.ArchiveReportTx(t.Context(), nil, testScope, "report_1"),
+			ErrNilExecutor)
+	})
+
+	t.Run("the transactional writes refuse what their own path refuses", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		// Decided outside the transaction, so the triager inside it is holding a
+		// stale view: the one miss the guard exists to catch.
+		contested := filed(t, store, newReport(testReporter, "bug", "already decided"))
+		_, err := store.TransitionReport(t.Context(), testScope, contested.ID,
+			StatusOpen, StatusResolved, "fixed")
+		must.NoError(t, err)
+
+		unscoped := newReport(testReporter, "bug", "details")
+		unscoped.Scope = tenancy.Scope{}
+
+		bornResolved := newReport(testReporter, "bug", "details")
+		bornResolved.Status = StatusResolved
+
+		// Collected inside one transaction and asserted outside it, so a failed
+		// check does not abort the transaction the next one needs. None of these
+		// reaches a statement that errors: a refused move never runs one, and a
+		// guard that matches nothing is a count rather than a failure.
+		var (
+			nilCreate, unscopedCreate, resolvedCreate     error
+			nilUpdate, emptyDetails, missingUpdate        error
+			inadmissible, unknown, missingMove, staleMove error
+			missingArchive                                error
+		)
+
+		must.NoError(t, store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+			nilCreate = store.CreateReportTx(t.Context(), tx, nil)
+			unscopedCreate = store.CreateReportTx(t.Context(), tx, unscoped)
+			resolvedCreate = store.CreateReportTx(t.Context(), tx, bornResolved)
+
+			nilUpdate = store.UpdateReportTx(t.Context(), tx, nil)
+
+			silent := newReport(testReporter, "bug", "")
+			silent.ID = "report_never_written"
+			emptyDetails = store.UpdateReportTx(t.Context(), tx, silent)
+
+			absent := newReport(testReporter, "bug", "an edit to nothing")
+			absent.ID = "report_never_written"
+			missingUpdate = store.UpdateReportTx(t.Context(), tx, absent)
+
+			_, inadmissible = store.TransitionReportTx(t.Context(), tx, testScope, contested.ID,
+				StatusResolved, StatusAcknowledged, "")
+			_, unknown = store.TransitionReportTx(t.Context(), tx, testScope, contested.ID,
+				StatusOpen, Status("closed"), "")
+			_, missingMove = store.TransitionReportTx(t.Context(), tx, testScope, "report_never_written",
+				StatusOpen, StatusResolved, "fixed")
+			_, staleMove = store.TransitionReportTx(t.Context(), tx, testScope, contested.ID,
+				StatusOpen, StatusDeclined, "duplicate")
+
+			missingArchive = store.ArchiveReportTx(t.Context(), tx, testScope, "report_never_written")
+
+			return nil
+		}))
+
+		must.ErrorIs(t, nilCreate, ErrNilReport)
+		must.ErrorIs(t, unscopedCreate, tenancy.ErrNoScope)
+		must.ErrorIs(t, resolvedCreate, ErrInvalidStatusTransition)
+		must.ErrorIs(t, nilUpdate, ErrNilReport)
+		must.ErrorIs(t, emptyDetails, ErrEmptyDetails)
+		must.ErrorIs(t, missingUpdate, ErrReportNotFound)
+		must.ErrorIs(t, inadmissible, ErrInvalidStatusTransition)
+		must.ErrorIs(t, unknown, ErrUnknownStatus)
+		must.ErrorIs(t, missingMove, ErrReportNotFound)
+		must.ErrorIs(t, staleMove, ErrStatusConflict)
+		must.ErrorIs(t, missingArchive, ErrReportNotFound)
+
+		// The stale triager wrote nothing, and the first decision stands.
+		read, err := store.GetReport(t.Context(), testScope, contested.ID)
+		must.NoError(t, err)
+		test.EqOp(t, StatusResolved, read.Status)
+		test.EqOp(t, "fixed", read.Resolution)
 	})
 }
 

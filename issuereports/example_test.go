@@ -117,6 +117,70 @@ func ExampleStore_TransitionReport() {
 	// still says: resolved - refunded
 }
 
+// A decision on a report is rarely the only row it produces. TransitionReportTx
+// puts the move in the transaction that carries its companions — here an audit
+// entry naming who decided it — so neither can land without the other.
+func ExampleStore_TransitionReportTx() {
+	ctx := context.Background()
+
+	client := exampleClient(ctx)
+
+	// The consumer's own table, standing in for whatever a real application
+	// writes beside a report: an audit entry, a data change event on an outbox.
+	if _, err := client.Writer().ExecContext(ctx,
+		`CREATE TABLE audit_log (report_id TEXT NOT NULL, actor TEXT NOT NULL, outcome TEXT NOT NULL)`); err != nil {
+		panic(err)
+	}
+
+	store, err := issuereports.NewSQLStore(client)
+	if err != nil {
+		panic(err)
+	}
+
+	scope := tenancy.Of("acct_1")
+
+	report := &issuereports.Report{
+		Scope:    scope,
+		Reporter: "user_1",
+		Kind:     "billing",
+		Details:  "charged twice for one order",
+	}
+	if err = store.CreateReport(ctx, report); err != nil {
+		panic(err)
+	}
+
+	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		resolved, txErr := store.TransitionReportTx(ctx, tx, scope, report.ID,
+			issuereports.StatusOpen, issuereports.StatusResolved, "refunded")
+		if txErr != nil {
+			return txErr
+		}
+
+		// A failure here takes the decision back with it, which is the whole
+		// reason this is one transaction rather than two. The row handed back is
+		// the one this transaction wrote, so the entry describes what will
+		// commit.
+		_, txErr = tx.ExecContext(ctx,
+			`INSERT INTO audit_log (report_id, actor, outcome) VALUES (?, ?, ?)`,
+			resolved.ID, "triager_1", resolved.Status.String())
+
+		return txErr
+	}); err != nil {
+		panic(err)
+	}
+
+	var actor, outcome string
+	if err = client.Reader().QueryRowContext(ctx,
+		`SELECT actor, outcome FROM audit_log WHERE report_id = ?`, report.ID).Scan(&actor, &outcome); err != nil {
+		panic(err)
+	}
+
+	fmt.Println("audited:", actor, "-", outcome)
+
+	// Output:
+	// audited: triager_1 - resolved
+}
+
 // exampleClient is a throwaway SQLite database with the issue reports table in
 // it, so the examples above run as written.
 func exampleClient(ctx context.Context) database.Client {
