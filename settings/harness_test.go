@@ -10,6 +10,7 @@ import (
 	"github.com/primandproper/platform-go/v14/database"
 	"github.com/primandproper/platform-go/v14/database/dialect"
 	"github.com/primandproper/platform-go/v14/database/sqlite"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
 	"github.com/primandproper/platform-go/v14/pointer"
 	"github.com/primandproper/platform-go/v14/settings/migrations"
 	"github.com/primandproper/platform-go/v14/tenancy"
@@ -50,6 +51,11 @@ var (
 
 // testSubject is whose settings most of this suite is about.
 var testSubject = Subject{Type: SubjectUser, ID: "user-1"}
+
+// errCompanionWrite stands in for the write a consumer makes beside a setting —
+// the audit entry, the outbox event — failing after the setting itself is in the
+// transaction.
+var errCompanionWrite = platformerrors.New("the companion write failed")
 
 // storeEnv is one live database plus the dialect it speaks.
 type storeEnv struct {

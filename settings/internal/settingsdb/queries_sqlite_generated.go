@@ -49,6 +49,11 @@ INSERT INTO {{prefix}}settings_definitions (
 const deleteDefinitionOptionsSQLite = `DELETE FROM {{prefix}}settings_definition_options
 WHERE definition_id = ?1`
 
+const deleteValuesForSubjectSQLite = `DELETE FROM {{prefix}}settings_values
+WHERE scope = ?1
+	AND subject_type = ?2
+	AND subject_id = ?3`
+
 const getDefinitionSQLite = `SELECT
 	{{prefix}}settings_definitions.id,
 	{{prefix}}settings_definitions.scope,
@@ -476,6 +481,7 @@ type sqliteQueries struct {
 	archiveValue                         string
 	createDefinition                     string
 	deleteDefinitionOptions              string
+	deleteValuesForSubject               string
 	getDefinition                        string
 	getDefinitionByName                  string
 	getDefinitionCreatedAt               string
@@ -501,6 +507,7 @@ func newSQLite(prefix string) *sqliteQueries {
 		archiveValue:                         strings.ReplaceAll(archiveValueSQLite, prefixMarker, prefix),
 		createDefinition:                     strings.ReplaceAll(createDefinitionSQLite, prefixMarker, prefix),
 		deleteDefinitionOptions:              strings.ReplaceAll(deleteDefinitionOptionsSQLite, prefixMarker, prefix),
+		deleteValuesForSubject:               strings.ReplaceAll(deleteValuesForSubjectSQLite, prefixMarker, prefix),
 		getDefinition:                        strings.ReplaceAll(getDefinitionSQLite, prefixMarker, prefix),
 		getDefinitionByName:                  strings.ReplaceAll(getDefinitionByNameSQLite, prefixMarker, prefix),
 		getDefinitionCreatedAt:               strings.ReplaceAll(getDefinitionCreatedAtSQLite, prefixMarker, prefix),
@@ -596,6 +603,20 @@ func (q *sqliteQueries) CreateDefinition(ctx context.Context, db DBTX, arg Creat
 func (q *sqliteQueries) DeleteDefinitionOptions(ctx context.Context, db DBTX, arg DeleteDefinitionOptionsParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.deleteDefinitionOptions,
 		arg.DefinitionID,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// DeleteValuesForSubject runs the :execrows query against sqlite.
+func (q *sqliteQueries) DeleteValuesForSubject(ctx context.Context, db DBTX, arg DeleteValuesForSubjectParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.deleteValuesForSubject,
+		arg.Scope,
+		arg.SubjectType,
+		arg.SubjectID,
 	)
 	if err != nil {
 		return 0, err
@@ -1126,6 +1147,11 @@ var (
 	_ = struct {
 		DefinitionID string
 	}(DeleteDefinitionOptionsParams{})
+	_ = struct {
+		Scope       tenancy.Scope
+		SubjectType string
+		SubjectID   string
+	}(DeleteValuesForSubjectParams{})
 	_ = struct {
 		ID    string
 		Scope tenancy.Scope

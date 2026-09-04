@@ -49,6 +49,11 @@ INSERT INTO {{prefix}}settings_definitions (
 const deleteDefinitionOptionsMySQL = `DELETE FROM {{prefix}}settings_definition_options
 WHERE definition_id = ?`
 
+const deleteValuesForSubjectMySQL = `DELETE FROM {{prefix}}settings_values
+WHERE scope = ?
+	AND subject_type = ?
+	AND subject_id = ?`
+
 const getDefinitionMySQL = `SELECT
 	{{prefix}}settings_definitions.id,
 	{{prefix}}settings_definitions.scope,
@@ -476,6 +481,7 @@ type mysqlQueries struct {
 	archiveValue                         string
 	createDefinition                     string
 	deleteDefinitionOptions              string
+	deleteValuesForSubject               string
 	getDefinition                        string
 	getDefinitionByName                  string
 	getDefinitionCreatedAt               string
@@ -501,6 +507,7 @@ func newMySQL(prefix string) *mysqlQueries {
 		archiveValue:                         strings.ReplaceAll(archiveValueMySQL, prefixMarker, prefix),
 		createDefinition:                     strings.ReplaceAll(createDefinitionMySQL, prefixMarker, prefix),
 		deleteDefinitionOptions:              strings.ReplaceAll(deleteDefinitionOptionsMySQL, prefixMarker, prefix),
+		deleteValuesForSubject:               strings.ReplaceAll(deleteValuesForSubjectMySQL, prefixMarker, prefix),
 		getDefinition:                        strings.ReplaceAll(getDefinitionMySQL, prefixMarker, prefix),
 		getDefinitionByName:                  strings.ReplaceAll(getDefinitionByNameMySQL, prefixMarker, prefix),
 		getDefinitionCreatedAt:               strings.ReplaceAll(getDefinitionCreatedAtMySQL, prefixMarker, prefix),
@@ -566,6 +573,20 @@ func (q *mysqlQueries) CreateDefinition(ctx context.Context, db DBTX, arg Create
 func (q *mysqlQueries) DeleteDefinitionOptions(ctx context.Context, db DBTX, arg DeleteDefinitionOptionsParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.deleteDefinitionOptions,
 		arg.DefinitionID,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// DeleteValuesForSubject runs the :execrows query against mysql.
+func (q *mysqlQueries) DeleteValuesForSubject(ctx context.Context, db DBTX, arg DeleteValuesForSubjectParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.deleteValuesForSubject,
+		arg.Scope,
+		arg.SubjectType,
+		arg.SubjectID,
 	)
 	if err != nil {
 		return 0, err
@@ -1159,6 +1180,11 @@ var (
 	_ = struct {
 		DefinitionID string
 	}(DeleteDefinitionOptionsParams{})
+	_ = struct {
+		Scope       tenancy.Scope
+		SubjectType string
+		SubjectID   string
+	}(DeleteValuesForSubjectParams{})
 	_ = struct {
 		ID    string
 		Scope tenancy.Scope
