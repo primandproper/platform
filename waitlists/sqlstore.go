@@ -151,10 +151,16 @@ func (s *SQLStore) Digest(contact string) string {
 	return hashing.HexString(s.hasher, Normalize(contact))
 }
 
-// countSignup records a signup reaching a status, including the one it is
-// written at.
-func (s *SQLStore) countSignup(ctx context.Context, status Status) {
-	s.signupsCounter.Add(ctx, 1, metric.WithAttributes(attribute.String(statusKey, string(status))))
+// countSignups records n signups reaching a status, including the one a signup
+// is written at.
+//
+// It is called when the statement lands, which on the transactional paths is
+// before the caller commits. A companion write that fails afterwards takes the
+// row back and not the count, and that is the trade: the alternative is a
+// counter the transactional variants do not feed, which under-reports every
+// launch whose consumer records an audit entry beside each signup.
+func (s *SQLStore) countSignups(ctx context.Context, status Status, n int64) {
+	s.signupsCounter.Add(ctx, n, metric.WithAttributes(attribute.String(statusKey, string(status))))
 }
 
 // notFound maps a driver's empty-result error onto this package's sentinel for

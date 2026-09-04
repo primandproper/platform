@@ -108,6 +108,7 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 		"ListSignups", "ListSignupsDescending",
 		"ListSignupsForSubject", "ListSignupsForSubjectDescending",
 		"InsertSignup", "UpdateSignupNotes", "TransitionSignup", "WithdrawSignup", "ArchiveSignup",
+		"WithdrawSignupsForSubject",
 	}
 
 	for _, d := range everyDialect {
@@ -263,6 +264,55 @@ func TestRender_TransitionsAreGuarded(T *testing.T) {
 			// last_updated_at, and nothing else.
 			notes := statementNamed(t, Render(d), "UpdateSignupNotes")
 			test.StrNotContains(t, notes, SignupStatusChangedColumn+" =")
+		})
+	}
+}
+
+// TestRender_ErasureReachesEveryRowNamingTheSubject pins the three ways the
+// erasure differs from the single-row withdrawal, each of which is a row an
+// erasure would otherwise leave holding somebody's address.
+func TestRender_ErasureReachesEveryRowNamingTheSubject(T *testing.T) {
+	T.Parallel()
+
+	for _, d := range everyDialect {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			erasure := statementNamed(t, Render(d), "WithdrawSignupsForSubject")
+
+			// It keys on the subject within the scope, not on a list and an id:
+			// a person may be on several lists, and the one statement reaches
+			// all of them. It is the one signup write that does not name the
+			// list, which is why it is absent from the keyed set above.
+			test.StrContains(t, erasure, ScopeColumn+" = ")
+			test.StrContains(t, erasure, SignupSubjectTypeColumn+" = sqlc.arg("+ErasedSubjectTypeArg+")")
+			test.StrContains(t, erasure, SignupSubjectIDColumn+" = sqlc.arg("+ErasedSubjectIDArg+")")
+			test.StrNotContains(t, erasure, SignupListColumn+" = ")
+			test.StrNotContains(t, erasure, "\t"+querygen.IDColumn+" = ")
+
+			// It reaches archived rows. An archived signup still holds the
+			// address it was made with, and an erasure that skipped it would
+			// report completion over a row still naming somebody.
+			test.StrNotContains(t, erasure, querygen.ArchivedAtColumn+" IS NULL")
+
+			// It carries no status guard, because a withdrawn row has had its
+			// subject blanked and cannot match a predicate naming one.
+			test.StrNotContains(t, erasure, ExpectedStatusArg)
+
+			// And it blanks exactly what the single-row withdrawal blanks, and
+			// keeps exactly what it keeps: the two must not drift into two
+			// meanings of "withdrawn".
+			withdraw := statementNamed(t, Render(d), "WithdrawSignup")
+			for _, column := range []string{
+				SignupContactColumn, SignupNotesColumn, SignupSubjectTypeColumn, SignupSubjectIDColumn,
+				SignupStatusColumn,
+			} {
+				test.StrContains(t, erasure, column+" = sqlc.arg("+column+")")
+				test.StrContains(t, withdraw, column+" = sqlc.arg("+column+")")
+			}
+
+			test.StrContains(t, erasure, SignupStatusChangedColumn+" = sqlc.narg("+SignupStatusChangedColumn+")")
+			test.StrNotContains(t, erasure, SignupContactDigestColumn+" = sqlc.arg")
 		})
 	}
 }

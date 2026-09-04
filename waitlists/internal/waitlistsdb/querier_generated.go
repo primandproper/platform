@@ -87,4 +87,9 @@ type Querier interface {
 	// The count means different things on different engines; see the note
 	// on Querier.
 	WithdrawSignup(ctx context.Context, db DBTX, arg WithdrawSignupParams) (int64, error)
+	// WithdrawSignupsForSubject runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	WithdrawSignupsForSubject(ctx context.Context, db DBTX, arg WithdrawSignupsForSubjectParams) (int64, error)
 }

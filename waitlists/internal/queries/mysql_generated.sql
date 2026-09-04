@@ -603,3 +603,16 @@ WHERE archived_at IS NULL
 	AND id = sqlc.arg(id)
 	AND scope = sqlc.arg(scope)
 	AND waitlist_id = sqlc.arg(waitlist_id);
+
+-- name: WithdrawSignupsForSubject :execrows
+UPDATE waitlist_signups SET
+	contact = sqlc.arg(contact),
+	subject_type = sqlc.arg(subject_type),
+	subject_id = sqlc.arg(subject_id),
+	notes = sqlc.arg(notes),
+	status = sqlc.arg(status),
+	status_changed_at = sqlc.narg(status_changed_at),
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE scope = sqlc.arg(scope)
+	AND subject_type = sqlc.arg(erased_subject_type)
+	AND subject_id = sqlc.arg(erased_subject_id);

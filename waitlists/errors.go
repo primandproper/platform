@@ -12,6 +12,15 @@ var (
 	// errors.ErrNilInputParameter, so a caller may check either.
 	ErrNilDatabaseClient = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil database client")
 
+	// ErrNilExecutor indicates a nil database.Tx handed to a write that runs
+	// inside the caller's transaction. It wraps errors.ErrNilInputParameter.
+	//
+	// It is refused rather than substituted: a transactional variant that
+	// reached for the store's own writer when handed nothing would be a write
+	// outside the transaction its caller believes it is in, which is the
+	// failure the variant exists to prevent.
+	ErrNilExecutor = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil query executor")
+
 	// ErrNilList indicates a nil *List where one was required.
 	ErrNilList = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil waitlist")
 

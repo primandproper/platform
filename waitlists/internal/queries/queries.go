@@ -76,6 +76,18 @@ const OpenAsOfArg = "open_as_of"
 // to already have, which is legal SQL that guards nothing.
 const ExpectedStatusArg = "expected_status"
 
+// The subject an erasure is about, as the two arguments its predicate binds.
+//
+// They are second names for the subject columns for the reason ExpectedStatusArg
+// is a second name for the status column: the erasure both requires the row to
+// name this subject and assigns those columns the empty string, and under one
+// name per column the statement would blank the subject it was matching on —
+// legal SQL that matches nothing.
+const (
+	ErasedSubjectTypeArg = "erased_subject_type"
+	ErasedSubjectIDArg   = "erased_subject_id"
+)
+
 // Lists is the catalog: what a waitlist is called, what it is for, and when it
 // stops taking signups.
 //
@@ -277,7 +289,7 @@ func signupReads(g *querygen.Generator) []*querygen.Query {
 			scope, subjectType, subjectID)...)
 }
 
-// signupWrites is the insert, the three updates, and the archive.
+// signupWrites is the insert, the three updates, the archive, and the erasure.
 //
 // The three updates are three statements rather than one because they assign
 // three different sets for three different reasons, and folding them together
@@ -297,6 +309,19 @@ func signupReads(g *querygen.Generator) []*querygen.Query {
 // the table holding their address. Its guard is inverted — the row must not
 // already be withdrawn — so a replayed withdrawal reports no rows rather than
 // restamping the moment somebody left.
+//
+// WithdrawSignupsForSubject is the same erasure over every signup one principal
+// holds in the scope, which is the write a data privacy erasure runs. It differs
+// from WithdrawSignup in three ways, each deliberate. It keys on the subject
+// rather than on a list and an id, because an erasure is about a person and a
+// person may be on several lists. It is rendered from a column list carrying
+// neither the id nor archived_at, so it reaches archived rows: an archived
+// signup still holds the address it was made with, and an erasure that left it
+// would be an erasure that reported completion over a row still naming somebody.
+// And it carries no status guard, because it needs none — a withdrawn row has
+// had its subject blanked already, so a predicate naming a subject cannot match
+// one. The subject columns are matched under second names, since the SET list
+// assigns them; see ErasedSubjectTypeArg.
 func signupWrites(g *querygen.Generator) []*querygen.Query {
 	var (
 		scope = querygen.Match{Column: ScopeColumn}
@@ -304,6 +329,22 @@ func signupWrites(g *querygen.Generator) []*querygen.Query {
 
 		holding = querygen.Match{Column: SignupStatusColumn, Arg: ExpectedStatusArg}
 		notYet  = querygen.Match{Column: SignupStatusColumn, Arg: ExpectedStatusArg, Exclude: true}
+
+		erasedType = querygen.Match{Column: SignupSubjectTypeColumn, Arg: ErasedSubjectTypeArg}
+		erasedID   = querygen.Match{Column: SignupSubjectIDColumn, Arg: ErasedSubjectIDArg}
+
+		// What a withdrawal blanks: everything on the row that identifies a
+		// person, and the status pair that records the withdrawal. The digest
+		// is not among them, on purpose — it is what the suppression outlives
+		// the address by.
+		erased = []string{
+			SignupContactColumn,
+			SignupSubjectTypeColumn,
+			SignupSubjectIDColumn,
+			SignupNotesColumn,
+			SignupStatusColumn,
+			SignupStatusChangedColumn,
+		}
 	)
 
 	return []*querygen.Query{
@@ -318,18 +359,15 @@ func signupWrites(g *querygen.Generator) []*querygen.Query {
 			scope, list, holding),
 
 		g.UpdateQuery("WithdrawSignup", SignupsTable, Signups.Columns,
-			[]string{
-				SignupContactColumn,
-				SignupSubjectTypeColumn,
-				SignupSubjectIDColumn,
-				SignupNotesColumn,
-				SignupStatusColumn,
-				SignupStatusChangedColumn,
-			},
-			Signups.Nullable,
+			erased, Signups.Nullable,
 			scope, list, notYet),
 
 		g.ArchiveQuery("ArchiveSignup", SignupsTable, Signups.Columns, scope, list),
+
+		g.UpdateQuery("WithdrawSignupsForSubject", SignupsTable,
+			Signups.ColumnsExcept(querygen.IDColumn, querygen.ArchivedAtColumn),
+			erased, Signups.Nullable,
+			scope, erasedType, erasedID),
 	}
 }
 

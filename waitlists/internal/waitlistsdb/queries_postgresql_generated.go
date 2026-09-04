@@ -597,6 +597,18 @@ WHERE archived_at IS NULL
 	AND waitlist_id = $9
 	AND status <> $10`
 
+const withdrawSignupsForSubjectPostgreSQL = `UPDATE {{prefix}}waitlist_signups SET
+	contact = $1,
+	subject_type = $2,
+	subject_id = $3,
+	notes = $4,
+	status = $5,
+	status_changed_at = $6,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE scope = $7
+	AND subject_type = $8
+	AND subject_id = $9`
+
 // postgresqlQueries answers every query in Querier against postgresql.
 type postgresqlQueries struct {
 	archiveList                     string
@@ -620,6 +632,7 @@ type postgresqlQueries struct {
 	updateList                      string
 	updateSignupNotes               string
 	withdrawSignup                  string
+	withdrawSignupsForSubject       string
 }
 
 // newPostgreSQL returns the postgresql querier with prefix substituted into every
@@ -647,6 +660,7 @@ func newPostgreSQL(prefix string) *postgresqlQueries {
 		updateList:                      strings.ReplaceAll(updateListPostgreSQL, prefixMarker, prefix),
 		updateSignupNotes:               strings.ReplaceAll(updateSignupNotesPostgreSQL, prefixMarker, prefix),
 		withdrawSignup:                  strings.ReplaceAll(withdrawSignupPostgreSQL, prefixMarker, prefix),
+		withdrawSignupsForSubject:       strings.ReplaceAll(withdrawSignupsForSubjectPostgreSQL, prefixMarker, prefix),
 	}
 }
 
@@ -1300,6 +1314,26 @@ func (q *postgresqlQueries) WithdrawSignup(ctx context.Context, db DBTX, arg Wit
 	return result.RowsAffected()
 }
 
+// WithdrawSignupsForSubject runs the :execrows query against postgresql.
+func (q *postgresqlQueries) WithdrawSignupsForSubject(ctx context.Context, db DBTX, arg WithdrawSignupsForSubjectParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.withdrawSignupsForSubject,
+		arg.Contact,
+		arg.SubjectType,
+		arg.SubjectID,
+		arg.Notes,
+		arg.Status,
+		arg.StatusChangedAt,
+		arg.Scope,
+		arg.ErasedSubjectType,
+		arg.ErasedSubjectID,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // Shape assertions.
 //
 // Each conversion below compiles only if the shared type still has exactly
@@ -1638,4 +1672,15 @@ var (
 		WaitlistID      string
 		ExpectedStatus  string
 	}(WithdrawSignupParams{})
+	_ = struct {
+		Contact           string
+		SubjectType       string
+		SubjectID         string
+		Notes             string
+		Status            string
+		StatusChangedAt   *time.Time
+		Scope             tenancy.Scope
+		ErasedSubjectType string
+		ErasedSubjectID   string
+	}(WithdrawSignupsForSubjectParams{})
 )

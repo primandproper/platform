@@ -96,6 +96,38 @@ about them and keeps the suppression. Somebody clicking "unsubscribe" wants this
 one, and a consumer that reaches for the archive instead has written the bug this
 package exists to prevent.
 
+# Every write has a transactional twin
+
+A row in a consumer's schema is rarely written alone. An audit entry naming who
+did what and a data change event on an outbox somebody fans out are the ordinary
+companions of a signup, and a companion is worth what its atomicity with the row
+is worth. So every write here — [ListStore.CreateList] through
+[SignupStore.ArchiveSignup] — has a variant suffixed Tx that runs on a
+database.Tx the caller is holding, sharing one body with its twin so the two
+cannot drift into refusing different things. See [Store] for the argument in
+full.
+
+# Erasure is a withdrawal, and it is a separate package
+
+A signup holds an address and, where the person had an account, a reference to
+it — which is personal data, and this package does not own the directory people
+live in. A consumer cannot close that with a foreign key either: a withdrawal
+blanks the subject reference to the empty string, which names no user, so a
+cascade on that column would refuse every withdrawal.
+
+[SignupStore.WithdrawSignupsForSubject] is the erasure write. It is a withdrawal
+rather than a delete for the reason the digest exists — a delete frees the
+unique key, so somebody erased at their own request could be re-subscribed by
+the next form submission — and it reaches archived signups, which the single-row
+withdrawal cannot, because an archived signup still holds the address it was
+made with. It runs in the caller's transaction, so a subject's signups and the
+rest of their footprint commit or roll back together.
+
+[github.com/primandproper/platform-go/v14/waitlists/privacy] is the
+dataprivacy.Collector and dataprivacy.Eraser built on that write and on
+[SignupStore.ListSignupsForSubject]. It is its own package so that a service
+with a signup form and no privacy pipeline does not compile one.
+
 # ClosesAt is required, and the column is NOT NULL
 
 A list names the instant it stops taking signups, and there is no way to say

@@ -409,3 +409,16 @@ type WithdrawSignupParams struct {
 	WaitlistID      string
 	ExpectedStatus  string
 }
+
+// WithdrawSignupsForSubjectParams are the arguments to WithdrawSignupsForSubject.
+type WithdrawSignupsForSubjectParams struct {
+	Contact           string
+	SubjectType       string
+	SubjectID         string
+	Notes             string
+	Status            string
+	StatusChangedAt   *time.Time
+	Scope             tenancy.Scope
+	ErasedSubjectType string
+	ErasedSubjectID   string
+}

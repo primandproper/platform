@@ -4,6 +4,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/primandproper/platform-go/v14/database"
+	"github.com/primandproper/platform-go/v14/filtering"
+	"github.com/primandproper/platform-go/v14/tenancy"
+
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 )
@@ -184,4 +188,159 @@ func runWithdrawalSuite(t *testing.T, env *storeEnv) {
 			must.NoError(t, store.Withdraw(t.Context(), testScope, list.ID, signup.ID))
 		})
 	})
+
+	t.Run("WithdrawSignupsForSubject", func(T *testing.T) {
+		T.Run("withdraws every signup the subject holds, archived included, and keeps each digest", func(t *testing.T) {
+			t.Parallel()
+
+			c := newStubClock()
+			store := env.newStore(t, WithClock(c))
+
+			first := mustCreateList(t, store, testScope, openList("first"))
+			second := mustCreateList(t, store, testScope, openList("second"))
+
+			live := mustJoin(t, store, testScope, first.ID, &Signup{
+				Contact: "ada@example.com",
+				Notes:   "met at the conference",
+				Subject: testSubject,
+			})
+			retired := mustJoin(t, store, testScope, second.ID, &Signup{Contact: "ada@example.com", Subject: testSubject})
+			must.NoError(t, store.ArchiveSignup(t.Context(), testScope, second.ID, retired.ID))
+
+			// Two rows the erasure must leave alone: somebody else's, and one
+			// naming nobody — which is the row a predicate bound to the empty
+			// subject would have reached.
+			theirs := mustJoin(t, store, testScope, first.ID, &Signup{
+				Contact: "grace@example.com",
+				Subject: Subject{Type: SubjectUser, ID: "user-2"},
+			})
+			nobodys := mustJoin(t, store, testScope, first.ID, &Signup{Contact: "anon@example.com"})
+
+			c.advance(time.Hour)
+
+			withdrawn := eraseSubject(t, store, testScope, testSubject)
+			test.EqOp(t, int64(2), withdrawn)
+
+			// The live one is left exactly as Withdraw leaves a row.
+			read, err := store.GetSignup(t.Context(), testScope, first.ID, live.ID)
+			must.NoError(t, err)
+			test.EqOp(t, StatusWithdrawn, read.Status)
+			test.EqOp(t, "", read.Contact)
+			test.EqOp(t, "", read.Notes)
+			test.True(t, read.Subject.Anonymous())
+			test.EqOp(t, live.ContactDigest, read.ContactDigest)
+			must.NotNil(t, read.StatusChangedAt)
+			test.EqOp(t, c.read(), *read.StatusChangedAt)
+
+			// And so is the archived one, which the single-row withdrawal
+			// cannot reach and which still held the address until now.
+			everything := filtering.DefaultQueryFilter()
+			everything.IncludeArchived = new(true)
+
+			page, err := store.ListSignups(t.Context(), testScope, second.ID, everything)
+			must.NoError(t, err)
+			must.SliceLen(t, 1, page.Data)
+			test.EqOp(t, retired.ID, page.Data[0].ID)
+			test.EqOp(t, StatusWithdrawn, page.Data[0].Status)
+			test.EqOp(t, "", page.Data[0].Contact)
+			test.True(t, page.Data[0].Subject.Anonymous())
+			test.NotNil(t, page.Data[0].ArchivedAt)
+
+			// Nothing names the subject any more, archived rows included.
+			page, err = store.ListSignupsForSubject(t.Context(), testScope, testSubject, everything)
+			must.NoError(t, err)
+			test.SliceEmpty(t, page.Data)
+
+			// The suppression holds on both lists: an erasure that freed the
+			// key would let the next form submission re-subscribe somebody
+			// erased at their own request.
+			_, err = store.Join(t.Context(), testScope, first.ID, &Signup{Contact: "Ada@Example.com"})
+			test.ErrorIs(t, err, ErrContactWithdrawn)
+			_, err = store.Join(t.Context(), testScope, second.ID, &Signup{Contact: "ada@example.com"})
+			test.ErrorIs(t, err, ErrContactWithdrawn)
+
+			// The other two are untouched.
+			read, err = store.GetSignup(t.Context(), testScope, first.ID, theirs.ID)
+			must.NoError(t, err)
+			test.EqOp(t, "grace@example.com", read.Contact)
+			test.EqOp(t, StatusWaiting, read.Status)
+
+			read, err = store.GetSignup(t.Context(), testScope, first.ID, nobodys.ID)
+			must.NoError(t, err)
+			test.EqOp(t, "anon@example.com", read.Contact)
+			test.EqOp(t, StatusWaiting, read.Status)
+		})
+
+		T.Run("does not cross scopes", func(t *testing.T) {
+			t.Parallel()
+
+			store := env.newStore(t)
+
+			list := mustCreateList(t, store, testScope, openList("Launch"))
+			elsewhere := mustCreateList(t, store, otherScope, openList("Launch"))
+			mustJoin(t, store, testScope, list.ID, &Signup{Contact: "ada@example.com", Subject: testSubject})
+			theirs := mustJoin(t, store, otherScope, elsewhere.ID, &Signup{Contact: "ada@example.com", Subject: testSubject})
+
+			test.EqOp(t, int64(1), eraseSubject(t, store, testScope, testSubject))
+
+			read, err := store.GetSignup(t.Context(), otherScope, elsewhere.ID, theirs.ID)
+			must.NoError(t, err)
+			test.EqOp(t, "ada@example.com", read.Contact)
+			test.EqOp(t, testSubject, read.Subject)
+		})
+
+		T.Run("a subject with nothing here is zero, not an error", func(t *testing.T) {
+			t.Parallel()
+
+			store := env.newStore(t)
+
+			test.EqOp(t, int64(0), eraseSubject(t, store, testScope, testSubject))
+		})
+
+		T.Run("refuses half a subject and the anonymous one", func(t *testing.T) {
+			t.Parallel()
+
+			store := env.newStore(t)
+
+			list := mustCreateList(t, store, testScope, openList("Launch"))
+			nobodys := mustJoin(t, store, testScope, list.ID, &Signup{Contact: "anon@example.com"})
+
+			var anonymous, typeless, idless error
+
+			must.NoError(t, store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+				_, anonymous = store.WithdrawSignupsForSubject(t.Context(), tx, testScope, Subject{})
+				_, typeless = store.WithdrawSignupsForSubject(t.Context(), tx, testScope, Subject{ID: "user-1"})
+				_, idless = store.WithdrawSignupsForSubject(t.Context(), tx, testScope, Subject{Type: SubjectUser})
+
+				return nil
+			}))
+
+			test.ErrorIs(t, anonymous, ErrEmptySubjectType)
+			test.ErrorIs(t, typeless, ErrEmptySubjectType)
+			test.ErrorIs(t, idless, ErrEmptySubjectID)
+
+			// The row naming nobody is the one an unrefused anonymous subject
+			// would have withdrawn.
+			read, err := store.GetSignup(t.Context(), testScope, list.ID, nobodys.ID)
+			must.NoError(t, err)
+			test.EqOp(t, StatusWaiting, read.Status)
+		})
+	})
+}
+
+// eraseSubject runs the erasure in a transaction of its own and hands back the
+// count, for the assertions that are about what it did rather than about the
+// transaction it did it in.
+func eraseSubject(tb testing.TB, store *SQLStore, scope tenancy.Scope, subject Subject) int64 {
+	tb.Helper()
+
+	var withdrawn int64
+
+	must.NoError(tb, store.client.WithTransaction(tb.Context(), func(tx database.Tx) (err error) {
+		withdrawn, err = store.WithdrawSignupsForSubject(tb.Context(), tx, scope, subject)
+
+		return err
+	}))
+
+	return withdrawn
 }
