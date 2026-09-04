@@ -47,10 +47,16 @@ type Querier interface {
 	// The count means different things on different engines; see the note
 	// on Querier.
 	ArchiveRoleByName(ctx context.Context, db DBTX, arg ArchiveRoleByNameParams) (int64, error)
-	// CreateRoleHierarchyEdge runs the :exec query.
-	CreateRoleHierarchyEdge(ctx context.Context, db DBTX, arg CreateRoleHierarchyEdgeParams) error
-	// CreateRolePermission runs the :exec query.
-	CreateRolePermission(ctx context.Context, db DBTX, arg CreateRolePermissionParams) error
+	// CreateRoleHierarchyEdge runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	CreateRoleHierarchyEdge(ctx context.Context, db DBTX, arg CreateRoleHierarchyEdgeParams) (int64, error)
+	// CreateRolePermission runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	CreateRolePermission(ctx context.Context, db DBTX, arg CreateRolePermissionParams) (int64, error)
 	// DeleteRoleHierarchy runs the :execrows query.
 	//
 	// The count means different things on different engines; see the note

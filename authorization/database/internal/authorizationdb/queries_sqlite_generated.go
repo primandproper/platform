@@ -16,7 +16,7 @@ const archiveRoleByNameSQLite = `UPDATE {{prefix}}authz_roles SET
 WHERE archived_at IS NULL
 	AND name = ?1`
 
-const createRoleHierarchyEdgeSQLite = `INSERT INTO {{prefix}}authz_role_hierarchy (
+const createRoleHierarchyEdgeSQLite = `INSERT OR IGNORE INTO {{prefix}}authz_role_hierarchy (
 	child_role_id,
 	parent_role_id
 ) VALUES (
@@ -24,7 +24,7 @@ const createRoleHierarchyEdgeSQLite = `INSERT INTO {{prefix}}authz_role_hierarch
 	?2
 )`
 
-const createRolePermissionSQLite = `INSERT INTO {{prefix}}authz_role_permissions (
+const createRolePermissionSQLite = `INSERT OR IGNORE INTO {{prefix}}authz_role_permissions (
 	role_id,
 	permission_id
 ) VALUES (
@@ -201,24 +201,30 @@ func (q *sqliteQueries) ArchiveRoleByName(ctx context.Context, db DBTX, arg Arch
 	return result.RowsAffected()
 }
 
-// CreateRoleHierarchyEdge runs the :exec query against sqlite.
-func (q *sqliteQueries) CreateRoleHierarchyEdge(ctx context.Context, db DBTX, arg CreateRoleHierarchyEdgeParams) error {
-	_, err := db.ExecContext(ctx, q.createRoleHierarchyEdge,
+// CreateRoleHierarchyEdge runs the :execrows query against sqlite.
+func (q *sqliteQueries) CreateRoleHierarchyEdge(ctx context.Context, db DBTX, arg CreateRoleHierarchyEdgeParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.createRoleHierarchyEdge,
 		arg.ChildRoleID,
 		arg.ParentRoleID,
 	)
+	if err != nil {
+		return 0, err
+	}
 
-	return err
+	return result.RowsAffected()
 }
 
-// CreateRolePermission runs the :exec query against sqlite.
-func (q *sqliteQueries) CreateRolePermission(ctx context.Context, db DBTX, arg CreateRolePermissionParams) error {
-	_, err := db.ExecContext(ctx, q.createRolePermission,
+// CreateRolePermission runs the :execrows query against sqlite.
+func (q *sqliteQueries) CreateRolePermission(ctx context.Context, db DBTX, arg CreateRolePermissionParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.createRolePermission,
 		arg.RoleID,
 		arg.PermissionID,
 	)
+	if err != nil {
+		return 0, err
+	}
 
-	return err
+	return result.RowsAffected()
 }
 
 // DeleteRoleHierarchy runs the :execrows query against sqlite.

@@ -52,9 +52,9 @@ const (
 
 	upsertRoleExec       = "INSERT INTO authz_roles"
 	clearPermissionsExec = "DELETE FROM authz_role_permissions"
-	grantPermissionExec  = "INSERT INTO authz_role_permissions"
+	grantPermissionExec  = "INSERT OR IGNORE INTO authz_role_permissions"
 	clearHierarchyExec   = "DELETE FROM authz_role_hierarchy"
-	inheritExec          = "INSERT INTO authz_role_hierarchy"
+	inheritExec          = "INSERT OR IGNORE INTO authz_role_hierarchy"
 	archiveRoleExec      = "UPDATE authz_roles SET"
 )
 
@@ -259,6 +259,38 @@ func TestResolver_Seed_Failures(T *testing.T) {
 		err := r.Seed(t.Context(), mockExecutor(t, r), role)
 
 		test.ErrorIs(t, err, errBoom)
+	})
+
+	// A minted name is read back once written, so that a writer that lost the
+	// race for it carries the id the name actually got; that read is its own
+	// failure path.
+	T.Run("surfaces a failure reading back a name it minted", func(t *testing.T) {
+		t.Parallel()
+
+		r, mock := newMockResolver(t)
+		mock.ExpectQuery(rolesByNamesQuery).WillReturnRows(sqlmock.NewRows(lookupColumns()))
+		mock.ExpectExec(upsertRoleExec).WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectQuery(rolesByNamesQuery).WillReturnError(errBoom)
+
+		err := r.Seed(t.Context(), mockExecutor(t, r), role)
+
+		test.ErrorIs(t, err, errBoom)
+	})
+
+	// And a name that is still missing after its own write is a broken
+	// invariant, named as such rather than left to fail as a foreign key on the
+	// first grant.
+	T.Run("reports a minted name that cannot be read back", func(t *testing.T) {
+		t.Parallel()
+
+		r, mock := newMockResolver(t)
+		mock.ExpectQuery(rolesByNamesQuery).WillReturnRows(sqlmock.NewRows(lookupColumns()))
+		mock.ExpectExec(upsertRoleExec).WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectQuery(rolesByNamesQuery).WillReturnRows(sqlmock.NewRows(lookupColumns()))
+
+		err := r.Seed(t.Context(), mockExecutor(t, r), role)
+
+		test.ErrorIs(t, err, ErrWrittenNameMissing)
 	})
 
 	// An existing row whose description changed is written back under the id it

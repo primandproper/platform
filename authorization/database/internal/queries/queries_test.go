@@ -312,6 +312,44 @@ func TestRender_TheUpsertsRevive(T *testing.T) {
 	}
 }
 
+// TestRender_GrantWritesSkipTheRowAlreadyThere. A seed runs from every replica
+// of a service at once, and the mapping tables are cleared and rewritten a row
+// at a time, so the seed that commits second finds the first's rows under the
+// primary key its own inserts name. A plain INSERT there fails the whole
+// transaction; the duplicate-skipping one converges on the policy both were
+// given. The spelling is the dialect's, and each is pinned, because the plain
+// insert differs from the skipping one by exactly the clause this looks for.
+func TestRender_GrantWritesSkipTheRowAlreadyThere(T *testing.T) {
+	T.Parallel()
+
+	skipping := map[dialect.Dialect]map[string]string{
+		dialect.Postgres: {
+			"CreateRolePermission":    "ON CONFLICT (" + RoleIDColumn + ", " + PermissionIDColumn + ") DO NOTHING",
+			"CreateRoleHierarchyEdge": "ON CONFLICT (" + ChildRoleIDColumn + ", " + ParentRoleIDColumn + ") DO NOTHING",
+		},
+		dialect.MySQL: {
+			"CreateRolePermission":    "INSERT IGNORE INTO " + RolePermissionsTable,
+			"CreateRoleHierarchyEdge": "INSERT IGNORE INTO " + RoleHierarchyTable,
+		},
+		dialect.SQLite: {
+			"CreateRolePermission":    "INSERT OR IGNORE INTO " + RolePermissionsTable,
+			"CreateRoleHierarchyEdge": "INSERT OR IGNORE INTO " + RoleHierarchyTable,
+		},
+	}
+
+	for _, d := range dialects() {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			rendered := corpus(t, d)
+
+			for name, clause := range skipping[d] {
+				test.StrContains(t, rendered[name], clause, test.Sprintf("statement %q", name))
+			}
+		})
+	}
+}
+
 // TestRender_NoStatementNamesAnUnprefixableTable. Every statement carries a
 // canonical name, which unison substitutes a consumer's prefix into once at
 // construction; a statement spelling a table some other way would be one the

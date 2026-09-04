@@ -124,8 +124,8 @@ ON CONFLICT (name) DO UPDATE SET
 DELETE FROM authz_role_permissions
 WHERE role_id = sqlc.arg(role_id);
 
--- name: CreateRolePermission :exec
-INSERT INTO authz_role_permissions (
+-- name: CreateRolePermission :execrows
+INSERT OR IGNORE INTO authz_role_permissions (
 	role_id,
 	permission_id
 ) VALUES (
@@ -137,8 +137,8 @@ INSERT INTO authz_role_permissions (
 DELETE FROM authz_role_hierarchy
 WHERE child_role_id = sqlc.arg(child_role_id);
 
--- name: CreateRoleHierarchyEdge :exec
-INSERT INTO authz_role_hierarchy (
+-- name: CreateRoleHierarchyEdge :execrows
+INSERT OR IGNORE INTO authz_role_hierarchy (
 	child_role_id,
 	parent_role_id
 ) VALUES (

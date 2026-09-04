@@ -16,7 +16,7 @@ const archiveRoleByNameMySQL = `UPDATE {{prefix}}authz_roles SET
 WHERE archived_at IS NULL
 	AND name = ?`
 
-const createRoleHierarchyEdgeMySQL = `INSERT INTO {{prefix}}authz_role_hierarchy (
+const createRoleHierarchyEdgeMySQL = `INSERT IGNORE INTO {{prefix}}authz_role_hierarchy (
 	child_role_id,
 	parent_role_id
 ) VALUES (
@@ -24,7 +24,7 @@ const createRoleHierarchyEdgeMySQL = `INSERT INTO {{prefix}}authz_role_hierarchy
 	?
 )`
 
-const createRolePermissionMySQL = `INSERT INTO {{prefix}}authz_role_permissions (
+const createRolePermissionMySQL = `INSERT IGNORE INTO {{prefix}}authz_role_permissions (
 	role_id,
 	permission_id
 ) VALUES (
@@ -201,24 +201,30 @@ func (q *mysqlQueries) ArchiveRoleByName(ctx context.Context, db DBTX, arg Archi
 	return result.RowsAffected()
 }
 
-// CreateRoleHierarchyEdge runs the :exec query against mysql.
-func (q *mysqlQueries) CreateRoleHierarchyEdge(ctx context.Context, db DBTX, arg CreateRoleHierarchyEdgeParams) error {
-	_, err := db.ExecContext(ctx, q.createRoleHierarchyEdge,
+// CreateRoleHierarchyEdge runs the :execrows query against mysql.
+func (q *mysqlQueries) CreateRoleHierarchyEdge(ctx context.Context, db DBTX, arg CreateRoleHierarchyEdgeParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.createRoleHierarchyEdge,
 		arg.ChildRoleID,
 		arg.ParentRoleID,
 	)
+	if err != nil {
+		return 0, err
+	}
 
-	return err
+	return result.RowsAffected()
 }
 
-// CreateRolePermission runs the :exec query against mysql.
-func (q *mysqlQueries) CreateRolePermission(ctx context.Context, db DBTX, arg CreateRolePermissionParams) error {
-	_, err := db.ExecContext(ctx, q.createRolePermission,
+// CreateRolePermission runs the :execrows query against mysql.
+func (q *mysqlQueries) CreateRolePermission(ctx context.Context, db DBTX, arg CreateRolePermissionParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.createRolePermission,
 		arg.RoleID,
 		arg.PermissionID,
 	)
+	if err != nil {
+		return 0, err
+	}
 
-	return err
+	return result.RowsAffected()
 }
 
 // DeleteRoleHierarchy runs the :execrows query against mysql.
