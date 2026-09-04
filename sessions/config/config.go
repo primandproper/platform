@@ -21,6 +21,8 @@ import (
 	"github.com/primandproper/platform-go/v14/cookies"
 	"github.com/primandproper/platform-go/v14/database"
 	"github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/internal/cfgnorm"
+	"github.com/primandproper/platform-go/v14/pointer"
 	"github.com/primandproper/platform-go/v14/sessions"
 	sessionscache "github.com/primandproper/platform-go/v14/sessions/cache"
 	sessionsdatabase "github.com/primandproper/platform-go/v14/sessions/database"
@@ -48,6 +50,21 @@ const DefaultSweepInterval = 5 * time.Minute
 // environment configuration.
 type Config struct {
 	_ struct{} `json:"-" yaml:"-"`
+
+	// SweepInterval is how often the database provider removes rows whose
+	// deadlines have passed. It is ignored by the cache provider. Unset takes
+	// DefaultSweepInterval; zero starts no sweeper.
+	//
+	// Starting no sweeper is right when a scheduler calls Sweep instead — one
+	// sweep for the fleet rather than one per replica — and wrong when nothing
+	// else does, since the table then grows with every session ever created.
+	// That asymmetry is why the sweeper is what an unconfigured database Config
+	// gets, and why the pointer is here: unset and zero are different answers,
+	// and a time.Duration has only one way to say both.
+	//
+	// In the environment that is an absent SWEEP_INTERVAL against
+	// SWEEP_INTERVAL=0.
+	SweepInterval *time.Duration `env:"SWEEP_INTERVAL" json:"sweepInterval,omitempty" yaml:"sweepInterval,omitempty"`
 
 	// Provider selects where sessions live: cache or database.
 	Provider string `env:"PROVIDER" envDefault:"cache" json:"provider,omitempty" yaml:"provider,omitempty"`
@@ -78,15 +95,6 @@ type Config struct {
 	// refreshes the idle deadline. Zero refreshes on every read, which at any
 	// real request rate is a write per request; see sessions.Policy.
 	TouchInterval time.Duration `env:"TOUCH_INTERVAL" json:"touchInterval,omitempty" yaml:"touchInterval,omitempty"`
-
-	// SweepInterval is how often the database provider removes rows whose
-	// deadlines have passed. It is ignored by the cache provider.
-	//
-	// A non-positive value starts no sweeper, which is right when a scheduler
-	// calls Sweep instead — one sweep for the fleet rather than one per replica
-	// — and wrong when nothing else does, since the table then grows with every
-	// session ever created.
-	SweepInterval time.Duration `env:"SWEEP_INTERVAL" json:"sweepInterval,omitempty" yaml:"sweepInterval,omitempty"`
 }
 
 var _ validation.ValidatableWithContext = (*Config)(nil)
@@ -94,8 +102,11 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 // EnsureDefaults fills in zero fields.
 //
 // The timeouts are defaulted here rather than left to the store so that a
-// Config reads as what it will actually do. SweepInterval is deliberately not
-// defaulted for the cache provider, which has nothing to sweep.
+// Config reads as what it will actually do. SweepInterval is the one field
+// where that requires a pointer: only a nil is unset, so a zero reaching this
+// method is a deployment asking for no sweeper and is left alone. It is
+// deliberately not defaulted for the cache provider, which has nothing to
+// sweep.
 func (cfg *Config) EnsureDefaults() {
 	if cfg.Provider == "" {
 		cfg.Provider = ProviderCache
@@ -109,8 +120,8 @@ func (cfg *Config) EnsureDefaults() {
 	if cfg.CookieName == "" {
 		cfg.CookieName = sessionshttp.DefaultCookieName
 	}
-	if cfg.SweepInterval == 0 && cfg.provider() == ProviderDatabase {
-		cfg.SweepInterval = DefaultSweepInterval
+	if cfg.provider() == ProviderDatabase {
+		cfg.SweepInterval = cfgnorm.EnsureSweepInterval(cfg.SweepInterval, DefaultSweepInterval)
 	}
 }
 
@@ -133,6 +144,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.AbsoluteTimeout, validation.Min(time.Duration(0))),
 		validation.Field(&cfg.IdleTimeout, validation.Min(time.Duration(0))),
 		validation.Field(&cfg.TouchInterval, validation.Min(time.Duration(0))),
+		validation.Field(&cfg.SweepInterval, cfgnorm.SweepIntervalRule),
 	)
 }
 
@@ -246,7 +258,7 @@ func newBackend[T any](
 			sessionsdatabase.WithMetricsProvider(o.metricsProvider),
 			// Bound to the caller's context: the sweep stops when whatever
 			// scope owns this store does.
-			sessionsdatabase.WithSweeper(ctx, cfg.SweepInterval),
+			sessionsdatabase.WithSweeper(ctx, pointer.Dereference(cfg.SweepInterval)),
 		}, o.databaseBackend...)...)
 	default:
 		return nil, errors.Wrapf(errors.ErrUnknownProvider, "session provider %q", cfg.Provider)

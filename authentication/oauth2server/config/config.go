@@ -25,6 +25,8 @@ import (
 	oauth2memory "github.com/primandproper/platform-go/v14/authentication/oauth2server/memory"
 	"github.com/primandproper/platform-go/v14/database"
 	"github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/internal/cfgnorm"
+	"github.com/primandproper/platform-go/v14/pointer"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -43,6 +45,21 @@ const (
 // Config assembles an authorization server from environment configuration.
 type Config struct {
 	_ struct{} `json:"-" yaml:"-"`
+
+	// SweepInterval is how often the store removes records past their
+	// deadlines. Unset takes oauth2server.DefaultSweepInterval; zero starts no
+	// sweeper.
+	//
+	// Starting no sweeper is right when a scheduler calls Sweep instead — one
+	// sweep for the fleet rather than one per replica — and wrong when nothing
+	// else does, since the tables then grow with every login attempt and every
+	// anonymous registration. That asymmetry is why the sweeper is what an
+	// unconfigured Config gets, and why the pointer is here: unset and zero are
+	// different answers, and a time.Duration has only one way to say both.
+	//
+	// In the environment that is an absent SWEEP_INTERVAL against
+	// SWEEP_INTERVAL=0.
+	SweepInterval *time.Duration `env:"SWEEP_INTERVAL" json:"sweepInterval,omitempty" yaml:"sweepInterval,omitempty"`
 
 	// Provider selects where the records live: memory or database.
 	Provider string `env:"PROVIDER" envDefault:"database" json:"provider,omitempty" yaml:"provider,omitempty"`
@@ -96,15 +113,6 @@ type Config struct {
 	// which leaves an unauthenticated endpoint writing rows nothing removes.
 	ClientRegistrationTTL time.Duration `env:"CLIENT_REGISTRATION_TTL" json:"clientRegistrationTTL,omitempty" yaml:"clientRegistrationTTL,omitempty"`
 
-	// SweepInterval is how often the store removes records past their
-	// deadlines.
-	//
-	// A non-positive value starts no sweeper, which is right when a scheduler
-	// calls Sweep instead — one sweep for the fleet rather than one per replica
-	// — and wrong when nothing else does, since the tables then grow with every
-	// login attempt and every anonymous registration.
-	SweepInterval time.Duration `env:"SWEEP_INTERVAL" json:"sweepInterval,omitempty" yaml:"sweepInterval,omitempty"`
-
 	// DisableDynamicRegistration stops this server serving RFC 7591 dynamic
 	// client registration: /register is not routed, and the discovery document
 	// leaves registration_endpoint out rather than naming an endpoint that
@@ -134,7 +142,9 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 //
 // The lifetimes are defaulted here as well as in the Server so that a Config
 // reads as what it will actually do, rather than as a set of zeroes whose
-// meaning is somewhere else.
+// meaning is somewhere else. SweepInterval is defaulted on the same terms, but
+// needs a pointer to do it: only a nil is unset, so a zero reaching this method
+// is a deployment asking for no sweeper and is left alone.
 func (cfg *Config) EnsureDefaults() {
 	if cfg.Provider == "" {
 		cfg.Provider = ProviderDatabase
@@ -151,9 +161,7 @@ func (cfg *Config) EnsureDefaults() {
 	if cfg.ClientRegistrationTTL == 0 {
 		cfg.ClientRegistrationTTL = oauth2server.DefaultClientRegistrationTTL
 	}
-	if cfg.SweepInterval == 0 {
-		cfg.SweepInterval = oauth2server.DefaultSweepInterval
-	}
+	cfg.SweepInterval = cfgnorm.EnsureSweepInterval(cfg.SweepInterval, oauth2server.DefaultSweepInterval)
 }
 
 // ValidateWithContext validates a Config struct.
@@ -175,6 +183,7 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.AccessTokenTTL, validation.Min(time.Duration(0))),
 		validation.Field(&cfg.RefreshTokenTTL, validation.Min(time.Duration(0))),
 		validation.Field(&cfg.ClientRegistrationTTL, validation.Min(time.Duration(0))),
+		validation.Field(&cfg.SweepInterval, cfgnorm.SweepIntervalRule),
 	)
 }
 
@@ -215,7 +224,7 @@ func NewStore(ctx context.Context, cfg *Config, db database.Client, opts ...Opti
 		store = oauth2memory.NewStore(append([]oauth2memory.Option{
 			oauth2memory.WithLogger(o.logger),
 			oauth2memory.WithTracerProvider(o.tracerProvider),
-			oauth2memory.WithSweeper(ctx, cfg.SweepInterval),
+			oauth2memory.WithSweeper(ctx, pointer.Dereference(cfg.SweepInterval)),
 		}, o.memoryStore...)...)
 	case ProviderDatabase:
 		store, err = oauth2database.NewStore(&cfg.Database, db, append([]oauth2database.Option{
@@ -224,7 +233,7 @@ func NewStore(ctx context.Context, cfg *Config, db database.Client, opts ...Opti
 			oauth2database.WithMetricsProvider(o.metricsProvider),
 			// Bound to the caller's context: the sweep stops when whatever
 			// scope owns this store does.
-			oauth2database.WithSweeper(ctx, cfg.SweepInterval),
+			oauth2database.WithSweeper(ctx, pointer.Dereference(cfg.SweepInterval)),
 		}, o.databaseStore...)...)
 	default:
 		// An unrecognized provider is an error rather than a working-looking

@@ -4,11 +4,13 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/primandproper/platform-go/v14/authentication/oauth2server"
 	oauth2database "github.com/primandproper/platform-go/v14/authentication/oauth2server/database"
 	"github.com/primandproper/platform-go/v14/errors"
+	"github.com/primandproper/platform-go/v14/pointer"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -35,7 +37,7 @@ func TestConfig_EnsureDefaults(T *testing.T) {
 		test.EqOp(t, oauth2server.DefaultAccessTokenTTL, cfg.AccessTokenTTL)
 		test.EqOp(t, oauth2server.DefaultRefreshTokenTTL, cfg.RefreshTokenTTL)
 		test.EqOp(t, oauth2server.DefaultClientRegistrationTTL, cfg.ClientRegistrationTTL)
-		test.EqOp(t, oauth2server.DefaultSweepInterval, cfg.SweepInterval)
+		test.EqOp(t, oauth2server.DefaultSweepInterval, pointer.Dereference(cfg.SweepInterval))
 	})
 
 	T.Run("defaults to the durable provider", func(t *testing.T) {
@@ -58,6 +60,18 @@ func TestConfig_EnsureDefaults(T *testing.T) {
 		test.EqOp(t, ProviderMemory, cfg.Provider)
 		test.EqOp(t, time.Minute, cfg.AccessTokenTTL)
 	})
+
+	// Nil is the default and a spelled zero is the off-switch, which is only
+	// true while this method can tell them apart. Defaulting the zero would put
+	// the off-switch back out of reach.
+	T.Run("leaves a spelled zero alone", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{SweepInterval: pointer.To(time.Duration(0))}
+		cfg.EnsureDefaults()
+
+		test.EqOp(t, time.Duration(0), pointer.Dereference(cfg.SweepInterval))
+	})
 }
 
 func TestConfig_ValidateWithContext(T *testing.T) {
@@ -76,6 +90,27 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Provider: "redis"}
+		test.Error(t, cfg.ValidateWithContext(t.Context()))
+	})
+
+	T.Run("accepts the off-switch by rule rather than by omission", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Issuer: "https://auth.example", SweepInterval: pointer.To(time.Duration(0))}
+		cfg.EnsureDefaults()
+
+		test.NoError(t, cfg.ValidateWithContext(t.Context()))
+	})
+
+	// Below zero there is no cadence to configure — every negative duration
+	// reaches the store as "start nothing" — so a magnitude is somebody
+	// describing a sweep they will not get.
+	T.Run("refuses a negative interval", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Issuer: "https://auth.example", SweepInterval: pointer.To(-30 * time.Minute)}
+		cfg.EnsureDefaults()
+
 		test.Error(t, cfg.ValidateWithContext(t.Context()))
 	})
 
@@ -144,6 +179,79 @@ func TestNewStore(T *testing.T) {
 		// first use.
 		test.Nil(t, store)
 	})
+}
+
+// TestConfig_SweepInterval exercises the field's documented contract where it
+// is actually decided. The stores' own WithSweeper has always honored a
+// non-positive interval; what could not reach it was a configured one, because
+// EnsureDefaults mapped every zero to the default before the option was built.
+//
+// The observable is Store.Sweep's own count. A record the background sweeper
+// already removed leaves the scheduled sweep nothing to do, which is exactly
+// the duplication a deployment turns the sweeper off to avoid.
+func TestConfig_SweepInterval(T *testing.T) {
+	T.Parallel()
+
+	// The wall clock is deliberate: inside a synctest bubble clock.NewClock
+	// reads the bubble's time, so the store's ticker advances with time.Sleep
+	// and needs no test double.
+	T.Run("a zero interval leaves dead records for somebody else to remove", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			store, err := NewStore(t.Context(),
+				&Config{Provider: ProviderMemory, SweepInterval: pointer.To(time.Duration(0))}, nil)
+			must.NoError(t, err)
+			t.Cleanup(func() { _ = store.Close() })
+
+			must.NoError(t, store.CreateAuthorizationCode(t.Context(), expiringCode()))
+
+			// Past the code's deadline and past every tick a defaulted interval
+			// would have taken.
+			time.Sleep(time.Hour)
+			synctest.Wait()
+
+			// The scheduled sweep this deployment runs instead still has work,
+			// which is only true because nothing swept behind its back.
+			swept, err := store.Sweep(t.Context(), time.Now())
+			must.NoError(t, err)
+			test.EqOp(t, int64(1), swept)
+		})
+	})
+
+	T.Run("an unset interval sweeps, because a table nobody sweeps only grows", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			store, err := NewStore(t.Context(), &Config{Provider: ProviderMemory}, nil)
+			must.NoError(t, err)
+			t.Cleanup(func() { _ = store.Close() })
+
+			must.NoError(t, store.CreateAuthorizationCode(t.Context(), expiringCode()))
+
+			time.Sleep(time.Hour)
+			synctest.Wait()
+
+			swept, err := store.Sweep(t.Context(), time.Now())
+			must.NoError(t, err)
+			test.EqOp(t, int64(0), swept)
+		})
+	})
+}
+
+// expiringCode is one authorization code, redeemable for a minute — long
+// enough to be alive when it is written and dead long before either test looks
+// again.
+func expiringCode() *oauth2server.AuthorizationCode {
+	now := time.Now().UTC()
+
+	return &oauth2server.AuthorizationCode{
+		IssuedAt:  now,
+		ExpiresAt: now.Add(time.Minute),
+		Hash:      oauth2server.Hash("swept"),
+		ClientID:  "client",
+		Subject:   oauth2server.Subject{ID: "user"},
+	}
 }
 
 func TestNewServer_StoreFailure(T *testing.T) {
