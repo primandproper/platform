@@ -61,6 +61,24 @@ type Config struct {
 	// SWEEP_INTERVAL=0.
 	SweepInterval *time.Duration `env:"SWEEP_INTERVAL" json:"sweepInterval,omitempty" yaml:"sweepInterval,omitempty"`
 
+	// ClientRegistrationTTL is how long a dynamically registered client lasts
+	// before it must register again. Unset takes
+	// oauth2server.DefaultClientRegistrationTTL; zero means registrations never
+	// lapse.
+	//
+	// Never lapsing is a real choice, and one to make deliberately: on a server
+	// that serves registration it leaves an unauthenticated endpoint writing
+	// rows nothing removes. It is the pointer that makes the choice reachable —
+	// unset and zero are different answers, and a time.Duration has only one
+	// way to say both. The three lifetimes above stay plain durations because
+	// for them a zero genuinely is an absence; this is the one option in the
+	// group that reads zero as a value.
+	//
+	// In the environment that is an absent CLIENT_REGISTRATION_TTL against
+	// CLIENT_REGISTRATION_TTL=0. A negative value is refused by validation
+	// rather than read as zero.
+	ClientRegistrationTTL *time.Duration `env:"CLIENT_REGISTRATION_TTL" json:"clientRegistrationTTL,omitempty" yaml:"clientRegistrationTTL,omitempty"`
+
 	// Provider selects where the records live: memory or database.
 	Provider string `env:"PROVIDER" envDefault:"database" json:"provider,omitempty" yaml:"provider,omitempty"`
 
@@ -108,11 +126,6 @@ type Config struct {
 	// RefreshTokenTTL is how long a refresh token is exchangeable.
 	RefreshTokenTTL time.Duration `env:"REFRESH_TOKEN_TTL" json:"refreshTokenTTL,omitempty" yaml:"refreshTokenTTL,omitempty"`
 
-	// ClientRegistrationTTL is how long a dynamically registered client lasts
-	// before it must register again. Zero means registrations never lapse,
-	// which leaves an unauthenticated endpoint writing rows nothing removes.
-	ClientRegistrationTTL time.Duration `env:"CLIENT_REGISTRATION_TTL" json:"clientRegistrationTTL,omitempty" yaml:"clientRegistrationTTL,omitempty"`
-
 	// DisableDynamicRegistration stops this server serving RFC 7591 dynamic
 	// client registration: /register is not routed, and the discovery document
 	// leaves registration_endpoint out rather than naming an endpoint that
@@ -142,9 +155,10 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 //
 // The lifetimes are defaulted here as well as in the Server so that a Config
 // reads as what it will actually do, rather than as a set of zeroes whose
-// meaning is somewhere else. SweepInterval is defaulted on the same terms, but
-// needs a pointer to do it: only a nil is unset, so a zero reaching this method
-// is a deployment asking for no sweeper and is left alone.
+// meaning is somewhere else. SweepInterval and ClientRegistrationTTL are
+// defaulted on the same terms, but need a pointer to do it: only a nil is
+// unset, so a zero reaching this method is a deployment asking for no sweeper,
+// or for registrations that never lapse, and is left alone.
 func (cfg *Config) EnsureDefaults() {
 	if cfg.Provider == "" {
 		cfg.Provider = ProviderDatabase
@@ -158,8 +172,8 @@ func (cfg *Config) EnsureDefaults() {
 	if cfg.RefreshTokenTTL == 0 {
 		cfg.RefreshTokenTTL = oauth2server.DefaultRefreshTokenTTL
 	}
-	if cfg.ClientRegistrationTTL == 0 {
-		cfg.ClientRegistrationTTL = oauth2server.DefaultClientRegistrationTTL
+	if cfg.ClientRegistrationTTL == nil {
+		cfg.ClientRegistrationTTL = pointer.To(oauth2server.DefaultClientRegistrationTTL)
 	}
 	cfg.SweepInterval = cfgnorm.EnsureSweepInterval(cfg.SweepInterval, oauth2server.DefaultSweepInterval)
 }
@@ -182,6 +196,9 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 		validation.Field(&cfg.AuthorizationCodeTTL, validation.Min(time.Duration(0))),
 		validation.Field(&cfg.AccessTokenTTL, validation.Min(time.Duration(0))),
 		validation.Field(&cfg.RefreshTokenTTL, validation.Min(time.Duration(0))),
+		// Min reads through the pointer and has nothing to say about a nil or
+		// a zero, so the rule refuses exactly the negatives the option would
+		// otherwise have folded into zero.
 		validation.Field(&cfg.ClientRegistrationTTL, validation.Min(time.Duration(0))),
 		validation.Field(&cfg.SweepInterval, cfgnorm.SweepIntervalRule),
 	)
@@ -287,7 +304,7 @@ func (cfg *Config) serverOptions(o *options) []oauth2server.Option {
 		oauth2server.WithAuthorizationCodeTTL(cfg.AuthorizationCodeTTL),
 		oauth2server.WithAccessTokenTTL(cfg.AccessTokenTTL),
 		oauth2server.WithRefreshTokenTTL(cfg.RefreshTokenTTL),
-		oauth2server.WithClientRegistrationTTL(cfg.ClientRegistrationTTL),
+		oauth2server.WithClientRegistrationTTL(pointer.Dereference(cfg.ClientRegistrationTTL)),
 		oauth2server.WithRefreshReuseDetection(!cfg.DisableRefreshReuseDetection),
 		oauth2server.WithDynamicRegistration(!cfg.DisableDynamicRegistration),
 		oauth2server.WithServiceDocumentation(cfg.ServiceDocumentation),
