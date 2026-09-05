@@ -85,6 +85,20 @@ leaves roles it was not given alone — so it can run on every deploy without
 clobbering roles an operator added. Within a role it clears and rewrites, so
 removing a permission from a role's list actually revokes it.
 
+It is also safe to run from every replica of a service at once, which is what
+the wiring above amounts to: each replica migrates and then seeds, and the
+migrator's advisory lock serializes the schema, not the seed the consumer runs
+after it. Two seeds of one policy converge on it. A writer that lost the race
+for a new name reads back the id the name actually got, and a grant the other
+seed already wrote is skipped rather than collided with — so the loser blocks
+on the winner's row locks and then commits the same policy, instead of failing
+on the primary key with an error that looks like a deploy flake. Where an
+engine's own locking rules leave it no other answer — SQLite admits one writer
+at a time, and MySQL's default isolation can declare a deadlock between two
+seeds of a role with no grants stored yet — what it reports is an error on a
+transaction that wrote nothing, for the caller to retry, never a policy half of
+which landed. No lock has to be held around the call.
+
 Writing a role or a permission is one lookup for the whole batch and then a
 converging write for each row that is actually missing or actually different. A
 re-run of an unchanged policy writes nothing at all, so the tables and their
@@ -95,9 +109,13 @@ name, and only Postgres could hand back the id of the row it converged on: an
 existing name is therefore written under the id it already carries, and only a
 name nothing was found for is minted one. Binding a fresh id for a name already
 taken would leave the caller holding an id no row has, since MySQL resolves the
-collision on whichever unique key it hit.
+collision on whichever unique key it hit. A minted id is provisional for the
+same reason: a concurrent seed can take the name between the lookup and the
+write, so the names that were minted one are looked up again once written, and
+the id the name ended up under is the one the grants are written against.
 
-Grants and inheritance edges are cleared and rewritten a row at a time. The
+Grants and inheritance edges are cleared and rewritten a row at a time, with an
+insert that skips a row already there rather than colliding with it. The
 multi-row VALUES list that preceded them had no static text — its arity was the
 caller's cardinality — so there was nothing for sqlc to check; what replaces it
 costs a round trip per grant, inside the transaction the caller already opened.

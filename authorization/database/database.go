@@ -282,6 +282,25 @@ func (r *Resolver) rolesWith(ctx context.Context, q database.SQLQueryExecutor) (
 // Seed is idempotent. It upserts by name, rewrites each named role's direct
 // permissions and parents, and leaves roles it was not given alone — so it can
 // be run on every deploy without clobbering roles an operator added.
+//
+// It is also safe to run from several processes at once, which is what "on
+// every deploy" means for a service with more than one replica: each replica
+// runs its migrations and then its seed, the migrator's advisory lock covers
+// the schema and not the seed, and so every replica seeds the same policy at
+// the same moment. Two seeds of one policy converge on it rather than failing
+// one of them. The named writes converge on the name and a writer that lost
+// the race for a new name reads back the id the name actually got; the grant
+// writes skip a row the other seed already wrote instead of colliding with it
+// on the primary key. What a loser sees is a transaction that blocks on the
+// winner's row locks for the length of the winner's seed and then commits the
+// same policy, not a duplicate-key error that looks like a deploy flake.
+//
+// The engine can still refuse one of two writers where its own locking rules
+// leave it no other answer — SQLite admits one writer at a time and reports
+// the second as busy, and MySQL's default isolation can declare a deadlock
+// between two seeds of a role that had no grants stored yet — and what it
+// reports is an error on a transaction that wrote nothing, for the caller to
+// retry, never a policy half of which landed.
 func (r *Resolver) Seed(ctx context.Context, q database.SQLQueryExecutor, roles ...authorization.Role) error {
 	ctx, op := r.o11y.Begin(ctx)
 	defer op.End()
@@ -419,6 +438,13 @@ func (r *Resolver) ArchiveRole(ctx context.Context, q database.SQLQueryExecutor,
 // nothing for sqlc to check and nothing the corpus could hold; what it costs
 // instead is a round trip per grant, inside the transaction the caller already
 // opened, at the cardinalities a role's permission list actually has.
+//
+// Each grant is written with the duplicate-skipping insert rather than the
+// plain one, and the count it answers with is deliberately unread. The row it
+// skips is a row another seed of the same policy wrote and committed between
+// this one's DELETE and its INSERT — the concurrent case Seed documents — and
+// a grant already there is the grant this seed came to write. A plain insert
+// there is a primary-key collision that fails the whole transaction.
 func (r *Resolver) writeRoleGrants(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
@@ -444,7 +470,7 @@ func (r *Resolver) writeRoleGrants(
 		}
 
 		for _, perm := range perms {
-			if err = r.q.CreateRolePermission(ctx, q, authorizationdb.CreateRolePermissionParams{
+			if _, err = r.q.CreateRolePermission(ctx, q, authorizationdb.CreateRolePermissionParams{
 				RoleID:       roleID,
 				PermissionID: permIDs[string(perm)],
 			}); err != nil {
@@ -466,7 +492,7 @@ func (r *Resolver) writeRoleGrants(
 			}
 		}
 
-		if err := r.q.CreateRoleHierarchyEdge(ctx, q, authorizationdb.CreateRoleHierarchyEdgeParams{
+		if _, err := r.q.CreateRoleHierarchyEdge(ctx, q, authorizationdb.CreateRoleHierarchyEdgeParams{
 			ChildRoleID:  roleID,
 			ParentRoleID: parentID,
 		}); err != nil {
@@ -567,6 +593,26 @@ func (r *Resolver) permissionTable() namedTable {
 // KEY UPDATE resolves the collision on whichever unique key it hit — and only a
 // name nothing was found for is minted an id.
 //
+// A minted id is provisional until the write lands, and the names that were
+// minted one are looked up a second time once they have. Between the lookup and
+// the write another seed of the same policy can insert the same name and
+// commit — the concurrent case Seed documents — and this writer's upsert then
+// converges on that row, under that row's id, exactly as it would on any name
+// already taken. Without the second lookup this writer goes on holding the id
+// it minted, which no row carries, and every grant it writes for that role is
+// a foreign-key violation. The second lookup costs one batched read, only on a
+// seed that actually created something, and answers with whichever id the name
+// ended up under: this writer's own where it won, the other's where it lost.
+// Each dialect makes that row visible to it. SQLite admits one writer at a
+// time, so the row is this writer's own; Postgres at its default isolation
+// gives every statement a fresh snapshot, and at a stricter one the converging
+// write is itself the serialization failure, so the second lookup never runs
+// against a stale view; and on MySQL the converging write stamps
+// last_updated_at onto a row that had none, so the row is one this transaction
+// modified and its snapshot shows it. A name still missing after its own write
+// is therefore not a race but a broken invariant, and reported as one rather
+// than left to fail as a foreign key.
+//
 // A row is written only when something actually differs. Rewriting every row on
 // every seed would churn the table and its indexes for no change, and would make
 // an audit trail on these tables useless.
@@ -588,6 +634,8 @@ func (r *Resolver) resolveNamedIDs(
 
 	ids := make(map[string]string, len(names))
 
+	var minted []string
+
 	for _, name := range names {
 		row, found := existing[name]
 		if found {
@@ -601,11 +649,30 @@ func (r *Resolver) resolveNamedIDs(
 			}
 		} else {
 			ids[name] = identifiers.New()
+			minted = append(minted, name)
 		}
 
 		if err = table.upsert(ctx, q, ids[name], name, wanted[name]); err != nil {
 			return nil, platformerrors.Wrapf(err, "writing %s %q", table.name, name)
 		}
+	}
+
+	if len(minted) == 0 {
+		return ids, nil
+	}
+
+	landed, err := table.lookup(ctx, q, minted)
+	if err != nil {
+		return nil, platformerrors.Wrapf(err, "reading back the %ss written by name", table.name)
+	}
+
+	for _, name := range minted {
+		row, found := landed[name]
+		if !found {
+			return nil, platformerrors.Wrapf(ErrWrittenNameMissing, "%s %q", table.name, name)
+		}
+
+		ids[name] = row.id
 	}
 
 	return ids, nil

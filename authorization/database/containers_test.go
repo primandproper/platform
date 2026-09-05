@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -189,6 +190,159 @@ func runDialectSuite(t *testing.T, env *dialectEnv) {
 
 		test.True(t, set.Equal(authorization.NewPermissionSet(permWrite)))
 	})
+}
+
+// runConcurrentSeeds is the deployment shape Seed's doc invites, run against
+// a real server: every replica of a service migrating and then seeding the
+// same policy at the same moment, with nothing but the database between them.
+//
+// It needs a real server because it needs real concurrency. SQLite admits one
+// writer at a time and the pool of one the other suites run through admits
+// one transaction at a time, so the race this exercises — a writer whose
+// lookup ran before another's commit, and a grant written between another's
+// DELETE and INSERT — cannot happen anywhere else. What is asserted is that
+// every seed commits and that what they converged on is the policy each was
+// given, on a first seed where every name is minted at once, on a re-seed
+// where the grants are cleared and rewritten under one another, and on a
+// re-seed that changes the policy.
+func runConcurrentSeeds(t *testing.T, env *dialectEnv) {
+	t.Helper()
+
+	const seeders = 4
+
+	ctx := t.Context()
+
+	waitForServer(t, ctx, env.client.Writer())
+
+	stmts, err := migrations.Statements(env.dialect, env.prefix)
+	must.NoError(t, err)
+
+	for _, stmt := range stmts {
+		_, execErr := env.client.Writer().ExecContext(ctx, stmt)
+		must.NoError(t, execErr)
+	}
+
+	r, err := NewResolver(
+		&Config{Dialect: env.dialect, TablePrefix: env.prefix},
+		env.client.Writer(),
+		WithLogger(loggingnoop.NewLogger()),
+		WithTracerProvider(tracingnoop.NewTracerProvider()),
+	)
+	must.NoError(t, err)
+
+	// seedFromEveryReplica runs one Seed per replica, each in its own
+	// transaction, released together so that they overlap rather than queue.
+	seedFromEveryReplica := func(t *testing.T, roles []authorization.Role) {
+		t.Helper()
+
+		start := make(chan struct{})
+		errs := make(chan error, seeders)
+
+		var wg sync.WaitGroup
+		for range seeders {
+			wg.Go(func() {
+				<-start
+
+				errs <- env.client.WithTransaction(ctx, func(q database.Tx) error {
+					return r.Seed(ctx, q, roles...)
+				})
+			})
+		}
+
+		close(start)
+		wg.Wait()
+		close(errs)
+
+		for seedErr := range errs {
+			test.NoError(t, seedErr)
+		}
+	}
+
+	// assertPolicy checks that what the replicas converged on is what each of
+	// them was given: the declared policy row for row, and its resolution
+	// against the reference expansion.
+	assertPolicy := func(t *testing.T, roles []authorization.Role) {
+		t.Helper()
+
+		expected, expandErr := authorization.ExpandInheritance(roles...)
+		must.NoError(t, expandErr)
+
+		declared, rolesErr := r.Roles(ctx)
+		must.NoError(t, rolesErr)
+		must.SliceLen(t, len(roles), declared)
+
+		byName := make(map[string]authorization.Role, len(declared))
+		for i := range declared {
+			byName[declared[i].Name] = declared[i]
+		}
+
+		for i := range roles {
+			want := &roles[i]
+			got, ok := byName[want.Name]
+			must.True(t, ok, must.Sprintf("role %q was not written", want.Name))
+
+			test.True(t, authorization.NewPermissionSet(got.Permissions...).Equal(authorization.NewPermissionSet(want.Permissions...)),
+				test.Sprintf("role %q: declared grants %v, seeded %v", want.Name, got.Permissions, want.Permissions))
+
+			resolved, resolveErr := r.PermissionsForRoles(ctx, want.Name)
+			must.NoError(t, resolveErr)
+			test.True(t, resolved.Equal(expected[want.Name]),
+				test.Sprintf("role %q: resolved %v, reference expansion resolved %v", want.Name, resolved.Slice(), expected[want.Name].Slice()))
+		}
+	}
+
+	roles := testRoles()
+
+	t.Run("a first seed from every replica converges", func(t *testing.T) {
+		seedFromEveryReplica(t, roles)
+		assertPolicy(t, roles)
+	})
+
+	t.Run("a re-seed from every replica converges", func(t *testing.T) {
+		seedFromEveryReplica(t, roles)
+		assertPolicy(t, roles)
+	})
+
+	t.Run("a re-seed that changes the policy converges on the new one", func(t *testing.T) {
+		changed := testRoles()
+		changed[1].Permissions = []authorization.Permission{permWrite, "audit.things"}
+		changed[3].Inherits = []string{"member"}
+
+		seedFromEveryReplica(t, changed)
+		assertPolicy(t, changed)
+	})
+}
+
+func TestAuthorizationDatabase_ConcurrentSeeds_Postgres(T *testing.T) {
+	T.Parallel()
+
+	pgtest.Run(T, func(ctx context.Context, pg *pgtest.Instance) {
+		client, err := postgres.NewDatabaseClient(ctx, &testClientConfig{connectionString: pg.ConnectionString, openConns: 8})
+		must.NoError(T, err)
+		T.Cleanup(func() { _ = client.Close() })
+
+		runConcurrentSeeds(T, &dialectEnv{
+			dialect: dialect.Postgres,
+			prefix:  DefaultTablePrefix,
+			client:  client,
+		})
+	})
+}
+
+func TestAuthorizationDatabase_ConcurrentSeeds_MySQL(T *testing.T) {
+	T.Parallel()
+
+	mysqltest.Run(T, func(ctx context.Context, my *mysqltest.Instance) {
+		client, err := mysql.NewDatabaseClient(ctx, &testClientConfig{connectionString: my.ConnectionString, openConns: 8})
+		must.NoError(T, err)
+		T.Cleanup(func() { _ = client.Close() })
+
+		runConcurrentSeeds(T, &dialectEnv{
+			dialect: dialect.MySQL,
+			prefix:  DefaultTablePrefix,
+			client:  client,
+		})
+	}, mysqltest.WithCredentials("authztest", "authztest", "authztest"))
 }
 
 func TestAuthorizationDatabase_Postgres(T *testing.T) {

@@ -23,8 +23,14 @@ const (
 )
 
 // testClientConfig is the minimum database.ClientConfig a SQLite client needs.
+//
+// openConns is the pool's ceiling, and it is one unless a test says otherwise:
+// a pool of one is what makes the SQLite tests deterministic, and it is also a
+// pool through which no two transactions can ever be open at once — so a test
+// of concurrent writers has to ask for more, or it is a test of the pool.
 type testClientConfig struct {
 	connectionString string
+	openConns        int
 }
 
 var _ database.ClientConfig = (*testClientConfig)(nil)
@@ -39,7 +45,7 @@ func (c *testClientConfig) GetWriteConnectionString() string { return c.connecti
 func (c *testClientConfig) GetMaxPingAttempts() uint64        { return 30 }
 func (c *testClientConfig) GetPingWaitPeriod() time.Duration  { return time.Second }
 func (c *testClientConfig) GetMaxIdleConns() int              { return 2 }
-func (c *testClientConfig) GetMaxOpenConns() int              { return 1 }
+func (c *testClientConfig) GetMaxOpenConns() int              { return max(c.openConns, 1) }
 func (c *testClientConfig) GetConnMaxLifetime() time.Duration { return time.Minute }
 
 // testRoles is the shape a real policy takes: a member role, an admin

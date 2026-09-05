@@ -277,7 +277,9 @@ func nameLookups(g *querygen.Generator) []*querygen.Query {
 // KEY UPDATE fires on whichever unique key was violated, so an upsert carrying
 // a fresh id for a name already taken converges on the name's row and leaves
 // the caller holding an id no row has. The store looks the ids up first for
-// that reason, and mints one only for a name it did not find.
+// that reason, mints one only for a name it did not find, and reads the minted
+// names back once written — a concurrent seed can take the name between the
+// lookup and the write, and this statement converges on that seed's row.
 //
 // created_at is in neither list. A revived role keeps the creation time it was
 // first written with, which is what makes it the same role coming back rather
@@ -302,6 +304,22 @@ func namedWrites(g *querygen.Generator) []*querygen.Query {
 // from a role's list is entitled to expect, and it is two statement shapes
 // instead of the read-compute-write a diff needs.
 //
+// The rewrite skips a row that is already there rather than inserting
+// unconditionally, because the writer of a mapping row is not the only writer
+// there can be. A seed runs at deploy, from every replica of the service at
+// once — the doc's own wiring example puts it beside the migration, and a
+// migrator's advisory lock serializes the schema and not the seed that follows
+// it. Two seeds of one policy each clear a role's grants and write them back;
+// whichever commits second, on Postgres, finds the first's rows already under
+// the primary key its own inserts name, and a plain INSERT there fails the
+// whole transaction with a duplicate-key error that looks like a deploy flake.
+// Skipping the duplicate is what the constraint permits: a grant that is
+// already written is the grant this seed wanted, and the DELETE before it has
+// already revoked whatever this seed did not. So the concurrent case converges
+// on the policy both were given instead of failing one of them, and the
+// annotation is the shape's :execrows, which the resolver has no reason to
+// read — a skipped grant and a written one are the same grant.
+//
 // One insert per row rather than a multi-row VALUES list. The multi-row form's
 // arity is the caller's cardinality, so it has no static text — nothing for
 // sqlc to check and nothing for querygen to emit — and what replaces it costs a
@@ -313,11 +331,13 @@ func grantWrites(g *querygen.Generator) []*querygen.Query {
 	return []*querygen.Query{
 		g.DeleteQuery("DeleteRolePermissions", RolePermissionsTable, RolePermissionColumns,
 			querygen.Match{Column: RoleIDColumn}),
-		g.InsertQuery("CreateRolePermission", RolePermissionsTable, RolePermissionColumns, nil),
+		g.InsertIgnoreQuery("CreateRolePermission", RolePermissionsTable, RolePermissionColumns, nil,
+			querygen.Match{Column: RoleIDColumn}, querygen.Match{Column: PermissionIDColumn}),
 
 		g.DeleteQuery("DeleteRoleHierarchy", RoleHierarchyTable, RoleHierarchyColumns,
 			querygen.Match{Column: ChildRoleIDColumn}),
-		g.InsertQuery("CreateRoleHierarchyEdge", RoleHierarchyTable, RoleHierarchyColumns, nil),
+		g.InsertIgnoreQuery("CreateRoleHierarchyEdge", RoleHierarchyTable, RoleHierarchyColumns, nil,
+			querygen.Match{Column: ChildRoleIDColumn}, querygen.Match{Column: ParentRoleIDColumn}),
 	}
 }
 

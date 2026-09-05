@@ -22,7 +22,8 @@ const createRoleHierarchyEdgePostgreSQL = `INSERT INTO {{prefix}}authz_role_hier
 ) VALUES (
 	$1,
 	$2
-)`
+)
+ON CONFLICT (child_role_id, parent_role_id) DO NOTHING`
 
 const createRolePermissionPostgreSQL = `INSERT INTO {{prefix}}authz_role_permissions (
 	role_id,
@@ -30,7 +31,8 @@ const createRolePermissionPostgreSQL = `INSERT INTO {{prefix}}authz_role_permiss
 ) VALUES (
 	$1,
 	$2
-)`
+)
+ON CONFLICT (role_id, permission_id) DO NOTHING`
 
 const deleteRoleHierarchyPostgreSQL = `DELETE FROM {{prefix}}authz_role_hierarchy
 WHERE child_role_id = $1`
@@ -201,24 +203,30 @@ func (q *postgresqlQueries) ArchiveRoleByName(ctx context.Context, db DBTX, arg 
 	return result.RowsAffected()
 }
 
-// CreateRoleHierarchyEdge runs the :exec query against postgresql.
-func (q *postgresqlQueries) CreateRoleHierarchyEdge(ctx context.Context, db DBTX, arg CreateRoleHierarchyEdgeParams) error {
-	_, err := db.ExecContext(ctx, q.createRoleHierarchyEdge,
+// CreateRoleHierarchyEdge runs the :execrows query against postgresql.
+func (q *postgresqlQueries) CreateRoleHierarchyEdge(ctx context.Context, db DBTX, arg CreateRoleHierarchyEdgeParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.createRoleHierarchyEdge,
 		arg.ChildRoleID,
 		arg.ParentRoleID,
 	)
+	if err != nil {
+		return 0, err
+	}
 
-	return err
+	return result.RowsAffected()
 }
 
-// CreateRolePermission runs the :exec query against postgresql.
-func (q *postgresqlQueries) CreateRolePermission(ctx context.Context, db DBTX, arg CreateRolePermissionParams) error {
-	_, err := db.ExecContext(ctx, q.createRolePermission,
+// CreateRolePermission runs the :execrows query against postgresql.
+func (q *postgresqlQueries) CreateRolePermission(ctx context.Context, db DBTX, arg CreateRolePermissionParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.createRolePermission,
 		arg.RoleID,
 		arg.PermissionID,
 	)
+	if err != nil {
+		return 0, err
+	}
 
-	return err
+	return result.RowsAffected()
 }
 
 // DeleteRoleHierarchy runs the :execrows query against postgresql.

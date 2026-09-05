@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -620,6 +621,131 @@ func TestResolver_WriteRoleGrantsResolvesAbsentParents(T *testing.T) {
 
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), "nonexistent")
+	})
+}
+
+// TestResolver_ResolveNamedIDsReadsBackWhatItMinted covers the window a
+// concurrent seed opens between the name lookup and the write: another writer
+// inserts the same name and commits, this writer's upsert converges on that
+// row, and the id this writer minted is one no row carries. SQLite admits one
+// writer at a time, so the race itself cannot be staged here; what can be is
+// its exact effect, with a lookup that reports a name absent which the table
+// already holds.
+func TestResolver_ResolveNamedIDsReadsBackWhatItMinted(T *testing.T) {
+	T.Parallel()
+
+	// lyingOnce wraps a table so that its first lookup finds nothing, the way
+	// the lookup before a lost race does, and every later one tells the truth.
+	lyingOnce := func(table namedTable) (namedTable, *int) {
+		calls := 0
+		wrapped := table
+		wrapped.lookup = func(ctx context.Context, q database.SQLQueryExecutor, names []string) (map[string]namedRow, error) {
+			calls++
+			if calls == 1 {
+				return map[string]namedRow{}, nil
+			}
+
+			return table.lookup(ctx, q, names)
+		}
+
+		return wrapped, &calls
+	}
+
+	T.Run("carries the id a lost race left the name under", func(t *testing.T) {
+		t.Parallel()
+
+		r, client := newTestResolver(t)
+		seed(t, r, client, testRoles()...)
+
+		must.NoError(t, client.WithTransaction(t.Context(), func(q database.Tx) error {
+			winner, err := r.lookupRoleID(t.Context(), q, "admin")
+			must.NoError(t, err)
+
+			table, calls := lyingOnce(r.roleTable())
+
+			ids, err := r.resolveNamedIDs(t.Context(), q, table, map[string]string{"admin": "the admin"})
+			must.NoError(t, err)
+
+			// The name converged on the row that already held it, and the id
+			// handed back is that row's rather than the one minted for it.
+			test.EqOp(t, winner, ids["admin"])
+			test.EqOp(t, 2, *calls)
+
+			// Which is what makes the grants that follow land on a row that
+			// exists instead of failing a foreign key.
+			return r.writeRoleGrants(t.Context(), q, ids, &authorization.Role{
+				Name:        "admin",
+				Permissions: []authorization.Permission{permWrite, permDelete},
+			})
+		}))
+
+		set, err := r.PermissionsForRoles(t.Context(), "admin")
+		must.NoError(t, err)
+		test.True(t, set.Equal(authorization.NewPermissionSet(permWrite, permDelete)))
+
+		roles, err := r.Roles(t.Context())
+		must.NoError(t, err)
+		test.SliceLen(t, len(testRoles()), roles)
+	})
+
+	T.Run("reads back only the names it minted", func(t *testing.T) {
+		t.Parallel()
+
+		r, client := newTestResolver(t)
+		seed(t, r, client, testRoles()...)
+
+		must.NoError(t, client.WithTransaction(t.Context(), func(q database.Tx) error {
+			var lookups [][]string
+
+			table := r.roleTable()
+			truthful := table.lookup
+			table.lookup = func(ctx context.Context, q database.SQLQueryExecutor, names []string) (map[string]namedRow, error) {
+				lookups = append(lookups, names)
+
+				return truthful(ctx, q, names)
+			}
+
+			// Nothing minted: one lookup, and nothing read back.
+			_, err := r.resolveNamedIDs(t.Context(), q, table, map[string]string{"admin": "", "member": "a member"})
+			must.NoError(t, err)
+			test.SliceLen(t, 1, lookups)
+
+			// One name minted beside two found: the second lookup is for the
+			// minted one alone.
+			ids, err := r.resolveNamedIDs(t.Context(), q, table, map[string]string{"admin": "", "member": "a member", "newcomer": ""})
+			must.NoError(t, err)
+			test.SliceLen(t, 3, lookups)
+			test.Eq(t, []string{"newcomer"}, lookups[2])
+
+			landed, err := r.lookupRoleID(t.Context(), q, "newcomer")
+			must.NoError(t, err)
+			test.EqOp(t, landed, ids["newcomer"])
+
+			return nil
+		}))
+	})
+
+	T.Run("reports a name that cannot be read back", func(t *testing.T) {
+		t.Parallel()
+
+		r, client := newTestResolver(t)
+
+		err := client.WithTransaction(t.Context(), func(q database.Tx) error {
+			table := r.roleTable()
+			table.lookup = func(context.Context, database.SQLQueryExecutor, []string) (map[string]namedRow, error) {
+				return map[string]namedRow{}, nil
+			}
+			table.upsert = func(context.Context, database.SQLQueryExecutor, string, string, string) error {
+				return nil
+			}
+
+			_, err := r.resolveNamedIDs(t.Context(), q, table, map[string]string{"ghost": ""})
+
+			return err
+		})
+
+		test.True(t, errors.Is(err, ErrWrittenNameMissing))
+		test.StrContains(t, err.Error(), "ghost")
 	})
 }
 
