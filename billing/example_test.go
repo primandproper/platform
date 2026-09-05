@@ -204,10 +204,108 @@ func Example_redeliveredStatus() {
 	// no such subscription: true
 }
 
+// Example_callerTransaction shows what the Tx variants are for: a charge and
+// what a consumer records about it, in one transaction.
+//
+// A ledger row that committed ahead of its audit entry is a charge nothing
+// downstream heard about, and no amount of care outside this package closes that
+// window — the store owns the transaction. RecordTransactionTx hands it over.
+func Example_callerTransaction() {
+	ctx := context.Background()
+	client := exampleDatabase(ctx)
+	scope := tenancy.Global()
+
+	// The consumer's own table, standing in for whatever a real application
+	// writes beside a ledger row: an audit entry, a data change event on an
+	// outbox a webhook dispatcher fans out.
+	if _, err := client.Writer().ExecContext(ctx,
+		`CREATE TABLE audit_log (account_id TEXT NOT NULL, event TEXT NOT NULL, amount_cents INTEGER NOT NULL)`); err != nil {
+		panic(err)
+	}
+
+	store, err := billing.NewSQLStore(client)
+	if err != nil {
+		panic(err)
+	}
+
+	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		// The catalog, the sale and the charge, all in the caller's
+		// transaction — so the product check behind the sale finds a product
+		// nothing outside this transaction can see yet.
+		product, txErr := store.CreateProductTx(ctx, tx, scope, &billing.Product{
+			Name:        "Lifetime",
+			Kind:        billing.KindOneTime,
+			AmountCents: 9_900,
+			Currency:    "USD",
+		})
+		if txErr != nil {
+			return txErr
+		}
+
+		purchase, txErr := store.CreatePurchaseTx(ctx, tx, scope, &billing.Purchase{
+			BelongsToAccount: "account-1",
+			ProductID:        product.ID,
+			AmountCents:      product.AmountCents,
+			Currency:         product.Currency,
+		})
+		if txErr != nil {
+			return txErr
+		}
+
+		charge, txErr := store.RecordTransactionTx(ctx, tx, scope, &billing.Transaction{
+			BelongsToAccount:      "account-1",
+			PurchaseID:            purchase.ID,
+			ExternalTransactionID: "ch_abc",
+			Status:                billing.TransactionSucceeded,
+			AmountCents:           product.AmountCents,
+			Currency:              product.Currency,
+		})
+		if txErr != nil {
+			return txErr
+		}
+
+		// A failure here takes the charge back with it, which is the whole
+		// reason this is one transaction rather than two.
+		_, txErr = tx.ExecContext(ctx,
+			`INSERT INTO audit_log (account_id, event, amount_cents) VALUES (?, ?, ?)`,
+			charge.BelongsToAccount, "purchase.completed", charge.AmountCents)
+
+		return txErr
+	}); err != nil {
+		panic(err)
+	}
+
+	var audited int64
+	if err = client.Reader().QueryRowContext(ctx,
+		`SELECT amount_cents FROM audit_log WHERE account_id = ?`, "account-1").Scan(&audited); err != nil {
+		panic(err)
+	}
+
+	ledger, err := store.ListTransactionsForAccount(ctx, tenancy.Global(), "account-1", nil)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("ledger rows:", len(ledger.Data))
+	fmt.Println("audited:", audited)
+
+	// Output:
+	// ledger rows: 1
+	// audited: 9900
+}
+
 // exampleWiring builds a store over a throwaway SQLite database.
 func exampleWiring() billing.Store {
-	ctx := context.Background()
+	store, err := billing.NewSQLStore(exampleDatabase(context.Background()))
+	if err != nil {
+		panic(err)
+	}
 
+	return store
+}
+
+// exampleDatabase is a throwaway SQLite database with the billing tables in it.
+func exampleDatabase(ctx context.Context) database.Client {
 	dir, err := os.MkdirTemp("", "billing-example")
 	if err != nil {
 		panic(err)
@@ -231,12 +329,7 @@ func exampleWiring() billing.Store {
 		}
 	}
 
-	store, err := billing.NewSQLStore(client)
-	if err != nil {
-		panic(err)
-	}
-
-	return store
+	return client
 }
 
 // exampleClientConfig is the minimum database.ClientConfig a SQLite client

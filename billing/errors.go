@@ -24,6 +24,10 @@ var (
 	// ErrNilTransaction indicates a nil *Transaction where one was required.
 	ErrNilTransaction = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil transaction")
 
+	// ErrNilExecutor indicates a nil database.Tx handed to a write that runs
+	// inside somebody else's transaction.
+	ErrNilExecutor = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil query executor")
+
 	// ErrEmptyProductName indicates a product with no name. A product nobody
 	// can name is a product nobody can put on an invoice.
 	ErrEmptyProductName = platformerrors.Wrap(platformerrors.ErrEmptyInputParameter, "empty product name")
