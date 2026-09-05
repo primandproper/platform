@@ -56,6 +56,10 @@ The Makefile `THIS` variable must be the full module path (`github.com/primandpr
 
 ## Architecture Patterns
 
+**Two tiers, and a new package belongs to one of them.** Check a proposed package against the rule before writing it: **primitives-go ships what every service is built from and no service is** — a provider behind an interface, a transport whose shape is decided by something other than the consumer's domain (a probe, a protocol, a middleware contract, a third party's payload), the database and schema tooling stores are built with, and the cross-cutting values both tiers agree on (`tenancy.Scope`, the `errors` sentinels, `clock`). Nothing in it owns a table. **platform-go ships what a product has**: a noun with a table, its lifecycle, its transport, its permissions and its privacy obligations. The test is whether an application with no users would still need it — if yes, it is a primitive.
+
+Both tiers are in this module today and the primitives are leaving for `primitives-go`, so the answer decides which repository a package is written for rather than which import path it gets right now. The README's "Primitives and Domains" section is where the rule and the current sort are stated, and `internal/tiermatrix` fails if a top-level package has no tier, if a tier names one that is not there, or if anything on the primitives side ships DDL. A new top-level package therefore lands with a row, and the row is the decision, not the paperwork.
+
 **Interface + multi-implementation:** Most packages define an interface with multiple implementations selected by config. Examples: `cache.Cache[T]` (Redis, memory), `logging.Logger` (slog, zap, zerolog), `secrets.SecretSource` (env, GCP, AWS SSM), `uploads` (S3, GCS, filesystem).
 
 **Config structs:** Each major package has a `config` subpackage using `env:` struct tags and `ValidateWithContext()` via `go-ozzo/ozzo-validation`. Most, but not all, also have `EnsureDefaults()` — packages whose defaults are expressible as `envDefault:` tags use those instead.

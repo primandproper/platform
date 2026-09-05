@@ -56,7 +56,7 @@ pipeline, built from these parts, rather than a fifth package beside them.
 
 Nor is there an HTTP surface. Search results are the application's own types
 shaped for the application's own clients, so the handler is theirs — see the
-module README's "Stores and Transports" section for where that line is drawn
-across the module.
+module README's "Transports" section for where that line is drawn across the
+module.
 */
 package search

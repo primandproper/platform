@@ -72,7 +72,7 @@ a cookie, and a cookie's signing, encryption, HttpOnly, Secure and SameSite are
 security decisions this module has already made — leaving them to each consumer
 is how they get made differently in each one.
 
-The module README's "Stores and Transports" section is where that line is drawn
-for the module as a whole.
+The module README's "Transports" section is where that line is drawn for the
+module as a whole.
 */
 package http

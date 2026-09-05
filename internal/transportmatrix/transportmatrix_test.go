@@ -27,9 +27,11 @@ var transportDirs = []string{"http", "grpc"}
 // that decision.
 var kinds = []string{"server", "mapping", "wire conversion", "middleware", "binding", "resource surface"}
 
-// sectionHeading is the README section this package is about. The table read is
-// the first one beneath it.
-const sectionHeading = "## Stores and Transports"
+// sectionHeading is the README section this package is about. It is a
+// subsection of Primitives and Domains, because a transport this module ships
+// is the second of the four kinds that section's rule admits; the table read is
+// the first one beneath it, and the parse stops where the next heading starts.
+const sectionHeading = "### Transports"
 
 // transportRow matches one row of the table: a backticked package path, the
 // kind, and the prose. The prose column is matched but unread — it is there for
@@ -56,7 +58,7 @@ func TestEveryTransportHasARow(T *testing.T) {
 
 			_, ok := rows[pkg]
 			must.True(t, ok, must.Sprintf(
-				"%s ships a transport and has no row in the README's Stores and Transports table", pkg))
+				"%s ships a transport and has no row in the README's Transports table", pkg))
 		})
 	}
 }
@@ -75,7 +77,7 @@ func TestNoRowOutlivesItsTransport(T *testing.T) {
 			t.Parallel()
 
 			test.True(t, slices.Contains(shipped, pkg), test.Sprintf(
-				"%s has a row in the Stores and Transports table and ships no http or grpc subpackage", pkg))
+				"%s has a row in the Transports table and ships no http or grpc subpackage", pkg))
 		})
 	}
 }
@@ -113,7 +115,7 @@ func TestStoreOnlyPackagesShipNoTransport(T *testing.T) {
 	claimed := storeOnly(T)
 
 	must.SliceNotEmpty(T, claimed, must.Sprint(
-		"no store-only packages read out of the Stores and Transports section"))
+		"no store-only packages read out of the Transports section"))
 
 	shipped := shippedTransports(T)
 
@@ -146,7 +148,7 @@ func TestSectionIsReadable(T *testing.T) {
 
 	rows := table(T)
 
-	test.MapNotEmpty(T, rows, test.Sprint("no rows parsed from the README's Stores and Transports table"))
+	test.MapNotEmpty(T, rows, test.Sprint("no rows parsed from the README's Transports table"))
 
 	// The two servers are the rows most certain to be there: this module cannot
 	// stop shipping the thing that binds the port. A parse that finds a table
@@ -175,9 +177,9 @@ type parsedSection struct {
 	storeOnly []string
 }
 
-// section is the README's Stores and Transports section, read once: five tests
-// read it, and the answer is a property of the file rather than of whichever
-// test asked first.
+// section is the README's Transports section, read once: five tests read it,
+// and the answer is a property of the file rather than of whichever test asked
+// first.
 var section = sync.OnceValues(func() (parsedSection, error) {
 	body, err := os.ReadFile(filepath.Join(moduleRootPath(), "README.md"))
 	if err != nil {
