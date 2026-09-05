@@ -80,7 +80,7 @@ func TestSQLStore_Issue(T *testing.T) {
 
 		store, c := newTestStore(t)
 
-		issuance, err := store.Issue(t.Context(), testScope(), testUserID, time.Hour)
+		issuance, err := issueFor(t, store, testScope(), testUserID, time.Hour)
 		must.NoError(t, err)
 
 		test.NotEqOp(t, "", issuance.Secret)
@@ -146,10 +146,10 @@ func TestSQLStore_Issue(T *testing.T) {
 		first := issue(t, store, time.Hour)
 		second := issue(t, store, time.Hour)
 
-		_, err := store.Consume(t.Context(), testScope(), first.Secret)
+		_, err := consume(t, store, testScope(), first.Secret)
 		test.NoError(t, err)
 
-		_, err = store.Consume(t.Context(), testScope(), second.Secret)
+		_, err = consume(t, store, testScope(), second.Secret)
 		test.NoError(t, err)
 	})
 
@@ -158,7 +158,7 @@ func TestSQLStore_Issue(T *testing.T) {
 
 		store, _ := newTestStore(t)
 
-		issuance, err := store.Issue(t.Context(), tenancy.Scope{}, testUserID, time.Hour)
+		issuance, err := issueFor(t, store, tenancy.Scope{}, testUserID, time.Hour)
 		test.Nil(t, issuance)
 		test.ErrorIs(t, err, tenancy.ErrNoScope)
 	})
@@ -168,7 +168,7 @@ func TestSQLStore_Issue(T *testing.T) {
 
 		store, _ := newTestStore(t)
 
-		issuance, err := store.Issue(t.Context(), testScope(), "", time.Hour)
+		issuance, err := issueFor(t, store, testScope(), "", time.Hour)
 		test.Nil(t, issuance)
 		test.ErrorIs(t, err, ErrEmptyUserID)
 	})
@@ -179,7 +179,7 @@ func TestSQLStore_Issue(T *testing.T) {
 		store, _ := newTestStore(t)
 
 		for _, ttl := range []time.Duration{0, -time.Minute} {
-			issuance, err := store.Issue(t.Context(), testScope(), testUserID, ttl)
+			issuance, err := issueFor(t, store, testScope(), testUserID, ttl)
 			test.Nil(t, issuance)
 			test.ErrorIs(t, err, ErrNonPositiveLifetime)
 		}
@@ -190,7 +190,7 @@ func TestSQLStore_Issue(T *testing.T) {
 
 		store, _ := newTestStore(t, WithGenerator(&failingGenerator{}))
 
-		issuance, err := store.Issue(t.Context(), testScope(), testUserID, time.Hour)
+		issuance, err := issueFor(t, store, testScope(), testUserID, time.Hour)
 		test.Nil(t, issuance)
 		test.ErrorIs(t, err, random.ErrNoRandomness)
 	})
@@ -202,10 +202,10 @@ func TestSQLStore_Issue(T *testing.T) {
 
 		store, _ := newTestStore(t, WithGenerator(&constantGenerator{secret: "always-the-same"}))
 
-		_, err := store.Issue(t.Context(), testScope(), testUserID, time.Hour)
+		_, err := issueFor(t, store, testScope(), testUserID, time.Hour)
 		must.NoError(t, err)
 
-		issuance, err := store.Issue(t.Context(), testScope(), testUserID, time.Hour)
+		issuance, err := issueFor(t, store, testScope(), testUserID, time.Hour)
 		test.Nil(t, issuance)
 		test.Error(t, err)
 	})
@@ -220,7 +220,7 @@ func TestSQLStore_Verify(T *testing.T) {
 		store, _ := newTestStore(t)
 		issuance := issue(t, store, time.Hour)
 
-		token, err := store.Verify(t.Context(), testScope(), issuance.Secret)
+		token, err := verify(t, store, testScope(), issuance.Secret)
 		must.NoError(t, err)
 
 		test.EqOp(t, issuance.Token.ID, token.ID)
@@ -241,11 +241,11 @@ func TestSQLStore_Verify(T *testing.T) {
 		issuance := issue(t, store, time.Hour)
 
 		for range 3 {
-			_, err := store.Verify(t.Context(), testScope(), issuance.Secret)
+			_, err := verify(t, store, testScope(), issuance.Secret)
 			must.NoError(t, err)
 		}
 
-		_, err := store.Consume(t.Context(), testScope(), issuance.Secret)
+		_, err := consume(t, store, testScope(), issuance.Secret)
 		test.NoError(t, err)
 	})
 
@@ -254,7 +254,7 @@ func TestSQLStore_Verify(T *testing.T) {
 
 		store, _ := newTestStore(t)
 
-		token, err := store.Verify(t.Context(), testScope(), "never-issued")
+		token, err := verify(t, store, testScope(), "never-issued")
 		test.Nil(t, token)
 		test.ErrorIs(t, err, ErrTokenNotFound)
 	})
@@ -267,11 +267,11 @@ func TestSQLStore_Verify(T *testing.T) {
 		store, _ := newTestStore(t)
 		issuance := issue(t, store, time.Hour)
 
-		token, err := store.Verify(t.Context(), tenancy.Of("tenant_b"), issuance.Secret)
+		token, err := verify(t, store, tenancy.Of("tenant_b"), issuance.Secret)
 		test.Nil(t, token)
 		test.ErrorIs(t, err, ErrTokenNotFound)
 
-		token, err = store.Verify(t.Context(), tenancy.Global(), issuance.Secret)
+		token, err = verify(t, store, tenancy.Global(), issuance.Secret)
 		test.Nil(t, token)
 		test.ErrorIs(t, err, ErrTokenNotFound)
 	})
@@ -284,7 +284,7 @@ func TestSQLStore_Verify(T *testing.T) {
 
 		c.advance(time.Hour)
 
-		token, err := store.Verify(t.Context(), testScope(), issuance.Secret)
+		token, err := verify(t, store, testScope(), issuance.Secret)
 		test.Nil(t, token)
 		test.ErrorIs(t, err, ErrTokenExpired)
 	})
@@ -295,10 +295,10 @@ func TestSQLStore_Verify(T *testing.T) {
 		store, _ := newTestStore(t)
 		issuance := issue(t, store, time.Hour)
 
-		_, err := store.Consume(t.Context(), testScope(), issuance.Secret)
+		_, err := consume(t, store, testScope(), issuance.Secret)
 		must.NoError(t, err)
 
-		token, err := store.Verify(t.Context(), testScope(), issuance.Secret)
+		token, err := verify(t, store, testScope(), issuance.Secret)
 		test.Nil(t, token)
 		test.ErrorIs(t, err, ErrTokenRedeemed)
 	})
@@ -308,7 +308,7 @@ func TestSQLStore_Verify(T *testing.T) {
 
 		store, _ := newTestStore(t)
 
-		token, err := store.Verify(t.Context(), tenancy.Scope{}, "anything")
+		token, err := verify(t, store, tenancy.Scope{}, "anything")
 		test.Nil(t, token)
 		test.ErrorIs(t, err, tenancy.ErrNoScope)
 	})
@@ -318,7 +318,7 @@ func TestSQLStore_Verify(T *testing.T) {
 
 		store, _ := newTestStore(t)
 
-		token, err := store.Verify(t.Context(), testScope(), "")
+		token, err := verify(t, store, testScope(), "")
 		test.Nil(t, token)
 		test.ErrorIs(t, err, ErrEmptySecret)
 	})
@@ -333,7 +333,7 @@ func TestSQLStore_Consume(T *testing.T) {
 		store, c := newTestStore(t)
 		issuance := issue(t, store, time.Hour)
 
-		token, err := store.Consume(t.Context(), testScope(), issuance.Secret)
+		token, err := consume(t, store, testScope(), issuance.Secret)
 		must.NoError(t, err)
 
 		test.EqOp(t, issuance.Token.ID, token.ID)
@@ -349,10 +349,10 @@ func TestSQLStore_Consume(T *testing.T) {
 		store, _ := newTestStore(t)
 		issuance := issue(t, store, time.Hour)
 
-		_, err := store.Consume(t.Context(), testScope(), issuance.Secret)
+		_, err := consume(t, store, testScope(), issuance.Secret)
 		must.NoError(t, err)
 
-		token, err := store.Consume(t.Context(), testScope(), issuance.Secret)
+		token, err := consume(t, store, testScope(), issuance.Secret)
 		test.Nil(t, token)
 		test.ErrorIs(t, err, ErrTokenRedeemed)
 	})
@@ -363,7 +363,7 @@ func TestSQLStore_Consume(T *testing.T) {
 		store, _ := newTestStore(t)
 		issuance := issue(t, store, time.Hour)
 
-		_, err := store.Consume(t.Context(), testScope(), issuance.Secret)
+		_, err := consume(t, store, testScope(), issuance.Secret)
 		must.NoError(t, err)
 
 		var redeemed any
@@ -383,14 +383,16 @@ func TestSQLStore_Consume(T *testing.T) {
 
 		c.advance(time.Hour + time.Second)
 
-		token, err := store.Consume(t.Context(), testScope(), issuance.Secret)
+		token, err := consume(t, store, testScope(), issuance.Secret)
 		test.Nil(t, token)
 		test.ErrorIs(t, err, ErrTokenExpired)
 	})
 
-	// An expired token that was refused must stay unredeemed: a rolled-back
-	// transaction that had stamped it would turn "expired" into "already used"
-	// on the next attempt, which is a different story told to the same user.
+	// An expired token that was refused must stay unredeemed. The refusal is
+	// made before the stamp rather than by unwinding one, which matters now that
+	// the transaction is the caller's: a caller that swallowed the refusal and
+	// committed anyway would still have committed nothing of Consume's, so the
+	// next attempt says "expired" rather than "already used".
 	T.Run("leaves an expired token unredeemed", func(t *testing.T) {
 		t.Parallel()
 
@@ -399,7 +401,7 @@ func TestSQLStore_Consume(T *testing.T) {
 
 		c.advance(2 * time.Hour)
 
-		_, err := store.Consume(t.Context(), testScope(), issuance.Secret)
+		_, err := consume(t, store, testScope(), issuance.Secret)
 		test.ErrorIs(t, err, ErrTokenExpired)
 
 		var redeemed any
@@ -418,7 +420,7 @@ func TestSQLStore_Consume(T *testing.T) {
 		// The deadline is exclusive: a token whose expires_at is now is spent.
 		c.advance(time.Hour)
 
-		token, err := store.Consume(t.Context(), testScope(), issuance.Secret)
+		token, err := consume(t, store, testScope(), issuance.Secret)
 		test.Nil(t, token)
 		test.ErrorIs(t, err, ErrTokenExpired)
 	})
@@ -429,12 +431,12 @@ func TestSQLStore_Consume(T *testing.T) {
 		store, _ := newTestStore(t)
 		issuance := issue(t, store, time.Hour)
 
-		token, err := store.Consume(t.Context(), tenancy.Of("tenant_b"), issuance.Secret)
+		token, err := consume(t, store, tenancy.Of("tenant_b"), issuance.Secret)
 		test.Nil(t, token)
 		test.ErrorIs(t, err, ErrTokenNotFound)
 
 		// And it is still spendable in the scope it belongs to.
-		_, err = store.Consume(t.Context(), testScope(), issuance.Secret)
+		_, err = consume(t, store, testScope(), issuance.Secret)
 		test.NoError(t, err)
 	})
 
@@ -443,7 +445,7 @@ func TestSQLStore_Consume(T *testing.T) {
 
 		store, _ := newTestStore(t)
 
-		token, err := store.Consume(t.Context(), testScope(), "never-issued")
+		token, err := consume(t, store, testScope(), "never-issued")
 		test.Nil(t, token)
 		test.ErrorIs(t, err, ErrTokenNotFound)
 	})
@@ -453,7 +455,7 @@ func TestSQLStore_Consume(T *testing.T) {
 
 		store, _ := newTestStore(t)
 
-		token, err := store.Consume(t.Context(), tenancy.Scope{}, "anything")
+		token, err := consume(t, store, tenancy.Scope{}, "anything")
 		test.Nil(t, token)
 		test.ErrorIs(t, err, tenancy.ErrNoScope)
 	})
@@ -463,7 +465,7 @@ func TestSQLStore_Consume(T *testing.T) {
 
 		store, _ := newTestStore(t)
 
-		token, err := store.Consume(t.Context(), testScope(), "")
+		token, err := consume(t, store, testScope(), "")
 		test.Nil(t, token)
 		test.ErrorIs(t, err, ErrEmptySecret)
 	})
@@ -480,12 +482,12 @@ func TestSQLStore_RevokeForUser(T *testing.T) {
 		first := issue(t, store, time.Hour)
 		second := issue(t, store, time.Hour)
 
-		revoked, err := store.RevokeForUser(t.Context(), testScope(), testUserID)
+		revoked, err := revokeForUser(t, store, testScope(), testUserID)
 		must.NoError(t, err)
 		test.EqOp(t, int64(2), revoked)
 
 		for _, issuance := range []*Issuance{first, second} {
-			_, consumeErr := store.Consume(t.Context(), testScope(), issuance.Secret)
+			_, consumeErr := consume(t, store, testScope(), issuance.Secret)
 			test.ErrorIs(t, consumeErr, ErrTokenNotFound)
 		}
 	})
@@ -500,17 +502,17 @@ func TestSQLStore_RevokeForUser(T *testing.T) {
 		spent := issue(t, store, time.Hour)
 		outstanding := issue(t, store, time.Hour)
 
-		_, err := store.Consume(t.Context(), testScope(), spent.Secret)
+		_, err := consume(t, store, testScope(), spent.Secret)
 		must.NoError(t, err)
 
-		revoked, err := store.RevokeForUser(t.Context(), testScope(), testUserID)
+		revoked, err := revokeForUser(t, store, testScope(), testUserID)
 		must.NoError(t, err)
 		test.EqOp(t, int64(1), revoked)
 
-		_, err = store.Verify(t.Context(), testScope(), spent.Secret)
+		_, err = verify(t, store, testScope(), spent.Secret)
 		test.ErrorIs(t, err, ErrTokenRedeemed)
 
-		_, err = store.Verify(t.Context(), testScope(), outstanding.Secret)
+		_, err = verify(t, store, testScope(), outstanding.Secret)
 		test.ErrorIs(t, err, ErrTokenNotFound)
 	})
 
@@ -521,17 +523,17 @@ func TestSQLStore_RevokeForUser(T *testing.T) {
 
 		mine := issue(t, store, time.Hour)
 
-		theirs, err := store.Issue(t.Context(), testScope(), "user_02", time.Hour)
+		theirs, err := issueFor(t, store, testScope(), "user_02", time.Hour)
 		must.NoError(t, err)
 
-		revoked, err := store.RevokeForUser(t.Context(), testScope(), testUserID)
+		revoked, err := revokeForUser(t, store, testScope(), testUserID)
 		must.NoError(t, err)
 		test.EqOp(t, int64(1), revoked)
 
-		_, err = store.Verify(t.Context(), testScope(), mine.Secret)
+		_, err = verify(t, store, testScope(), mine.Secret)
 		test.ErrorIs(t, err, ErrTokenNotFound)
 
-		_, err = store.Verify(t.Context(), testScope(), theirs.Secret)
+		_, err = verify(t, store, testScope(), theirs.Secret)
 		test.NoError(t, err)
 	})
 
@@ -542,17 +544,17 @@ func TestSQLStore_RevokeForUser(T *testing.T) {
 
 		mine := issue(t, store, time.Hour)
 
-		theirs, err := store.Issue(t.Context(), tenancy.Of("tenant_b"), testUserID, time.Hour)
+		theirs, err := issueFor(t, store, tenancy.Of("tenant_b"), testUserID, time.Hour)
 		must.NoError(t, err)
 
-		revoked, err := store.RevokeForUser(t.Context(), tenancy.Of("tenant_b"), testUserID)
+		revoked, err := revokeForUser(t, store, tenancy.Of("tenant_b"), testUserID)
 		must.NoError(t, err)
 		test.EqOp(t, int64(1), revoked)
 
-		_, err = store.Verify(t.Context(), testScope(), mine.Secret)
+		_, err = verify(t, store, testScope(), mine.Secret)
 		test.NoError(t, err)
 
-		_, err = store.Verify(t.Context(), tenancy.Of("tenant_b"), theirs.Secret)
+		_, err = verify(t, store, tenancy.Of("tenant_b"), theirs.Secret)
 		test.ErrorIs(t, err, ErrTokenNotFound)
 	})
 
@@ -561,7 +563,7 @@ func TestSQLStore_RevokeForUser(T *testing.T) {
 
 		store, _ := newTestStore(t)
 
-		revoked, err := store.RevokeForUser(t.Context(), testScope(), testUserID)
+		revoked, err := revokeForUser(t, store, testScope(), testUserID)
 		must.NoError(t, err)
 		test.EqOp(t, int64(0), revoked)
 	})
@@ -571,7 +573,7 @@ func TestSQLStore_RevokeForUser(T *testing.T) {
 
 		store, _ := newTestStore(t)
 
-		revoked, err := store.RevokeForUser(t.Context(), tenancy.Scope{}, testUserID)
+		revoked, err := revokeForUser(t, store, tenancy.Scope{}, testUserID)
 		test.EqOp(t, int64(0), revoked)
 		test.ErrorIs(t, err, tenancy.ErrNoScope)
 	})
@@ -581,7 +583,7 @@ func TestSQLStore_RevokeForUser(T *testing.T) {
 
 		store, _ := newTestStore(t)
 
-		revoked, err := store.RevokeForUser(t.Context(), testScope(), "")
+		revoked, err := revokeForUser(t, store, testScope(), "")
 		test.EqOp(t, int64(0), revoked)
 		test.ErrorIs(t, err, ErrEmptyUserID)
 	})

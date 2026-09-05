@@ -47,6 +47,11 @@ var _ Store = (*SQLStore)(nil)
 // the interface: a store backed by something that expires its own entries needs
 // no sweep, and a store that is not a table has no column.
 type SQLStore struct {
+	// db is not what the writes run on — those are handed the caller's
+	// transaction. It is here for the two things a Client answers that a Tx
+	// cannot: the dialect the generated statements are rendered for, read once
+	// at construction, and the executor Sweep runs on, which belongs to nobody's
+	// request and so can join nobody's transaction.
 	db        database.Client
 	q         passwordresetdb.Querier
 	clock     clock.Clock
@@ -62,12 +67,19 @@ type SQLStore struct {
 
 // NewSQLStore builds a SQLStore over a database client.
 //
-// Reads go through the write pool, deliberately. A reset token is written by
-// the request that asks for one and read by the very next request the user
-// makes — the one they made by following a link that arrived seconds later —
-// and replica lag turns that into a reset link that is "not found" and then
-// works when reloaded. These rows are small, single-key, and live for an hour;
-// they are not the reads worth scaling out.
+// The client is not what the writes execute on. Issue, Consume and
+// RevokeForUser take the caller's database.Tx; what this one supplies is the
+// dialect the generated statements are rendered for and the executor Sweep runs
+// on, which serves the store's own machinery rather than a request.
+//
+// Verify takes its executor too, and which one is the caller's choice with one
+// recommendation: not Client.Reader(). A reset token is written by the request
+// that asks for one and read by the very next request the user makes — the one
+// they made by following a link that arrived seconds later — and replica lag
+// turns that into a reset link that is "not found" and then works when
+// reloaded. Pass Client.Writer(), or the Tx the redemption is about to run in.
+// These rows are small, single-key, and live for an hour; they are not the
+// reads worth scaling out.
 //
 // It does not create the table. Hand migrations.SQL to your own migration run.
 func NewSQLStore(cfg *Config, db database.Client, opts ...Option) (*SQLStore, error) {
@@ -159,7 +171,17 @@ func (s *SQLStore) Digest(secret string) string {
 
 // Issue mints a token for a principal, stores its digest, and returns the secret
 // exactly once.
-func (s *SQLStore) Issue(ctx context.Context, scope tenancy.Scope, userID string, ttl time.Duration) (*Issuance, error) {
+//
+// The row lands with tx. Mail the secret after the commit, not before it: a
+// link sent for a transaction that then rolled back is a reset nobody can
+// complete.
+func (s *SQLStore) Issue(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	userID string,
+	ttl time.Duration,
+) (*Issuance, error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -192,7 +214,7 @@ func (s *SQLStore) Issue(ctx context.Context, scope tenancy.Scope, userID string
 		ExpiresAt: now.Add(ttl),
 	}
 
-	if err = s.q.InsertToken(ctx, s.db.Writer(), passwordresetdb.InsertTokenParams{
+	if err = s.q.InsertToken(ctx, tx, passwordresetdb.InsertTokenParams{
 		ID:            token.ID,
 		Scope:         token.Scope,
 		BelongsToUser: token.UserID,
@@ -209,7 +231,16 @@ func (s *SQLStore) Issue(ctx context.Context, scope tenancy.Scope, userID string
 }
 
 // Verify resolves a secret to its token without spending it.
-func (s *SQLStore) Verify(ctx context.Context, scope tenancy.Scope, secret string) (*Token, error) {
+//
+// Called with the Tx a redemption is about to run in, it reads that
+// transaction's own writes; called with Client.Writer(), it is the page load
+// that precedes the form.
+func (s *SQLStore) Verify(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	secret string,
+) (*Token, error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -219,7 +250,7 @@ func (s *SQLStore) Verify(ctx context.Context, scope tenancy.Scope, secret strin
 
 	op.Set(scopeKey, scope.String())
 
-	token, err := s.read(ctx, s.db.Writer(), scope, secret)
+	token, err := s.read(ctx, q, scope, secret)
 	if err != nil {
 		if isTokenError(err) {
 			return nil, err
@@ -237,16 +268,26 @@ func (s *SQLStore) Verify(ctx context.Context, scope tenancy.Scope, secret strin
 	return token, nil
 }
 
-// Consume spends a secret, atomically, and returns the token it spent.
+// Consume spends a secret and returns the token it spent.
 //
-// The read and the redemption are one transaction, and it is the redemption
-// that decides the answer. Two requests answering the same link at the same
-// instant both read the row live; the second one's update finds redeemed_at
-// already set and reports no rows, so exactly one of them is handed the token
-// and the other is told it has been spent. A read that decided, with an update
-// afterwards, would hand it to both — and the window would be exactly as wide as
-// the password write that follows.
-func (s *SQLStore) Consume(ctx context.Context, scope tenancy.Scope, secret string) (*Token, error) {
+// The read and the redemption both run in tx, and it is the redemption that
+// decides the answer. Two requests answering the same link at the same instant,
+// in two transactions, both read the row live; the second one's update finds
+// redeemed_at already set and reports no rows, so exactly one of them is handed
+// the token and the other is told it has been spent. A read that decided, with
+// an update afterwards, would hand it to both.
+//
+// What closes the window entirely is the password write joining that same
+// transaction, which is why the Tx is an argument rather than something this
+// method opens for itself. A store that opened its own would leave the caller's
+// password write outside it, and the gap between the two commits is the one this
+// package exists to remove.
+func (s *SQLStore) Consume(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	secret string,
+) (*Token, error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -256,14 +297,8 @@ func (s *SQLStore) Consume(ctx context.Context, scope tenancy.Scope, secret stri
 
 	op.Set(scopeKey, scope.String())
 
-	var token *Token
-
-	if err := s.db.WithTransaction(ctx, func(q database.Tx) error {
-		var txErr error
-		token, txErr = s.redeem(ctx, q, scope, secret)
-
-		return txErr
-	}); err != nil {
+	token, err := s.redeem(ctx, tx, scope, secret)
+	if err != nil {
 		if isTokenError(err) {
 			return nil, err
 		}
@@ -277,7 +312,15 @@ func (s *SQLStore) Consume(ctx context.Context, scope tenancy.Scope, secret stri
 }
 
 // RevokeForUser destroys every unredeemed token a principal holds.
-func (s *SQLStore) RevokeForUser(ctx context.Context, scope tenancy.Scope, userID string) (int64, error) {
+//
+// It runs in tx, so the reset that supersedes those links and the removal of
+// them are one fact rather than two.
+func (s *SQLStore) RevokeForUser(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	userID string,
+) (int64, error) {
 	ctx, op := s.o11y.Begin(ctx)
 	defer op.End()
 
@@ -291,7 +334,7 @@ func (s *SQLStore) RevokeForUser(ctx context.Context, scope tenancy.Scope, userI
 
 	op.SetValues(map[string]any{userKey: userID, scopeKey: scope.String()})
 
-	revoked, err := s.q.RevokeTokensForUser(ctx, s.db.Writer(), passwordresetdb.RevokeTokensForUserParams{
+	revoked, err := s.q.RevokeTokensForUser(ctx, tx, passwordresetdb.RevokeTokensForUserParams{
 		Scope:         scope,
 		BelongsToUser: userID,
 	})
@@ -302,15 +345,20 @@ func (s *SQLStore) RevokeForUser(ctx context.Context, scope tenancy.Scope, userI
 	return revoked, nil
 }
 
-// redeem reads a token within one transaction and stamps its redemption,
-// reporting ErrTokenRedeemed when the stamp finds nothing to write.
+// redeem reads a token and stamps its redemption, reporting ErrTokenRedeemed
+// when the stamp finds nothing to write.
+//
+// It takes the narrower type where read takes the wider one, and has only ever
+// had one caller. Two statements decide one thing here, and the second's
+// affected-row count is only an answer if the first ran against the same
+// transaction — so this is the helper that is not correct in either context.
 func (s *SQLStore) redeem(
 	ctx context.Context,
-	q database.SQLQueryExecutor,
+	tx database.Tx,
 	scope tenancy.Scope,
 	secret string,
 ) (*Token, error) {
-	token, err := s.read(ctx, q, scope, secret)
+	token, err := s.read(ctx, tx, scope, secret)
 	if err != nil {
 		return nil, err
 	}
@@ -332,7 +380,7 @@ func (s *SQLStore) redeem(
 	// between running the statement and reading the count — and that is the
 	// right reading here: a redemption whose count is unreadable cannot say who
 	// spent the token, and reporting zero would say somebody else did.
-	affected, err := s.q.RedeemToken(ctx, q, passwordresetdb.RedeemTokenParams{
+	affected, err := s.q.RedeemToken(ctx, tx, passwordresetdb.RedeemTokenParams{
 		RedeemedAt: &at,
 		ID:         token.ID,
 	})

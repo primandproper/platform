@@ -30,10 +30,10 @@ func TestSQLStore_Sweep(T *testing.T) {
 		must.NoError(t, err)
 		test.EqOp(t, int64(1), swept)
 
-		_, err = store.Verify(t.Context(), testScope(), short.Secret)
+		_, err = verify(t, store, testScope(), short.Secret)
 		test.ErrorIs(t, err, ErrTokenNotFound)
 
-		_, err = store.Verify(t.Context(), testScope(), long.Secret)
+		_, err = verify(t, store, testScope(), long.Secret)
 		test.NoError(t, err)
 	})
 
@@ -47,14 +47,14 @@ func TestSQLStore_Sweep(T *testing.T) {
 
 		issuance := issue(t, store, time.Hour)
 
-		_, err := store.Consume(t.Context(), testScope(), issuance.Secret)
+		_, err := consume(t, store, testScope(), issuance.Secret)
 		must.NoError(t, err)
 
 		swept, err := store.Sweep(t.Context())
 		must.NoError(t, err)
 		test.EqOp(t, int64(0), swept)
 
-		_, err = store.Verify(t.Context(), testScope(), issuance.Secret)
+		_, err = verify(t, store, testScope(), issuance.Secret)
 		test.ErrorIs(t, err, ErrTokenRedeemed)
 
 		c.advance(2 * time.Hour)
@@ -63,7 +63,7 @@ func TestSQLStore_Sweep(T *testing.T) {
 		must.NoError(t, err)
 		test.EqOp(t, int64(1), swept)
 
-		_, err = store.Verify(t.Context(), testScope(), issuance.Secret)
+		_, err = verify(t, store, testScope(), issuance.Secret)
 		test.ErrorIs(t, err, ErrTokenNotFound)
 	})
 
@@ -74,13 +74,13 @@ func TestSQLStore_Sweep(T *testing.T) {
 
 		store, c := newTestStore(t)
 
-		_, err := store.Issue(t.Context(), testScope(), testUserID, time.Minute)
+		_, err := issueFor(t, store, testScope(), testUserID, time.Minute)
 		must.NoError(t, err)
 
-		_, err = store.Issue(t.Context(), tenancy.Of("tenant_b"), testUserID, time.Minute)
+		_, err = issueFor(t, store, tenancy.Of("tenant_b"), testUserID, time.Minute)
 		must.NoError(t, err)
 
-		_, err = store.Issue(t.Context(), tenancy.Global(), testUserID, time.Minute)
+		_, err = issueFor(t, store, tenancy.Global(), testUserID, time.Minute)
 		must.NoError(t, err)
 
 		c.advance(time.Hour)
@@ -133,7 +133,7 @@ func TestSQLStore_sweepEvery(T *testing.T) {
 		// which is what makes the first one's work observable.
 		c.tick()
 
-		_, err := store.Verify(t.Context(), testScope(), issuance.Secret)
+		_, err := verify(t, store, testScope(), issuance.Secret)
 		test.ErrorIs(t, err, ErrTokenNotFound)
 	})
 

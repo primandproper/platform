@@ -160,15 +160,94 @@ func newTestStore(tb testing.TB, opts ...Option) (*SQLStore, *fakeClock) {
 	return store, c
 }
 
-// issue mints one token, failing the test if it cannot.
+// withTx runs fn inside a real transaction on the store's client.
+//
+// Every write in these tests goes through it, because the store opens no
+// transaction of its own any more — and it is also the production shape for a
+// caller with nothing to join: Client.WithTransaction, with the Tx passed
+// straight through. A refusal rolls the transaction back and comes back
+// unwrapped, which is what lets these tests keep asserting on the sentinel.
+func withTx(tb testing.TB, store *SQLStore, fn func(tx database.Tx) error) error {
+	tb.Helper()
+
+	return store.db.WithTransaction(tb.Context(), fn)
+}
+
+// issue mints one token for the usual principal, failing the test if it cannot.
 func issue(tb testing.TB, store *SQLStore, ttl time.Duration) *Issuance {
 	tb.Helper()
 
-	issuance, err := store.Issue(tb.Context(), testScope(), testUserID, ttl)
+	issuance, err := issueFor(tb, store, testScope(), testUserID, ttl)
 	must.NoError(tb, err)
 	must.NotNil(tb, issuance)
 
 	return issuance
+}
+
+// issueFor mints one token for a named principal in a named scope, reporting
+// what the store said rather than failing on it.
+func issueFor(
+	tb testing.TB,
+	store *SQLStore,
+	scope tenancy.Scope,
+	userID string,
+	ttl time.Duration,
+) (*Issuance, error) {
+	tb.Helper()
+
+	var issuance *Issuance
+
+	err := withTx(tb, store, func(tx database.Tx) error {
+		var issueErr error
+		issuance, issueErr = store.Issue(tb.Context(), tx, scope, userID, ttl)
+
+		return issueErr
+	})
+
+	return issuance, err
+}
+
+// verify resolves a secret through the write pool, which is the executor a page
+// load holds: a replica can answer "not found" for a link that arrived seconds
+// ago. The cases that want the transaction's own view pass a Tx instead.
+func verify(tb testing.TB, store *SQLStore, scope tenancy.Scope, secret string) (*Token, error) {
+	tb.Helper()
+
+	return store.Verify(tb.Context(), store.db.Writer(), scope, secret)
+}
+
+// consume spends a secret in a transaction of its own, which is what a caller
+// with nothing else to write does.
+func consume(tb testing.TB, store *SQLStore, scope tenancy.Scope, secret string) (*Token, error) {
+	tb.Helper()
+
+	var token *Token
+
+	err := withTx(tb, store, func(tx database.Tx) error {
+		var consumeErr error
+		token, consumeErr = store.Consume(tb.Context(), tx, scope, secret)
+
+		return consumeErr
+	})
+
+	return token, err
+}
+
+// revokeForUser destroys one principal's outstanding tokens in a transaction of
+// its own.
+func revokeForUser(tb testing.TB, store *SQLStore, scope tenancy.Scope, userID string) (int64, error) {
+	tb.Helper()
+
+	var revoked int64
+
+	err := withTx(tb, store, func(tx database.Tx) error {
+		var revokeErr error
+		revoked, revokeErr = store.RevokeForUser(tb.Context(), tx, scope, userID)
+
+		return revokeErr
+	})
+
+	return revoked, err
 }
 
 // recordingLogger counts what was logged as an error, for the one code path in

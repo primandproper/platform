@@ -33,6 +33,13 @@ const backgroundSweepFailure = "background sweep of expired password reset token
 // it returns a count, not rows — which is what keeps it inside the narrow
 // exception the tenancy doctrine allows a component's own machinery.
 //
+// It is also the one method that takes no executor, and for the same reason.
+// The three writes run in the caller's transaction because a reset token is
+// written for somebody's request; this deletes rows on nobody's behalf, from a
+// background loop or a scheduler tick, and there is no transaction of anybody's
+// for it to join. It runs on the client the store was built with, one statement
+// at a time.
+//
 // The horizon is this store's own clock rather than the server's, because that
 // is the clock that stamped the column: a deadline written as now-plus-a-TTL
 // from an injected clock and compared against CURRENT_TIMESTAMP would be two
