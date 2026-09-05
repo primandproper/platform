@@ -49,9 +49,14 @@ guessed identifier existed.
 
 sessions.HTTPMapper maps that onto 401 via errors/http's
 ErrFetchingSessionContextData, so a handler that returns it unmodified produces
-the right status — once something has registered the mapper. service.Register
-does; a service assembling itself by hand calls
-errors/http.RegisterHTTPErrorMapper(sessions.HTTPMapper) once, at startup.
+the right status — once something has registered the mapper. Nothing here does:
+this package writes no error response at all, since Middleware logs a load
+failure and serves the request anonymously, and the 401 is written by a
+consumer's handler through the consumer's own ToAPIResponse call. So the
+registration is the composition root's, and it is one call for the whole domain
+tier — errormappers.Register, which service.Register makes for a service built
+from a service.Config and a service assembling itself by hand makes once, at
+startup.
 
 # Cookie lifetime
 

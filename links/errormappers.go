@@ -20,10 +20,11 @@ import (
 //
 // Nothing registers these on its own: there is no init here, because a mapper
 // that installs itself into a process-wide registry by being linked in is a
-// side effect a consumer cannot opt out of. service.Register registers them for
-// a service built from a service.Config, and a service assembled by hand calls
-// errors/http.RegisterHTTPErrorMapper and errors/grpc.RegisterGRPCErrorMapper
-// itself, next to its own.
+// side effect a consumer cannot opt out of. The composition root registers the
+// domain tier, and for this module that is one call — errormappers.Register,
+// which service.Register makes for a service built from a service.Config and a
+// service assembled by hand makes itself, next to the mappers it declares for
+// its own sentinels.
 var (
 	// HTTPMapper maps this package's sentinels onto HTTP error codes.
 	HTTPMapper httperrors.HTTPErrorMapper = httpMapper{}
@@ -37,8 +38,9 @@ var (
 )
 
 // ClientSafeSentinels are the redemption outcomes whose own text a gRPC server
-// may return to a caller verbatim, registered with
-// errors/grpc.RegisterClientSafeSentinels.
+// may return to a caller verbatim, handed to
+// errors/grpc.RegisterClientSafeSentinels by errormappers.Register alongside the
+// four mappers.
 //
 // The four are separate sentinels rather than one for the reason errors.go
 // gives — a 256-bit token is never guessed, so naming the outcome is not an

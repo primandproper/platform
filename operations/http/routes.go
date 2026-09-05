@@ -111,11 +111,18 @@ func New(svc operations.Service, opts ...Option) (*Handlers, error) {
 	// the 404 read goes to the trouble of returning, and a subscription refused
 	// for capacity is a 500 rather than a 429 the client can back off from.
 	//
+	// This is the one exception to the rule that the composition root registers
+	// the domain tier, and the only place in the module that can be one: it is
+	// the only surface here that both answers through errors/http and belongs to
+	// a package errormappers.Register names. dataprivacy and links ship no
+	// transport at all, and sessions/http ships one that never writes an error
+	// response, so neither has anywhere to make this statement.
+	//
 	// Here rather than in an init, because linking a package in is not a
 	// decision and building these handlers is: a consumer that constructs them
-	// has said it wants operation errors on the wire. service.Register does the
-	// same for a service that never mounts them. Registration is additive and
-	// the registry stops at the first match, so a second Handlers costs one
+	// has said it wants operation errors on the wire. errormappers.Register does
+	// the same for a service that never mounts them. Registration is additive
+	// and the registry stops at the first match, so a second Handlers costs one
 	// comparison and answers identically.
 	httpx.RegisterHTTPErrorMapper(operations.HTTPMapper)
 

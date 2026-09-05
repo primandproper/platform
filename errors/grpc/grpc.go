@@ -24,11 +24,13 @@ var (
 // MapToGRPC consults after PlatformMapper and in registration order.
 //
 // A package that owns sentinels declares the mapper — dataprivacy.GRPCMapper and
-// its three counterparts in this module are the pattern — and something above it
-// registers it: service.Register for a service built from a service.Config, the
-// composition root otherwise. Doing it from an init function is a consumer's
-// choice to make and not this module's, because a mapper that installs itself by
-// being linked in is a side effect nothing downstream can opt out of.
+// its three counterparts in this module are the pattern — and the composition
+// root registers it. For this module's four that is one call, errormappers.Register,
+// which service.Register makes for a service built from a service.Config and a
+// service assembled by hand makes itself; this function is what a consumer calls
+// for a mapper of its own. Doing it from an init function is a consumer's choice
+// to make and not this module's, because a mapper that installs itself by being
+// linked in is a side effect nothing downstream can opt out of.
 func RegisterGRPCErrorMapper(m GRPCErrorMapper) {
 	domainMappersMu.Lock()
 	defer domainMappersMu.Unlock()

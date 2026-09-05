@@ -143,6 +143,10 @@ var (
 // — and a sentinel whose text names a table, a key, or a policy must not be
 // registered here at all.
 //
+// This module's own set is links.ClientSafeSentinels, and errormappers.Register
+// hands it over alongside the four mappers, so a consumer registering the domain
+// tier gets both halves in one call.
+//
 // It is additive and safe to call from more than one goroutine, and a sentinel
 // registered twice costs a second comparison and nothing else.
 func RegisterClientSafeSentinels(sentinels ...error) {

@@ -27,9 +27,10 @@ declare a mapper beside the sentinel, and register it.
 
 Registration is what makes a mapper reachable. RegisterHTTPErrorMapper appends
 one; ToAPIError consults PlatformMapper first, then registered mappers in
-registration order. service.Register registers this module's four for a service
-built from a service.Config, and a service assembled by hand registers them
-alongside its own. There is deliberately no init doing it: a mapper that installs
+registration order. This module's four are one call — errormappers.Register,
+which service.Register makes for a service built from a service.Config and a
+service assembled by hand makes itself, alongside the mappers it declares for its
+own sentinels. There is deliberately no init doing it: a mapper that installs
 itself into a process-wide registry by being linked in is a side effect a
 consumer cannot opt out of.
 
