@@ -80,6 +80,17 @@ type (
 		// roll back. Returning an error (or panicking) is the sole way to abort, and drives
 		// exactly one rollback — so fn can't roll back and then also return an error, which
 		// would otherwise trigger a redundant second rollback.
+		//
+		// This is the one way into a transaction for application code, and specifically for
+		// a caller of a store whose writes take a Tx and who has no transaction of their own
+		// to join. A free function — database.Atomic(ctx, client, fn) — was proposed for that
+		// caller and rejected: it is this method with its receiver moved into an argument, so
+		// it is a second exported name that can do nothing this one cannot, in a module whose
+		// rule is to extract what can be got wrong twice rather than what is merely written
+		// twice. A delegating alias cannot drift from its delegate, so there is nothing for
+		// the second name to protect. Per-store WithTransaction wrappers are rejected on the
+		// same ground, and RunInTransaction is the engine rather than the entry point: it
+		// takes a raw *sql.DB and a rollback function, and skips this method's observability.
 		WithTransaction(ctx context.Context, fn func(querier Tx) error) error
 		Close() error
 		CurrentTime() time.Time

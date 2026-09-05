@@ -38,7 +38,7 @@ Selecting an implementation is deliberate: an unrecognized provider name returns
 
 **OpenTelemetry throughout.** HTTP, gRPC, database, and messaging layers emit traces and metrics. Observability primitives (logging, tracing, metrics, profiling) live under `observability/`.
 
-**Error handling.** Uses [`cockroachdb/errors`](https://github.com/cockroachdb/errors) for rich, wrapped error context. Platform-level sentinel errors live in `errors/`, conventionally imported as `platformerrors`. Transport mappings live in `errors/http` and `errors/grpc`, which import the packages whose sentinels they map — so nothing in those packages may import them back.
+**Error handling.** Uses [`cockroachdb/errors`](https://github.com/cockroachdb/errors) for rich, wrapped error context. Platform-level sentinel errors live in `errors/`, conventionally imported as `platformerrors`. Transport mappings live in `errors/http` and `errors/grpc`, which map the primitives — `database`, `circuitbreaking`, `ratelimiting`, `idempotency`, `requestsigning`, the search indexes — and import those packages, so nothing in them may import back. Everything built on top maps itself: `dataprivacy`, `links`, `operations` and `sessions` each export an `HTTPMapper` and a `GRPCMapper`, and the composition root registers the four in one call — `errormappers.Register()`, which `service.Register` makes for a service built from a `service.Config` and a service assembled by hand makes itself. `operations/http.New` is the single exception, registering its own HTTP mapper because it is the only surface here that both answers through `errors/http` and belongs to a package on that list. `internal/sentinelmatrix` checks that every exported sentinel in those four has a decision recorded and that it still holds on both transports.
 
 ## Package Catalog
 
@@ -138,7 +138,57 @@ Implementations are listed in parentheses; most concerns also provide a `noop`. 
 ### Utilities
 `errors`, `pointer`, `numbers`, `bitmask`, `charset`, `reflection`, `panicking`, `testutils`, `fake`.
 
-## Stores and Transports
+## Primitives and Domains
+
+There are two kinds of package here, and they are separating: the primitives
+leave for `primitives-go`, and what stays is the domain tier. The rule that
+sorts them is the one to check a new package against before writing it, and it
+is one property — does the package own a table, or drive one.
+
+> **primitives-go ships what every service is built from and no service is.**
+> Four kinds of thing qualify: a provider behind an interface (`cache`, `email`,
+> `messagequeue`, ...); a transport whose shape is decided by something other
+> than the consumer's domain (a probe, a protocol, a middleware contract, a
+> third party's payload); the database and schema tooling stores are built with
+> (`database` and its subpackages, `filtering`); and the cross-cutting values
+> both tiers have to agree on (`tenancy.Scope`, the `errors` sentinels,
+> `clock`). Nothing in it owns a table.
+>
+> **platform-go ships what a product has**: a noun with a table, its lifecycle,
+> its transport, its permissions and its privacy obligations. The test for a new
+> package is whether an application with no users would still need it. If yes, it
+> is a primitive.
+
+Both tiers are still in this module — the move has not landed — so the tier
+column below is where a package is going rather than where it can be imported
+from today. The rule is what a new package is measured against either way.
+
+| Tier            | What it is                                                | Packages |
+|-----------------|-----------------------------------------------------------|----------|
+| `primitives-go` | a provider behind an interface                            | `analytics`, `authentication`, `authorization`, `cache`, `capitalism`, `cryptography`, `distributedlock`, `email`, `embeddings`, `eventcapture`, `eventstream`, `featureflags`, `llm`, `messagequeue`, `notifications/mobile`, `ratelimiting`, `search`, `secrets`, `uploads` |
+| `primitives-go` | a transport whose shape is not the consumer's             | `compression`, `cookies`, `encoding`, `healthcheck`, `httpclient`, `idempotency`, `routing`, `server`, `webhooks/inbound` |
+| `primitives-go` | the database and schema tooling stores are built with     | `database`, `filtering` |
+| `primitives-go` | the cross-cutting values and utilities both tiers build on | `batching`, `bitmask`, `charset`, `circuitbreaking`, `clock`, `config`, `errors`, `fake`, `files`, `identifiers`, `jobs`, `numbers`, `observability`, `panicking`, `pointer`, `qrcodes`, `random`, `reflection`, `retry`, `tenancy`, `testutils`, `version` |
+| `platform-go`   | a noun with a table, and what it owes                     | `audit`, `authentication/oauth2server/database`, `authentication/passwordreset`, `authentication/webauthn/database`, `authorization/database`, `billing`, `comments`, `cryptography/shredding`, `dataprivacy`, `entitlements`, `identity`, `issuereports`, `links`, `metering`, `notifications`, `operations`, `outbox`, `retention`, `saga`, `search/sync`, `sessions`, `settings`, `timers`, `uploads/registry`, `waitlists`, `webhooks`, `workqueue` |
+| `platform-go`   | the composition root that registers both tiers            | `errormappers`, `service` |
+
+A package with a path of its own on the other side is a package straddling the
+line, and today six do. Four are a primitive with a store nested inside it — `authentication` hashes
+passwords and issues tokens, and `authentication/passwordreset` owns a table of
+them; `authorization`, `cryptography` and `uploads` split the same way. Two are
+the mirror: `notifications` owns the inbox and `notifications/mobile` is a push
+provider behind an interface, and `search` is text and vector search while
+`search/sync` is a reindexing worker driven by the outbox. Each nested store is
+what has to get a home of its own before its parent can leave whole.
+
+`service` is neither tier and is why the split does not split it: it is one walk
+of one config that registers both, and a consumer of both sees the wiring it
+sees today. `errormappers` is the small half of the same job that does sit on
+this side — the one call that tells the two transport registries what the domain
+tier's sentinels mean — kept out of `service` so that a consumer wiring three
+packages by hand does not import the config tree of seventy to make it.
+
+### Transports
 
 A component here that owns data ships a `Store` interface, a SQL implementation
 of it, the DDL for whichever dialects the matrix below grants it, and a mock —
@@ -147,6 +197,12 @@ The routes, the request and response types, the authorization on each one and
 the error envelope a client sees are the application's, and a library that
 shipped them would be versioning your `/api/v1/users` on its own release
 cadence, in types your proto does not have, under a scoping rule it guessed.
+
+All three of those are properties of a module that also holds the primitives —
+the cadence they set, a proto this module does not ship, and a scope that was
+guessed before `tenancy.Scope` existed — so where this line falls for the domain
+tier is a question the split reopens, one domain at a time. What follows is
+where it falls today.
 
 So `identity`, `webhooks` endpoint management, `billing`, `settings`,
 `notifications`, `metering`, `audit`, `dataprivacy`, `saga`, `timers` and

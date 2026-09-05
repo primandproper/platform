@@ -6,20 +6,15 @@ import (
 	"github.com/primandproper/platform-go/v14/circuitbreaking"
 	"github.com/primandproper/platform-go/v14/cryptography/requestsigning"
 	"github.com/primandproper/platform-go/v14/database"
-	"github.com/primandproper/platform-go/v14/dataprivacy"
 	platformerrors "github.com/primandproper/platform-go/v14/errors"
 	grpcerrors "github.com/primandproper/platform-go/v14/errors/grpc"
 	httperrors "github.com/primandproper/platform-go/v14/errors/http"
 	"github.com/primandproper/platform-go/v14/idempotency"
-	"github.com/primandproper/platform-go/v14/links"
-	"github.com/primandproper/platform-go/v14/operations"
 	"github.com/primandproper/platform-go/v14/ratelimiting"
 	textsearch "github.com/primandproper/platform-go/v14/search/text"
 	vectorsearch "github.com/primandproper/platform-go/v14/search/vector"
-	"github.com/primandproper/platform-go/v14/sessions"
 
 	"github.com/shoenig/test"
-	"github.com/shoenig/test/must"
 	"google.golang.org/grpc/codes"
 )
 
@@ -36,6 +31,11 @@ import (
 // point. A sentinel that genuinely belongs on one transport and not the other
 // does not go in this list; it goes in that mapper's own test, with a comment
 // saying why.
+//
+// It is the platform tier only, and that is the same boundary the two mappers
+// hold: dataprivacy, links, operations and sessions map their own sentinels now,
+// so the same parity is asserted over each of their two mappers in their own
+// package, and over all four at once by internal/sentinelmatrix.
 var mappedSentinels = []error{
 	database.ErrUserAlreadyExists,
 	circuitbreaking.ErrCircuitBroken,
@@ -51,22 +51,6 @@ var mappedSentinels = []error{
 	ratelimiting.ErrRateLimited,
 	requestsigning.ErrStaleSignature,
 	requestsigning.ErrInvalidSignature,
-	sessions.ErrNotFound,
-	sessions.ErrExpired,
-	sessions.ErrIdleTimeout,
-	sessions.ErrAbsoluteTimeout,
-	links.ErrLinkNotFound,
-	links.ErrLinkAlreadyRedeemed,
-	links.ErrLinkExpired,
-	links.ErrLinkRevoked,
-	links.ErrInvalidToken,
-	operations.ErrOperationNotFound,
-	operations.ErrTooManyWatchers,
-	dataprivacy.ErrRequestNotFound,
-	dataprivacy.ErrNotAwaitingConfirmation,
-	dataprivacy.ErrArtifactUnavailable,
-	dataprivacy.ErrEmptySubjectID,
-	dataprivacy.ErrUnknownRequestType,
 	idempotency.ErrInFlight,
 	idempotency.ErrFingerprintMismatch,
 	idempotency.ErrKeyRequired,
@@ -133,24 +117,5 @@ func TestPlatformMappers_unknownErrorsAreNotClaimed(T *testing.T) {
 		grpcCode, grpcOK := grpcerrors.PlatformMapper.Map(stranger)
 		test.False(t, grpcOK)
 		test.EqOp(t, codes.Unknown, grpcCode)
-	})
-}
-
-func TestPlatformMappers_dataprivacyIsMappedInBoth(T *testing.T) {
-	T.Parallel()
-
-	// Called out separately because it was the gap: a subject asking after their
-	// own export got a 500 saying the service was broken, when the answer was
-	// that the ID was not one of theirs.
-	T.Run("a missing request is a not-found, not a server failure", func(t *testing.T) {
-		t.Parallel()
-
-		code, _, ok := httperrors.PlatformMapper.Map(dataprivacy.ErrRequestNotFound)
-		must.True(t, ok)
-		test.EqOp(t, httperrors.ErrDataNotFound, code)
-
-		grpcCode, grpcOK := grpcerrors.PlatformMapper.Map(dataprivacy.ErrRequestNotFound)
-		must.True(t, grpcOK)
-		test.EqOp(t, codes.NotFound, grpcCode)
 	})
 }

@@ -47,8 +47,16 @@ sessions.ErrNotFound. A client cannot tell from the response which of those it
 managed, which is the point — the alternative is an oracle that says whether a
 guessed identifier existed.
 
-errors/http maps that onto 401 via ErrFetchingSessionContextData, so a handler
-that returns it unmodified produces the right status.
+sessions.HTTPMapper maps that onto 401 via errors/http's
+ErrFetchingSessionContextData, so a handler that returns it unmodified produces
+the right status — once something has registered the mapper. Nothing here does:
+this package writes no error response at all, since Middleware logs a load
+failure and serves the request anonymously, and the 401 is written by a
+consumer's handler through the consumer's own ToAPIResponse call. So the
+registration is the composition root's, and it is one call for the whole domain
+tier — errormappers.Register, which service.Register makes for a service built
+from a service.Config and a service assembling itself by hand makes once, at
+startup.
 
 # Cookie lifetime
 
@@ -72,8 +80,8 @@ a cookie, and a cookie's signing, encryption, HttpOnly, Secure and SameSite are
 security decisions this module has already made — leaving them to each consumer
 is how they get made differently in each one.
 
-The module README's "Stores and Transports" section is where that line is drawn
-for the module as a whole.
+The module README's "Transports" section is where that line is drawn for the
+module as a whole.
 */
 package http
 
