@@ -9,7 +9,6 @@ import (
 	"github.com/primandproper/platform-go/v14/database"
 	platformerrors "github.com/primandproper/platform-go/v14/errors"
 	"github.com/primandproper/platform-go/v14/idempotency"
-	"github.com/primandproper/platform-go/v14/links"
 
 	"github.com/shoenig/test"
 	"google.golang.org/grpc/codes"
@@ -50,30 +49,6 @@ func TestPlatformMapper_Map(T *testing.T) {
 		code, ok := PlatformMapper.Map(platformerrors.ErrResourceInUse)
 		test.True(t, ok)
 		test.EqOp(t, codes.FailedPrecondition, code)
-	})
-
-	// FailedPrecondition rather than NotFound: a link that has been used, has
-	// expired, or has been revoked will never work again, and NotFound invites
-	// the client to retry the URL that just failed.
-	T.Run("every unusable action link maps to FailedPrecondition", func(t *testing.T) {
-		t.Parallel()
-		for _, err := range []error{
-			links.ErrLinkAlreadyRedeemed,
-			links.ErrLinkExpired,
-			links.ErrLinkRevoked,
-			links.ErrLinkNotFound,
-		} {
-			code, ok := PlatformMapper.Map(err)
-			test.True(t, ok)
-			test.EqOp(t, codes.FailedPrecondition, code)
-		}
-	})
-
-	T.Run("ErrInvalidToken maps to InvalidArgument", func(t *testing.T) {
-		t.Parallel()
-		code, ok := PlatformMapper.Map(links.ErrInvalidToken)
-		test.True(t, ok)
-		test.EqOp(t, codes.InvalidArgument, code)
 	})
 
 	T.Run("ErrInFlight maps to Aborted", func(t *testing.T) {

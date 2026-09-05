@@ -7,19 +7,28 @@ import (
 	"github.com/primandproper/platform-go/v14/circuitbreaking"
 	"github.com/primandproper/platform-go/v14/cryptography/requestsigning"
 	"github.com/primandproper/platform-go/v14/database"
-	"github.com/primandproper/platform-go/v14/dataprivacy"
 	platformerrors "github.com/primandproper/platform-go/v14/errors"
 	"github.com/primandproper/platform-go/v14/idempotency"
-	"github.com/primandproper/platform-go/v14/links"
-	"github.com/primandproper/platform-go/v14/operations"
 	"github.com/primandproper/platform-go/v14/ratelimiting"
 	textsearch "github.com/primandproper/platform-go/v14/search/text"
 	vectorsearch "github.com/primandproper/platform-go/v14/search/vector"
-	"github.com/primandproper/platform-go/v14/sessions"
 )
 
 // PlatformMapper maps platform-level errors to HTTP error codes and messages.
 // It does not depend on any domain.
+//
+// "Platform" is a narrower word here than it looks. It means the primitives —
+// database, circuitbreaking, ratelimiting, idempotency, requestsigning, the two
+// search indexes, and the platformerrors sentinels — and nothing built on them.
+// The mappings for dataprivacy, links, operations and sessions used to live in
+// this switch and now live beside their own sentinels, as dataprivacy.HTTPMapper
+// and its three counterparts, registered with RegisterHTTPErrorMapper. That is
+// what lets this package be depended on by the tier it maps for instead of
+// depending on it.
+//
+// The practical consequence is that those four map only once somebody has
+// registered them. service.Register does it for a service built from a
+// service.Config; a service assembled by hand registers them itself.
 var PlatformMapper HTTPErrorMapper = platformMapper{}
 
 type platformMapper struct{}
@@ -69,61 +78,6 @@ func (platformMapper) Map(err error) (code ErrorCode, msg string, ok bool) {
 		return ErrInvalidRequestSignature, "request signature timestamp outside tolerance", true
 	case errors.Is(err, requestsigning.ErrInvalidSignature):
 		return ErrInvalidRequestSignature, "invalid request signature", true
-	// Ordered before ErrNotFound, which both of these wrap. Every unusable
-	// session — absent, forged, expired — resolves to the same status and a
-	// message that says nothing about which: telling a client apart "no such
-	// session" from "that one expired" is an oracle for whether a guessed
-	// identifier ever existed.
-	case errors.Is(err, sessions.ErrExpired):
-		return ErrFetchingSessionContextData, "session expired", true
-	case errors.Is(err, sessions.ErrNotFound):
-		return ErrFetchingSessionContextData, "no active session", true
-	// One code for the four, and a message per outcome. The message is the half
-	// a person reads, and here it can be specific without disclosing anything —
-	// see ErrActionLinkUnusable on why an action link is not a session cookie in
-	// this respect.
-	case errors.Is(err, links.ErrLinkAlreadyRedeemed):
-		return ErrActionLinkUnusable, "this link has already been used", true
-	case errors.Is(err, links.ErrLinkExpired):
-		return ErrActionLinkUnusable, "this link has expired", true
-	case errors.Is(err, links.ErrLinkRevoked):
-		return ErrActionLinkUnusable, "this link is no longer valid", true
-	case errors.Is(err, links.ErrLinkNotFound):
-		return ErrActionLinkUnusable, "this link is not valid", true
-	// A malformed token never named a link, so it is ordinary bad input and gets
-	// a 400 rather than the 410 above.
-	case errors.Is(err, links.ErrInvalidToken):
-		return ErrValidatingRequestInput, "invalid link", true
-	// An operation nobody may read and an operation that does not exist are the
-	// same answer on purpose. The read paths resolve an owner and return
-	// ErrOperationNotFound for a row belonging to somebody else, so that an ID
-	// somebody guessed cannot be confirmed as real by the status it comes back
-	// with.
-	case errors.Is(err, operations.ErrOperationNotFound):
-		return ErrDataNotFound, "operation not found", true
-	// A subscription refused for capacity is a retry-later, not a failure of the
-	// request: the same subscription will be accepted when somebody disconnects.
-	case errors.Is(err, operations.ErrTooManyWatchers):
-		return ErrTooManyRequests, "too many concurrent operation subscriptions", true
-	// The privacy-request sentinels, mapped for the same reasons as the
-	// operations ones directly above: a subject asking after their own export or
-	// erasure is a client, and "request not found" reaching them as a 500 tells
-	// them the service is broken when the answer is that the ID is not one of
-	// theirs.
-	case errors.Is(err, dataprivacy.ErrRequestNotFound):
-		return ErrDataNotFound, "privacy request not found", true
-	// A conflict rather than a not-found: the request exists and the caller may
-	// see it, it is simply not in the state the call needs. The remedy is a state
-	// change somebody else makes — a confirmation arrives, an export finishes —
-	// not a corrected request.
-	case errors.Is(err, dataprivacy.ErrNotAwaitingConfirmation):
-		return ErrResourceConflict, "privacy request is not awaiting confirmation", true
-	case errors.Is(err, dataprivacy.ErrArtifactUnavailable):
-		return ErrResourceConflict, "privacy request has no downloadable artifact", true
-	case errors.Is(err, dataprivacy.ErrEmptySubjectID):
-		return ErrValidatingRequestInput, "privacy request requires a subject", true
-	case errors.Is(err, dataprivacy.ErrUnknownRequestType):
-		return ErrValidatingRequestInput, "unknown privacy request type", true
 	case errors.Is(err, idempotency.ErrInFlight):
 		return ErrIdempotencyKeyInFlight, "a request with this idempotency key is already in progress", true
 	case errors.Is(err, idempotency.ErrFingerprintMismatch):

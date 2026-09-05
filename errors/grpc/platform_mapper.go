@@ -7,15 +7,11 @@ import (
 	"github.com/primandproper/platform-go/v14/circuitbreaking"
 	"github.com/primandproper/platform-go/v14/cryptography/requestsigning"
 	"github.com/primandproper/platform-go/v14/database"
-	"github.com/primandproper/platform-go/v14/dataprivacy"
 	platformerrors "github.com/primandproper/platform-go/v14/errors"
 	"github.com/primandproper/platform-go/v14/idempotency"
-	"github.com/primandproper/platform-go/v14/links"
-	"github.com/primandproper/platform-go/v14/operations"
 	"github.com/primandproper/platform-go/v14/ratelimiting"
 	textsearch "github.com/primandproper/platform-go/v14/search/text"
 	vectorsearch "github.com/primandproper/platform-go/v14/search/vector"
-	"github.com/primandproper/platform-go/v14/sessions"
 
 	"google.golang.org/grpc/codes"
 )
@@ -27,6 +23,20 @@ import (
 // service exposing both transports would otherwise answer the same failure with
 // a considered status on one and codes.Unknown on the other, and which one a
 // client got would depend on how it happened to connect.
+//
+// "Platform" is a narrower word here than it looks. It means the primitives —
+// database, circuitbreaking, ratelimiting, idempotency, requestsigning, the two
+// search indexes, and the platformerrors sentinels — and nothing built on them.
+// The mappings for dataprivacy, links, operations and sessions used to live in
+// this switch and now live beside their own sentinels, as dataprivacy.GRPCMapper
+// and its three counterparts, registered with RegisterGRPCErrorMapper. That is
+// what lets this package be depended on by the tier it maps for instead of
+// depending on it, and the both-transports parity above is now a property each
+// of those four packages holds for its own sentinels.
+//
+// The practical consequence is that those four map only once somebody has
+// registered them. service.Register does it for a service built from a
+// service.Config; a service assembled by hand registers them itself.
 var PlatformMapper GRPCErrorMapper = platformMapper{}
 
 type platformMapper struct{}
@@ -80,51 +90,6 @@ func (platformMapper) Map(err error) (code codes.Code, ok bool) {
 	case errors.Is(err, requestsigning.ErrInvalidSignature),
 		errors.Is(err, requestsigning.ErrStaleSignature):
 		return codes.Unauthenticated, true
-	// FailedPrecondition rather than NotFound, and the gap between the two is
-	// the point. NotFound invites the client to try the same URL again; a link
-	// that has been used, has expired, or has been revoked will never work
-	// again, and the retry it invites is a person clicking a dead link twice.
-	// FailedPrecondition's documented advice — change the state, then retry — is
-	// exactly right: the state to change is "hold a live link", and the way to
-	// change it is to ask for a new one.
-	case errors.Is(err, links.ErrLinkAlreadyRedeemed),
-		errors.Is(err, links.ErrLinkExpired),
-		errors.Is(err, links.ErrLinkRevoked),
-		errors.Is(err, links.ErrLinkNotFound):
-		return codes.FailedPrecondition, true
-	// A malformed token never named a link at all, which is ordinary bad input.
-	case errors.Is(err, links.ErrInvalidToken):
-		return codes.InvalidArgument, true
-	// Unauthenticated for every unusable session — absent, forged, expired.
-	// ErrNotFound alone covers all of them, since ErrExpired and the two timeout
-	// errors wrap it, and nothing is lost by collapsing them: gRPC has one code
-	// for "we do not know who you are", and telling a client apart "no such
-	// session" from "that one expired" is an oracle for whether a guessed
-	// identifier ever existed. The HTTP mapper splits the two only to vary the
-	// message a person reads; the status is the same there too.
-	case errors.Is(err, sessions.ErrNotFound):
-		return codes.Unauthenticated, true
-	// An operation nobody may read and an operation that does not exist are the
-	// same answer, for the same reason the HTTP mapper gives.
-	case errors.Is(err, operations.ErrOperationNotFound):
-		return codes.NotFound, true
-	// ResourceExhausted rather than Unavailable: nothing is down, the fleet is
-	// simply at its subscription ceiling, and the client should back off and
-	// retry rather than fail over to an instance with the same ceiling.
-	case errors.Is(err, operations.ErrTooManyWatchers):
-		return codes.ResourceExhausted, true
-	case errors.Is(err, dataprivacy.ErrRequestNotFound):
-		return codes.NotFound, true
-	// FailedPrecondition for both: the request exists and the caller may see it,
-	// but it is not in the state the call needs. The state has to change —
-	// somebody confirms the request, or the export finishes — before a retry can
-	// succeed, which is exactly what FailedPrecondition tells a client.
-	case errors.Is(err, dataprivacy.ErrNotAwaitingConfirmation),
-		errors.Is(err, dataprivacy.ErrArtifactUnavailable):
-		return codes.FailedPrecondition, true
-	case errors.Is(err, dataprivacy.ErrEmptySubjectID),
-		errors.Is(err, dataprivacy.ErrUnknownRequestType):
-		return codes.InvalidArgument, true
 	// Aborted is gRPC's concurrency-conflict code, and its documented advice —
 	// retry at a higher level — is exactly right here: the work may still
 	// succeed, and the client should ask again with the same key.

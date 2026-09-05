@@ -38,7 +38,7 @@ Selecting an implementation is deliberate: an unrecognized provider name returns
 
 **OpenTelemetry throughout.** HTTP, gRPC, database, and messaging layers emit traces and metrics. Observability primitives (logging, tracing, metrics, profiling) live under `observability/`.
 
-**Error handling.** Uses [`cockroachdb/errors`](https://github.com/cockroachdb/errors) for rich, wrapped error context. Platform-level sentinel errors live in `errors/`, conventionally imported as `platformerrors`. Transport mappings live in `errors/http` and `errors/grpc`, which import the packages whose sentinels they map — so nothing in those packages may import them back.
+**Error handling.** Uses [`cockroachdb/errors`](https://github.com/cockroachdb/errors) for rich, wrapped error context. Platform-level sentinel errors live in `errors/`, conventionally imported as `platformerrors`. Transport mappings live in `errors/http` and `errors/grpc`, which map the primitives — `database`, `circuitbreaking`, `ratelimiting`, `idempotency`, `requestsigning`, the search indexes — and import those packages, so nothing in them may import back. Everything built on top maps itself: `dataprivacy`, `links`, `operations` and `sessions` each export an `HTTPMapper` and a `GRPCMapper`, and `service.Register` registers them. `internal/sentinelmatrix` checks that every exported sentinel in those four has a decision recorded and that it still holds on both transports.
 
 ## Package Catalog
 

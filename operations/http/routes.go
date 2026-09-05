@@ -8,6 +8,7 @@ import (
 
 	"github.com/primandproper/platform-go/v14/encoding"
 	platformerrors "github.com/primandproper/platform-go/v14/errors"
+	httpx "github.com/primandproper/platform-go/v14/errors/http"
 	"github.com/primandproper/platform-go/v14/filtering"
 	"github.com/primandproper/platform-go/v14/observability"
 	"github.com/primandproper/platform-go/v14/operations"
@@ -103,6 +104,20 @@ func New(svc operations.Service, opts ...Option) (*Handlers, error) {
 	if o.resolver == nil {
 		return nil, ErrNilOwnerResolver
 	}
+
+	// This surface answers through errors/http, which maps the primitives and
+	// nothing above them, so mounting it registers the mapping it answers with.
+	// Without this an operation belonging to somebody else is a 500 rather than
+	// the 404 read goes to the trouble of returning, and a subscription refused
+	// for capacity is a 500 rather than a 429 the client can back off from.
+	//
+	// Here rather than in an init, because linking a package in is not a
+	// decision and building these handlers is: a consumer that constructs them
+	// has said it wants operation errors on the wire. service.Register does the
+	// same for a service that never mounts them. Registration is additive and
+	// the registry stops at the first match, so a second Handlers costs one
+	// comparison and answers identically.
+	httpx.RegisterHTTPErrorMapper(operations.HTTPMapper)
 
 	return &Handlers{
 		svc:      svc,

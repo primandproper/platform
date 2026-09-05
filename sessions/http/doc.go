@@ -47,8 +47,11 @@ sessions.ErrNotFound. A client cannot tell from the response which of those it
 managed, which is the point — the alternative is an oracle that says whether a
 guessed identifier existed.
 
-errors/http maps that onto 401 via ErrFetchingSessionContextData, so a handler
-that returns it unmodified produces the right status.
+sessions.HTTPMapper maps that onto 401 via errors/http's
+ErrFetchingSessionContextData, so a handler that returns it unmodified produces
+the right status — once something has registered the mapper. service.Register
+does; a service assembling itself by hand calls
+errors/http.RegisterHTTPErrorMapper(sessions.HTTPMapper) once, at startup.
 
 # Cookie lifetime
 
