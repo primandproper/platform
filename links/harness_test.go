@@ -1,16 +1,15 @@
 package links
 
 import (
+	"context"
+	"maps"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v14/cache"
-	cachememory "github.com/primandproper/platform-go/v14/cache/memory"
 	"github.com/primandproper/platform-go/v14/clock"
 	clockmock "github.com/primandproper/platform-go/v14/clock/mock"
-	"github.com/primandproper/platform-go/v14/distributedlock"
-	dlmemory "github.com/primandproper/platform-go/v14/distributedlock/memory"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
 
 	"github.com/shoenig/test/must"
 )
@@ -29,42 +28,165 @@ func testPolicy() ActionPolicy {
 	}
 }
 
-// newStore builds an in-memory record store. The expiry is per-write, so the
-// cache default is irrelevant.
-func newStore(tb testing.TB) cache.Cache[Record] {
-	tb.Helper()
+// errDuplicateRecord is what the store double reports for an id already in the
+// map, standing in for the primary key or the SETNX the real ones lean on.
+var errDuplicateRecord = platformerrors.New("action link record already stored")
 
-	c, err := cachememory.NewInMemoryCache[Record](0)
-	must.NoError(tb, err)
+// memoryStore is a links.Store over a map, and the double every test in this
+// package runs against.
+//
+// It is hand-written rather than generated, and it is a real implementation
+// rather than a set of canned answers, because what a Minter is being tested
+// against here is the Store contract: absent reads as ErrLinkNotFound, a record
+// from another shape reads as ErrStaleRecord, and Resolve is one atomic step
+// that either transitions the link or says why it would not. A mock returning
+// whatever a test asked for would let the Minter drift from all three.
+//
+// The two shipped stores are tested against their own storage — links/cache
+// with a real locker, links/database against a real engine — so what those
+// suites cover and this one cannot is the atomicity: here the mutex supplies
+// it, which is exactly what those two have to buy.
+//
+// It cannot live in links/mock: an in-package test importing that would close
+// an import cycle.
+type memoryStore struct {
+	records map[ID]*Record
 
-	return c
+	getErr     error
+	putErr     error
+	resolveErr error
+
+	mu sync.Mutex
 }
 
-// newLocker builds a real in-process scoped locker, so the concurrency tests
-// exercise actual mutual exclusion rather than a mock that always grants.
-func newLocker(tb testing.TB) distributedlock.ScopedLocker {
-	tb.Helper()
+var _ Store = (*memoryStore)(nil)
 
-	locker, err := dlmemory.NewLocker()
-	must.NoError(tb, err)
-
-	scoped, err := distributedlock.NewScopedLocker(locker)
-	must.NoError(tb, err)
-
-	return scoped
+// newMemoryStore builds an empty store.
+func newMemoryStore() *memoryStore {
+	return &memoryStore{records: map[ID]*Record{}}
 }
 
-// newTestMinter builds a Minter over a memory store and a memory locker, with
-// the default action registered.
+// Put writes a record, refusing an id already in the map for the reason the
+// real stores do: a collision means the generator repeated itself.
+func (s *memoryStore) Put(_ context.Context, id ID, record *Record) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.putErr != nil {
+		return s.putErr
+	}
+
+	if _, ok := s.records[id]; ok {
+		return errDuplicateRecord
+	}
+
+	stored := *record
+	stored.Metadata = maps.Clone(record.Metadata)
+	s.records[id] = &stored
+
+	return nil
+}
+
+// Get reads a record without consuming it.
+func (s *memoryStore) Get(_ context.Context, id ID) (*Record, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.read(id)
+}
+
+// Resolve transitions a link under the mutex, which is what the cache store
+// buys with a lock and the database store with a guarded UPDATE.
+func (s *memoryStore) Resolve(
+	_ context.Context,
+	id ID,
+	to State,
+	at, purgeAfter time.Time,
+) (*Record, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.resolveErr != nil {
+		return nil, s.resolveErr
+	}
+
+	record, err := s.read(id)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = record.Usable(at); err != nil {
+		return record, err
+	}
+
+	resolved := *record
+	resolved.State = to
+	resolved.ResolvedAt = at
+	resolved.PurgeAfter = purgeAfter
+
+	s.records[id] = &resolved
+
+	return &resolved, nil
+}
+
+// read is the shared body of Get and Resolve's read half, held under the mutex
+// by both.
+func (s *memoryStore) read(id ID) (*Record, error) {
+	if s.getErr != nil {
+		return nil, s.getErr
+	}
+
+	record, ok := s.records[id]
+	if !ok {
+		return nil, ErrLinkNotFound
+	}
+
+	if !record.Current() {
+		return nil, ErrStaleRecord
+	}
+
+	// The live pointer, as the memory cache provider hands back, so a test can
+	// tell whether the Minter copies what it returns to a caller.
+	return record, nil
+}
+
+// stored reads a record out from under the store, for the assertions about what
+// was written rather than about what was answered.
+func (s *memoryStore) stored(tb testing.TB, id ID) *Record {
+	tb.Helper()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	record, ok := s.records[id]
+	must.True(tb, ok)
+
+	return record
+}
+
+// newTestMinter builds a Minter over a memory store, with the default action
+// registered.
 func newTestMinter(tb testing.TB, opts ...Option) *Minter {
 	tb.Helper()
 
-	m, err := NewMinter(newStore(tb), newLocker(tb), append([]Option{
+	m, _ := newTestMinterStore(tb, opts...)
+
+	return m
+}
+
+// newTestMinterStore builds a Minter and hands back the store behind it, for
+// the tests that assert on what was written.
+func newTestMinterStore(tb testing.TB, opts ...Option) (*Minter, *memoryStore) {
+	tb.Helper()
+
+	store := newMemoryStore()
+
+	m, err := NewMinter(store, append([]Option{
 		WithAction(testAction, testPolicy()),
 	}, opts...)...)
 	must.NoError(tb, err)
 
-	return m
+	return m, store
 }
 
 // testClock is a clock whose time only moves when a test moves it, so expiry

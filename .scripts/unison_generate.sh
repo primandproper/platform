@@ -64,6 +64,7 @@ COMPONENTS=(
   "cryptography/shredding postgres mysql sqlite"
   "dataprivacy postgres mysql sqlite"
   "issuereports postgres mysql sqlite"
+  "links/database postgres mysql sqlite"
   "metering postgres mysql sqlite"
   "notifications postgres mysql sqlite"
   "saga postgres mysql sqlite"

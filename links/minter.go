@@ -7,11 +7,9 @@ import (
 	"maps"
 	"time"
 
-	"github.com/primandproper/platform-go/v14/cache"
 	"github.com/primandproper/platform-go/v14/clock"
 	"github.com/primandproper/platform-go/v14/cryptography/hashing"
 	hashingsha256 "github.com/primandproper/platform-go/v14/cryptography/hashing/sha256"
-	"github.com/primandproper/platform-go/v14/distributedlock"
 	platformerrors "github.com/primandproper/platform-go/v14/errors"
 	"github.com/primandproper/platform-go/v14/observability"
 	"github.com/primandproper/platform-go/v14/observability/metrics"
@@ -57,8 +55,7 @@ const (
 // and the seams worth swapping — the store, the locker, the hasher, the
 // randomness — are already interfaces with their own mocks.
 type Minter struct {
-	store     cache.Cache[Record]
-	locker    distributedlock.ScopedLocker
+	store     Store
 	hasher    hashing.Hasher
 	generator random.Generator
 	clock     clock.Clock
@@ -76,31 +73,32 @@ type Minter struct {
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
-	keyPrefix      string
 	retention      time.Duration
 	tokenBytes     int
 	maxTokenLength int
 }
 
-// NewMinter builds a Minter over a record store and a locker.
+// NewMinter builds a Minter over a record store.
 //
-// The locker is required and has no default. Single use is enforced by reading
-// a record and then writing it back consumed, and without mutual exclusion two
-// requests carrying the same token both read "active" and both proceed — which
-// is the entire failure this package exists to prevent, arriving silently and
-// only under concurrency.
+// The store is required and has no default. It decides where a link lives and
+// therefore who can redeem one: links/cache over Redis is shared between the
+// process that mints and the process that serves the click, links/database
+// keeps the record in a table beside the application's own rows, and
+// links/cache over cache/memory is neither — it is for tests and for a single
+// process that accepts losing every outstanding link at the next deploy.
+//
+// Single use is the store's guarantee rather than this type's, which is why
+// there is no locker here. links/cache takes one, because a cache cannot make a
+// read and a write one operation without it; links/database takes none,
+// because a guarded UPDATE inside a transaction is already the same promise.
 //
 // At least one action must be registered; see WithAction.
 func NewMinter(
-	store cache.Cache[Record],
-	locker distributedlock.ScopedLocker,
+	store Store,
 	opts ...Option,
 ) (*Minter, error) {
 	if store == nil {
 		return nil, ErrNilStore
-	}
-	if locker == nil {
-		return nil, ErrNilLocker
 	}
 
 	o := &minterOptions{
@@ -129,21 +127,15 @@ func NewMinter(
 
 	m := &Minter{
 		store:           store,
-		locker:          locker,
 		hasher:          o.hasher,
 		generator:       o.generator,
 		clock:           o.clock,
 		tracerProvider:  o.tracerProvider,
 		metricsProvider: o.metricsProvider,
 		actions:         maps.Clone(o.actions),
-		keyPrefix:       DefaultKeyPrefix,
 		retention:       o.retention,
 		tokenBytes:      o.tokenBytes,
 		maxTokenLength:  o.maxTokenLength,
-	}
-
-	if o.keyPrefix != nil {
-		m.keyPrefix = *o.keyPrefix
 	}
 
 	m.o11y = observability.NewObserver(serviceName, o.logger, m.tracerProvider)
@@ -231,18 +223,19 @@ func (m *Minter) Mint(
 	id := m.idFor(Token(token))
 	op.Set(idKey, string(id)).Set(expiresAtKey, expiresAt)
 
-	// The store outlives the link by the retention window on purpose. Record
+	// The record outlives the link by the retention window on purpose. Record
 	// expiry is what decides redeemability; the extra window is only so that a
 	// late click is answered with ErrLinkExpired rather than with silence.
-	if err = m.store.Set(ctx, m.storeKey(id), &Record{
-		CreatedAt: now,
-		ExpiresAt: expiresAt,
-		Metadata:  o.metadata,
-		Action:    action,
-		Subject:   subject,
-		Version:   recordVersion,
-		State:     StateActive,
-	}, cache.WithExpiry(ttl+m.retention)); err != nil {
+	if err = m.store.Put(ctx, id, &Record{
+		CreatedAt:  now,
+		ExpiresAt:  expiresAt,
+		PurgeAfter: expiresAt.Add(m.retention),
+		Metadata:   o.metadata,
+		Action:     action,
+		Subject:    subject,
+		Version:    RecordVersion,
+		State:      StateActive,
+	}); err != nil {
 		m.storeErrorCounter.Add(ctx, 1)
 
 		return nil, op.Error(
@@ -286,7 +279,7 @@ func (m *Minter) Inspect(ctx context.Context, token Token) (*Claims, error) {
 
 	op.Set(idKey, string(id))
 
-	record, found, err := m.load(ctx, op, m.storeKey(id))
+	record, found, err := m.load(ctx, op, id)
 	if err != nil {
 		return nil, op.Error(err, "loading action link")
 	}
@@ -294,7 +287,7 @@ func (m *Minter) Inspect(ctx context.Context, token Token) (*Claims, error) {
 		return nil, op.Error(ErrLinkNotFound, "inspecting action link")
 	}
 
-	if err = m.usable(record); err != nil {
+	if err = record.Usable(m.clock.Now()); err != nil {
 		return nil, op.Error(err, "inspecting action link")
 	}
 
@@ -404,94 +397,80 @@ type resolution struct {
 	action Action
 }
 
-// resolve moves an active link into a terminal state under its lock, returning
-// what it was bound to.
+// resolve moves an active link into a terminal state, returning what it was
+// bound to.
 //
-// The write is inside the lock rather than after it. A check that passes and a
-// write that lands separately is exactly the interleaving that lets two
-// redemptions of one token both succeed.
+// The transition is one call into the store rather than a read here and a write
+// after it. That is the whole of single use: a check that passes and a write
+// that lands separately is exactly the interleaving that lets two redemptions
+// of one token both succeed, and the store is the only layer that can close it
+// — with a lock in links/cache, with a guarded UPDATE in links/database.
 func (m *Minter) resolve(
 	ctx context.Context,
 	op observability.Operation,
 	id ID,
 	to State,
 ) (*resolution, error) {
-	storeKey := m.storeKey(id)
+	at := m.clock.Now().UTC()
 	res := &resolution{}
 
-	lockErr := m.locker.WithLock(ctx, m.lockKey(id), func(ctx context.Context) error {
-		record, found, loadErr := m.load(ctx, op, storeKey)
-		if loadErr != nil {
-			return loadErr
-		}
-		if !found {
-			res.err = ErrLinkNotFound
+	record, err := m.store.Resolve(ctx, id, to, at, at.Add(m.retention))
+	switch {
+	case err == nil:
+	case stderrors.Is(err, ErrStaleRecord):
+		// Read as absent rather than decoded. A record written by a different
+		// shape of this package would otherwise surface as a link whose fields
+		// meant something else, and discarding it costs a remint. It is counted
+		// so that a deploy which changes Record shows up as one spike rather
+		// than as links that mysteriously stopped working.
+		m.staleCounter.Add(ctx, 1)
+		op.Acknowledge(err, "ignoring an action link record written by a different record version")
 
-			return nil
-		}
+		res.err = ErrLinkNotFound
 
-		res.action = record.Action
-
+		return res, nil
+	case isLinkAnswer(err):
 		// Whatever the link says about itself is carried on res rather than
-		// returned. This callback's error return belongs to the store, and
+		// returned. This method's error return belongs to the store, and
 		// spending it on "already redeemed" would report the single-use
 		// guarantee working as an outage.
-		if res.err = m.usable(record); res.err == nil {
-			// Copied rather than mutated in place: the memory cache provider
-			// hands back the live pointer it holds, so writing through record
-			// would edit the stored link before the write that is supposed to
-			// commit the edit.
-			resolved := *record
-			resolved.State = to
-			resolved.ResolvedAt = m.clock.Now().UTC()
-
-			if setErr := m.store.Set(ctx, storeKey, &resolved, cache.WithExpiry(m.retention)); setErr != nil {
-				return setErr
-			}
-
-			op.Set(stateKey, uint8(to))
-			res.claims = record.claims(id)
+		if record != nil {
+			res.action = record.Action
 		}
 
-		return nil
-	})
-	if lockErr != nil {
+		res.err = err
+
+		return res, nil
+	default:
 		m.storeErrorCounter.Add(ctx, 1)
 
 		return nil, platformerrors.Wrap(
-			platformerrors.Wrap(ErrStoreUnavailable, lockErr.Error()),
+			platformerrors.Wrap(ErrStoreUnavailable, err.Error()),
 			"consuming action link",
 		)
 	}
 
+	res.action = record.Action
+	res.claims = record.claims(id)
+	op.Set(stateKey, uint8(to))
+
 	return res, nil
 }
 
-// usable reports why a record cannot be acted on, or nil.
+// isLinkAnswer reports whether err is the link answering for itself rather than
+// the store failing to answer.
 //
-// Expiry is decided here against this package's clock rather than left to the
-// store's own eviction. The store's expiry is set past the link's on purpose,
-// and a cache that evicts late — or not at all, as the memory provider does for
-// an entry nothing reads — must not be able to keep a credential alive past the
-// moment it was supposed to die.
-func (m *Minter) usable(record *Record) error {
-	switch record.State {
-	case StateRedeemed:
-		return ErrLinkAlreadyRedeemed
-	case StateRevoked:
-		return ErrLinkRevoked
-	case StateActive:
-		if !m.clock.Now().UTC().Before(record.ExpiresAt) {
-			return ErrLinkExpired
-		}
-
-		return nil
-	default:
-		// A state this binary does not know is treated the same as a shape it
-		// cannot read: refuse. The alternative is honoring a link whose meaning
-		// was written by something else.
-		return ErrLinkNotFound
-	}
+// The two are told apart here rather than at each store, because the
+// consequences are opposite and both arrive as an error: a link that is spent
+// is this package working, and a store that cannot be read is a redemption that
+// did not happen. Every other error is the second kind, which is the direction
+// that fails closed — an unrecognized failure is never mistaken for a link
+// politely declining.
+func isLinkAnswer(err error) bool {
+	return stderrors.Is(err, ErrLinkNotFound) ||
+		stderrors.Is(err, ErrLinkAlreadyRedeemed) ||
+		stderrors.Is(err, ErrLinkExpired) ||
+		stderrors.Is(err, ErrLinkRevoked)
 }
 
 // load reads a record, reporting whether one usable to this binary was found.
@@ -502,17 +481,22 @@ func (m *Minter) usable(record *Record) error {
 // field meanings.
 //
 // Store failures are returned, never swallowed. A miss and an outage answer the
-// same question with opposite consequences here, and cache.ErrNotFound is the
+// same question with opposite consequences here, and ErrLinkNotFound is the
 // only one of the two that means the link is not there.
 func (m *Minter) load(
 	ctx context.Context,
 	op observability.Operation,
-	storeKey string,
+	id ID,
 ) (record *Record, found bool, err error) {
-	record, err = m.store.Get(ctx, storeKey)
+	record, err = m.store.Get(ctx, id)
 	switch {
 	case err == nil:
-	case stderrors.Is(err, cache.ErrNotFound):
+	case stderrors.Is(err, ErrLinkNotFound):
+		return nil, false, nil
+	case stderrors.Is(err, ErrStaleRecord):
+		m.staleCounter.Add(ctx, 1)
+		op.Acknowledge(err, "ignoring an action link record written by a different record version")
+
 		return nil, false, nil
 	default:
 		m.storeErrorCounter.Add(ctx, 1)
@@ -524,15 +508,6 @@ func (m *Minter) load(
 	}
 
 	if record == nil {
-		return nil, false, nil
-	}
-
-	if record.Version != recordVersion {
-		m.staleCounter.Add(ctx, 1)
-		op.Logger().
-			WithValue("links.record_version", record.Version).
-			Debug("ignoring action link record written by a different record version")
-
 		return nil, false, nil
 	}
 
@@ -591,16 +566,4 @@ func (m *Minter) countRedemption(ctx context.Context, action Action, outcome str
 // start time evaluated at the call, so each public method is one line.
 func (m *Minter) observeLatency(ctx context.Context, start time.Time) {
 	m.latencyHist.Record(ctx, float64(m.clock.Since(start).Milliseconds()))
-}
-
-// storeKey namespaces a link's ID for the record store.
-func (m *Minter) storeKey(id ID) string {
-	return m.keyPrefix + string(id)
-}
-
-// lockKey namespaces a link's ID for the locker. It is deliberately distinct
-// from the store key: the two live in different systems, and a shared spelling
-// invites the assumption that one can be derived from the other.
-func (m *Minter) lockKey(id ID) string {
-	return m.keyPrefix + "lock:" + string(id)
 }

@@ -26,7 +26,6 @@ type (
 		tracerProvider  tracing.Provider
 		metricsProvider metrics.Provider
 
-		keyPrefix      *string
 		retention      time.Duration
 		tokenBytes     int
 		maxTokenLength int
@@ -142,16 +141,6 @@ func WithRetention(retention time.Duration) Option {
 		if retention > 0 {
 			o.retention = retention
 		}
-	}
-}
-
-// WithKeyPrefix overrides the namespace applied to store and lock keys.
-//
-// An empty prefix is honored rather than ignored, so a caller can deliberately
-// opt out of namespacing; that is why this is the one setting held as a pointer.
-func WithKeyPrefix(prefix string) Option {
-	return func(o *minterOptions) {
-		o.keyPrefix = &prefix
 	}
 }
 

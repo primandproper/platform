@@ -65,6 +65,7 @@ var rulings = map[string]ruling{
 	"dataprivacy/internal/dataprivacydb":                           {tier: unison},
 	"identity/internal/identitydb":                                 {tier: unison},
 	"issuereports/internal/issuereportsdb":                         {tier: unison},
+	"links/database/internal/linksdb":                              {tier: unison},
 	"comments/internal/commentsdb":                                 {tier: unison},
 	"saga/internal/sagadb":                                         {tier: unison},
 	"sessions/database/internal/sessionsdb":                        {tier: unison},
