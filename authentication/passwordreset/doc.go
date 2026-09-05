@@ -75,31 +75,32 @@ refuses a replay, and separates Inspect from Redeem exactly as this package
 separates Verify from Consume, so the question of which one an application wants
 is a fair one and the answer is not "whichever you find first".
 
-links is a cache. Its records live in a
-[github.com/primandproper/platform-go/v14/cache.Cache], Redis in production, and
-its single-use guarantee is a
-[github.com/primandproper/platform-go/v14/distributedlock] lock held across the
-read and the write — which is why the locker is a required argument there with
-no default. It mints whole URLs from a registry of action policies, so one
-primitive serves magic login, unsubscribe, and verification without knowing what
-any of them means.
+links mints whole URLs from a registry of action policies, so one primitive
+serves magic login, unsubscribe, and verification without knowing what any of
+them means. Its records live behind a
+[github.com/primandproper/platform-go/v14/links.Store], and it ships two —
+links/cache over a [github.com/primandproper/platform-go/v14/cache.Cache], and
+links/database over a table of its own. So "which one runs on my
+infrastructure" is no longer the question that separates them: the durable
+choice exists on both sides, and links/database buys single use the same way
+this package does, from the affected row count of a guarded UPDATE inside one
+transaction.
 
-This is a table, and three things follow from that. Single use is the affected
-row count of a guarded UPDATE inside one transaction, so it needs no lock
-service and holds when Redis is not in the deployment at all. Every row carries
-a [github.com/primandproper/platform-go/v14/tenancy.Scope], which links has no
-notion of. And a reset token is stored against a user rather than an opaque
-subject, which is what makes [Store.RevokeForUser] a statement — the question
-links documents as unanswerable from its own store, needing an audit-log query
-and a Revoke per result, and the question a completed password reset has to ask
-every time.
+What is left is the table's shape, and two things follow from it. Every row here
+carries a [github.com/primandproper/platform-go/v14/tenancy.Scope], which links
+has no notion of — a scope would have to be something a link is minted with, and
+Mint takes none. And a reset token is stored against a user rather than an
+opaque subject, which is what makes [Store.RevokeForUser] a statement — the
+question links documents as unanswerable from its own store, needing an
+audit-log query and a Revoke per result, and the question a completed password
+reset has to ask every time.
 
-So: an application that wants one primitive for its four link flows, and is
-running Redis, wants links. An application that wants password reset to be a
-durable, tenant-scoped, revocable-per-user fact in the same database as its
-users — surviving a cache flush, and answerable by a report — wants this. Nothing
-stops a deployment using both for different flows; they share no state and no
-table.
+So: an application that wants one primitive for its four link flows wants links,
+whatever it is running. An application that wants password reset in particular
+to be a tenant-scoped, revocable-per-user fact in the same database as its users
+— answerable by a report, and by one statement rather than a walk of the audit
+log — wants this. Nothing stops a deployment using both for different flows;
+they share no state and no table.
 
 # Tenancy
 

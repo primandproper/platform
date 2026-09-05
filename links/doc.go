@@ -8,7 +8,7 @@ it wrong are always the same four — no expiry, a token that works twice, a tok
 sitting in the database in the clear, and a token nobody can withdraw once it is
 loose.
 
-	minter, err := links.NewMinter(store, locker,
+	minter, err := links.NewMinter(store,
 		links.WithAction("magic_login", links.ActionPolicy{
 			URL: "https://app.example.com/auth/magic/{token}",
 			TTL: 15 * time.Minute,
@@ -25,7 +25,7 @@ loose.
 
 Not the token. The store is keyed by the SHA-256 digest of the token and holds
 the action, the subject, the timestamps, and whatever metadata the minter
-attached — nothing that can be turned back into a URL. A dump of the cache is a
+attached — nothing that can be turned back into a URL. A dump of the store is a
 list of links that were issued, not a set of live credentials, and that is the
 difference between a leaked backup and a queue of account takeovers.
 
@@ -38,15 +38,21 @@ WithHasher, which is where that goes wrong if anyone tries to improve it.
 
 # Single use, and what enforces it
 
-Redeem reads the record and writes it back consumed under a lock on that link.
-Both halves are inside the lock, which is the whole of the guarantee: a check
-that passes and a write that lands separately is exactly the window in which two
-requests carrying one token both see it active.
+Redeem hands the store one call that reads the record and writes it back
+consumed, and that call is where the guarantee lives: a check that passes and a
+write that lands separately is exactly the window in which two requests carrying
+one token both see it active. This package cannot close that window from above
+the store, so it does not try — Store.Resolve is the seam precisely because only
+the storage layer can.
 
-That is why the locker is a required argument with no default. The noop locker
-acquires unconditionally, and with it every test still passes — single use holds
-for the sequential case and fails only under the concurrency an attacker
-supplies deliberately.
+The two shipped stores close it differently, and that is what makes them
+genuinely different choices rather than a fast one and a durable one.
+links/cache holds a distributedlock across both halves, which is why a locker is
+a required argument there with no default: the noop locker acquires
+unconditionally, and with it every test still passes — single use holds for the
+sequential case and fails only under the concurrency an attacker supplies
+deliberately. links/database needs no locker at all, because a guarded UPDATE
+inside one transaction is the same promise decided by the server.
 
 Consumption is committed before the claims are returned. If the store cannot be
 written, Redeem fails and hands back nothing, without a failure-policy knob.
@@ -151,22 +157,33 @@ version of it.
 
 # The store
 
-The store is a cache.Cache[Record], and the redis provider is the production
-answer. The memory provider is per-process, so a link minted by one replica does
-not exist for the next; it also needs cache/memory's WithJanitor to reclaim
-anything, since an entry written once and never read again is never lazily
-evicted.
+A Minter is built over a Store, and this module ships two.
+
+links/cache keeps records in a cache.Cache[Record] and takes a
+distributedlock.ScopedLocker beside it. Redis is the production answer there.
+
+links/database keeps them in a SQL table of its own, with migrations to create
+it, and takes no locker. It is what a deployment with a database and no Redis
+wants — which is not a small-deployment compromise. A link is minted by whatever
+builds the email and redeemed by whatever serves the click, so those are
+routinely two processes; a store only one of them can reach does not make a link
+less durable, it makes it unredeemable. cache/memory is exactly that store, and
+even collapsed into one process it loses every outstanding link at the next
+deploy — which for a verification link meant to be clicked hours later is most
+of them. It is for tests.
 
 Record expiry is decided by this package against its own clock, not by the
-cache. The store's TTL is deliberately set past the link's, so a cache that
-evicts late — or not at all — cannot keep a credential alive past the moment it
-was supposed to die.
+storage. Record.PurgeAfter is deliberately set past ExpiresAt, so a cache that
+evicts late — or a table nothing has swept — cannot keep a credential alive past
+the moment it was supposed to die, and a spent link can still be told apart from
+one that never existed.
 
-Every record carries a Version. A record written by a different shape reads as
-absent rather than being decoded with the wrong field meanings, so changing the
-shape of Record invalidates outstanding links. That is the safe direction, and
-it is a deploy concern: bump recordVersion when Record changes, and expect the
-links in flight at that moment to stop working.
+Every record carries a Version, and it is the Store that compares it against
+RecordVersion. A record written by a different shape reads as absent rather than
+being decoded with the wrong field meanings, so changing the shape of Record
+invalidates outstanding links. That is the safe direction, and it is a deploy
+concern: bump RecordVersion when Record changes, and expect the links in flight
+at that moment to stop working.
 
 # Watching it
 
@@ -176,7 +193,10 @@ links in flight at that moment to stop working.
 	                     store_error.
 	links_revocations    by action.
 	links_store_errors   store health. Every one of these is a redemption that
-	                     did not happen — the alert.
+	                     did not happen — the alert. The store's own
+	                     instruments sit beside it: links_database_rows_swept
+	                     and links_database_sweep_errors under the database
+	                     provider, the cache provider's own under the other.
 	links_stale_records  records ignored for carrying another version; expected
 	                     to spike once after a shape change and then return to
 	                     zero.

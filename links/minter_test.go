@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/primandproper/platform-go/v14/cache"
-	cachemock "github.com/primandproper/platform-go/v14/cache/mock"
 	"github.com/primandproper/platform-go/v14/cryptography/hashing"
 	"github.com/primandproper/platform-go/v14/cryptography/hashing/sha256"
 	platformerrors "github.com/primandproper/platform-go/v14/errors"
@@ -23,7 +21,7 @@ func TestNewMinter(T *testing.T) {
 	T.Run("standard", func(t *testing.T) {
 		t.Parallel()
 
-		m, err := NewMinter(newStore(t), newLocker(t), WithAction(testAction, testPolicy()))
+		m, err := NewMinter(newMemoryStore(), WithAction(testAction, testPolicy()))
 		must.NoError(t, err)
 		test.NotNil(t, m)
 	})
@@ -31,30 +29,22 @@ func TestNewMinter(T *testing.T) {
 	T.Run("rejects a nil store", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewMinter(nil, newLocker(t), WithAction(testAction, testPolicy()))
+		_, err := NewMinter(nil, WithAction(testAction, testPolicy()))
 		test.ErrorIs(t, err, ErrNilStore)
-		test.ErrorIs(t, err, platformerrors.ErrNilInputParameter)
-	})
-
-	T.Run("rejects a nil locker", func(t *testing.T) {
-		t.Parallel()
-
-		_, err := NewMinter(newStore(t), nil, WithAction(testAction, testPolicy()))
-		test.ErrorIs(t, err, ErrNilLocker)
 		test.ErrorIs(t, err, platformerrors.ErrNilInputParameter)
 	})
 
 	T.Run("rejects a Minter with no actions", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewMinter(newStore(t), newLocker(t))
+		_, err := NewMinter(newMemoryStore())
 		test.ErrorIs(t, err, ErrNoActions)
 	})
 
 	T.Run("rejects an action with an invalid policy", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewMinter(newStore(t), newLocker(t), WithAction(testAction, ActionPolicy{
+		_, err := NewMinter(newMemoryStore(), WithAction(testAction, ActionPolicy{
 			URL: "https://app.example.com/auth/magic/{token}",
 		}))
 		test.ErrorIs(t, err, ErrInvalidTTL)
@@ -108,23 +98,33 @@ func TestMinter_Mint(T *testing.T) {
 	T.Run("stores no token anywhere in the record", func(t *testing.T) {
 		t.Parallel()
 
-		store := newStore(t)
-
-		m, err := NewMinter(store, newLocker(t), WithAction(testAction, testPolicy()))
-		must.NoError(t, err)
+		m, store := newTestMinterStore(t)
 
 		link, err := m.Mint(t.Context(), testAction, testSubject)
 		must.NoError(t, err)
 
-		// Read back through the same key the Minter writes under, which is
-		// itself the assertion that the store is keyed by the digest.
-		record, err := store.Get(t.Context(), DefaultKeyPrefix+string(link.ID))
-		must.NoError(t, err)
+		// Read back under the ID, which is itself the assertion that the store
+		// is keyed by the digest.
+		record := store.stored(t, link.ID)
 
 		test.EqOp(t, StateActive, record.State)
 		test.EqOp(t, testAction, record.Action)
 		test.EqOp(t, testSubject, record.Subject)
 		test.False(t, strings.Contains(rendered(record), string(link.Token)))
+	})
+
+	T.Run("sets the purge deadline past the link's expiry", func(t *testing.T) {
+		t.Parallel()
+
+		c := newTestClock()
+		m, store := newTestMinterStore(t, WithClock(c.Clock()), WithRetention(time.Hour))
+
+		link, err := m.Mint(t.Context(), testAction, testSubject)
+		must.NoError(t, err)
+
+		// The gap is what buys "this link has already been used" over "no such
+		// link" — the store may forget the record only after it.
+		test.EqOp(t, link.ExpiresAt.Add(time.Hour), store.stored(t, link.ID).PurgeAfter)
 	})
 
 	T.Run("mints two different tokens for the same subject", func(t *testing.T) {
@@ -277,9 +277,11 @@ func TestMinter_Redeem(T *testing.T) {
 		close(start)
 		wg.Wait()
 
-		// The whole point of the locker being a required argument. Without
-		// mutual exclusion this is a number greater than one, and only under
-		// concurrency.
+		// The Store contract, from above it: whatever a store buys atomicity
+		// with, exactly one caller may be told it holds the link. Without it
+		// this is a number greater than one, and only under concurrency —
+		// which is what links/cache's locker and links/database's guarded
+		// UPDATE are each tested for in their own package.
 		test.EqOp(t, 1, redeemed)
 	})
 
@@ -345,35 +347,15 @@ func TestMinter_Redeem(T *testing.T) {
 	T.Run("fails closed when the consuming write cannot land", func(t *testing.T) {
 		t.Parallel()
 
-		// A store that reads fine and refuses to write: the link is valid and
+		// A store that mints fine and cannot resolve: the link is valid and
 		// cannot be marked spent. Handing back claims here would be single use
 		// failing open, which is the one thing that must not happen.
-		var stored *Record
-
-		store := &cachemock.CacheMock[Record]{
-			SetFunc: func(_ context.Context, _ string, value *Record, _ ...cache.WriteOption) error {
-				if stored == nil {
-					stored = value
-
-					return nil
-				}
-
-				return platformerrors.New("redis is on fire")
-			},
-			GetFunc: func(context.Context, string) (*Record, error) {
-				if stored == nil {
-					return nil, cache.ErrNotFound
-				}
-
-				return stored, nil
-			},
-		}
-
-		m, err := NewMinter(store, newLocker(t), WithAction(testAction, testPolicy()))
-		must.NoError(t, err)
+		m, store := newTestMinterStore(t)
 
 		link, err := m.Mint(t.Context(), testAction, testSubject)
 		must.NoError(t, err)
+
+		store.resolveErr = platformerrors.New("redis is on fire")
 
 		claims, err := m.Redeem(t.Context(), link.Token)
 		test.ErrorIs(t, err, ErrStoreUnavailable)
@@ -392,31 +374,38 @@ func TestMinter_Redeem(T *testing.T) {
 	T.Run("ignores a record written by another version", func(t *testing.T) {
 		t.Parallel()
 
-		store := newStore(t)
-
-		m, err := NewMinter(store, newLocker(t), WithAction(testAction, testPolicy()))
-		must.NoError(t, err)
+		m, store := newTestMinterStore(t)
 
 		link, err := m.Mint(t.Context(), testAction, testSubject)
 		must.NoError(t, err)
 
-		record, err := store.Get(t.Context(), DefaultKeyPrefix+string(link.ID))
+		store.stored(t, link.ID).Version = RecordVersion + 1
+
+		// A record this binary cannot read means the same thing to a bearer as
+		// no record at all, and the store's ErrStaleRecord is what gets it
+		// there rather than being reported as an outage.
+		_, err = m.Redeem(t.Context(), link.Token)
+		test.ErrorIs(t, err, ErrLinkNotFound)
+	})
+
+	T.Run("reports a record written by another version as absent to Inspect too", func(t *testing.T) {
+		t.Parallel()
+
+		m, store := newTestMinterStore(t)
+
+		link, err := m.Mint(t.Context(), testAction, testSubject)
 		must.NoError(t, err)
 
-		record.Version = recordVersion + 1
-		must.NoError(t, store.Set(t.Context(), DefaultKeyPrefix+string(link.ID), record))
+		store.stored(t, link.ID).Version = RecordVersion + 1
 
-		_, err = m.Redeem(t.Context(), link.Token)
+		_, err = m.Inspect(t.Context(), link.Token)
 		test.ErrorIs(t, err, ErrLinkNotFound)
 	})
 
 	T.Run("hands back a metadata map the store does not share", func(t *testing.T) {
 		t.Parallel()
 
-		store := newStore(t)
-
-		m, err := NewMinter(store, newLocker(t), WithAction(testAction, testPolicy()))
-		must.NoError(t, err)
+		m, store := newTestMinterStore(t)
 
 		link, err := m.Mint(t.Context(), testAction, testSubject, WithMetadata(map[string]string{"next": "/dashboard"}))
 		must.NoError(t, err)
@@ -426,11 +415,10 @@ func TestMinter_Redeem(T *testing.T) {
 
 		claims.Metadata["next"] = "/evil"
 
-		// The memory provider hands back the pointer it holds, so a shared map
-		// would have let that assignment edit the stored record.
-		record, err := store.Get(t.Context(), DefaultKeyPrefix+string(link.ID))
-		must.NoError(t, err)
-		test.EqOp(t, "/dashboard", record.Metadata["next"])
+		// The store double hands back the pointer it holds, as the memory cache
+		// provider does, so a shared map would have let that assignment edit
+		// the stored record.
+		test.EqOp(t, "/dashboard", store.stored(t, link.ID).Metadata["next"])
 	})
 }
 
@@ -570,10 +558,10 @@ func TestMinter_Revoke(T *testing.T) {
 func newFailingStoreMinter(tb testing.TB, storeErr error) *Minter {
 	tb.Helper()
 
-	m, err := NewMinter(&cachemock.CacheMock[Record]{
-		GetFunc: func(context.Context, string) (*Record, error) { return nil, storeErr },
-		SetFunc: func(context.Context, string, *Record, ...cache.WriteOption) error { return storeErr },
-	}, newLocker(tb), WithAction(testAction, testPolicy()))
+	store := newMemoryStore()
+	store.getErr, store.putErr, store.resolveErr = storeErr, storeErr, storeErr
+
+	m, err := NewMinter(store, WithAction(testAction, testPolicy()))
 	must.NoError(tb, err)
 
 	return m

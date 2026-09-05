@@ -6,10 +6,10 @@ import (
 	"github.com/shoenig/test/must"
 )
 
-// BenchmarkMinter measures the three operations against an in-memory store and
-// an in-process locker, so the rows are this package's own cost rather than a
-// network's. Redeem's premium over Inspect is the lock and the consuming write:
-// two extra round trips plus mutual exclusion, which is what single use costs.
+// BenchmarkMinter measures the three operations against the in-memory store
+// double, so the rows are this package's own cost rather than a network's.
+// Redeem's premium over Inspect is the consuming write, which is what single
+// use costs before a real store adds a lock or a transaction to it.
 func BenchmarkMinter(b *testing.B) {
 	m := newTestMinter(b)
 	ctx := b.Context()

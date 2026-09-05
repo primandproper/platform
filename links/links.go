@@ -20,11 +20,6 @@ const (
 	// the store cannot tell them apart any more.
 	DefaultRetention = 24 * time.Hour
 
-	// DefaultKeyPrefix namespaces the store and lock keys, so a link cannot
-	// collide with an unrelated entry in a cache or locker shared with
-	// something else.
-	DefaultKeyPrefix = "links:"
-
 	// DefaultMaxTokenLength bounds what Redeem will hash. A token this package
 	// minted is 43 bytes at the default size; the limit is generous enough to
 	// survive a larger WithTokenBytes and small enough that an endpoint reachable
@@ -38,11 +33,17 @@ const (
 	// serviceName names the loggers, spans, and metrics this package emits.
 	serviceName = "links"
 
-	// recordVersion stamps every record written. A deploy that changes the shape
+	// RecordVersion stamps every record written. A deploy that changes the shape
 	// of Record bumps it, and records written by the previous shape then read as
 	// absent rather than being misread — a link minted by the old binary stops
 	// working, which is the safe direction for a credential.
-	recordVersion = 1
+	//
+	// It is exported because a Store is what compares it. The check belongs
+	// there rather than above it: links/database keeps it in a column and
+	// links/cache reads it back off the decoded record, and neither wants a
+	// Minter deciding after the fact that the record it just resolved was
+	// written by something else.
+	RecordVersion = 2
 )
 
 type (
@@ -103,9 +104,9 @@ type (
 	// token. It holds no secret: everything in it is already known to whoever
 	// minted the link, and none of it can be turned back into a token.
 	//
-	// It is exported because the store is a cache.Cache[Record] the caller
-	// builds. Its fields are read by this package alone; Claims is what a
-	// redemption hands back.
+	// It is exported because a Store is what holds it, and the two shipped
+	// implementations live in packages of their own. Its fields are read by
+	// this package and by those two; Claims is what a redemption hands back.
 	Record struct {
 		// CreatedAt is when the link was minted.
 		CreatedAt time.Time
@@ -118,6 +119,17 @@ type (
 		// ResolvedAt is when the link was redeemed or revoked, and is zero while
 		// the link is active.
 		ResolvedAt time.Time
+		// PurgeAfter is when the store may forget this record, which is past
+		// ExpiresAt by the Minter's retention window.
+		//
+		// It is what buys the difference between "that link was already used"
+		// and "no such link" — two dead ends for the bearer, one of them a
+		// sentence a person can act on. It is stamped by the Minter rather than
+		// computed by the store so that the cache's TTL and the table's
+		// sweepable column are one decision made once: two stores computing it
+		// from a retention window apiece could come to disagree about how long
+		// a spent link keeps answering.
+		PurgeAfter time.Time
 		// Metadata is what the minter attached, returned verbatim on
 		// redemption.
 		Metadata map[string]string
@@ -180,6 +192,49 @@ type (
 		Subject Subject
 	}
 )
+
+// Usable reports why a record cannot be acted on at now, or nil when it can.
+//
+// It is the one place the answer is decided, which is what keeps the two
+// shipped stores from disagreeing about it. links/cache asks it under a lock;
+// links/database asks it inside the transaction that resolves the row, having
+// read that row in the same transaction. A store that decided expiry for itself
+// would be a second copy of this comparison, free to disagree with Inspect
+// about the last second of a link's life.
+//
+// Expiry is decided here against the caller's clock rather than left to the
+// store's own eviction. A cache's TTL is set past the link's on purpose and a
+// table reclaims nothing until something sweeps it, so a store that evicts late
+// — or not at all, as cache/memory does for an entry nothing reads — must not
+// be able to keep a credential alive past the moment it was supposed to die.
+func (r *Record) Usable(now time.Time) error {
+	switch r.State {
+	case StateRedeemed:
+		return ErrLinkAlreadyRedeemed
+	case StateRevoked:
+		return ErrLinkRevoked
+	case StateActive:
+		if !now.UTC().Before(r.ExpiresAt) {
+			return ErrLinkExpired
+		}
+
+		return nil
+	default:
+		// A state this binary does not know is treated the same as a shape it
+		// cannot read: refuse. The alternative is honoring a link whose meaning
+		// was written by something else.
+		return ErrLinkNotFound
+	}
+}
+
+// Current reports whether the record was written by this shape of the package.
+//
+// A store answers ErrStaleRecord for one that was not, rather than decoding it:
+// a record whose fields meant something else is a credential read with the
+// wrong meanings, and invalidating it is the safe direction.
+func (r *Record) Current() bool {
+	return r.Version == RecordVersion
+}
 
 // claims renders a stored record as the answer to a redemption.
 //

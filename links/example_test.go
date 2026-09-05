@@ -10,13 +10,16 @@ import (
 	"github.com/primandproper/platform-go/v14/distributedlock"
 	dlmemory "github.com/primandproper/platform-go/v14/distributedlock/memory"
 	"github.com/primandproper/platform-go/v14/links"
+	linkscache "github.com/primandproper/platform-go/v14/links/cache"
 )
 
 // newExampleMinter wires a Minter over in-process pieces. A real deployment
-// uses the redis cache provider and a redis or postgres locker: both of these
-// are per-process, so a link minted by one replica would not exist for the next.
+// picks one of two stores: links/cache over redis with a redis or postgres
+// locker, or links/database over a table and no locker at all. Both of the
+// pieces below are per-process, so a link minted by one replica would not exist
+// for the next.
 func newExampleMinter() (*links.Minter, error) {
-	store, err := cachememory.NewInMemoryCache[links.Record](0)
+	c, err := cachememory.NewInMemoryCache[links.Record](0)
 	if err != nil {
 		return nil, err
 	}
@@ -31,7 +34,12 @@ func newExampleMinter() (*links.Minter, error) {
 		return nil, err
 	}
 
-	return links.NewMinter(store, locker,
+	store, err := linkscache.New(c, locker)
+	if err != nil {
+		return nil, err
+	}
+
+	return links.NewMinter(store,
 		links.WithAction("magic_login", links.ActionPolicy{
 			URL: "https://app.example.com/auth/magic/{token}",
 			TTL: 15 * time.Minute,

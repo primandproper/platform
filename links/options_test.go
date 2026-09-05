@@ -16,7 +16,7 @@ func TestOptions(T *testing.T) {
 
 		opts := []Option{nil, WithAction(testAction, testPolicy()), nil}
 
-		m, err := NewMinter(newStore(t), newLocker(t), opts...)
+		m, err := NewMinter(newMemoryStore(), opts...)
 		must.NoError(t, err)
 		test.NotNil(t, m)
 	})
@@ -24,7 +24,7 @@ func TestOptions(T *testing.T) {
 	T.Run("WithAction ignores an empty action", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewMinter(newStore(t), newLocker(t), WithAction("", testPolicy()))
+		_, err := NewMinter(newMemoryStore(), WithAction("", testPolicy()))
 		test.ErrorIs(t, err, ErrNoActions)
 	})
 
@@ -44,7 +44,7 @@ func TestOptions(T *testing.T) {
 	T.Run("WithActions registers a whole map", func(t *testing.T) {
 		t.Parallel()
 
-		m, err := NewMinter(newStore(t), newLocker(t), WithActions(map[Action]ActionPolicy{
+		m, err := NewMinter(newMemoryStore(), WithActions(map[Action]ActionPolicy{
 			testAction:     testPolicy(),
 			"verify_email": {URL: "https://app.example.com/verify/{token}", TTL: time.Hour},
 			"":             testPolicy(),
@@ -57,7 +57,7 @@ func TestOptions(T *testing.T) {
 	T.Run("WithActions leaves a nil map alone", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewMinter(newStore(t), newLocker(t), WithActions(nil))
+		_, err := NewMinter(newMemoryStore(), WithActions(nil))
 		test.ErrorIs(t, err, ErrNoActions)
 	})
 
@@ -66,28 +66,13 @@ func TestOptions(T *testing.T) {
 
 		actions := map[Action]ActionPolicy{testAction: testPolicy()}
 
-		m, err := NewMinter(newStore(t), newLocker(t), WithActions(actions))
+		m, err := NewMinter(newMemoryStore(), WithActions(actions))
 		must.NoError(t, err)
 
 		actions["injected"] = ActionPolicy{URL: "http://evil.example.com/{token}", TTL: time.Hour}
 
 		_, err = m.Mint(t.Context(), "injected", testSubject)
 		test.ErrorIs(t, err, ErrUnknownAction)
-	})
-
-	T.Run("WithKeyPrefix honors an empty prefix", func(t *testing.T) {
-		t.Parallel()
-
-		store := newStore(t)
-
-		m, err := NewMinter(store, newLocker(t), WithAction(testAction, testPolicy()), WithKeyPrefix(""))
-		must.NoError(t, err)
-
-		link, err := m.Mint(t.Context(), testAction, testSubject)
-		must.NoError(t, err)
-
-		_, err = store.Get(t.Context(), string(link.ID))
-		test.NoError(t, err)
 	})
 
 	T.Run("WithTokenBytes changes the token length", func(t *testing.T) {
@@ -130,10 +115,10 @@ func TestOptions(T *testing.T) {
 
 		policy := ActionPolicy{URL: "http://staging.example.com/auth/{token}", TTL: time.Hour}
 
-		_, err := NewMinter(newStore(t), newLocker(t), WithAction(testAction, policy))
+		_, err := NewMinter(newMemoryStore(), WithAction(testAction, policy))
 		test.ErrorIs(t, err, ErrInsecureActionURL)
 
-		_, err = NewMinter(newStore(t), newLocker(t), WithAction(testAction, policy), WithInsecureURLs())
+		_, err = NewMinter(newMemoryStore(), WithAction(testAction, policy), WithInsecureURLs())
 		test.NoError(t, err)
 	})
 }

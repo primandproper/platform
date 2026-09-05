@@ -73,6 +73,17 @@ var (
 	// package picked would be wrong for one of them in the dangerous direction.
 	ErrInvalidTTL = platformerrors.New("invalid action link TTL")
 
+	// ErrStaleRecord indicates the store holds a record for the link, written
+	// by a different shape of this package — see RecordVersion.
+	//
+	// It is a Store's answer rather than a caller's: a Minter counts it on
+	// links_stale_records and then reports ErrLinkNotFound, because a record
+	// this binary cannot read means the same thing to a bearer as no record at
+	// all. It is separate from ErrLinkNotFound so that the two are separable in
+	// a metric, where "every link minted before the deploy stopped working" and
+	// "nobody is clicking anything" look identical otherwise.
+	ErrStaleRecord = platformerrors.New("action link record written by a different record version")
+
 	// ErrStoreUnavailable indicates the record store could not be read or
 	// written. Redemption fails closed on it without exception: a link this
 	// package cannot prove is unused, and cannot mark as used, must not be
@@ -82,11 +93,10 @@ var (
 
 	// ErrNilStore indicates NewMinter was called without a record store. It
 	// wraps errors.ErrNilInputParameter, so a caller may check either.
+	//
+	// There is no ErrNilLocker beside it any more. A locker is what links/cache
+	// needs to make a read and a write one operation, and links/database gets
+	// the same guarantee from a guarded UPDATE inside a transaction — so the
+	// requirement belongs to the store that has it, and lives in that package.
 	ErrNilStore = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil action link store")
-	// ErrNilLocker indicates NewMinter was called without a locker. It has no
-	// default: an implicit noop would let two concurrent redemptions of one
-	// token both succeed, which is the single failure this package exists to
-	// prevent. It wraps errors.ErrNilInputParameter, so a caller may check
-	// either.
-	ErrNilLocker = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil action link locker")
 )
