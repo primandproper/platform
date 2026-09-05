@@ -53,6 +53,28 @@ should cross that person's tenants rather than stop inside one, and
 dataprivacy.Eraser is keyed on a subject throughout this module. What this table
 holds is a credential, not a domain record, and the rule governs domain records.
 
+# Withdrawing a person's links
+
+RevokeForSubject is the capability this store has and links/cache does not — see
+links.SubjectRevoker. subject is a column, indexed alongside resolved_at, so
+"withdraw everything this person still has outstanding" is one UPDATE guarded on
+resolved_at IS NULL, reporting the rows it moved. There is no scope argument and
+there is no scope column: the write crosses whatever tenants the subject belongs
+to, which is what a completed password reset, a locked account, and an erasure
+each want.
+
+It runs outside a transaction, because one statement already is one, and it
+races a redemption of one of the same links the way two redemptions race each
+other: the row's own guard decides, exactly one write moves it, and the count
+this reports excludes anything a redeemer took first.
+
+One consequence is worth knowing before you read a row back. This statement
+carries no liveness predicate — nothing in links decides liveness in SQL — so a
+link that expired without ever being resolved is moved too, and afterwards
+answers "revoked" rather than "expired" with its purge_after re-stamped from the
+revocation. Both sentences are true of that link; the operator asking for the
+revocation is the one whose reading this keeps.
+
 # Expiry, retention, and the sweep
 
 expires_at decides redeemability and purge_after decides collectability, and

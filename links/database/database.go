@@ -25,6 +25,16 @@ import (
 // sweeper's live here, because nothing above this layer knows a sweep happened.
 const serviceName = "links_database"
 
+// The observability keys this store sets that the Minter above it cannot. A
+// subject is one of them: the Minter refuses to label a metric with it, for the
+// cardinality reason its own documentation gives, but a span is one operation
+// rather than a time series, and the whole point of the operation being traced
+// is which subject it withdrew links for.
+const (
+	subjectKey = "links.subject"
+	revokedKey = "links.revoked"
+)
+
 // DefaultTablePrefix is the namespace the action link table carries when none
 // is configured, which is none — rendering plain "action_links".
 //
@@ -34,7 +44,10 @@ const serviceName = "links_database"
 // must not end in '_'; database/ddl supplies the separator.
 const DefaultTablePrefix = ""
 
-var _ links.Store = (*Store)(nil)
+var (
+	_ links.Store          = (*Store)(nil)
+	_ links.SubjectRevoker = (*Store)(nil)
+)
 
 // Store keeps action link records in a SQL table, against the schema
 // links/database/migrations renders.
@@ -306,6 +319,63 @@ func (s *Store) Resolve(
 	}
 
 	return found, nil
+}
+
+// RevokeForSubject moves every unresolved link for a subject into
+// StateRevoked, and reports how many it moved.
+//
+// This is the capability links.Store does not carry, and the reason this store
+// is worth choosing for it: subject is a column here, so "withdraw everything
+// this person still has outstanding" is one statement rather than a walk of the
+// application's audit log with a Revoke per result. links/cache has no read by
+// a value's field and therefore no answer; see links.SubjectRevoker.
+//
+// There is no transaction, because there is nothing to make atomic. One
+// statement is already one transaction on all three engines, and the guard that
+// makes the resolution single-use — resolved_at IS NULL — is the same guard
+// here, evaluated per row by the server. A redemption of one of these links
+// racing this write is therefore decided the way two redemptions are: whichever
+// reaches the row first moves it, the other finds resolved_at set, and this
+// call's count excludes the row it lost.
+//
+// The count discriminates on every engine for the reason Resolve's does. MySQL
+// reports rows changed rather than matched, which makes a zero ambiguous for a
+// statement that might write values a row already held; this one always moves
+// resolved_at from NULL to an instant, so a row it matched is a row it changed.
+//
+// It takes no scope, and the rows it moves may belong to any number of tenants.
+// Revoking a person's links should cross whatever tenants that person belongs
+// to rather than stop inside one — see links/database/migrations for why this
+// table has no scope column at all.
+func (s *Store) RevokeForSubject(
+	ctx context.Context,
+	subject links.Subject,
+	at, purgeAfter time.Time,
+) (int64, error) {
+	ctx, op := s.o11y.Begin(ctx)
+	defer op.End()
+
+	if subject == "" {
+		return 0, op.Error(links.ErrEmptySubject, "checking action link subject")
+	}
+
+	op.Set(subjectKey, string(subject))
+
+	resolvedAt := at.UTC()
+
+	revoked, err := s.q.RevokeSubjectLinks(ctx, s.db.Writer(), linksdb.RevokeSubjectLinksParams{
+		State:      int64(links.StateRevoked),
+		ResolvedAt: &resolvedAt,
+		PurgeAfter: purgeAfter.UTC(),
+		Subject:    string(subject),
+	})
+	if err != nil {
+		return 0, op.Error(err, "revoking action link rows for subject")
+	}
+
+	op.Set(revokedKey, revoked)
+
+	return revoked, nil
 }
 
 // read resolves an ID to the row stored under it, reporting ErrLinkNotFound

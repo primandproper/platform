@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	stderrors "errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -121,6 +122,111 @@ func runDialectSuite(t *testing.T, client database.Client, d dialect.Dialect) {
 		done.Wait()
 
 		test.EqOp(t, int64(1), winners.Load())
+	})
+
+	// The plural revoke and a redemption are two guarded UPDATEs contending for
+	// one row, and the revoke runs outside a transaction where the redemption
+	// runs inside one — so this is the case where "one statement is already one
+	// transaction" is either true or a bug. Only a real server decides it:
+	// SQLite serializes every writer through the file.
+	//
+	// It uses a subject of its own, because a plural revoke is the one write in
+	// this suite that reaches rows it was not handed the names of, and the
+	// sibling subtests' rows are all minted for testSubject.
+	t.Run("does not let a redeemer and a subject-wide revoker both win", func(t *testing.T) {
+		const (
+			outstanding                = 6
+			racedSubject links.Subject = "user_raced"
+		)
+
+		ids := make([]links.ID, 0, outstanding)
+
+		for i := range outstanding {
+			id := links.ID(fmt.Sprintf("raced_%d", i))
+
+			record := activeRecord()
+			record.Subject = racedSubject
+			put(t, store, id, record)
+
+			ids = append(ids, id)
+		}
+
+		at := mintedAt.Add(time.Minute)
+
+		var (
+			start sync.WaitGroup
+			done  sync.WaitGroup
+
+			redeemErr error
+			revoked   int64
+			revokeErr error
+		)
+
+		start.Add(1)
+		done.Add(2)
+
+		go func() {
+			defer done.Done()
+
+			start.Wait()
+
+			_, redeemErr = store.Resolve(ctx, ids[0], links.StateRedeemed, at, at.Add(time.Hour))
+		}()
+
+		go func() {
+			defer done.Done()
+
+			start.Wait()
+
+			revoked, revokeErr = store.RevokeForSubject(ctx, racedSubject, at, at.Add(time.Hour))
+		}()
+
+		start.Done()
+		done.Wait()
+
+		must.NoError(t, revokeErr)
+
+		// The assertion, stated as the biconditional it is: the redeemer
+		// succeeded if and only if the revoke found one fewer row than the
+		// subject had outstanding. Both winning would show up as a redemption
+		// that succeeded alongside a revoke that moved all six.
+		test.EqOp(t, redeemErr == nil, revoked == outstanding-1,
+			test.Sprintf("redeem err %v, revoked %d of %d", redeemErr, revoked, outstanding))
+
+		contended, getErr := store.Get(ctx, ids[0])
+		must.NoError(t, getErr)
+
+		if redeemErr == nil {
+			test.EqOp(t, links.StateRedeemed, contended.State)
+		} else {
+			// The row itself is unambiguous, and this read is outside any
+			// transaction, so it is the assertion worth making strictly.
+			test.EqOp(t, links.StateRevoked, contended.State)
+
+			// The sentence the loser was handed is engine-dependent, and not
+			// because of anything this statement does. Resolve re-reads the row
+			// inside its own transaction to say which resolution won; under
+			// Postgres's READ COMMITTED that re-read sees the revocation and
+			// reports ErrLinkRevoked, while under InnoDB's REPEATABLE READ it
+			// returns the snapshot the transaction opened with — resolved_at
+			// still NULL — so Resolve reaches the last-resort answer its own
+			// comment describes. Both are refusals and neither honors the link;
+			// the same split applies to a single-link Revoke racing a Redeem,
+			// and predates this statement.
+			test.True(t,
+				stderrors.Is(redeemErr, links.ErrLinkRevoked) ||
+					stderrors.Is(redeemErr, links.ErrLinkAlreadyRedeemed),
+				test.Sprintf("loser was told %v", redeemErr))
+		}
+
+		// Whichever way the contended row went, every other link the subject
+		// held is withdrawn: a revoke that lost one row still did its job.
+		for _, id := range ids[1:] {
+			stored, storedErr := store.Get(ctx, id)
+			must.NoError(t, storedErr, must.Sprintf("id %q", id))
+
+			test.EqOp(t, links.StateRevoked, stored.State, test.Sprintf("id %q", id))
+		}
 	})
 
 	// MySQL reports rows changed rather than matched, so a guarded UPDATE that

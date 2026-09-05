@@ -63,12 +63,13 @@ type Minter struct {
 
 	actions map[Action]ActionPolicy
 
-	mintCounter       metrics.Int64Counter
-	redemptionCounter metrics.Int64Counter
-	revocationCounter metrics.Int64Counter
-	storeErrorCounter metrics.Int64Counter
-	staleCounter      metrics.Int64Counter
-	latencyHist       metrics.Float64Histogram
+	mintCounter              metrics.Int64Counter
+	redemptionCounter        metrics.Int64Counter
+	revocationCounter        metrics.Int64Counter
+	subjectRevocationCounter metrics.Int64Counter
+	storeErrorCounter        metrics.Int64Counter
+	staleCounter             metrics.Int64Counter
+	latencyHist              metrics.Float64Histogram
 
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
@@ -151,6 +152,10 @@ func NewMinter(
 	}
 	if m.revocationCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_revocations", serviceName)); err != nil {
 		return nil, platformerrors.Wrap(err, "creating revocations counter")
+	}
+	if m.subjectRevocationCounter, err = mp.NewInt64Counter(
+		fmt.Sprintf("%s_subject_revocations", serviceName)); err != nil {
+		return nil, platformerrors.Wrap(err, "creating subject revocations counter")
 	}
 	if m.storeErrorCounter, err = mp.NewInt64Counter(fmt.Sprintf("%s_store_errors", serviceName)); err != nil {
 		return nil, platformerrors.Wrap(err, "creating store errors counter")
@@ -343,9 +348,11 @@ func (m *Minter) Redeem(ctx context.Context, token Token) (*Claims, error) {
 // It takes an ID rather than a token because the server never has the token: it
 // stored a digest, which is the point. The ID is what Mint returned and what the
 // audit entry for that mint recorded, so revoking a link months later needs
-// nothing secret to have been kept in the meantime — and "revoke every
-// outstanding reset link for this account" is a query against that log followed
-// by a call to this per result.
+// nothing secret to have been kept in the meantime.
+//
+// "Revoke every outstanding reset link for this account" is RevokeForSubject
+// rather than a loop over this method, wherever the configured store can answer
+// it. A caller holding one ID wants this one.
 //
 // Revoking an already-revoked link succeeds: the outcome asked for is the
 // outcome already in place. Revoking a redeemed one reports
@@ -379,6 +386,75 @@ func (m *Minter) Revoke(ctx context.Context, id ID) error {
 	m.revocationCounter.Add(ctx, 1, metric.WithAttributes(attribute.String(actionKey, string(res.action))))
 
 	return nil
+}
+
+// RevokeForSubject withdraws every link this subject still has outstanding, and
+// reports how many it withdrew.
+//
+// It is the plural of Revoke and not a loop over it. The three flows that want
+// it — a completed password reset killing the reset links still in flight, a
+// locked or compromised account killing every live link naming it, and a
+// subject-keyed erasure — all ask the same question, and none of them knows
+// which links exist to name them one at a time.
+//
+// It takes no scope. Revoking a person's links crosses whatever tenants that
+// person belongs to rather than stopping inside one, which is what makes this
+// the method dataprivacy.Eraser's subject can reach.
+//
+// Not every store can answer it. It is a capability rather than part of
+// links.Store — see SubjectRevoker for why a cache structurally cannot hold one
+// — so a Minter over links/cache reports ErrSubjectRevocationUnsupported and
+// withdraws nothing. That refusal is the honest answer rather than a
+// degradation: the audit-log walk followed by a Revoke per result is still
+// available to that deployment, and is still what its documentation says to do.
+//
+// The count is links moved, so a second call for the same subject reports zero.
+// Nothing here distinguishes "nobody had any" from "somebody just revoked them
+// all", because the store cannot either: both are the absence of an unresolved
+// row.
+func (m *Minter) RevokeForSubject(ctx context.Context, subject Subject) (int64, error) {
+	ctx, op := m.o11y.Begin(ctx)
+	defer op.End()
+	defer m.observeLatency(ctx, m.clock.Now())
+
+	if subject == "" {
+		return 0, op.Error(ErrEmptySubject, "checking action link subject")
+	}
+
+	op.Set(subjectKey, string(subject))
+
+	// Asserted rather than required at construction, because a Minter that
+	// cannot answer this is a working Minter — it mints, inspects, redeems, and
+	// revokes one link at a time — and refusing to build one would make an
+	// optional capability a wiring requirement for every deployment that never
+	// calls this method.
+	revoker, ok := m.store.(SubjectRevoker)
+	if !ok {
+		// Not counted on links_store_errors. That instrument is the alert for
+		// redemptions that did not happen, and a store answering "I am not that
+		// kind of store" is a fact about configuration that will be equally true
+		// on the next call and every one after it.
+		return 0, op.Error(ErrSubjectRevocationUnsupported, "revoking action links for subject")
+	}
+
+	at := m.clock.Now().UTC()
+
+	revoked, err := revoker.RevokeForSubject(ctx, subject, at, at.Add(m.retention))
+	if err != nil {
+		m.storeErrorCounter.Add(ctx, 1)
+
+		return 0, op.Error(
+			platformerrors.Wrap(ErrStoreUnavailable, err.Error()),
+			"revoking action links for subject",
+		)
+	}
+
+	// Unlabeled, where links_revocations is labeled by action. A plural revoke
+	// crosses actions by design — the caller does not know what was minted —
+	// and the subject is exactly the label nothing bounds.
+	m.subjectRevocationCounter.Add(ctx, revoked)
+
+	return revoked, nil
 }
 
 // resolution is what resolve determined about a link.

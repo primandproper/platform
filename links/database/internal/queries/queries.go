@@ -120,8 +120,13 @@ var RecordColumns = []string{
 	PurgeAfterColumn,
 }
 
-// ResolveColumns is what the resolution assigns: the terminal state, the stamp
+// ResolveColumns is what a resolution assigns: the terminal state, the stamp
 // that records it, and the deadline the row may be collected after.
+//
+// Two statements assign them — the resolution of one link and the revocation of
+// a subject's — and they share the list rather than each naming its own, because
+// they can race for one row and the row has to end up in one shape whichever
+// wins.
 //
 // Nothing else is here, and every absence is structural rather than a habit. A
 // resolution must not be able to move what a link was bound to, when it was
@@ -146,9 +151,10 @@ var NullableColumns = []string{MetadataColumn, ResolvedAtColumn}
 // the id.
 //
 // querygen derives a statement's id predicate from the column list it is handed,
-// so leaving the id out is how a statement says it keys on something else — here
-// on a deadline. What it does not decide is which rows come back, and a DELETE
-// projects nothing, so the sweep is owed nothing by the omission.
+// so leaving the id out is how a statement says it keys on something else — on a
+// deadline for the sweep, on the subject for the plural revoke. What it does not
+// decide is which rows come back, and neither of those statements projects
+// anything, so both are owed nothing by the omission.
 var unkeyedColumns = slices.DeleteFunc(slices.Clone(Columns), func(column string) bool {
 	return column == querygen.IDColumn
 })
@@ -158,13 +164,14 @@ var unkeyedColumns = slices.DeleteFunc(slices.Clone(Columns), func(column string
 // types — and because the drift gate beside this file asserts on this exact
 // set.
 const (
-	InsertLinkQuery  = "InsertLink"
-	GetLinkQuery     = "GetLink"
-	ResolveLinkQuery = "ResolveLink"
-	SweepLinksQuery  = "SweepLinks"
+	InsertLinkQuery         = "InsertLink"
+	GetLinkQuery            = "GetLink"
+	ResolveLinkQuery        = "ResolveLink"
+	RevokeSubjectLinksQuery = "RevokeSubjectLinks"
+	SweepLinksQuery         = "SweepLinks"
 )
 
-// Render returns the canonical sqlc input for d: the four statements this store
+// Render returns the canonical sqlc input for d: the five statements this store
 // executes, in one file's worth of text.
 //
 // It is what links/database/internal/queriesgen writes to the .sql files beside
@@ -173,8 +180,9 @@ const (
 // text exactly — the generated linksdb package carries it per dialect, with the
 // consumer's table prefix substituted once at construction.
 //
-// The order is the order a link goes through: written, read, resolved, and
-// finally collected once its purge deadline has passed.
+// The order is the order a link goes through: written, read, resolved — either
+// on its own or as one of a subject's — and finally collected once its purge
+// deadline has passed.
 //
 // # A note on timestamps, because one dialect does something surprising
 //
@@ -236,6 +244,7 @@ func Render(d dialect.Dialect) string {
 		insert(g),
 		read(g),
 		resolve(g),
+		revokeForSubject(g),
 		sweep(g),
 	})
 }
@@ -289,6 +298,45 @@ func read(g *querygen.Generator) *querygen.Query {
 // earlier and hoping.
 func resolve(g *querygen.Generator) *querygen.Query {
 	return g.UpdateQuery(ResolveLinkQuery, LinksTable, Columns, ResolveColumns, NullableColumns,
+		querygen.Match{Column: ResolvedAtColumn, Against: querygen.NoValue},
+	)
+}
+
+// revokeForSubject withdraws every link a subject still has outstanding, in one
+// statement.
+//
+// It is the write links spent a release declining, on the grounds that this
+// package held no index to answer it and building one would be a second, weaker
+// copy of the application's audit log. That was true of a cache and is not true
+// of a table: subject is a column here, so the index is the schema, and the
+// answer is an UPDATE rather than a log walk with a Revoke per result.
+//
+// It keys on the subject and nothing else. An operator revoking after a
+// suspected compromise does not know what was minted — a narrower key would
+// make them enumerate the actions first, which is the walk this statement
+// exists to replace — and there is no scope predicate because revoking a
+// person's links should cross that person's tenants rather than stop inside
+// one. See links/database/migrations.
+//
+// The guard is the resolution's own, so this and ResolveLink cannot both move
+// one row: whichever reaches it first sets resolved_at, and the other finds it
+// set. That is why the two statements share ResolveColumns rather than each
+// naming what it assigns — one row moved by two writers has to be one
+// transition, and two column lists is how the two spellings of it start to
+// disagree.
+//
+// It carries no liveness predicate, which is the corpus rule rather than an
+// omission, and here the rule has a visible consequence worth stating. A link
+// that expired without ever being resolved is matched and moved, so a bearer
+// clicking it afterwards is told the link was revoked rather than that it
+// expired, and its purge_after is re-stamped from the revocation instead of
+// from the mint. Both readings are true and the second is the one the operator
+// asked for: after a compromise, "somebody withdrew this" is the more useful of
+// the two sentences, and a row that keeps saying so for the retention window
+// following the revocation is the row an investigation wants to find.
+func revokeForSubject(g *querygen.Generator) *querygen.Query {
+	return g.UpdateQuery(RevokeSubjectLinksQuery, LinksTable, unkeyedColumns, ResolveColumns, NullableColumns,
+		querygen.Match{Column: SubjectColumn},
 		querygen.Match{Column: ResolvedAtColumn, Against: querygen.NoValue},
 	)
 }

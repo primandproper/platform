@@ -56,25 +56,34 @@ const resolveLinkMySQL = `UPDATE {{prefix}}action_links SET
 WHERE id = ?
 	AND resolved_at IS NULL`
 
+const revokeSubjectLinksMySQL = `UPDATE {{prefix}}action_links SET
+	state = ?,
+	resolved_at = ?,
+	purge_after = ?
+WHERE subject = ?
+	AND resolved_at IS NULL`
+
 const sweepLinksMySQL = `DELETE FROM {{prefix}}action_links
 WHERE purge_after <= ?`
 
 // mysqlQueries answers every query in Querier against mysql.
 type mysqlQueries struct {
-	getLink     string
-	insertLink  string
-	resolveLink string
-	sweepLinks  string
+	getLink            string
+	insertLink         string
+	resolveLink        string
+	revokeSubjectLinks string
+	sweepLinks         string
 }
 
 // newMySQL returns the mysql querier with prefix substituted into every
 // table name the analyzer identified.
 func newMySQL(prefix string) *mysqlQueries {
 	return &mysqlQueries{
-		getLink:     strings.ReplaceAll(getLinkMySQL, prefixMarker, prefix),
-		insertLink:  strings.ReplaceAll(insertLinkMySQL, prefixMarker, prefix),
-		resolveLink: strings.ReplaceAll(resolveLinkMySQL, prefixMarker, prefix),
-		sweepLinks:  strings.ReplaceAll(sweepLinksMySQL, prefixMarker, prefix),
+		getLink:            strings.ReplaceAll(getLinkMySQL, prefixMarker, prefix),
+		insertLink:         strings.ReplaceAll(insertLinkMySQL, prefixMarker, prefix),
+		resolveLink:        strings.ReplaceAll(resolveLinkMySQL, prefixMarker, prefix),
+		revokeSubjectLinks: strings.ReplaceAll(revokeSubjectLinksMySQL, prefixMarker, prefix),
+		sweepLinks:         strings.ReplaceAll(sweepLinksMySQL, prefixMarker, prefix),
 	}
 }
 
@@ -134,6 +143,21 @@ func (q *mysqlQueries) ResolveLink(ctx context.Context, db DBTX, arg ResolveLink
 	return result.RowsAffected()
 }
 
+// RevokeSubjectLinks runs the :execrows query against mysql.
+func (q *mysqlQueries) RevokeSubjectLinks(ctx context.Context, db DBTX, arg RevokeSubjectLinksParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.revokeSubjectLinks,
+		arg.State,
+		arg.ResolvedAt,
+		arg.PurgeAfter,
+		arg.Subject,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // SweepLinks runs the :execrows query against mysql.
 func (q *mysqlQueries) SweepLinks(ctx context.Context, db DBTX, arg SweepLinksParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.sweepLinks,
@@ -185,6 +209,12 @@ var (
 		PurgeAfter time.Time
 		ID         string
 	}(ResolveLinkParams{})
+	_ = struct {
+		State      int64
+		ResolvedAt *time.Time
+		PurgeAfter time.Time
+		Subject    string
+	}(RevokeSubjectLinksParams{})
 	_ = struct {
 		PurgeBefore time.Time
 	}(SweepLinksParams{})

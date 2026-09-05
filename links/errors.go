@@ -46,9 +46,12 @@ var (
 	// working-looking link to a page that does not exist, and a metric labeled
 	// by action cannot be given unbounded cardinality by a caller.
 	ErrUnknownAction = platformerrors.New("unknown action link action")
-	// ErrEmptySubject indicates Mint was called without a subject. A link bound
-	// to nobody would redeem into a claim the caller cannot act on, so it is
-	// rejected rather than minted.
+	// ErrEmptySubject indicates a subject was required and not supplied. From
+	// Mint that is a link bound to nobody, which would redeem into a claim the
+	// caller cannot act on, so it is rejected rather than minted; from
+	// Minter.RevokeForSubject it is a revocation naming nobody, which a store
+	// keying on the column would answer by moving no rows and reporting
+	// success.
 	ErrEmptySubject = platformerrors.New("empty action link subject")
 	// ErrNoActions indicates NewMinter was called with no action registered.
 	// A Minter that can mint nothing is a wiring mistake, and one that reports
@@ -90,6 +93,18 @@ var (
 	// honored — there is no availability argument on the other side of an
 	// account.
 	ErrStoreUnavailable = platformerrors.New("action link store unavailable")
+
+	// ErrSubjectRevocationUnsupported indicates the configured store cannot
+	// revoke by subject: it does not implement SubjectRevoker.
+	//
+	// It is a fact about the wiring rather than about any link, which is why it
+	// is not counted on links_store_errors and is not mapped by errors/http or
+	// errors/grpc — nothing a bearer did produced it, and no link changed. A
+	// deployment on links/cache gets it from every call, and the answer is
+	// either the audit-log walk that provider has always needed or a move to
+	// links/database. What it deliberately is not is a slow, drifting
+	// approximation of the write: a store that cannot answer says so.
+	ErrSubjectRevocationUnsupported = platformerrors.New("action link store cannot revoke by subject")
 
 	// ErrNilStore indicates NewMinter was called without a record store. It
 	// wraps errors.ErrNilInputParameter, so a caller may check either.

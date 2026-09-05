@@ -5,7 +5,7 @@
 --
 -- id is the digest of the token and never the token, and it is the primary key
 -- rather than a column beside a surrogate id. See postgres.sql for why, for
--- what the index serves, and for why there is no scope column.
+-- what the two indexes serve, and for why there is no scope column.
 --
 -- action and subject are what the link is bound to. subject carries no
 -- REFERENCES, so an application keeping its users somewhere this table cannot
@@ -28,3 +28,6 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}action_links (
 
 CREATE INDEX IF NOT EXISTS {{PREFIX}}action_links_purge_after_idx
     ON {{PREFIX}}action_links (purge_after);
+
+CREATE INDEX IF NOT EXISTS {{PREFIX}}action_links_subject_idx
+    ON {{PREFIX}}action_links (subject, resolved_at);

@@ -114,18 +114,37 @@ redeeming, and keep the lifetime short enough that a leaked URL is usually
 already dead. Putting the token in the path rather than the query does not help
 with Referer, and helps with access logs only until somebody logs full paths.
 
-# Withdrawing one
+# Withdrawing one, and withdrawing all of them
 
 Revoke takes an ID, not a token, because the server never had the token. The ID
 is what Mint returned and what the audit entry for that mint should have
 recorded, so a link can be withdrawn months later with nothing secret having
 been kept in between.
 
-"Invalidate every outstanding reset link for this account" is therefore a query
-against the audit log — mints of that action for that subject, with no
-corresponding redemption — followed by a Revoke per result. This package holds
-no index to answer it directly, and building one would be a second, weaker copy
-of a log the application already keeps.
+"Invalidate every outstanding reset link for this account" is RevokeForSubject,
+and it asks nobody for a list first. A completed password reset kills the reset
+links still in flight; a locked or compromised account kills every live link
+naming it, across actions, without knowing what was minted; an erasure kills the
+lot. Three flows that all know the person and none of which knows the IDs. It
+crosses whatever tenants that person belongs to rather than stopping inside one,
+which is why it takes no scope.
+
+It is a capability of the store rather than a promise of this package, and the
+difference is visible from the call site. links/database has it: subject is a
+column there, so the answer is one UPDATE, guarded exactly as a redemption is
+and reporting exactly what it moved. links/cache does not, and structurally
+cannot — a cache reads by key, the key has to stay the digest of the token
+because redemption knows nothing else, and serving this would mean a
+subject-to-IDs index maintained by hand: a second write per mint that can fail
+on its own, and a set that drifts from the records it points at whenever either
+write loses.
+
+So a Minter over the cache provider reports ErrSubjectRevocationUnsupported, and
+the answer there is the one this package gave for both stores until the table
+existed: query the audit log for mints of that action for that subject with no
+corresponding redemption, and call Revoke per result. That walk is a second,
+weaker copy of a log the application already keeps, which is why it is one
+provider's fallback rather than this package's design.
 
 # Recording it
 
@@ -163,7 +182,8 @@ links/cache keeps records in a cache.Cache[Record] and takes a
 distributedlock.ScopedLocker beside it. Redis is the production answer there.
 
 links/database keeps them in a SQL table of its own, with migrations to create
-it, and takes no locker. It is what a deployment with a database and no Redis
+it, takes no locker, and is the only one of the two that can withdraw every link
+a person still holds — see SubjectRevoker. It is what a deployment with a database and no Redis
 wants — which is not a small-deployment compromise. A link is minted by whatever
 builds the email and redeemed by whatever serves the click, so those are
 routinely two processes; a store only one of them can reach does not make a link
@@ -192,6 +212,11 @@ at that moment to stop working.
 	                     already_redeemed, expired, revoked, invalid_token,
 	                     store_error.
 	links_revocations    by action.
+	links_subject_revocations
+	                     links withdrawn by RevokeForSubject, unlabeled. A
+	                     plural revoke crosses actions, so there is no action to
+	                     label it with, and the subject is the label nothing
+	                     bounds.
 	links_store_errors   store health. Every one of these is a redemption that
 	                     did not happen — the alert. The store's own
 	                     instruments sit beside it: links_database_rows_swept

@@ -56,25 +56,34 @@ const resolveLinkPostgreSQL = `UPDATE {{prefix}}action_links SET
 WHERE id = $4
 	AND resolved_at IS NULL`
 
+const revokeSubjectLinksPostgreSQL = `UPDATE {{prefix}}action_links SET
+	state = $1,
+	resolved_at = $2,
+	purge_after = $3
+WHERE subject = $4
+	AND resolved_at IS NULL`
+
 const sweepLinksPostgreSQL = `DELETE FROM {{prefix}}action_links
 WHERE purge_after <= $1`
 
 // postgresqlQueries answers every query in Querier against postgresql.
 type postgresqlQueries struct {
-	getLink     string
-	insertLink  string
-	resolveLink string
-	sweepLinks  string
+	getLink            string
+	insertLink         string
+	resolveLink        string
+	revokeSubjectLinks string
+	sweepLinks         string
 }
 
 // newPostgreSQL returns the postgresql querier with prefix substituted into every
 // table name the analyzer identified.
 func newPostgreSQL(prefix string) *postgresqlQueries {
 	return &postgresqlQueries{
-		getLink:     strings.ReplaceAll(getLinkPostgreSQL, prefixMarker, prefix),
-		insertLink:  strings.ReplaceAll(insertLinkPostgreSQL, prefixMarker, prefix),
-		resolveLink: strings.ReplaceAll(resolveLinkPostgreSQL, prefixMarker, prefix),
-		sweepLinks:  strings.ReplaceAll(sweepLinksPostgreSQL, prefixMarker, prefix),
+		getLink:            strings.ReplaceAll(getLinkPostgreSQL, prefixMarker, prefix),
+		insertLink:         strings.ReplaceAll(insertLinkPostgreSQL, prefixMarker, prefix),
+		resolveLink:        strings.ReplaceAll(resolveLinkPostgreSQL, prefixMarker, prefix),
+		revokeSubjectLinks: strings.ReplaceAll(revokeSubjectLinksPostgreSQL, prefixMarker, prefix),
+		sweepLinks:         strings.ReplaceAll(sweepLinksPostgreSQL, prefixMarker, prefix),
 	}
 }
 
@@ -134,6 +143,21 @@ func (q *postgresqlQueries) ResolveLink(ctx context.Context, db DBTX, arg Resolv
 	return result.RowsAffected()
 }
 
+// RevokeSubjectLinks runs the :execrows query against postgresql.
+func (q *postgresqlQueries) RevokeSubjectLinks(ctx context.Context, db DBTX, arg RevokeSubjectLinksParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.revokeSubjectLinks,
+		arg.State,
+		arg.ResolvedAt,
+		arg.PurgeAfter,
+		arg.Subject,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // SweepLinks runs the :execrows query against postgresql.
 func (q *postgresqlQueries) SweepLinks(ctx context.Context, db DBTX, arg SweepLinksParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.sweepLinks,
@@ -185,6 +209,12 @@ var (
 		PurgeAfter time.Time
 		ID         string
 	}(ResolveLinkParams{})
+	_ = struct {
+		State      int64
+		ResolvedAt *time.Time
+		PurgeAfter time.Time
+		Subject    string
+	}(RevokeSubjectLinksParams{})
 	_ = struct {
 		PurgeBefore time.Time
 	}(SweepLinksParams{})

@@ -49,6 +49,14 @@ type ResolveLinkParams struct {
 	ID         string
 }
 
+// RevokeSubjectLinksParams are the arguments to RevokeSubjectLinks.
+type RevokeSubjectLinksParams struct {
+	State      int64
+	ResolvedAt *time.Time
+	PurgeAfter time.Time
+	Subject    string
+}
+
 // SweepLinksParams are the arguments to SweepLinks.
 type SweepLinksParams struct {
 	PurgeBefore time.Time

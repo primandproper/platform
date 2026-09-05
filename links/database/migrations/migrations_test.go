@@ -1,6 +1,8 @@
 package migrations
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -46,6 +48,7 @@ func TestStatements(T *testing.T) {
 
 			test.StrContains(t, joined, "custom_action_links", test.Sprintf("dialect %q", d))
 			test.StrContains(t, joined, "custom_action_links_purge_after_idx", test.Sprintf("dialect %q", d))
+			test.StrContains(t, joined, "custom_action_links_subject_idx", test.Sprintf("dialect %q", d))
 			test.StrNotContains(t, joined, ddl.Placeholder, test.Sprintf("dialect %q", d))
 		}
 	})
@@ -124,23 +127,26 @@ func TestStatements(T *testing.T) {
 	})
 
 	// An index cannot be created before the table it indexes.
-	T.Run("creates the table before its index", func(t *testing.T) {
+	T.Run("creates the table before its indexes", func(t *testing.T) {
 		t.Parallel()
 
 		for _, d := range []dialect.Dialect{dialect.Postgres, dialect.SQLite} {
 			stmts, err := Statements(d, "")
 			must.NoError(t, err)
-			must.SliceLen(t, 2, stmts, must.Sprintf("dialect %q", d))
+			must.SliceLen(t, 3, stmts, must.Sprintf("dialect %q", d))
 
 			test.StrContains(t, stmts[0], "CREATE TABLE", test.Sprintf("dialect %q", d))
-			test.StrContains(t, stmts[1], "INDEX", test.Sprintf("dialect %q", d))
+
+			for _, stmt := range stmts[1:] {
+				test.StrContains(t, stmt, "INDEX", test.Sprintf("dialect %q", d))
+			}
 		}
 	})
 
-	// MySQL has no CREATE INDEX IF NOT EXISTS, so its index is declared inside
-	// the table. One statement is the right answer there, and two would be a
-	// migration that fails on its second run.
-	T.Run("mysql declares its index inline", func(t *testing.T) {
+	// MySQL has no CREATE INDEX IF NOT EXISTS, so its indexes are declared
+	// inside the table. One statement is the right answer there, and more would
+	// be a migration that fails on its second run.
+	T.Run("mysql declares its indexes inline", func(t *testing.T) {
 		t.Parallel()
 
 		stmts, err := Statements(dialect.MySQL, "")
@@ -148,7 +154,57 @@ func TestStatements(T *testing.T) {
 		must.SliceLen(t, 1, stmts)
 
 		test.StrContains(t, stmts[0], "KEY action_links_purge_after_idx")
+		test.StrContains(t, stmts[0], "KEY action_links_subject_idx")
 	})
+
+	// The index the plural revoke reads by. subject leads because it is the
+	// equality, and resolved_at follows because the statement is only ever
+	// interested in the rows where it is NULL.
+	//
+	// It is a composite on all three engines rather than a partial index on the
+	// two that would take one. Postgres and SQLite understand `WHERE
+	// resolved_at IS NULL` and MySQL does not, and a third spelling of one
+	// index across three files is the drift this schema spends its comments
+	// avoiding.
+	T.Run("indexes the subject against the resolution stamp", func(t *testing.T) {
+		t.Parallel()
+
+		for _, d := range allDialects() {
+			stmts, err := Statements(d, "")
+			must.NoError(t, err)
+
+			joined := strings.Join(stmts, "\n")
+
+			test.StrContains(t, joined, "action_links_subject_idx", test.Sprintf("dialect %q", d))
+			test.StrContains(t, joined, "(subject, resolved_at)", test.Sprintf("dialect %q", d))
+			test.StrNotContains(t, joined, "WHERE resolved_at IS NULL", test.Sprintf("dialect %q", d))
+		}
+	})
+}
+
+// TestSchemaFiles_MatchTheMigrations is the regeneration gate for the committed
+// schema files unison.yaml names, living beside them: each must be exactly what
+// the migrations render for its dialect, at the empty prefix. A hand-edit to
+// one — or a change to the DDL that nobody re-rendered — leaves sqlc analyzing
+// a schema no database runs, which is the checked-versus-executed gap in its
+// other direction.
+func TestSchemaFiles_MatchTheMigrations(T *testing.T) {
+	T.Parallel()
+
+	for _, d := range allDialects() {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			committed, err := os.ReadFile(filepath.Join("schema", string(d)+".sql"))
+			must.NoError(t, err)
+
+			rendered, err := SQL(d, "")
+			must.NoError(t, err)
+
+			test.EqOp(t, rendered+"\n", string(committed),
+				test.Sprintf("run `make unison` and commit schema/%s.sql", d))
+		})
+	}
 }
 
 func TestSQL(T *testing.T) {

@@ -316,6 +316,181 @@ func TestStore_Resolve(T *testing.T) {
 	})
 }
 
+// TestStore_RevokeForSubject covers the capability links.Store does not carry.
+//
+// The statement is one UPDATE keyed on the subject and guarded on the
+// resolution stamp, so every case here is about which rows it reaches: the
+// subject's live ones and nothing else, whatever tenant they were minted for
+// and whatever action they were minted under.
+func TestStore_RevokeForSubject(T *testing.T) {
+	T.Parallel()
+
+	T.Run("withdraws every live link for the subject and counts them", func(t *testing.T) {
+		t.Parallel()
+
+		store, _ := newTestStore(t)
+
+		for _, id := range []links.ID{"live_one", "live_two", "live_three"} {
+			put(t, store, id, activeRecord())
+		}
+
+		at := mintedAt.Add(time.Minute)
+
+		revoked, err := store.RevokeForSubject(t.Context(), testSubject, at, at.Add(time.Hour))
+		must.NoError(t, err)
+		test.EqOp(t, int64(3), revoked)
+
+		for _, id := range []links.ID{"live_one", "live_two", "live_three"} {
+			stored, getErr := store.Get(t.Context(), id)
+			must.NoError(t, getErr, must.Sprintf("id %q", id))
+
+			test.EqOp(t, links.StateRevoked, stored.State, test.Sprintf("id %q", id))
+			test.True(t, stored.ResolvedAt.Equal(at), test.Sprintf("id %q", id))
+			test.True(t, stored.PurgeAfter.Equal(at.Add(time.Hour)), test.Sprintf("id %q", id))
+		}
+	})
+
+	T.Run("leaves another subject's links alone", func(t *testing.T) {
+		t.Parallel()
+
+		store, _ := newTestStore(t)
+
+		put(t, store, testID, activeRecord())
+
+		theirs := activeRecord()
+		theirs.Subject = "user_456"
+		put(t, store, "theirs", theirs)
+
+		at := mintedAt.Add(time.Minute)
+
+		revoked, err := store.RevokeForSubject(t.Context(), testSubject, at, at.Add(time.Hour))
+		must.NoError(t, err)
+		test.EqOp(t, int64(1), revoked)
+
+		stored, err := store.Get(t.Context(), "theirs")
+		must.NoError(t, err)
+		test.EqOp(t, links.StateActive, stored.State)
+		test.True(t, stored.ResolvedAt.IsZero())
+	})
+
+	// There is no scope argument and no scope column, so a person's links are
+	// withdrawn wherever they were minted. An application that records a tenant
+	// against a link records it in metadata, and metadata is not a predicate —
+	// which is the point: revoking somebody's links should cross their tenants
+	// rather than stop inside one.
+	T.Run("crosses whatever tenants the subject belongs to", func(t *testing.T) {
+		t.Parallel()
+
+		store, _ := newTestStore(t)
+
+		for _, tenant := range []string{"tenant_a", "tenant_b", "tenant_c"} {
+			record := activeRecord()
+			record.Metadata = map[string]string{"tenant": tenant}
+			put(t, store, links.ID(tenant), record)
+		}
+
+		at := mintedAt.Add(time.Minute)
+
+		revoked, err := store.RevokeForSubject(t.Context(), testSubject, at, at.Add(time.Hour))
+		must.NoError(t, err)
+		test.EqOp(t, int64(3), revoked)
+	})
+
+	// The guard is the resolution's own, so a row somebody already spent is a
+	// row this write does not reach — and the sentence a second click gets stays
+	// "already redeemed" rather than becoming "revoked".
+	T.Run("does not reach a link that was already resolved", func(t *testing.T) {
+		t.Parallel()
+
+		store, _ := newTestStore(t)
+
+		put(t, store, testID, activeRecord())
+
+		at := mintedAt.Add(time.Minute)
+
+		_, err := store.Resolve(t.Context(), testID, links.StateRedeemed, at, at.Add(time.Hour))
+		must.NoError(t, err)
+
+		revoked, err := store.RevokeForSubject(t.Context(), testSubject, at, at.Add(time.Hour))
+		must.NoError(t, err)
+		test.EqOp(t, int64(0), revoked)
+
+		stored, err := store.Get(t.Context(), testID)
+		must.NoError(t, err)
+		test.EqOp(t, links.StateRedeemed, stored.State)
+	})
+
+	// Documented rather than incidental. Nothing in links decides liveness in
+	// SQL, so this statement matches on the resolution stamp alone: a link that
+	// expired without ever being resolved is moved too, and afterwards answers
+	// "revoked" rather than "expired".
+	T.Run("withdraws a link that expired without being resolved", func(t *testing.T) {
+		t.Parallel()
+
+		store, _ := newTestStore(t)
+
+		put(t, store, testID, activeRecord())
+
+		// Past the record's own hour, which nothing in this statement consults.
+		at := mintedAt.Add(3 * time.Hour)
+
+		revoked, err := store.RevokeForSubject(t.Context(), testSubject, at, at.Add(time.Hour))
+		must.NoError(t, err)
+		test.EqOp(t, int64(1), revoked)
+
+		_, err = store.Resolve(t.Context(), testID, links.StateRedeemed, at, at.Add(time.Hour))
+		test.ErrorIs(t, err, links.ErrLinkRevoked)
+	})
+
+	// A revocation naming nobody would match the rows of a subject the caller
+	// never meant, so it is refused rather than answered with a count.
+	T.Run("refuses an empty subject", func(t *testing.T) {
+		t.Parallel()
+
+		store, _ := newTestStore(t)
+
+		put(t, store, testID, activeRecord())
+
+		at := mintedAt.Add(time.Minute)
+
+		revoked, err := store.RevokeForSubject(t.Context(), "", at, at.Add(time.Hour))
+		test.ErrorIs(t, err, links.ErrEmptySubject)
+		test.EqOp(t, int64(0), revoked)
+
+		stored, getErr := store.Get(t.Context(), testID)
+		must.NoError(t, getErr)
+		test.EqOp(t, links.StateActive, stored.State)
+	})
+
+	// The statement is not keyed by a primary key, so it is the one place a
+	// prefix mistake would reach another application's rows rather than simply
+	// finding nothing.
+	T.Run("a namespaced store does not reach the plain table", func(t *testing.T) {
+		t.Parallel()
+
+		client := newTestClient(t)
+		createTable(t, client, dialect.SQLite, "ddb")
+
+		plain, err := New(&Config{}, client)
+		must.NoError(t, err)
+
+		namespaced, err := New(&Config{TablePrefix: "ddb"}, client)
+		must.NoError(t, err)
+
+		put(t, plain, testID, activeRecord())
+
+		at := mintedAt.Add(time.Minute)
+
+		revoked, err := namespaced.RevokeForSubject(t.Context(), testSubject, at, at.Add(time.Hour))
+		must.NoError(t, err)
+		test.EqOp(t, int64(0), revoked)
+
+		stored, err := plain.Get(t.Context(), testID)
+		must.NoError(t, err)
+		test.EqOp(t, links.StateActive, stored.State)
+	})
+}
+
 func TestStore_Sweep(T *testing.T) {
 	T.Parallel()
 

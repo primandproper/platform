@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS action_links (
     expires_at  DATETIME(6)  NOT NULL,
     resolved_at DATETIME(6),
     purge_after DATETIME(6)  NOT NULL,
-    KEY action_links_purge_after_idx (purge_after)
+    KEY action_links_purge_after_idx (purge_after),
+    KEY action_links_subject_idx (subject, resolved_at)
 );
 

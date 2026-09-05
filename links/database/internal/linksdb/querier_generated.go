@@ -36,6 +36,11 @@ type Querier interface {
 	// The count means different things on different engines; see the note
 	// on Querier.
 	ResolveLink(ctx context.Context, db DBTX, arg ResolveLinkParams) (int64, error)
+	// RevokeSubjectLinks runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	RevokeSubjectLinks(ctx context.Context, db DBTX, arg RevokeSubjectLinksParams) (int64, error)
 	// SweepLinks runs the :execrows query.
 	//
 	// The count means different things on different engines; see the note

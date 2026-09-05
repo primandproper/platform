@@ -553,13 +553,203 @@ func TestMinter_Revoke(T *testing.T) {
 	})
 }
 
+// secondAction is a second registered flow, for the cases about a revocation
+// that has to cross actions because the caller does not know what was minted.
+const secondAction Action = "verify_email"
+
+// secondPolicy is secondAction's policy, at a URL of its own so that a link
+// minted under it is distinguishable from a testAction link by sight.
+func secondPolicy() ActionPolicy {
+	return ActionPolicy{
+		URL: "https://app.example.com/auth/verify/{token}",
+		TTL: testActionTTL,
+	}
+}
+
+func TestMinter_RevokeForSubject(T *testing.T) {
+	T.Parallel()
+
+	// The whole point: the caller names the person, not the links, and gets
+	// every flow's links rather than the one they happened to think of.
+	T.Run("withdraws every live link for the subject, across actions", func(t *testing.T) {
+		t.Parallel()
+
+		m := newTestMinter(t, WithAction(secondAction, secondPolicy()))
+
+		first, err := m.Mint(t.Context(), testAction, testSubject)
+		must.NoError(t, err)
+
+		second, err := m.Mint(t.Context(), secondAction, testSubject)
+		must.NoError(t, err)
+
+		revoked, err := m.RevokeForSubject(t.Context(), testSubject)
+		must.NoError(t, err)
+		test.EqOp(t, int64(2), revoked)
+
+		_, err = m.Redeem(t.Context(), first.Token)
+		test.ErrorIs(t, err, ErrLinkRevoked)
+
+		_, err = m.Redeem(t.Context(), second.Token)
+		test.ErrorIs(t, err, ErrLinkRevoked)
+	})
+
+	T.Run("leaves another subject's links alone", func(t *testing.T) {
+		t.Parallel()
+
+		m := newTestMinter(t)
+
+		mine, err := m.Mint(t.Context(), testAction, testSubject)
+		must.NoError(t, err)
+
+		theirs, err := m.Mint(t.Context(), testAction, "user_456")
+		must.NoError(t, err)
+
+		revoked, err := m.RevokeForSubject(t.Context(), testSubject)
+		must.NoError(t, err)
+		test.EqOp(t, int64(1), revoked)
+
+		_, err = m.Redeem(t.Context(), mine.Token)
+		test.ErrorIs(t, err, ErrLinkRevoked)
+
+		claims, err := m.Redeem(t.Context(), theirs.Token)
+		must.NoError(t, err)
+		test.EqOp(t, Subject("user_456"), claims.Subject)
+	})
+
+	// The method takes no tenancy.Scope and there is nothing in a Record that
+	// could narrow one, so a subject's links are withdrawn wherever they were
+	// minted from. An application that records a tenant against a link records
+	// it in metadata, and metadata is not a predicate.
+	T.Run("crosses whatever tenants the subject belongs to", func(t *testing.T) {
+		t.Parallel()
+
+		m := newTestMinter(t)
+
+		for _, tenant := range []string{"tenant_a", "tenant_b", "tenant_c"} {
+			_, err := m.Mint(t.Context(), testAction, testSubject,
+				WithMetadata(map[string]string{"tenant": tenant}))
+			must.NoError(t, err)
+		}
+
+		revoked, err := m.RevokeForSubject(t.Context(), testSubject)
+		must.NoError(t, err)
+		test.EqOp(t, int64(3), revoked)
+	})
+
+	T.Run("leaves an already-resolved link where it is", func(t *testing.T) {
+		t.Parallel()
+
+		m := newTestMinter(t)
+
+		spent, err := m.Mint(t.Context(), testAction, testSubject)
+		must.NoError(t, err)
+
+		_, err = m.Redeem(t.Context(), spent.Token)
+		must.NoError(t, err)
+
+		revoked, err := m.RevokeForSubject(t.Context(), testSubject)
+		must.NoError(t, err)
+		test.EqOp(t, int64(0), revoked)
+
+		// Still "already redeemed" rather than "revoked": the revocation did
+		// not reach a row somebody had already spent, and the sentence a second
+		// click gets is the true one.
+		_, err = m.Redeem(t.Context(), spent.Token)
+		test.ErrorIs(t, err, ErrLinkAlreadyRedeemed)
+	})
+
+	// Documented behavior rather than an accident. Nothing in this package
+	// decides liveness in SQL, so the write matches on the resolution stamp
+	// alone and an expired link that nobody ever resolved is moved too.
+	T.Run("withdraws a link that expired without being resolved", func(t *testing.T) {
+		t.Parallel()
+
+		c := newTestClock()
+		m := newTestMinter(t, WithClock(c.Clock()))
+
+		link, err := m.Mint(t.Context(), testAction, testSubject)
+		must.NoError(t, err)
+
+		c.Advance(testActionTTL + time.Second)
+
+		revoked, err := m.RevokeForSubject(t.Context(), testSubject)
+		must.NoError(t, err)
+		test.EqOp(t, int64(1), revoked)
+
+		_, err = m.Redeem(t.Context(), link.Token)
+		test.ErrorIs(t, err, ErrLinkRevoked)
+	})
+
+	T.Run("a second call finds nothing left to withdraw", func(t *testing.T) {
+		t.Parallel()
+
+		m := newTestMinter(t)
+
+		_, err := m.Mint(t.Context(), testAction, testSubject)
+		must.NoError(t, err)
+
+		revoked, err := m.RevokeForSubject(t.Context(), testSubject)
+		must.NoError(t, err)
+		test.EqOp(t, int64(1), revoked)
+
+		revoked, err = m.RevokeForSubject(t.Context(), testSubject)
+		must.NoError(t, err)
+		test.EqOp(t, int64(0), revoked)
+	})
+
+	T.Run("refuses an empty subject", func(t *testing.T) {
+		t.Parallel()
+
+		m := newTestMinter(t)
+
+		revoked, err := m.RevokeForSubject(t.Context(), "")
+		test.ErrorIs(t, err, ErrEmptySubject)
+		test.EqOp(t, int64(0), revoked)
+	})
+
+	// The links/cache case. The store cannot answer, so the Minter says so
+	// rather than approximating — and says it without withdrawing anything.
+	T.Run("reports a store that cannot revoke by subject", func(t *testing.T) {
+		t.Parallel()
+
+		backing := newMemoryStore()
+
+		m, err := NewMinter(storeWithoutSubjects{Store: backing}, WithAction(testAction, testPolicy()))
+		must.NoError(t, err)
+
+		link, err := m.Mint(t.Context(), testAction, testSubject)
+		must.NoError(t, err)
+
+		revoked, err := m.RevokeForSubject(t.Context(), testSubject)
+		test.ErrorIs(t, err, ErrSubjectRevocationUnsupported)
+		test.EqOp(t, int64(0), revoked)
+
+		// Nothing was withdrawn on the way to the refusal.
+		claims, err := m.Redeem(t.Context(), link.Token)
+		must.NoError(t, err)
+		test.EqOp(t, testSubject, claims.Subject)
+	})
+
+	// A store that is the right kind and cannot be reached is the other
+	// failure, and it is the one that fails closed as an outage.
+	T.Run("fails closed when the store cannot be written", func(t *testing.T) {
+		t.Parallel()
+
+		m := newFailingStoreMinter(t, platformerrors.New("redis is on fire"))
+
+		revoked, err := m.RevokeForSubject(t.Context(), testSubject)
+		test.ErrorIs(t, err, ErrStoreUnavailable)
+		test.EqOp(t, int64(0), revoked)
+	})
+}
+
 // newFailingStoreMinter builds a Minter whose store fails every operation, for
 // the cases that must not degrade into a working-looking answer.
 func newFailingStoreMinter(tb testing.TB, storeErr error) *Minter {
 	tb.Helper()
 
 	store := newMemoryStore()
-	store.getErr, store.putErr, store.resolveErr = storeErr, storeErr, storeErr
+	store.getErr, store.putErr, store.resolveErr, store.revokeErr = storeErr, storeErr, storeErr, storeErr
 
 	m, err := NewMinter(store, WithAction(testAction, testPolicy()))
 	must.NoError(tb, err)

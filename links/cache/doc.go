@@ -29,6 +29,31 @@ test still passes.
 links/database needs no locker at all: a guarded UPDATE inside one transaction
 is the same promise, decided by the server.
 
+# What this store cannot do
+
+It cannot revoke by subject, and it does not pretend to. A Minter built over it
+reports links.ErrSubjectRevocationUnsupported from RevokeForSubject rather than
+approximating an answer.
+
+The obstacle is the seam rather than the effort. A cache.Cache reads by key, and
+the key here has to be the digest of the token, because redemption arrives
+holding the token and nothing else — so the subject cannot be folded into the
+key and there is no read that finds records by it. Serving the write anyway
+would mean keeping a subject-to-IDs set beside the records: a second write on
+every mint that can fail independently of the first, an amendment on every
+resolution, a set that drifts from the records it points at whenever either
+write loses, and no type in a cache.Cache[links.Record] to hold it in without
+abusing Record. It is, precisely, the "second, weaker copy of a log the
+application already keeps" that links declined to build — and building it here
+would not make it a better idea, only a less visible one.
+
+So the answer for a cache-backed deployment is the one links documented for
+every deployment before the table existed: query the audit log for mints of that
+action for that subject with no corresponding redemption, and call
+links.Minter.Revoke per result. A deployment that would rather have the
+statement wants links/database, which has subject as a column and answers it in
+one UPDATE.
+
 # Choosing the cache
 
 The memory provider is per-process, and for links that is a stronger warning

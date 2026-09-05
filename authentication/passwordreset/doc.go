@@ -86,21 +86,29 @@ choice exists on both sides, and links/database buys single use the same way
 this package does, from the affected row count of a guarded UPDATE inside one
 transaction.
 
-What is left is the table's shape, and two things follow from it. Every row here
-carries a [github.com/primandproper/platform-go/v14/tenancy.Scope], which links
-has no notion of — a scope would have to be something a link is minted with, and
-Mint takes none. And a reset token is stored against a user rather than an
-opaque subject, which is what makes [Store.RevokeForUser] a statement — the
-question links documents as unanswerable from its own store, needing an
-audit-log query and a Revoke per result, and the question a completed password
-reset has to ask every time.
+What is left is the table's shape, and what follows from it is tenancy. Every
+row here carries a [github.com/primandproper/platform-go/v14/tenancy.Scope],
+which links has no notion of — a scope would have to be something a link is
+minted with, and Mint takes none — so a reset that has to be answerable one
+tenant at a time is answerable here and nowhere else.
+
+The plural revoke used to be on that list and is not any more.
+links.Minter.RevokeForSubject withdraws every link a subject still holds in one
+statement, wherever the configured store can answer it: links/database can, from
+the same subject column its redemptions are bound by, and links/cache reports
+that it cannot. So the difference is narrower than it was and it runs the other
+way. [Store.RevokeForUser] revokes inside one tenant, keyed on a user this table
+stores against; the links form revokes across all of a subject's tenants at
+once, keyed on an identifier that table could not resolve if it wanted to.
+Which of the two a completed reset wants is a question about how the application
+is tenanted, not about which package can be made to answer at all.
 
 So: an application that wants one primitive for its four link flows wants links,
 whatever it is running. An application that wants password reset in particular
 to be a tenant-scoped, revocable-per-user fact in the same database as its users
-— answerable by a report, and by one statement rather than a walk of the audit
-log — wants this. Nothing stops a deployment using both for different flows;
-they share no state and no table.
+— answerable by a report, and revocable one tenant at a time rather than across
+all of them — wants this. Nothing stops a deployment using both for different
+flows; they share no state and no table.
 
 # Tenancy
 

@@ -55,11 +55,26 @@ type memoryStore struct {
 	getErr     error
 	putErr     error
 	resolveErr error
+	revokeErr  error
 
 	mu sync.Mutex
 }
 
-var _ Store = (*memoryStore)(nil)
+var (
+	_ Store          = (*memoryStore)(nil)
+	_ SubjectRevoker = (*memoryStore)(nil)
+)
+
+// storeWithoutSubjects is a Store and nothing more, for the tests about a
+// deployment whose store cannot revoke by subject — links/cache, in production.
+//
+// It embeds the interface rather than the concrete double on purpose: embedding
+// Store promotes exactly the three methods Store declares, so the wrapper does
+// not satisfy SubjectRevoker no matter what the value inside it can do. That is
+// the assertion the Minter makes, made unsatisfiable.
+type storeWithoutSubjects struct {
+	Store
+}
 
 // newMemoryStore builds an empty store.
 func newMemoryStore() *memoryStore {
@@ -127,6 +142,43 @@ func (s *memoryStore) Resolve(
 	s.records[id] = &resolved
 
 	return &resolved, nil
+}
+
+// RevokeForSubject moves every unresolved record for a subject, which is the
+// double's version of the one UPDATE links/database issues.
+//
+// It refuses on a deadline no more than that statement does: a record that
+// expired without being resolved is still moved, and the count still includes
+// it.
+func (s *memoryStore) RevokeForSubject(
+	_ context.Context,
+	subject Subject,
+	at, purgeAfter time.Time,
+) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.revokeErr != nil {
+		return 0, s.revokeErr
+	}
+
+	var revoked int64
+
+	for id, record := range s.records {
+		if record.Subject != subject || !record.ResolvedAt.IsZero() {
+			continue
+		}
+
+		moved := *record
+		moved.State = StateRevoked
+		moved.ResolvedAt = at
+		moved.PurgeAfter = purgeAfter
+
+		s.records[id] = &moved
+		revoked++
+	}
+
+	return revoked, nil
 }
 
 // read is the shared body of Get and Resolve's read half, held under the mutex
