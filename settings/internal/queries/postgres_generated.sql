@@ -474,3 +474,9 @@ WHERE archived_at IS NULL
 	AND subject_type = sqlc.arg(subject_type)
 	AND subject_id = sqlc.arg(subject_id)
 	AND definition_id = sqlc.arg(definition_id);
+
+-- name: DeleteValuesForSubject :execrows
+DELETE FROM settings_values
+WHERE scope = sqlc.arg(scope)
+	AND subject_type = sqlc.arg(subject_type)
+	AND subject_id = sqlc.arg(subject_id);

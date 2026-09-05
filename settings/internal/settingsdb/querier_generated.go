@@ -59,6 +59,11 @@ type Querier interface {
 	// The count means different things on different engines; see the note
 	// on Querier.
 	DeleteDefinitionOptions(ctx context.Context, db DBTX, arg DeleteDefinitionOptionsParams) (int64, error)
+	// DeleteValuesForSubject runs the :execrows query.
+	//
+	// The count means different things on different engines; see the note
+	// on Querier.
+	DeleteValuesForSubject(ctx context.Context, db DBTX, arg DeleteValuesForSubjectParams) (int64, error)
 	// GetDefinition runs the :one query.
 	GetDefinition(ctx context.Context, db DBTX, arg GetDefinitionParams) (GetDefinitionRow, error)
 	// GetDefinitionByName runs the :one query.

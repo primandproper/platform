@@ -41,6 +41,13 @@ type DeleteDefinitionOptionsParams struct {
 	DefinitionID string
 }
 
+// DeleteValuesForSubjectParams are the arguments to DeleteValuesForSubject.
+type DeleteValuesForSubjectParams struct {
+	Scope       tenancy.Scope
+	SubjectType string
+	SubjectID   string
+}
+
 // GetDefinitionParams are the arguments to GetDefinition.
 type GetDefinitionParams struct {
 	ID    string

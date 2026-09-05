@@ -115,12 +115,79 @@ func Example_unset() {
 	// nobody has decided; the caller's own policy applies
 }
 
+// A preference change is rarely the only row a write produces. SetValueTx puts
+// it in the transaction that carries its companions — here an audit entry naming
+// who changed what — so neither can land without the other.
+func ExampleStore_SetValueTx() {
+	ctx := context.Background()
+	client := exampleDatabase(ctx)
+	scope := tenancy.Global()
+
+	// The consumer's own table, standing in for whatever a real application
+	// writes beside a setting: an audit entry, a data change event on an outbox.
+	if _, err := client.Writer().ExecContext(ctx,
+		`CREATE TABLE audit_log (subject_id TEXT NOT NULL, setting TEXT NOT NULL, value TEXT NOT NULL)`); err != nil {
+		panic(err)
+	}
+
+	store, err := settings.NewSQLStore(client)
+	if err != nil {
+		panic(err)
+	}
+
+	if _, err = store.CreateDefinition(ctx, scope, &settings.Definition{
+		Name:        "notifications.digest",
+		Kind:        settings.KindString,
+		Enumeration: []string{"daily", "weekly", "never"},
+	}); err != nil {
+		panic(err)
+	}
+
+	ada := settings.Subject{Type: settings.SubjectUser, ID: "user-ada"}
+
+	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		value, txErr := store.SetValueTx(ctx, tx, scope, ada, "notifications.digest", "daily")
+		if txErr != nil {
+			return txErr
+		}
+
+		// A failure here takes the value back with it, which is the whole
+		// reason this is one transaction rather than two.
+		_, txErr = tx.ExecContext(ctx,
+			`INSERT INTO audit_log (subject_id, setting, value) VALUES (?, ?, ?)`,
+			value.Subject.ID, "notifications.digest", value.Raw)
+
+		return txErr
+	}); err != nil {
+		panic(err)
+	}
+
+	var audited string
+	if err = client.Reader().QueryRowContext(ctx,
+		`SELECT value FROM audit_log WHERE subject_id = ?`, ada.ID).Scan(&audited); err != nil {
+		panic(err)
+	}
+
+	fmt.Println("audited:", audited)
+
+	// Output:
+	// audited: daily
+}
+
 // exampleWiring builds a throwaway SQLite-backed store. A real application hands
 // migrations.SQL to its own migration run and builds the store over the database
 // it already has.
 func exampleWiring() settings.Store {
-	ctx := context.Background()
+	store, err := settings.NewSQLStore(exampleDatabase(context.Background()))
+	if err != nil {
+		panic(err)
+	}
 
+	return store
+}
+
+// exampleDatabase is a throwaway SQLite database with the settings tables in it.
+func exampleDatabase(ctx context.Context) database.Client {
 	dir, err := os.MkdirTemp("", "settings-example")
 	if err != nil {
 		panic(err)
@@ -144,12 +211,7 @@ func exampleWiring() settings.Store {
 		}
 	}
 
-	store, err := settings.NewSQLStore(client)
-	if err != nil {
-		panic(err)
-	}
-
-	return store
+	return client
 }
 
 // exampleClientConfig is the minimum database.ClientConfig a SQLite client

@@ -195,6 +195,7 @@ func Render(d dialect.Dialect) string {
 	rendered = append(rendered, optionWrites(g)...)
 	rendered = append(rendered, valueReads(g)...)
 	rendered = append(rendered, valueWrites(g)...)
+	rendered = append(rendered, valueErasure(g))
 
 	return querygen.RenderFile(rendered)
 }
@@ -390,6 +391,32 @@ func valueWrites(g *querygen.Generator) []*querygen.Query {
 		g.ArchiveQuery("ArchiveValue", ValuesTable, Values.KeyedColumns(),
 			scope, subjectType, subjectID, definition),
 	}
+}
+
+// valueErasure is the one hard delete over the values table: everything one
+// subject answered within a scope, archived rows included.
+//
+// It exists because clearing is an archive. ClearValue leaves the row, and the
+// row still says what the subject chose — which is what an audit of a preference
+// change reads, and is also what a subject access request has to remove. A
+// consumer whose erasure has to take a person's stored preferences with them has
+// nothing else in this schema to call: an archive does not remove a value, and a
+// foreign key from subject_id onto the consumer's own table is available only to
+// a deployment with exactly one subject type, since a mixed column cannot
+// reference two tables.
+//
+// The key is the scope and the subject, and not the definition: an erasure is
+// about a person, not about a setting. The column list goes over without the id
+// — querygen renders the id predicate from the list it is handed — and the
+// archived predicate is one DeleteQuery never renders, which is what lets this
+// reach the rows ClearValue archived: an erasure that skipped them would leave
+// exactly the rows it exists for.
+func valueErasure(g *querygen.Generator) *querygen.Query {
+	return g.DeleteQuery("DeleteValuesForSubject", ValuesTable,
+		Values.ColumnsExcept(querygen.IDColumn),
+		querygen.Match{Column: ScopeColumn},
+		querygen.Match{Column: ValueSubjectTypeColumn},
+		querygen.Match{Column: ValueSubjectIDColumn})
 }
 
 // FileName is the file one dialect's rendered queries are committed to.

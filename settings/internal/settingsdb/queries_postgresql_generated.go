@@ -49,6 +49,11 @@ INSERT INTO {{prefix}}settings_definitions (
 const deleteDefinitionOptionsPostgreSQL = `DELETE FROM {{prefix}}settings_definition_options
 WHERE definition_id = $1`
 
+const deleteValuesForSubjectPostgreSQL = `DELETE FROM {{prefix}}settings_values
+WHERE scope = $1
+	AND subject_type = $2
+	AND subject_id = $3`
+
 const getDefinitionPostgreSQL = `SELECT
 	{{prefix}}settings_definitions.id,
 	{{prefix}}settings_definitions.scope,
@@ -476,6 +481,7 @@ type postgresqlQueries struct {
 	archiveValue                         string
 	createDefinition                     string
 	deleteDefinitionOptions              string
+	deleteValuesForSubject               string
 	getDefinition                        string
 	getDefinitionByName                  string
 	getDefinitionCreatedAt               string
@@ -501,6 +507,7 @@ func newPostgreSQL(prefix string) *postgresqlQueries {
 		archiveValue:                         strings.ReplaceAll(archiveValuePostgreSQL, prefixMarker, prefix),
 		createDefinition:                     strings.ReplaceAll(createDefinitionPostgreSQL, prefixMarker, prefix),
 		deleteDefinitionOptions:              strings.ReplaceAll(deleteDefinitionOptionsPostgreSQL, prefixMarker, prefix),
+		deleteValuesForSubject:               strings.ReplaceAll(deleteValuesForSubjectPostgreSQL, prefixMarker, prefix),
 		getDefinition:                        strings.ReplaceAll(getDefinitionPostgreSQL, prefixMarker, prefix),
 		getDefinitionByName:                  strings.ReplaceAll(getDefinitionByNamePostgreSQL, prefixMarker, prefix),
 		getDefinitionCreatedAt:               strings.ReplaceAll(getDefinitionCreatedAtPostgreSQL, prefixMarker, prefix),
@@ -566,6 +573,20 @@ func (q *postgresqlQueries) CreateDefinition(ctx context.Context, db DBTX, arg C
 func (q *postgresqlQueries) DeleteDefinitionOptions(ctx context.Context, db DBTX, arg DeleteDefinitionOptionsParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.deleteDefinitionOptions,
 		arg.DefinitionID,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+// DeleteValuesForSubject runs the :execrows query against postgresql.
+func (q *postgresqlQueries) DeleteValuesForSubject(ctx context.Context, db DBTX, arg DeleteValuesForSubjectParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.deleteValuesForSubject,
+		arg.Scope,
+		arg.SubjectType,
+		arg.SubjectID,
 	)
 	if err != nil {
 		return 0, err
@@ -1088,6 +1109,11 @@ var (
 	_ = struct {
 		DefinitionID string
 	}(DeleteDefinitionOptionsParams{})
+	_ = struct {
+		Scope       tenancy.Scope
+		SubjectType string
+		SubjectID   string
+	}(DeleteValuesForSubjectParams{})
 	_ = struct {
 		ID    string
 		Scope tenancy.Scope

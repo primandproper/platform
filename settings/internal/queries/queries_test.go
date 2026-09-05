@@ -111,6 +111,7 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 		"ListValuesForSubject", "ListValuesForSubjectDescending",
 		"ListValuesForDefinition", "ListValuesForDefinitionDescending",
 		"UpsertValue", "ArchiveValue",
+		"DeleteValuesForSubject",
 	}
 
 	for _, d := range everyDialect {
@@ -123,10 +124,12 @@ func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 
 			// The values table gets no standard query: every one of them would
 			// key on the id the table does not address rows by. Its create is
-			// the upsert, and there is exactly one INSERT against it.
+			// the upsert, and there is exactly one INSERT against it — and one
+			// DELETE, which is the erasure and nothing else.
 			test.StrNotContains(t, rendered, "CreateValue")
 			test.StrNotContains(t, rendered, "UpdateValue")
 			test.EqOp(t, 1, strings.Count(rendered, "INSERT INTO "+ValuesTable))
+			test.EqOp(t, 1, strings.Count(rendered, "DELETE FROM "+ValuesTable))
 
 			// Nothing here checks a row's existence without reading it.
 			test.StrNotContains(t, rendered, "Existence")
@@ -220,6 +223,36 @@ func TestRender_ValueStatementsKeyOnTheNaturalKey(T *testing.T) {
 				// UPDATE fires on whichever unique key was violated.
 				test.StrContains(t, upsert, "ON DUPLICATE KEY UPDATE")
 			}
+		})
+	}
+}
+
+// TestRender_ErasureReachesClearedValues pins the shape the one delete over the
+// values table has to have: keyed on the subject and the scope, and on nothing
+// that would leave a row behind.
+//
+// A cleared value is an archived row that still says what the subject chose, so
+// an erasure rendered with the archived predicate every other keyed statement
+// carries would skip exactly the rows it exists to remove. And it keys on no
+// definition, because an erasure is about a person rather than about a setting.
+func TestRender_ErasureReachesClearedValues(T *testing.T) {
+	T.Parallel()
+
+	for _, d := range everyDialect {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			statement := statementNamed(t, Render(d), "DeleteValuesForSubject")
+
+			test.StrContains(t, statement, "DELETE FROM "+ValuesTable)
+
+			for _, column := range []string{ScopeColumn, ValueSubjectTypeColumn, ValueSubjectIDColumn} {
+				test.StrContains(t, statement, column+" = ", test.Sprintf("the erasure does not key on %s", column))
+			}
+
+			test.StrNotContains(t, statement, querygen.ArchivedAtColumn)
+			test.StrNotContains(t, statement, ValueDefinitionColumn)
+			test.StrNotContains(t, statement, "sqlc.arg(id)")
 		})
 	}
 }

@@ -54,26 +54,8 @@ func (s *SQLStore) SetValue(
 	var value *Value
 
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		definition, err := s.readDefinitionByName(ctx, q, scope, name)
-		if err != nil {
-			return err
-		}
-
-		if err = definition.admits(raw); err != nil {
-			return err
-		}
-
-		if err = s.q.UpsertValue(ctx, q,
-			upsertValueParams(identifiers.New(), scope, subject, definition.ID, raw)); err != nil {
-			return platformerrors.Wrap(err, "writing setting value")
-		}
-
-		// Read back rather than assembled from what went in. The row the write
-		// converged on may be one that already existed, so its id and its
-		// creation time are the database's answer and not this call's — a
-		// caller handed the id minted above would be holding one that names no
-		// row whenever the subject had answered before.
-		value, err = s.readValue(ctx, q, scope, subject, definition.ID)
+		var err error
+		value, err = s.setValue(ctx, q, scope, subject, name, raw)
 
 		return err
 	}); err != nil {
@@ -81,6 +63,74 @@ func (s *SQLStore) SetValue(
 	}
 
 	return value, nil
+}
+
+// SetValueTx is SetValue inside the caller's transaction.
+//
+// The definition read, the check against it, the write and the read-back all
+// run on q, which is why a definition the caller created earlier in the same
+// transaction is one this can set a value against. See [Store.SetValueTx].
+func (s *SQLStore) SetValueTx(
+	ctx context.Context,
+	q database.Tx,
+	scope tenancy.Scope,
+	subject Subject,
+	name, raw string,
+) (*Value, error) {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(definitionKey, name),
+		observability.WithValue(subjectTypeKey, subject.Type.String()),
+		observability.WithValue(subjectIDKey, subject.ID),
+	)
+	defer op.End()
+
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "setting %q", name)
+	}
+
+	if err := s.addressable(scope, subject); err != nil {
+		return nil, op.Error(err, "setting %q", name)
+	}
+
+	value, err := s.setValue(ctx, q, scope, subject, name, raw)
+	if err != nil {
+		return nil, op.Error(err, "setting %q", name)
+	}
+
+	return value, nil
+}
+
+// setValue is the shared body of SetValue and SetValueTx: the definition read
+// that makes the write checkable, the check, the converging write, and the
+// read-back, on whatever executor the caller is holding.
+func (s *SQLStore) setValue(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	subject Subject,
+	name, raw string,
+) (*Value, error) {
+	definition, err := s.readDefinitionByName(ctx, q, scope, name)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = definition.admits(raw); err != nil {
+		return nil, err
+	}
+
+	if err = s.q.UpsertValue(ctx, q,
+		upsertValueParams(identifiers.New(), scope, subject, definition.ID, raw)); err != nil {
+		return nil, platformerrors.Wrap(err, "writing setting value")
+	}
+
+	// Read back rather than assembled from what went in. The row the write
+	// converged on may be one that already existed, so its id and its creation
+	// time are the database's answer and not this call's — a caller handed the
+	// id minted above would be holding one that names no row whenever the
+	// subject had answered before.
+	return s.readValue(ctx, q, scope, subject, definition.ID)
 }
 
 // GetValue reads the answer a subject stored, without applying the definition's
@@ -138,24 +188,114 @@ func (s *SQLStore) ClearValue(ctx context.Context, scope tenancy.Scope, subject 
 	}
 
 	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		definition, err := s.readDefinitionByName(ctx, q, scope, name)
-		if err != nil {
-			return err
-		}
-
-		count, err := s.q.ArchiveValue(ctx, q, settingsdb.ArchiveValueParams{
-			Scope:        scope,
-			SubjectType:  string(subject.Type),
-			SubjectID:    subject.ID,
-			DefinitionID: definition.ID,
-		})
-
-		return guardCount(count, err, ErrValueNotFound, "clearing setting value")
+		return s.clearValue(ctx, q, scope, subject, name)
 	}); err != nil {
 		return op.Error(err, "clearing setting %q", name)
 	}
 
 	return nil
+}
+
+// ClearValueTx is ClearValue inside the caller's transaction. See
+// [Store.ClearValueTx].
+func (s *SQLStore) ClearValueTx(
+	ctx context.Context,
+	q database.Tx,
+	scope tenancy.Scope,
+	subject Subject,
+	name string,
+) error {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(definitionKey, name),
+		observability.WithValue(subjectTypeKey, subject.Type.String()),
+		observability.WithValue(subjectIDKey, subject.ID),
+	)
+	defer op.End()
+
+	if q == nil {
+		return op.Error(ErrNilExecutor, "clearing setting %q", name)
+	}
+
+	if err := s.addressable(scope, subject); err != nil {
+		return op.Error(err, "clearing setting %q", name)
+	}
+
+	if err := s.clearValue(ctx, q, scope, subject, name); err != nil {
+		return op.Error(err, "clearing setting %q", name)
+	}
+
+	return nil
+}
+
+// clearValue is the shared body of ClearValue and ClearValueTx: the definition
+// read and the guarded archive, on whatever executor the caller is holding.
+func (s *SQLStore) clearValue(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	subject Subject,
+	name string,
+) error {
+	definition, err := s.readDefinitionByName(ctx, q, scope, name)
+	if err != nil {
+		return err
+	}
+
+	count, err := s.q.ArchiveValue(ctx, q, settingsdb.ArchiveValueParams{
+		Scope:        scope,
+		SubjectType:  string(subject.Type),
+		SubjectID:    subject.ID,
+		DefinitionID: definition.ID,
+	})
+
+	return guardCount(count, err, ErrValueNotFound, "clearing setting value")
+}
+
+// DeleteValuesForSubject destroys everything one subject answered within the
+// scope, cleared answers included, and reports how many rows that was.
+//
+// Zero is not an error. An erasure runs against whatever the subject actually
+// left behind, and a subject who never answered is a subject with nothing here
+// to erase — reporting that as a failure would fail an erasure that succeeded.
+//
+// It takes the executor and only the executor: there is no form of this that
+// runs in a transaction of the store's own, because a subject's values are never
+// the only thing an erasure removes, and a delete that committed on its own
+// would be the one row set gone when the rest of the erasure rolled back.
+func (s *SQLStore) DeleteValuesForSubject(
+	ctx context.Context,
+	q database.Tx,
+	scope tenancy.Scope,
+	subject Subject,
+) (int64, error) {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(subjectTypeKey, subject.Type.String()),
+		observability.WithValue(subjectIDKey, subject.ID),
+	)
+	defer op.End()
+
+	if q == nil {
+		return 0, op.Error(ErrNilExecutor, "erasing setting values")
+	}
+
+	if err := s.addressable(scope, subject); err != nil {
+		return 0, op.Error(err, "erasing setting values")
+	}
+
+	deleted, err := s.q.DeleteValuesForSubject(ctx, q, settingsdb.DeleteValuesForSubjectParams{
+		Scope:       scope,
+		SubjectType: string(subject.Type),
+		SubjectID:   subject.ID,
+	})
+	if err != nil {
+		return 0, op.Error(err, "erasing setting values")
+	}
+
+	op.Set(countKey, deleted)
+
+	return deleted, nil
 }
 
 // ListValuesForSubject pages everything one subject has answered.

@@ -15,6 +15,10 @@ var (
 	// ErrNilDefinition indicates a nil *Definition where one was required.
 	ErrNilDefinition = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil setting definition")
 
+	// ErrNilExecutor indicates a nil database.Tx handed to a write that runs
+	// inside somebody else's transaction.
+	ErrNilExecutor = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil query executor")
+
 	// ErrEmptyDefinitionName indicates a definition with no name. The name is
 	// the only handle a value-side call takes, so a definition without one is
 	// unreachable rather than merely unlabeled.

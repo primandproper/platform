@@ -96,6 +96,44 @@ to "" answers every subject who has not chosen; a text setting with no default
 answers none of them, and a plain string column has nowhere to put the
 difference.
 
+# Joining a caller's transaction
+
+Every write here has a form that runs inside a transaction the caller owns:
+[Store.CreateDefinitionTx], [Store.UpdateDefinitionTx],
+[Store.ArchiveDefinitionTx], [Store.SetValueTx] and [Store.ClearValueTx], plus
+[Store.DeleteValuesForSubject], which has no other form. Each takes a
+database.Tx rather than reaching for the store's own writer, and the type is
+what says so — only database.RunInTransaction produces one, so the obligation
+is the compiler's rather than a doc comment's.
+
+The reason is that a setting is rarely the only row a consumer writes. An audit
+entry naming who changed what and a data change event on an outbox somebody fans
+out are the ordinary companions, and a companion written after the setting's own
+write has committed is a companion that can go missing while the setting stays.
+The gap is narrow and it is one-directional — a value with no event, never an
+event naming a value that was not written — and nothing outside this package can
+close it, which is why these are here rather than left to a consumer to work
+around.
+
+Every read the writes depend on runs on that executor too: the definition a
+value is checked against, the name a definition is checked for, and the walk
+[Store.UpdateDefinitionTx] runs over stored values. So a definition and a value
+against it can be written in one transaction, and so can a clearance and the
+narrowing that would otherwise have been refused on its account —
+[Store.UpdateDefinitionTx] says what that changes.
+
+# Erasure
+
+Clearing is an archive, and an archived value still says what the subject chose.
+That is what an audit of a preference change reads, and it is also what a
+subject access request has to remove, so [Store.DeleteValuesForSubject] is the
+one hard delete here: everything one subject answered within a scope, cleared
+answers included, from the transaction that removes the rest of them. A
+deployment whose values all belong to one subject type can cascade from that
+table's delete instead. One with two cannot, because a mixed subject_id column
+cannot reference two tables, and this delete is what its dataprivacy.Eraser is
+built on.
+
 # Scope
 
 Every method takes a tenancy.Scope, and there is no unscoped read of anything
