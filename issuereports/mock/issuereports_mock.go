@@ -26,8 +26,14 @@ var _ issuereports.Store = &StoreMock{}
 //			ArchiveReportFunc: func(ctx context.Context, scope tenancy.Scope, reportID string) error {
 //				panic("mock out the ArchiveReport method")
 //			},
+//			ArchiveReportTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, reportID string) error {
+//				panic("mock out the ArchiveReportTx method")
+//			},
 //			CreateReportFunc: func(ctx context.Context, report *issuereports.Report) error {
 //				panic("mock out the CreateReport method")
+//			},
+//			CreateReportTxFunc: func(ctx context.Context, q database.Tx, report *issuereports.Report) error {
+//				panic("mock out the CreateReportTx method")
 //			},
 //			DeleteReportsByReporterFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, reporter string) (int64, error) {
 //				panic("mock out the DeleteReportsByReporter method")
@@ -53,8 +59,14 @@ var _ issuereports.Store = &StoreMock{}
 //			TransitionReportFunc: func(ctx context.Context, scope tenancy.Scope, reportID string, from issuereports.Status, to issuereports.Status, resolution string) (*issuereports.Report, error) {
 //				panic("mock out the TransitionReport method")
 //			},
+//			TransitionReportTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, reportID string, from issuereports.Status, to issuereports.Status, resolution string) (*issuereports.Report, error) {
+//				panic("mock out the TransitionReportTx method")
+//			},
 //			UpdateReportFunc: func(ctx context.Context, report *issuereports.Report) error {
 //				panic("mock out the UpdateReport method")
+//			},
+//			UpdateReportTxFunc: func(ctx context.Context, q database.Tx, report *issuereports.Report) error {
+//				panic("mock out the UpdateReportTx method")
 //			},
 //		}
 //
@@ -66,8 +78,14 @@ type StoreMock struct {
 	// ArchiveReportFunc mocks the ArchiveReport method.
 	ArchiveReportFunc func(ctx context.Context, scope tenancy.Scope, reportID string) error
 
+	// ArchiveReportTxFunc mocks the ArchiveReportTx method.
+	ArchiveReportTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, reportID string) error
+
 	// CreateReportFunc mocks the CreateReport method.
 	CreateReportFunc func(ctx context.Context, report *issuereports.Report) error
+
+	// CreateReportTxFunc mocks the CreateReportTx method.
+	CreateReportTxFunc func(ctx context.Context, q database.Tx, report *issuereports.Report) error
 
 	// DeleteReportsByReporterFunc mocks the DeleteReportsByReporter method.
 	DeleteReportsByReporterFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, reporter string) (int64, error)
@@ -93,8 +111,14 @@ type StoreMock struct {
 	// TransitionReportFunc mocks the TransitionReport method.
 	TransitionReportFunc func(ctx context.Context, scope tenancy.Scope, reportID string, from issuereports.Status, to issuereports.Status, resolution string) (*issuereports.Report, error)
 
+	// TransitionReportTxFunc mocks the TransitionReportTx method.
+	TransitionReportTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, reportID string, from issuereports.Status, to issuereports.Status, resolution string) (*issuereports.Report, error)
+
 	// UpdateReportFunc mocks the UpdateReport method.
 	UpdateReportFunc func(ctx context.Context, report *issuereports.Report) error
+
+	// UpdateReportTxFunc mocks the UpdateReportTx method.
+	UpdateReportTxFunc func(ctx context.Context, q database.Tx, report *issuereports.Report) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -107,10 +131,30 @@ type StoreMock struct {
 			// ReportID is the reportID argument value.
 			ReportID string
 		}
+		// ArchiveReportTx holds details about calls to the ArchiveReportTx method.
+		ArchiveReportTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// ReportID is the reportID argument value.
+			ReportID string
+		}
 		// CreateReport holds details about calls to the CreateReport method.
 		CreateReport []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Report is the report argument value.
+			Report *issuereports.Report
+		}
+		// CreateReportTx holds details about calls to the CreateReportTx method.
+		CreateReportTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
 			// Report is the report argument value.
 			Report *issuereports.Report
 		}
@@ -204,6 +248,23 @@ type StoreMock struct {
 			// Resolution is the resolution argument value.
 			Resolution string
 		}
+		// TransitionReportTx holds details about calls to the TransitionReportTx method.
+		TransitionReportTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// ReportID is the reportID argument value.
+			ReportID string
+			// From is the from argument value.
+			From issuereports.Status
+			// To is the to argument value.
+			To issuereports.Status
+			// Resolution is the resolution argument value.
+			Resolution string
+		}
 		// UpdateReport holds details about calls to the UpdateReport method.
 		UpdateReport []struct {
 			// Ctx is the ctx argument value.
@@ -211,9 +272,20 @@ type StoreMock struct {
 			// Report is the report argument value.
 			Report *issuereports.Report
 		}
+		// UpdateReportTx holds details about calls to the UpdateReportTx method.
+		UpdateReportTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
+			// Report is the report argument value.
+			Report *issuereports.Report
+		}
 	}
 	lockArchiveReport            sync.RWMutex
+	lockArchiveReportTx          sync.RWMutex
 	lockCreateReport             sync.RWMutex
+	lockCreateReportTx           sync.RWMutex
 	lockDeleteReportsByReporter  sync.RWMutex
 	lockGetReport                sync.RWMutex
 	lockListReports              sync.RWMutex
@@ -222,7 +294,9 @@ type StoreMock struct {
 	lockListReportsBySubjectType sync.RWMutex
 	lockListReportsForSubject    sync.RWMutex
 	lockTransitionReport         sync.RWMutex
+	lockTransitionReportTx       sync.RWMutex
 	lockUpdateReport             sync.RWMutex
+	lockUpdateReportTx           sync.RWMutex
 }
 
 // ArchiveReport calls ArchiveReportFunc.
@@ -265,6 +339,50 @@ func (mock *StoreMock) ArchiveReportCalls() []struct {
 	return calls
 }
 
+// ArchiveReportTx calls ArchiveReportTxFunc.
+func (mock *StoreMock) ArchiveReportTx(ctx context.Context, q database.Tx, scope tenancy.Scope, reportID string) error {
+	if mock.ArchiveReportTxFunc == nil {
+		panic("StoreMock.ArchiveReportTxFunc: method is nil but Store.ArchiveReportTx was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		Q        database.Tx
+		Scope    tenancy.Scope
+		ReportID string
+	}{
+		Ctx:      ctx,
+		Q:        q,
+		Scope:    scope,
+		ReportID: reportID,
+	}
+	mock.lockArchiveReportTx.Lock()
+	mock.calls.ArchiveReportTx = append(mock.calls.ArchiveReportTx, callInfo)
+	mock.lockArchiveReportTx.Unlock()
+	return mock.ArchiveReportTxFunc(ctx, q, scope, reportID)
+}
+
+// ArchiveReportTxCalls gets all the calls that were made to ArchiveReportTx.
+// Check the length with:
+//
+//	len(mockedStore.ArchiveReportTxCalls())
+func (mock *StoreMock) ArchiveReportTxCalls() []struct {
+	Ctx      context.Context
+	Q        database.Tx
+	Scope    tenancy.Scope
+	ReportID string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		Q        database.Tx
+		Scope    tenancy.Scope
+		ReportID string
+	}
+	mock.lockArchiveReportTx.RLock()
+	calls = mock.calls.ArchiveReportTx
+	mock.lockArchiveReportTx.RUnlock()
+	return calls
+}
+
 // CreateReport calls CreateReportFunc.
 func (mock *StoreMock) CreateReport(ctx context.Context, report *issuereports.Report) error {
 	if mock.CreateReportFunc == nil {
@@ -298,6 +416,46 @@ func (mock *StoreMock) CreateReportCalls() []struct {
 	mock.lockCreateReport.RLock()
 	calls = mock.calls.CreateReport
 	mock.lockCreateReport.RUnlock()
+	return calls
+}
+
+// CreateReportTx calls CreateReportTxFunc.
+func (mock *StoreMock) CreateReportTx(ctx context.Context, q database.Tx, report *issuereports.Report) error {
+	if mock.CreateReportTxFunc == nil {
+		panic("StoreMock.CreateReportTxFunc: method is nil but Store.CreateReportTx was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Q      database.Tx
+		Report *issuereports.Report
+	}{
+		Ctx:    ctx,
+		Q:      q,
+		Report: report,
+	}
+	mock.lockCreateReportTx.Lock()
+	mock.calls.CreateReportTx = append(mock.calls.CreateReportTx, callInfo)
+	mock.lockCreateReportTx.Unlock()
+	return mock.CreateReportTxFunc(ctx, q, report)
+}
+
+// CreateReportTxCalls gets all the calls that were made to CreateReportTx.
+// Check the length with:
+//
+//	len(mockedStore.CreateReportTxCalls())
+func (mock *StoreMock) CreateReportTxCalls() []struct {
+	Ctx    context.Context
+	Q      database.Tx
+	Report *issuereports.Report
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Q      database.Tx
+		Report *issuereports.Report
+	}
+	mock.lockCreateReportTx.RLock()
+	calls = mock.calls.CreateReportTx
+	mock.lockCreateReportTx.RUnlock()
 	return calls
 }
 
@@ -657,6 +815,62 @@ func (mock *StoreMock) TransitionReportCalls() []struct {
 	return calls
 }
 
+// TransitionReportTx calls TransitionReportTxFunc.
+func (mock *StoreMock) TransitionReportTx(ctx context.Context, q database.Tx, scope tenancy.Scope, reportID string, from issuereports.Status, to issuereports.Status, resolution string) (*issuereports.Report, error) {
+	if mock.TransitionReportTxFunc == nil {
+		panic("StoreMock.TransitionReportTxFunc: method is nil but Store.TransitionReportTx was just called")
+	}
+	callInfo := struct {
+		Ctx        context.Context
+		Q          database.Tx
+		Scope      tenancy.Scope
+		ReportID   string
+		From       issuereports.Status
+		To         issuereports.Status
+		Resolution string
+	}{
+		Ctx:        ctx,
+		Q:          q,
+		Scope:      scope,
+		ReportID:   reportID,
+		From:       from,
+		To:         to,
+		Resolution: resolution,
+	}
+	mock.lockTransitionReportTx.Lock()
+	mock.calls.TransitionReportTx = append(mock.calls.TransitionReportTx, callInfo)
+	mock.lockTransitionReportTx.Unlock()
+	return mock.TransitionReportTxFunc(ctx, q, scope, reportID, from, to, resolution)
+}
+
+// TransitionReportTxCalls gets all the calls that were made to TransitionReportTx.
+// Check the length with:
+//
+//	len(mockedStore.TransitionReportTxCalls())
+func (mock *StoreMock) TransitionReportTxCalls() []struct {
+	Ctx        context.Context
+	Q          database.Tx
+	Scope      tenancy.Scope
+	ReportID   string
+	From       issuereports.Status
+	To         issuereports.Status
+	Resolution string
+} {
+	var calls []struct {
+		Ctx        context.Context
+		Q          database.Tx
+		Scope      tenancy.Scope
+		ReportID   string
+		From       issuereports.Status
+		To         issuereports.Status
+		Resolution string
+	}
+	mock.lockTransitionReportTx.RLock()
+	calls = mock.calls.TransitionReportTx
+	mock.lockTransitionReportTx.RUnlock()
+	return calls
+}
+
 // UpdateReport calls UpdateReportFunc.
 func (mock *StoreMock) UpdateReport(ctx context.Context, report *issuereports.Report) error {
 	if mock.UpdateReportFunc == nil {
@@ -690,5 +904,45 @@ func (mock *StoreMock) UpdateReportCalls() []struct {
 	mock.lockUpdateReport.RLock()
 	calls = mock.calls.UpdateReport
 	mock.lockUpdateReport.RUnlock()
+	return calls
+}
+
+// UpdateReportTx calls UpdateReportTxFunc.
+func (mock *StoreMock) UpdateReportTx(ctx context.Context, q database.Tx, report *issuereports.Report) error {
+	if mock.UpdateReportTxFunc == nil {
+		panic("StoreMock.UpdateReportTxFunc: method is nil but Store.UpdateReportTx was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Q      database.Tx
+		Report *issuereports.Report
+	}{
+		Ctx:    ctx,
+		Q:      q,
+		Report: report,
+	}
+	mock.lockUpdateReportTx.Lock()
+	mock.calls.UpdateReportTx = append(mock.calls.UpdateReportTx, callInfo)
+	mock.lockUpdateReportTx.Unlock()
+	return mock.UpdateReportTxFunc(ctx, q, report)
+}
+
+// UpdateReportTxCalls gets all the calls that were made to UpdateReportTx.
+// Check the length with:
+//
+//	len(mockedStore.UpdateReportTxCalls())
+func (mock *StoreMock) UpdateReportTxCalls() []struct {
+	Ctx    context.Context
+	Q      database.Tx
+	Report *issuereports.Report
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Q      database.Tx
+		Report *issuereports.Report
+	}
+	mock.lockUpdateReportTx.RLock()
+	calls = mock.calls.UpdateReportTx
+	mock.lockUpdateReportTx.RUnlock()
 	return calls
 }
