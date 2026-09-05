@@ -185,11 +185,6 @@ what has to get a home of its own before its parent can leave whole.
 of one config that registers both, and a consumer of both sees the wiring it
 sees today.
 
-The table is not maintained against the tree by hand. `internal/tiermatrix`
-parses it and fails if a top-level package has no tier, if a tier names a
-package that is not there, or if anything on the primitives side ships DDL —
-which is the one claim in the rule that a directory listing can settle.
-
 ### Transports
 
 A component here that owns data ships a `Store` interface, a SQL implementation
