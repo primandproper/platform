@@ -55,3 +55,5 @@ error text this package took care to keep out of the message is available in the
 details of the same response.
 */
 package grpc
+
+//platform:transport mapping: a sentinel to a gRPC code, and back

@@ -132,7 +132,7 @@ func assertDecision(t *testing.T, pkg, name string, row sentinelmatrix.Decision,
 // package-level var in pkg.
 //
 // The ground truth is deliberately crude, in the manner of
-// internal/transportmatrix: a var whose name starts with Err is a sentinel. That
+// internal/cmd/readmegen: a var whose name starts with Err is a sentinel. That
 // finds one by how it is written rather than by anything it declares, which is
 // the property that matters — a sentinel added in the ordinary way is precisely
 // the one to catch.

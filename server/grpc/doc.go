@@ -77,3 +77,5 @@ lost by flushing first — but does not shut the provider down, since the provid
 belongs to the process rather than to this server.
 */
 package grpc
+
+//platform:transport server: the same, for gRPC

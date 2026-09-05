@@ -87,3 +87,5 @@ authorization check is a few map lookups; a span per RPC to describe it would
 double the trace volume of every service that installs this.
 */
 package grpc
+
+//platform:transport middleware: the same, as interceptors

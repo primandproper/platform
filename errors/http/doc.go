@@ -48,3 +48,5 @@ Unmapped codes resolve to 500. That is the direction to fail in: a code nobody
 gave a status keeps its server-side failure looking like one.
 */
 package http
+
+//platform:transport mapping: a sentinel to a status code, and back

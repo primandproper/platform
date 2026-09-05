@@ -91,3 +91,5 @@ could not read, a body it could not buffer — and that is a fault in the servic
 doing the verifying.
 */
 package http
+
+//platform:transport middleware: a signature verified before the handler runs

@@ -75,3 +75,5 @@ investigate a specific route, use the spans or the denial logs, which carry the
 full request; use these counters for the rate and for alerting.
 */
 package http
+
+//platform:transport middleware: a route's declared requirement, checked before it runs

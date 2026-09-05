@@ -219,22 +219,24 @@ The line is not "no transports". It is this:
 
 Everything below is on the far side of that line, and it is the whole list.
 
-| Transport                         | Kind             | Whose shape it is                                     |
-|-----------------------------------|------------------|-------------------------------------------------------|
-| `server/http`                     | server           | the process: bind, serve, drain, and its own probes    |
-| `server/grpc`                     | server           | the same, for gRPC                                     |
-| `errors/http`                     | mapping          | a sentinel to a status code, and back                  |
-| `errors/grpc`                     | mapping          | a sentinel to a gRPC code, and back                    |
-| `filtering/grpc`                  | wire conversion  | `QueryFilter` and `Pagination` to their generated messages |
-| `authorization/http`              | middleware       | a route's declared requirement, checked before it runs |
-| `authorization/grpc`              | middleware       | the same, as interceptors                              |
-| `idempotency/http`                | middleware       | the `Idempotency-Key` header, both sides of the wire   |
-| `idempotency/grpc`                | middleware       | the same, over metadata                                |
-| `ratelimiting/http`               | middleware       | a token per request, 429 when there is none            |
-| `ratelimiting/grpc`               | middleware       | the same, as interceptors                              |
-| `cryptography/requestsigning/http`| middleware       | a signature verified before the handler runs           |
-| `sessions/http`                   | binding          | a signed cookie, whose security properties are ours    |
-| `operations/http`                 | resource surface | poll, list, cancel, subscribe — over `Operation`       |
+<!-- readmegen:transports -->
+| Transport                          | Kind             | Whose shape it is                                          |
+|------------------------------------|------------------|------------------------------------------------------------|
+| `server/http`                      | server           | the process: bind, serve, drain, and its own probes        |
+| `server/grpc`                      | server           | the same, for gRPC                                         |
+| `errors/http`                      | mapping          | a sentinel to a status code, and back                      |
+| `errors/grpc`                      | mapping          | a sentinel to a gRPC code, and back                        |
+| `filtering/grpc`                   | wire conversion  | `QueryFilter` and `Pagination` to their generated messages |
+| `authorization/http`               | middleware       | a route's declared requirement, checked before it runs     |
+| `authorization/grpc`               | middleware       | the same, as interceptors                                  |
+| `cryptography/requestsigning/http` | middleware       | a signature verified before the handler runs               |
+| `idempotency/http`                 | middleware       | the `Idempotency-Key` header, both sides of the wire       |
+| `idempotency/grpc`                 | middleware       | the same, over metadata                                    |
+| `ratelimiting/http`                | middleware       | a token per request, 429 when there is none                |
+| `ratelimiting/grpc`                | middleware       | the same, as interceptors                                  |
+| `sessions/http`                    | binding          | a signed cookie, whose security properties are ours        |
+| `operations/http`                  | resource surface | poll, list, cancel, subscribe — over `Operation`           |
+<!-- /readmegen:transports -->
 
 The middleware rows carry nothing domain-shaped: they read a header or a claim
 and let the request through or refuse it, and the handler behind them is still
@@ -253,6 +255,13 @@ One transport sits outside the table because it is not an `http` subpackage:
 reason — a Stripe or GitHub callback's shape is decided by Stripe or GitHub, and
 you have no say in it either.
 
+The table is not written by hand either. `internal/cmd/readmegen` emits it on
+`make generate` from the `http` and `grpc` directories the tree ships, and
+refuses to emit a row for one whose own `doc.go` does not name its kind and
+whose shape it is standing in for. A package that grows handlers therefore
+cannot reach `main` without somebody having said which side of the line they
+fall on.
+
 ## SQL Dialect Support
 
 `database` speaks Postgres, MySQL and SQLite, and so does almost every package
@@ -266,6 +275,7 @@ statements have been ported onto the generated tier — executes a querier emitt
 against it. Everything unticked returns `dialect.ErrUnsupported` at
 construction, never a partial store or a migration that creates nothing.
 
+<!-- readmegen:dialects -->
 | Package                                | Postgres | MySQL | SQLite |
 |----------------------------------------|----------|-------|--------|
 | `audit`                                | ✓        | ✓     | ✓      |
@@ -292,19 +302,28 @@ construction, never a partial store or a migration that creates nothing.
 | `waitlists`                            | ✓        | ✓     | ✓      |
 | `webhooks`                             | ✓        | ✓     | ✓      |
 | `workqueue`                            | ✓        | —     | —      |
+<!-- /readmegen:dialects -->
 
 ### Why the three narrow
 
-One reason, arrived at from three directions. `workqueue`'s claim is a single
-statement that selects due rows, locks them with `SKIP LOCKED`, increments
-attempts, extends the lease and hands the keys back with `RETURNING`. MySQL 8.0
-has `SKIP LOCKED` and CTEs but no `RETURNING`, so the same claim there is a
-`SELECT … FOR UPDATE SKIP LOCKED` plus a separate `UPDATE` inside a transaction
-held across both round trips — a different concurrency shape with a different
-failure model, which is a second implementation rather than a dialect switch.
-SQLite is a harder no: single-writer, with no row-level locking to skip.
-`timers` claims the same way. `operations` runs on `workqueue`, so its roster is
-`workqueue`'s.
+One reason, arrived at from three directions, and it is a claim rather than a
+translation. The claim is a single statement that selects due rows, locks them
+with `SKIP LOCKED`, increments attempts, extends the lease and hands the keys
+back with `RETURNING`. MySQL 8.0 has `SKIP LOCKED` and CTEs but no `RETURNING`,
+so the same claim there is a `SELECT … FOR UPDATE SKIP LOCKED` plus a separate
+`UPDATE` inside a transaction held across both round trips — a different
+concurrency shape with a different failure model, which is a second
+implementation rather than a dialect switch. SQLite is a harder no:
+single-writer, with no row-level locking to skip.
+
+Each narrowed package states where it stands in that, in its own `doc.go`, and
+these lines are that statement:
+
+<!-- readmegen:narrowings -->
+- `operations` — runs on `workqueue`, so its roster is `workqueue`'s.
+- `timers` — claims a due timer in the one statement, and would owe the same split anywhere else.
+- `workqueue` — the claim is the package: `SKIP LOCKED` to take due rows and `RETURNING` to hand the keys back, in one round trip.
+<!-- /readmegen:narrowings -->
 
 Widening any of them is a decision about that claim, not about a missing
 translation — the package docs carry the long form. Nothing forecloses it: the
@@ -328,10 +347,12 @@ and a row would misreport it either way:
   `cache/redis` is. Picking one is picking Postgres, which is what its name
   says.
 
-The matrix above is not maintained by hand against the tree.
-`internal/dialectmatrix` parses this table and fails if a row disagrees with the
-DDL a package ships, with the dialects its generated querier was emitted for, or
-if a DDL-shipping package has no row at all.
+The matrix above is not written by hand. `internal/cmd/readmegen` emits it on
+`make generate` from the DDL each package ships, checks that against the
+dialects its generated querier was emitted for, and refuses to emit a short row
+for a package whose `doc.go` does not say why it is short. A package that gains
+or loses a dialect therefore changes this file on the next generate, and the
+generated-files workflow reds until that change is committed.
 
 ## Development
 
