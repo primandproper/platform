@@ -2,7 +2,10 @@
 Package transportmatrix is where the module's store-versus-transport boundary is
 checked against the tree it describes, and it holds nothing else.
 
-The boundary itself lives in the module README, under "Stores and Transports",
+The boundary itself lives in the module README, under "Transports", a
+subsection of "Primitives and Domains" — a transport whose shape is not the
+consumer's is the second of the four kinds that section's rule admits, and this
+is the roster of them. It lives in the README rather than in a doc comment
 because the question it answers — "do I write the handlers, or does this?" — is
 asked while a consumer is planning a port, before any package has been imported
 and long before a doc comment would be reached. Most components that own data

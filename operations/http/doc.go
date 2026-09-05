@@ -89,7 +89,7 @@ through are not yours, and polling one or subscribing to it is the pattern's
 protocol rather than your API. The half that *is* yours — starting the work — is
 the half above that is deliberately absent.
 
-The module README's "Stores and Transports" section is where that rule is stated
-for the module as a whole, along with everything else on this side of it.
+The module README's "Transports" section is where that rule is stated for the
+module as a whole, along with everything else on this side of it.
 */
 package http

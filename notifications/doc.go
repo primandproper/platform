@@ -77,8 +77,7 @@ the tables are created by your own migration run.
 At the store and the senders. The inbox endpoints a client polls — list mine,
 mark one read, mark them all read — are an application's routes over an
 application's types, and this package ships none of them. The module README's
-"Stores and Transports" section is where that line is drawn for the module as a
-whole.
+"Transports" section is where that line is drawn for the module as a whole.
 */
 package notifications
 
