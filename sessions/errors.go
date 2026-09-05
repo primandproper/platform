@@ -4,9 +4,10 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v14/errors"
 )
 
-// Sentinels. errors/http maps these onto status codes, so that package imports
-// this one. That direction is load-bearing: nothing here may import
-// errors/http or errors/grpc, or the cycle closes.
+// Sentinels. HTTPMapper and GRPCMapper, in this package, map them onto status
+// codes; errors/http and errors/grpc are primitives and know nothing of this
+// package, which is why the mapping lives here and this package imports them
+// rather than the other way around.
 //
 // The four absence errors form a chain — ErrIdleTimeout and
 // ErrAbsoluteTimeout wrap ErrExpired, which wraps ErrNotFound — so a caller

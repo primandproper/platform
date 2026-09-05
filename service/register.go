@@ -14,17 +14,21 @@ import (
 	encryptioncfg "github.com/primandproper/platform-go/v14/cryptography/encryption/config"
 	shreddingcfg "github.com/primandproper/platform-go/v14/cryptography/shredding/config"
 	databasecfg "github.com/primandproper/platform-go/v14/database/config"
+	"github.com/primandproper/platform-go/v14/dataprivacy"
 	dataprivacycfg "github.com/primandproper/platform-go/v14/dataprivacy/config"
 	distributedlockcfg "github.com/primandproper/platform-go/v14/distributedlock/config"
 	emailcfg "github.com/primandproper/platform-go/v14/email/config"
 	embeddingscfg "github.com/primandproper/platform-go/v14/embeddings/config"
 	"github.com/primandproper/platform-go/v14/encoding"
+	grpcerrors "github.com/primandproper/platform-go/v14/errors/grpc"
+	httperrors "github.com/primandproper/platform-go/v14/errors/http"
 	eventstreamcfg "github.com/primandproper/platform-go/v14/eventstream/config"
 	featureflagscfg "github.com/primandproper/platform-go/v14/featureflags/config"
 	"github.com/primandproper/platform-go/v14/httpclient"
 	identitycfg "github.com/primandproper/platform-go/v14/identity/config"
 	issuereportscfg "github.com/primandproper/platform-go/v14/issuereports/config"
 	jobscfg "github.com/primandproper/platform-go/v14/jobs/config"
+	"github.com/primandproper/platform-go/v14/links"
 	llmcfg "github.com/primandproper/platform-go/v14/llm/config"
 	messagequeuecfg "github.com/primandproper/platform-go/v14/messagequeue/config"
 	meteringcfg "github.com/primandproper/platform-go/v14/metering/config"
@@ -36,6 +40,7 @@ import (
 	metricscfg "github.com/primandproper/platform-go/v14/observability/metrics/config"
 	profilingcfg "github.com/primandproper/platform-go/v14/observability/profiling/config"
 	tracingcfg "github.com/primandproper/platform-go/v14/observability/tracing/config"
+	"github.com/primandproper/platform-go/v14/operations"
 	operationscfg "github.com/primandproper/platform-go/v14/operations/config"
 	outboxcfg "github.com/primandproper/platform-go/v14/outbox/config"
 	ratelimitingcfg "github.com/primandproper/platform-go/v14/ratelimiting/config"
@@ -46,6 +51,7 @@ import (
 	secretscfg "github.com/primandproper/platform-go/v14/secrets/config"
 	grpcserver "github.com/primandproper/platform-go/v14/server/grpc"
 	httpserver "github.com/primandproper/platform-go/v14/server/http"
+	"github.com/primandproper/platform-go/v14/sessions"
 	settingscfg "github.com/primandproper/platform-go/v14/settings/config"
 	uploadscfg "github.com/primandproper/platform-go/v14/uploads/config"
 	"github.com/primandproper/platform-go/v14/uploads/objectstorage"
@@ -90,6 +96,44 @@ func Register(i do.Injector, cfg *Config) {
 	registerDurableWorkflows(i, cfg)
 	registerHealth(i)
 	registerServers(i, cfg)
+	registerErrorMappers()
+}
+
+// registerErrorMappers installs the transport mappings for the two packages
+// that have no sub-config to hang them off.
+//
+// errors/http and errors/grpc are primitives and map only primitives, so a
+// domain's sentinels reach a client as a considered status because somebody
+// registered that domain's mapper. Everywhere a package has a conditional block
+// above, its two mappers are registered inside it, next to the config that says
+// the service has the subsystem at all — see the DataPrivacy and Operations
+// blocks.
+//
+// links and sessions have no such block, because neither has a field in Config:
+// a session store is generic and is registered per concrete payload type, which
+// is a type argument no environment variable can supply, and links is not part
+// of the walk at all. So there is nothing to condition on, and these two are
+// registered for every service. That costs a comparison against a sentinel no
+// service without the subsystem can produce, which is the cheap direction to be
+// wrong in: the expensive one is an action link that answers 500 because nobody
+// registered anything.
+//
+// It takes no injector. The two registries are process-global — an error is
+// mapped by whatever is linked into the binary, not by whichever container
+// resolved the handler — so a second Register call adds a second copy of each
+// mapper, which answers identically and is never reached, since the first match
+// wins.
+func registerErrorMappers() {
+	httperrors.RegisterHTTPErrorMapper(links.HTTPMapper)
+	grpcerrors.RegisterGRPCErrorMapper(links.GRPCMapper)
+
+	// The redemption outcomes are the one set in this module whose own wording
+	// is meant for the person reading it, so gRPC is told it may send it rather
+	// than rendering "FailedPrecondition" four times.
+	grpcerrors.RegisterClientSafeSentinels(links.ClientSafeSentinels...)
+
+	httperrors.RegisterHTTPErrorMapper(sessions.HTTPMapper)
+	grpcerrors.RegisterGRPCErrorMapper(sessions.GRPCMapper)
 }
 
 // registerObservability registers all four pillars unconditionally, matching
@@ -328,6 +372,13 @@ func registerDurableWorkflows(i do.Injector, cfg *Config) {
 		operationscfg.RegisterQueue(i)
 		operationscfg.RegisterService(i)
 		operationscfg.RegisterWorker(i)
+
+		// The transport mappings, which are not do registrations and take no
+		// injector: errors/http and errors/grpc keep one process-global
+		// registry each. Without them an operation nobody may read answers 500
+		// rather than the 404 the read path went to the trouble of returning.
+		httperrors.RegisterHTTPErrorMapper(operations.HTTPMapper)
+		grpcerrors.RegisterGRPCErrorMapper(operations.GRPCMapper)
 	}
 
 	if cfg.DataPrivacy != nil {
@@ -336,6 +387,13 @@ func registerDurableWorkflows(i do.Injector, cfg *Config) {
 		dataprivacycfg.RegisterFulfiller(i)
 		dataprivacycfg.RegisterService(i)
 		dataprivacycfg.RegisterSweeper(i)
+
+		// As with Operations directly above: process-global registries, no
+		// injector, and without them a subject asking after their own export is
+		// told the service is broken when the answer is that the ID is not one
+		// of theirs.
+		httperrors.RegisterHTTPErrorMapper(dataprivacy.HTTPMapper)
+		grpcerrors.RegisterGRPCErrorMapper(dataprivacy.GRPCMapper)
 	}
 
 	if cfg.JobsPool != nil {

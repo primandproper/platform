@@ -14,8 +14,15 @@ var (
 	domainMappersMu sync.RWMutex
 )
 
-// RegisterHTTPErrorMapper registers a domain-specific error mapper.
-// Domains call this from init() to contribute their error mappings.
+// RegisterHTTPErrorMapper registers a domain-specific error mapper, which
+// ToAPIError consults after PlatformMapper and in registration order.
+//
+// A package that owns sentinels declares the mapper — dataprivacy.HTTPMapper and
+// its three counterparts in this module are the pattern — and something above it
+// registers it: service.Register for a service built from a service.Config, the
+// composition root otherwise. Doing it from an init function is a consumer's
+// choice to make and not this module's, because a mapper that installs itself by
+// being linked in is a side effect nothing downstream can opt out of.
 func RegisterHTTPErrorMapper(m HTTPErrorMapper) {
 	domainMappersMu.Lock()
 	defer domainMappersMu.Unlock()
