@@ -34,6 +34,61 @@ func (s *SQLStore) CreateProduct(ctx context.Context, scope tenancy.Scope, produ
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
+	created, err := productToCreate(op, scope, product)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = s.client.WithTransaction(ctx, func(q database.Tx) error {
+		return s.insertProduct(ctx, q, scope, created)
+	}); err != nil {
+		return nil, op.Error(err, "creating product %q", created.Name)
+	}
+
+	return created, nil
+}
+
+// CreateProductTx is CreateProduct inside the caller's transaction.
+//
+// Every check CreateProduct makes is made here, and every statement runs on q
+// rather than in a transaction of this store's own — the insert, the read-back
+// of the creation time, and the attribution read the insert-ignore makes when it
+// loses. That last one is why the executor has to be the caller's: a redelivery
+// arriving in the same transaction as the row it collides with would otherwise
+// be attributed against a snapshot that cannot see it. See [Store.CreateProductTx].
+func (s *SQLStore) CreateProductTx(
+	ctx context.Context,
+	q database.Tx,
+	scope tenancy.Scope,
+	product *Product,
+) (*Product, error) {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
+	defer op.End()
+
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "creating product")
+	}
+
+	created, err := productToCreate(op, scope, product)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = s.insertProduct(ctx, q, scope, created); err != nil {
+		return nil, op.Error(err, "creating product %q", created.Name)
+	}
+
+	return created, nil
+}
+
+// productToCreate is the checks CreateProduct and CreateProductTx share, and the
+// value they write: a copy of the caller's, under the scope, normalized, with
+// its id minted where the caller left it empty.
+//
+// Shared rather than written twice so that the two paths cannot drift into
+// accepting different products. It runs before any transaction is opened,
+// because a product refused here is refused without a round trip.
+func productToCreate(op observability.Operation, scope tenancy.Scope, product *Product) (*Product, error) {
 	if product == nil {
 		return nil, op.Error(ErrNilProduct, "creating product")
 	}
@@ -56,29 +111,35 @@ func (s *SQLStore) CreateProduct(ctx context.Context, scope tenancy.Scope, produ
 
 	op.Set(productKey, created.ID)
 
-	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		count, err := s.q.CreateProduct(ctx, q, createProductParams(&created, scope))
-		if err != nil {
-			return platformerrors.Wrap(err, "creating product")
-		}
+	return &created, nil
+}
 
-		if count == 0 {
-			return s.refuseProductCreate(ctx, q, scope, &created)
-		}
-
-		row, err := s.q.GetProductCreatedAt(ctx, q, billingdb.GetProductCreatedAtParams{ID: created.ID})
-		if err != nil {
-			return platformerrors.Wrap(err, "reading back the product's creation time")
-		}
-
-		created.CreatedAt = row.CreatedAt.UTC()
-
-		return nil
-	}); err != nil {
-		return nil, op.Error(err, "creating product %q", product.Name)
+// insertProduct is the statements the create runs, on whatever executor the
+// caller is holding: the insert-ignore, the attribution of a loss, and the
+// read-back of the creation time onto created.
+func (s *SQLStore) insertProduct(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	created *Product,
+) error {
+	count, err := s.q.CreateProduct(ctx, q, createProductParams(created, scope))
+	if err != nil {
+		return platformerrors.Wrap(err, "creating product")
 	}
 
-	return &created, nil
+	if count == 0 {
+		return s.refuseProductCreate(ctx, q, scope, created)
+	}
+
+	row, err := s.q.GetProductCreatedAt(ctx, q, billingdb.GetProductCreatedAtParams{ID: created.ID})
+	if err != nil {
+		return platformerrors.Wrap(err, "reading back the product's creation time")
+	}
+
+	created.CreatedAt = row.CreatedAt.UTC()
+
+	return nil
 }
 
 // GetProduct reads one of the scope's live products by id.
@@ -212,47 +273,104 @@ func (s *SQLStore) UpdateProduct(ctx context.Context, scope tenancy.Scope, produ
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
+	updated, err := productToUpdate(op, scope, product)
+	if err != nil {
+		return err
+	}
+
+	if err = s.client.WithTransaction(ctx, func(q database.Tx) error {
+		return s.rewriteProduct(ctx, q, scope, updated)
+	}); err != nil {
+		return op.Error(err, "updating product %q", updated.ID)
+	}
+
+	return nil
+}
+
+// UpdateProductTx is UpdateProduct inside the caller's transaction.
+//
+// The same checks and the same statements, on q — including the collision check
+// against the provider-side id, so a product created earlier in the same
+// transaction is one this edit can be checked against. See [Store.UpdateProductTx].
+func (s *SQLStore) UpdateProductTx(
+	ctx context.Context,
+	q database.Tx,
+	scope tenancy.Scope,
+	product *Product,
+) error {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
+	defer op.End()
+
+	if q == nil {
+		return op.Error(ErrNilExecutor, "updating product")
+	}
+
+	updated, err := productToUpdate(op, scope, product)
+	if err != nil {
+		return err
+	}
+
+	if err = s.rewriteProduct(ctx, q, scope, updated); err != nil {
+		return op.Error(err, "updating product %q", updated.ID)
+	}
+
+	return nil
+}
+
+// productToUpdate is the checks UpdateProduct and UpdateProductTx share, and the
+// value they write. It runs before any transaction is opened, for the reason
+// productToCreate does.
+func productToUpdate(op observability.Operation, scope tenancy.Scope, product *Product) (*Product, error) {
 	if product == nil {
-		return op.Error(ErrNilProduct, "updating product")
+		return nil, op.Error(ErrNilProduct, "updating product")
 	}
 
 	op.Set(productKey, product.ID)
 
 	if err := scope.Validate(); err != nil {
-		return op.Error(err, "updating product %q", product.ID)
+		return nil, op.Error(err, "updating product %q", product.ID)
 	}
 
 	if err := requireID(product.ID); err != nil {
-		return op.Error(err, "updating product %q", product.ID)
+		return nil, op.Error(err, "updating product %q", product.ID)
 	}
 
 	updated := *product
 	updated.normalize()
 
 	if err := updated.validate(); err != nil {
-		return op.Error(err, "updating product %q", product.ID)
+		return nil, op.Error(err, "updating product %q", product.ID)
 	}
 
-	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		// The row being updated is excluded by its own id, which is what lets a
-		// product keep the provider id it already holds. The statement projects
-		// the whole row, so the exclusion is a comparison here rather than a
-		// second argument the SQL has to carry.
-		if err := s.ensureProductExternalIDFree(ctx, q, scope, updated.ExternalProductID, updated.ID); err != nil {
-			return err
-		}
+	return &updated, nil
+}
 
-		count, err := s.q.UpdateProduct(ctx, q, updateProductParams(&updated, scope))
-
-		return guardCount(count, err, ErrProductNotFound, "updating product")
-	}); err != nil {
-		return op.Error(err, "updating product %q", product.ID)
+// rewriteProduct is the statements the update runs, on whatever executor the
+// caller is holding: the collision check against the provider-side id, and the
+// guarded write.
+func (s *SQLStore) rewriteProduct(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	updated *Product,
+) error {
+	// The row being updated is excluded by its own id, which is what lets a
+	// product keep the provider id it already holds. The statement projects the
+	// whole row, so the exclusion is a comparison here rather than a second
+	// argument the SQL has to carry.
+	if err := s.ensureProductExternalIDFree(ctx, q, scope, updated.ExternalProductID, updated.ID); err != nil {
+		return err
 	}
 
-	return nil
+	count, err := s.q.UpdateProduct(ctx, q, updateProductParams(updated, scope))
+
+	return guardCount(count, err, ErrProductNotFound, "updating product")
 }
 
 // ArchiveProduct withdraws one of the scope's products from sale.
+//
+// It is one statement, so it runs on the writer rather than in a transaction of
+// its own; ArchiveProductTx is the form that joins somebody else's.
 func (s *SQLStore) ArchiveProduct(ctx context.Context, scope tenancy.Scope, productID string) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
@@ -260,12 +378,44 @@ func (s *SQLStore) ArchiveProduct(ctx context.Context, scope tenancy.Scope, prod
 	)
 	defer op.End()
 
+	return s.archiveProduct(ctx, op, s.client.Writer(), scope, productID)
+}
+
+// ArchiveProductTx is ArchiveProduct inside the caller's transaction. See
+// [Store.ArchiveProductTx].
+func (s *SQLStore) ArchiveProductTx(
+	ctx context.Context,
+	q database.Tx,
+	scope tenancy.Scope,
+	productID string,
+) error {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(productKey, productID),
+	)
+	defer op.End()
+
+	if q == nil {
+		return op.Error(ErrNilExecutor, "archiving product %q", productID)
+	}
+
+	return s.archiveProduct(ctx, op, q, scope, productID)
+}
+
+// archiveProduct is the shared body of ArchiveProduct and ArchiveProductTx,
+// which differ in the executor they run on and in nothing else.
+func (s *SQLStore) archiveProduct(
+	ctx context.Context,
+	op observability.Operation,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	productID string,
+) error {
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "archiving product %q", productID)
 	}
 
-	count, err := s.q.ArchiveProduct(ctx, s.client.Writer(),
-		billingdb.ArchiveProductParams{ID: productID, Scope: scope})
+	count, err := s.q.ArchiveProduct(ctx, q, billingdb.ArchiveProductParams{ID: productID, Scope: scope})
 	if err = guardCount(count, err, ErrProductNotFound, "archiving product"); err != nil {
 		return op.Error(err, "archiving product %q", productID)
 	}

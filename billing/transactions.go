@@ -32,6 +32,75 @@ func (s *SQLStore) RecordTransaction(
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
+	recorded, err := transactionToRecord(op, scope, transaction)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = s.client.WithTransaction(ctx, func(q database.Tx) error {
+		return s.insertTransaction(ctx, q, scope, recorded)
+	}); err != nil {
+		return nil, op.Error(err, "recording transaction")
+	}
+
+	s.countTransaction(ctx, recorded.Status)
+
+	return recorded, nil
+}
+
+// RecordTransactionTx is RecordTransaction inside the caller's transaction, so
+// the ledger row lands with the audit entry and the outbox event that describe
+// it rather than ahead of them.
+//
+// Every check RecordTransaction makes is made here, and every statement runs on
+// q — the insert-ignore, the read-back, and the attribution the insert makes
+// when it loses, which asks about the subscription or purchase the row names. A
+// ledger row written against a purchase created earlier in the same transaction
+// is therefore attributed correctly rather than refused for naming a row nobody
+// has.
+//
+// The instrument is incremented when the statement writes the row rather than
+// when the caller commits, which is a difference from RecordTransaction worth
+// stating: nothing here can observe somebody else's commit, and the alternative
+// — leaving the transactional path uncounted — would quietly remove the one
+// instrument a payment integration's health is read from for whoever adopts it.
+// A rolled back transaction therefore leaves a count with no row behind it. See
+// [Store.RecordTransactionTx].
+func (s *SQLStore) RecordTransactionTx(
+	ctx context.Context,
+	q database.Tx,
+	scope tenancy.Scope,
+	transaction *Transaction,
+) (*Transaction, error) {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
+	defer op.End()
+
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "recording transaction")
+	}
+
+	recorded, err := transactionToRecord(op, scope, transaction)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = s.insertTransaction(ctx, q, scope, recorded); err != nil {
+		return nil, op.Error(err, "recording transaction")
+	}
+
+	s.countTransaction(ctx, recorded.Status)
+
+	return recorded, nil
+}
+
+// transactionToRecord is the checks RecordTransaction and RecordTransactionTx
+// share, and the value they write. It runs before any transaction is opened, for
+// the reason productToCreate does.
+func transactionToRecord(
+	op observability.Operation,
+	scope tenancy.Scope,
+	transaction *Transaction,
+) (*Transaction, error) {
 	if transaction == nil {
 		return nil, op.Error(ErrNilTransaction, "recording transaction")
 	}
@@ -56,32 +125,36 @@ func (s *SQLStore) RecordTransaction(
 	op.Set(accountKey, recorded.BelongsToAccount)
 	op.Set(statusKey, string(recorded.Status))
 
-	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		count, err := s.q.CreateTransaction(ctx, q, createTransactionParams(&recorded, scope))
-		if err != nil {
-			return platformerrors.Wrap(err, "recording transaction")
-		}
+	return &recorded, nil
+}
 
-		if count == 0 {
-			return s.refuseTransactionCreate(ctx, q, scope, &recorded)
-		}
-
-		row, err := s.q.GetTransactionCreatedAt(ctx, q,
-			billingdb.GetTransactionCreatedAtParams{ID: recorded.ID})
-		if err != nil {
-			return platformerrors.Wrap(err, "reading back the transaction's creation time")
-		}
-
-		recorded.CreatedAt = row.CreatedAt.UTC()
-
-		return nil
-	}); err != nil {
-		return nil, op.Error(err, "recording transaction")
+// insertTransaction is the statements the ledger write runs, on whatever
+// executor the caller is holding: the insert-ignore, the attribution of a loss,
+// and the read-back of the creation time onto recorded.
+func (s *SQLStore) insertTransaction(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	recorded *Transaction,
+) error {
+	count, err := s.q.CreateTransaction(ctx, q, createTransactionParams(recorded, scope))
+	if err != nil {
+		return platformerrors.Wrap(err, "recording transaction")
 	}
 
-	s.countTransaction(ctx, recorded.Status)
+	if count == 0 {
+		return s.refuseTransactionCreate(ctx, q, scope, recorded)
+	}
 
-	return &recorded, nil
+	row, err := s.q.GetTransactionCreatedAt(ctx, q,
+		billingdb.GetTransactionCreatedAtParams{ID: recorded.ID})
+	if err != nil {
+		return platformerrors.Wrap(err, "reading back the transaction's creation time")
+	}
+
+	recorded.CreatedAt = row.CreatedAt.UTC()
+
+	return nil
 }
 
 // GetTransaction reads one of the scope's live ledger rows by id.
@@ -245,6 +318,48 @@ func (s *SQLStore) SetTransactionStatus(
 	)
 	defer op.End()
 
+	return s.setTransactionStatus(ctx, op, s.client.Writer(), scope, transactionID, status)
+}
+
+// SetTransactionStatusTx is SetTransactionStatus inside the caller's
+// transaction.
+//
+// The guard and the attribution read behind it both run on q. The counter is
+// incremented when the statement moves the row rather than when the caller
+// commits, for the reason [SQLStore.RecordTransactionTx] gives. See
+// [Store.SetTransactionStatusTx].
+func (s *SQLStore) SetTransactionStatusTx(
+	ctx context.Context,
+	q database.Tx,
+	scope tenancy.Scope,
+	transactionID string,
+	status TransactionStatus,
+) error {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(transactionKey, transactionID),
+		observability.WithValue(statusKey, string(status)),
+	)
+	defer op.End()
+
+	if q == nil {
+		return op.Error(ErrNilExecutor, "setting transaction %q status", transactionID)
+	}
+
+	return s.setTransactionStatus(ctx, op, q, scope, transactionID, status)
+}
+
+// setTransactionStatus is the shared body of SetTransactionStatus and
+// SetTransactionStatusTx, which differ in the executor they run on and in
+// nothing else.
+func (s *SQLStore) setTransactionStatus(
+	ctx context.Context,
+	op observability.Operation,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	transactionID string,
+	status TransactionStatus,
+) error {
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "setting transaction %q status", transactionID)
 	}
@@ -258,7 +373,7 @@ func (s *SQLStore) SetTransactionStatus(
 			"setting transaction %q status", transactionID)
 	}
 
-	count, err := s.q.SetTransactionStatus(ctx, s.client.Writer(), billingdb.SetTransactionStatusParams{
+	count, err := s.q.SetTransactionStatus(ctx, q, billingdb.SetTransactionStatusParams{
 		Status: string(status),
 		ID:     transactionID,
 		Scope:  scope,
@@ -269,7 +384,7 @@ func (s *SQLStore) SetTransactionStatus(
 	}
 
 	if count == 0 {
-		return op.Error(s.refuseTransactionStatusWrite(ctx, scope, transactionID),
+		return op.Error(s.refuseTransactionStatusWrite(ctx, q, scope, transactionID),
 			"setting transaction %q status", transactionID)
 	}
 
@@ -279,6 +394,9 @@ func (s *SQLStore) SetTransactionStatus(
 }
 
 // ArchiveTransaction retires one of the scope's ledger rows administratively.
+//
+// It is one statement, so it runs on the writer rather than in a transaction of
+// its own; ArchiveTransactionTx is the form that joins somebody else's.
 func (s *SQLStore) ArchiveTransaction(ctx context.Context, scope tenancy.Scope, transactionID string) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
@@ -286,11 +404,45 @@ func (s *SQLStore) ArchiveTransaction(ctx context.Context, scope tenancy.Scope, 
 	)
 	defer op.End()
 
+	return s.archiveTransaction(ctx, op, s.client.Writer(), scope, transactionID)
+}
+
+// ArchiveTransactionTx is ArchiveTransaction inside the caller's transaction.
+// See [Store.ArchiveTransactionTx].
+func (s *SQLStore) ArchiveTransactionTx(
+	ctx context.Context,
+	q database.Tx,
+	scope tenancy.Scope,
+	transactionID string,
+) error {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(transactionKey, transactionID),
+	)
+	defer op.End()
+
+	if q == nil {
+		return op.Error(ErrNilExecutor, "archiving transaction %q", transactionID)
+	}
+
+	return s.archiveTransaction(ctx, op, q, scope, transactionID)
+}
+
+// archiveTransaction is the shared body of ArchiveTransaction and
+// ArchiveTransactionTx, which differ in the executor they run on and in nothing
+// else.
+func (s *SQLStore) archiveTransaction(
+	ctx context.Context,
+	op observability.Operation,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	transactionID string,
+) error {
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "archiving transaction %q", transactionID)
 	}
 
-	count, err := s.q.ArchiveTransaction(ctx, s.client.Writer(),
+	count, err := s.q.ArchiveTransaction(ctx, q,
 		billingdb.ArchiveTransactionParams{ID: transactionID, Scope: scope})
 	if err = guardCount(count, err, ErrTransactionNotFound, "archiving transaction"); err != nil {
 		return op.Error(err, "archiving transaction %q", transactionID)
@@ -317,12 +469,16 @@ func (s *SQLStore) drainTransactions(
 
 // refuseTransactionStatusWrite reports why a status write touched nothing: a row
 // that is not there, or one already holding the status.
+//
+// It reads through the executor the write ran on, for the reason
+// refuseStatusWrite does.
 func (s *SQLStore) refuseTransactionStatusWrite(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	transactionID string,
 ) error {
-	if _, err := s.q.GetTransaction(ctx, s.client.Reader(),
+	if _, err := s.q.GetTransaction(ctx, q,
 		billingdb.GetTransactionParams{ID: transactionID, Scope: scope}); err != nil {
 		return notFound(err, ErrTransactionNotFound)
 	}

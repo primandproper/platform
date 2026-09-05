@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v14/capitalism"
+	"github.com/primandproper/platform-go/v14/database"
 	"github.com/primandproper/platform-go/v14/filtering"
 	"github.com/primandproper/platform-go/v14/tenancy"
 )
@@ -18,6 +19,13 @@ import (
 // reaches the ProductStore, and an entitlement check reaches one method on the
 // SubscriptionStore. Splitting them is what lets a component depend on the part
 // it uses; Store is here for the wiring that provides all four.
+//
+// Every write here has a second form, named for the executor it takes, that runs
+// inside a transaction the caller owns. A payment provider's event is rarely one
+// row: the audit entry naming what happened and the data change event on an
+// outbox somebody fans out are its ordinary companions, and a companion written
+// after this store's own transaction has committed is one that can go missing
+// while the row stays. The package documentation says what that buys.
 type Store interface {
 	ProductStore
 	SubscriptionStore
@@ -43,6 +51,25 @@ type ProductStore interface {
 	// rather than a driver's constraint violation.
 	CreateProduct(ctx context.Context, scope tenancy.Scope, product *Product) (*Product, error)
 
+	// CreateProductTx is CreateProduct inside the caller's transaction, so the
+	// product commits with whatever the caller writes beside it. A nil q is an
+	// error wrapping ErrNilExecutor.
+	//
+	// It exists because a row in a consumer's schema is rarely written alone.
+	// An audit entry naming who stocked the catalog and a data change event on
+	// an outbox somebody fans out are the ordinary companions, and a companion
+	// is worth what its atomicity with the row is worth. Written after this
+	// method's own transaction has committed, they are a window in which the
+	// product exists and nothing downstream has been told — narrow,
+	// one-directional, and still not something a consumer can close from
+	// outside this package.
+	//
+	// Every check CreateProduct makes is made here, and every statement runs on
+	// q: the insert-ignore, the read-back of the creation time, and the
+	// attribution read the insert makes when it loses. A subscription opened
+	// against this product later in the same transaction finds it.
+	CreateProductTx(ctx context.Context, q database.Tx, scope tenancy.Scope, product *Product) (*Product, error)
+
 	// GetProduct reads one live product by id.
 	GetProduct(ctx context.Context, scope tenancy.Scope, productID string) (*Product, error)
 
@@ -58,9 +85,10 @@ type ProductStore interface {
 	// ProductExists reports whether the scope has a live product by that id,
 	// without reading it.
 	//
-	// It is the check a subscription or a purchase write makes before opening a
-	// transaction, which is why this is the one table here that keeps its
-	// existence query.
+	// It is the check a subscription or a purchase write makes before it
+	// inserts — on whatever executor that write is running on, so the Tx
+	// variants see a product their own transaction stocked — which is why this
+	// is the one table here that keeps its existence query.
 	ProductExists(ctx context.Context, scope tenancy.Scope, productID string) (bool, error)
 
 	// ListProducts pages the scope's catalog.
@@ -74,6 +102,17 @@ type ProductStore interface {
 	// is that sale's own. What it will not do is revive an archived product.
 	UpdateProduct(ctx context.Context, scope tenancy.Scope, product *Product) error
 
+	// UpdateProductTx is UpdateProduct inside the caller's transaction, so the
+	// edit commits with whatever the caller records about it. A nil q is an
+	// error wrapping ErrNilExecutor. See CreateProductTx for the argument in
+	// full.
+	//
+	// The collision check against the provider-side id runs on q, so a catalog
+	// sync writing several products in one transaction is checked against what
+	// that transaction has written rather than against what was committed
+	// before it began.
+	UpdateProductTx(ctx context.Context, q database.Tx, scope tenancy.Scope, product *Product) error
+
 	// ArchiveProduct withdraws a product from sale.
 	//
 	// The subscriptions already on it keep renewing and the purchases already
@@ -82,6 +121,12 @@ type ProductStore interface {
 	// the agreements ends them through the payment provider, and the statuses
 	// arrive here as events.
 	ArchiveProduct(ctx context.Context, scope tenancy.Scope, productID string) error
+
+	// ArchiveProductTx is ArchiveProduct inside the caller's transaction, so
+	// the withdrawal commits with whatever the caller records about it. A nil q
+	// is an error wrapping ErrNilExecutor. See CreateProductTx for the argument
+	// in full.
+	ArchiveProductTx(ctx context.Context, q database.Tx, scope tenancy.Scope, productID string) error
 }
 
 // SubscriptionStore is the recurring half: who is paying for what, and until
@@ -94,6 +139,25 @@ type SubscriptionStore interface {
 	// gets — the uniqueness is what keeps one paying customer from ending up
 	// with two agreements.
 	CreateSubscription(ctx context.Context, scope tenancy.Scope, subscription *Subscription) (*Subscription, error)
+
+	// CreateSubscriptionTx is CreateSubscription inside the caller's
+	// transaction, so the agreement commits with whatever the caller writes
+	// beside it. A nil q is an error wrapping ErrNilExecutor. See
+	// CreateProductTx for the argument in full.
+	//
+	// It is the variant a webhook handler reaches for: the subscription, the
+	// audit entry naming the event that opened it, and the data change event
+	// the dispatcher fans out land together or not at all. A store owning its
+	// own transaction leaves a window in which a subscription exists and an
+	// entitlement check can read it while nothing has been told about it.
+	//
+	// Two reads move onto q with the write. The product check the create is
+	// gated on runs there, so a product created through CreateProductTx earlier
+	// in the same transaction is one a subscription can be opened against; and
+	// so does the attribution read on the losing path, so a redelivery arriving
+	// in the same transaction as the row it collides with is named rather than
+	// mis-blamed.
+	CreateSubscriptionTx(ctx context.Context, q database.Tx, scope tenancy.Scope, subscription *Subscription) (*Subscription, error)
 
 	// GetSubscription reads one live subscription by id.
 	GetSubscription(ctx context.Context, scope tenancy.Scope, subscriptionID string) (*Subscription, error)
@@ -136,6 +200,15 @@ type SubscriptionStore interface {
 	// customer's payments settle another's bill.
 	UpdateSubscription(ctx context.Context, scope tenancy.Scope, subscription *Subscription) error
 
+	// UpdateSubscriptionTx is UpdateSubscription inside the caller's
+	// transaction, so the sync commits with whatever the caller records about
+	// it. A nil q is an error wrapping ErrNilExecutor. See CreateProductTx for
+	// the argument in full.
+	//
+	// The collision check against the provider-side id runs on q, for the
+	// reason UpdateProductTx's does.
+	UpdateSubscriptionTx(ctx context.Context, q database.Tx, scope tenancy.Scope, subscription *Subscription) error
+
 	// SetSubscriptionStatus moves the standing and nothing else.
 	//
 	// It is the narrow write for the event that carries only a status, and it is
@@ -145,6 +218,18 @@ type SubscriptionStore interface {
 	// a caller processing provider events acknowledges the delivery on it.
 	SetSubscriptionStatus(ctx context.Context, scope tenancy.Scope, subscriptionID string, status capitalism.SubscriptionStatus) error
 
+	// SetSubscriptionStatusTx is SetSubscriptionStatus inside the caller's
+	// transaction, so the standing commits with whatever the caller records
+	// about it. A nil q is an error wrapping ErrNilExecutor. See
+	// CreateProductTx for the argument in full.
+	//
+	// The guard is unchanged and so is what a redelivery gets: the statement
+	// runs on q, and the read that tells ErrStatusUnchanged from
+	// ErrSubscriptionNotFound runs there too — so a status write against a
+	// subscription this transaction opened is answered by the row it wrote
+	// rather than by a snapshot that predates it.
+	SetSubscriptionStatusTx(ctx context.Context, q database.Tx, scope tenancy.Scope, subscriptionID string, status capitalism.SubscriptionStatus) error
+
 	// ArchiveSubscription retires a subscription administratively.
 	//
 	// It is not a cancellation and must not be used as one: a cancelled
@@ -153,6 +238,12 @@ type SubscriptionStore interface {
 	// archived rows while changing nothing about what it holds. The ledger rows
 	// pointing at it are left alone.
 	ArchiveSubscription(ctx context.Context, scope tenancy.Scope, subscriptionID string) error
+
+	// ArchiveSubscriptionTx is ArchiveSubscription inside the caller's
+	// transaction, so the retirement commits with whatever the caller records
+	// about it. A nil q is an error wrapping ErrNilExecutor. See
+	// CreateProductTx for the argument in full.
+	ArchiveSubscriptionTx(ctx context.Context, q database.Tx, scope tenancy.Scope, subscriptionID string) error
 }
 
 // PurchaseStore is the one-time half: what an account bought outright.
@@ -164,6 +255,13 @@ type PurchaseStore interface {
 	// at. A provider-side transaction id already claimed in this scope returns an
 	// error wrapping ErrPurchaseExists.
 	CreatePurchase(ctx context.Context, scope tenancy.Scope, purchase *Purchase) (*Purchase, error)
+
+	// CreatePurchaseTx is CreatePurchase inside the caller's transaction, so
+	// the sale commits with whatever the caller writes beside it. A nil q is an
+	// error wrapping ErrNilExecutor. See CreateProductTx for the argument in
+	// full, and CreateSubscriptionTx for the two reads that move onto q with
+	// the write — they are the same two here.
+	CreatePurchaseTx(ctx context.Context, q database.Tx, scope tenancy.Scope, purchase *Purchase) (*Purchase, error)
 
 	// GetPurchase reads one live purchase by id.
 	GetPurchase(ctx context.Context, scope tenancy.Scope, purchaseID string) (*Purchase, error)
@@ -193,9 +291,26 @@ type PurchaseStore interface {
 	// the moment it settled.
 	CompletePurchase(ctx context.Context, scope tenancy.Scope, purchaseID string, at time.Time) error
 
+	// CompletePurchaseTx is CompletePurchase inside the caller's transaction,
+	// so the settlement commits with whatever the caller records about it. A
+	// nil q is an error wrapping ErrNilExecutor. See CreateProductTx for the
+	// argument in full.
+	//
+	// The guard is unchanged and so is what a replay gets. Both the statement
+	// and the read that tells ErrAlreadyCompleted from ErrPurchaseNotFound run
+	// on q, so a sale created and settled in one transaction — a comped order,
+	// a migration — is answered by the row that transaction wrote.
+	CompletePurchaseTx(ctx context.Context, q database.Tx, scope tenancy.Scope, purchaseID string, at time.Time) error
+
 	// ArchivePurchase retires a purchase administratively. It is not a refund —
 	// a refund is a transaction of its own, recorded through the ledger.
 	ArchivePurchase(ctx context.Context, scope tenancy.Scope, purchaseID string) error
+
+	// ArchivePurchaseTx is ArchivePurchase inside the caller's transaction, so
+	// the retirement commits with whatever the caller records about it. A nil q
+	// is an error wrapping ErrNilExecutor. See CreateProductTx for the argument
+	// in full.
+	ArchivePurchaseTx(ctx context.Context, q database.Tx, scope tenancy.Scope, purchaseID string) error
 }
 
 // TransactionStore is the ledger: what each attempt to move money left behind.
@@ -211,6 +326,29 @@ type TransactionStore interface {
 	// around: payment providers redeliver, and a ledger that recorded one charge
 	// twice is a number somebody reconciles by hand.
 	RecordTransaction(ctx context.Context, scope tenancy.Scope, transaction *Transaction) (*Transaction, error)
+
+	// RecordTransactionTx is RecordTransaction inside the caller's transaction,
+	// so the ledger row commits with whatever the caller writes beside it. A
+	// nil q is an error wrapping ErrNilExecutor. See CreateProductTx for the
+	// argument in full.
+	//
+	// This is the write the argument is sharpest for. A charge arrives as a
+	// webhook, and what a consumer records about it — who was billed, what the
+	// dispatcher has to fan out — is written in the same breath; a ledger row
+	// that committed ahead of its companions is a charge nothing downstream
+	// heard about.
+	//
+	// The attribution the insert makes when it loses runs on q, which for this
+	// table means the referent checks too: a ledger row naming a purchase
+	// created earlier in the same transaction is attributed against a snapshot
+	// that can see it, rather than refused for naming a row nobody has.
+	//
+	// The store's transactions instrument is incremented when the statement
+	// writes the row rather than when the caller commits — nothing here can
+	// observe somebody else's commit, and leaving this path uncounted would
+	// remove the instrument entirely for whoever adopts it. A rolled back
+	// transaction therefore leaves a count with no row behind it.
+	RecordTransactionTx(ctx context.Context, q database.Tx, scope tenancy.Scope, transaction *Transaction) (*Transaction, error)
 
 	// GetTransaction reads one live ledger row by id.
 	GetTransaction(ctx context.Context, scope tenancy.Scope, transactionID string) (*Transaction, error)
@@ -239,10 +377,26 @@ type TransactionStore interface {
 	// to assign any of it.
 	SetTransactionStatus(ctx context.Context, scope tenancy.Scope, transactionID string, status TransactionStatus) error
 
+	// SetTransactionStatusTx is SetTransactionStatus inside the caller's
+	// transaction, so the outcome commits with whatever the caller records
+	// about it. A nil q is an error wrapping ErrNilExecutor. See
+	// CreateProductTx for the argument in full, and SetSubscriptionStatusTx for
+	// the guard, which is the same one.
+	//
+	// The counter is incremented on the write rather than on the caller's
+	// commit, for the reason RecordTransactionTx gives.
+	SetTransactionStatusTx(ctx context.Context, q database.Tx, scope tenancy.Scope, transactionID string, status TransactionStatus) error
+
 	// ArchiveTransaction retires a ledger row administratively.
 	//
 	// It exists for the row written in error — a test charge, a duplicate that
 	// predates the uniqueness — and not for a refund, which is a transaction of
 	// its own.
 	ArchiveTransaction(ctx context.Context, scope tenancy.Scope, transactionID string) error
+
+	// ArchiveTransactionTx is ArchiveTransaction inside the caller's
+	// transaction, so the retirement commits with whatever the caller records
+	// about it. A nil q is an error wrapping ErrNilExecutor. See
+	// CreateProductTx for the argument in full.
+	ArchiveTransactionTx(ctx context.Context, q database.Tx, scope tenancy.Scope, transactionID string) error
 }

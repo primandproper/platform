@@ -100,6 +100,56 @@ treat NULLs in a unique index as distinct — so the rows that have a provider i
 are unique and the rows that do not stay out of each other's way. See
 billing/migrations.
 
+# Joining a caller's transaction
+
+Every write here has a second form that runs inside a transaction the caller
+owns: [Store.CreateProductTx], [Store.UpdateProductTx], [Store.ArchiveProductTx],
+[Store.CreateSubscriptionTx], [Store.UpdateSubscriptionTx],
+[Store.SetSubscriptionStatusTx], [Store.ArchiveSubscriptionTx],
+[Store.CreatePurchaseTx], [Store.CompletePurchaseTx], [Store.ArchivePurchaseTx],
+[Store.RecordTransactionTx], [Store.SetTransactionStatusTx] and
+[Store.ArchiveTransactionTx]. Each takes a database.Tx rather than reaching for
+the store's own writer, and the type is what says so — only
+database.RunInTransaction produces one, so the obligation is the compiler's
+rather than a doc comment's. The thirteen originals are unchanged in what they
+run on — the creates and the two updates still open a transaction of this store's
+own, and the guarded writes and the archives are still one statement on the
+writer — and each pairs with its twin over a shared body, so the two cannot drift
+into accepting different rows.
+
+The reason is that a payment provider's event is rarely one row. An audit entry
+naming who was billed and a data change event on an outbox somebody fans out are
+the ordinary companions, and a companion written after this store's own
+transaction has committed is one that can go missing while the row stays. The gap
+is narrow and one-directional — a subscription with no event, never an event
+naming a subscription that was not written — and nothing outside this package can
+close it.
+
+It is sharper here than in the packages that made the same argument first,
+because of the section above. The store already makes a replayed webhook collide
+rather than record twice; a consumer wants that same property for what it records
+*about* the write, and without these a first delivery whose audit entry the
+database refuses leaves a subscription row with no provenance and an entitlement
+check reading it.
+
+Every read a write depends on runs on that executor too, and both of them are
+decisions rather than accidents. The product check gating
+[Store.CreateSubscriptionTx] and [Store.CreatePurchaseTx] runs there, so a
+product stocked and subscribed to in one transaction is visible to the check that
+would otherwise refuse the subscription. And the attribution read the
+insert-ignore makes on the losing path runs there, so a redelivery arriving in
+the same transaction as the row it collides with is named by a snapshot that can
+see that row rather than mis-blamed by one that cannot. The guarded writes'
+refusals — [ErrStatusUnchanged], [ErrAlreadyCompleted] — read through the same
+executor for the same reason.
+
+One thing does not move. The ledger's instrument is incremented when the
+statement writes the row rather than when the caller commits, because nothing
+here can observe somebody else's commit. A caller that rolls back leaves a count
+with no row behind it; the alternative was to leave the transactional path
+uncounted, which would quietly remove the one instrument a payment integration's
+health is read from for whoever adopts it. [Store.RecordTransactionTx] says so.
+
 # A price is a fact about a moment, not a lookup
 
 [Purchase] and [Transaction] each carry their own amount and currency rather than

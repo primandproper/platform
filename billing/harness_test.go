@@ -17,6 +17,7 @@ import (
 	"github.com/primandproper/platform-go/v14/database/mysql"
 	"github.com/primandproper/platform-go/v14/database/postgres"
 	"github.com/primandproper/platform-go/v14/database/sqlite"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
 	"github.com/primandproper/platform-go/v14/tenancy"
 
 	"github.com/shoenig/test/must"
@@ -84,6 +85,11 @@ const (
 // lexicographic comparison over a text column wants a four-digit year, and the
 // MySQL DATETIME range starts in 1000.
 var testNow = time.Date(2026, time.March, 1, 12, 0, 0, 0, time.UTC)
+
+// errCompanionWrite stands in for the write a consumer makes beside a billing
+// row — the audit entry, the outbox event a webhook dispatcher fans out —
+// failing after the row itself is in the transaction.
+var errCompanionWrite = platformerrors.New("the companion write failed")
 
 // storeEnv is one live database plus the dialect it speaks.
 //

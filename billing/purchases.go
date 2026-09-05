@@ -27,6 +27,56 @@ func (s *SQLStore) CreatePurchase(
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
+	created, err := purchaseToCreate(op, scope, purchase)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = s.client.WithTransaction(ctx, func(q database.Tx) error {
+		return s.insertPurchase(ctx, q, scope, created)
+	}); err != nil {
+		return nil, op.Error(err, "creating purchase")
+	}
+
+	return created, nil
+}
+
+// CreatePurchaseTx is CreatePurchase inside the caller's transaction.
+//
+// Every check CreatePurchase makes is made here, and every statement runs on q —
+// including the product check the write is gated on, so a product created
+// through CreateProductTx earlier in the same transaction is one a sale can be
+// recorded against. The attribution read on the losing path runs there too; see
+// [Store.CreatePurchaseTx].
+func (s *SQLStore) CreatePurchaseTx(
+	ctx context.Context,
+	q database.Tx,
+	scope tenancy.Scope,
+	purchase *Purchase,
+) (*Purchase, error) {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
+	defer op.End()
+
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "creating purchase")
+	}
+
+	created, err := purchaseToCreate(op, scope, purchase)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = s.insertPurchase(ctx, q, scope, created); err != nil {
+		return nil, op.Error(err, "creating purchase")
+	}
+
+	return created, nil
+}
+
+// purchaseToCreate is the checks CreatePurchase and CreatePurchaseTx share, and
+// the value they write. It runs before any transaction is opened, for the reason
+// productToCreate does.
+func purchaseToCreate(op observability.Operation, scope tenancy.Scope, purchase *Purchase) (*Purchase, error) {
 	if purchase == nil {
 		return nil, op.Error(ErrNilPurchase, "creating purchase")
 	}
@@ -51,33 +101,39 @@ func (s *SQLStore) CreatePurchase(
 	op.Set(purchaseKey, created.ID)
 	op.Set(accountKey, created.BelongsToAccount)
 
-	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		if err := s.requireProduct(ctx, q, scope, created.ProductID); err != nil {
-			return err
-		}
+	return &created, nil
+}
 
-		count, err := s.q.CreatePurchase(ctx, q, createPurchaseParams(&created, scope))
-		if err != nil {
-			return platformerrors.Wrap(err, "creating purchase")
-		}
-
-		if count == 0 {
-			return s.refusePurchaseCreate(ctx, q, scope, &created)
-		}
-
-		row, err := s.q.GetPurchaseCreatedAt(ctx, q, billingdb.GetPurchaseCreatedAtParams{ID: created.ID})
-		if err != nil {
-			return platformerrors.Wrap(err, "reading back the purchase's creation time")
-		}
-
-		created.CreatedAt = row.CreatedAt.UTC()
-
-		return nil
-	}); err != nil {
-		return nil, op.Error(err, "creating purchase")
+// insertPurchase is the statements the create runs, on whatever executor the
+// caller is holding: the product check, the insert-ignore, the attribution of a
+// loss, and the read-back of the creation time onto created.
+func (s *SQLStore) insertPurchase(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	created *Purchase,
+) error {
+	if err := s.requireProduct(ctx, q, scope, created.ProductID); err != nil {
+		return err
 	}
 
-	return &created, nil
+	count, err := s.q.CreatePurchase(ctx, q, createPurchaseParams(created, scope))
+	if err != nil {
+		return platformerrors.Wrap(err, "creating purchase")
+	}
+
+	if count == 0 {
+		return s.refusePurchaseCreate(ctx, q, scope, created)
+	}
+
+	row, err := s.q.GetPurchaseCreatedAt(ctx, q, billingdb.GetPurchaseCreatedAtParams{ID: created.ID})
+	if err != nil {
+		return platformerrors.Wrap(err, "reading back the purchase's creation time")
+	}
+
+	created.CreatedAt = row.CreatedAt.UTC()
+
+	return nil
 }
 
 // GetPurchase reads one of the scope's live purchases by id.
@@ -233,6 +289,47 @@ func (s *SQLStore) CompletePurchase(
 	)
 	defer op.End()
 
+	return s.completePurchase(ctx, op, s.client.Writer(), scope, purchaseID, at)
+}
+
+// CompletePurchaseTx is CompletePurchase inside the caller's transaction.
+//
+// The guard and the attribution read behind it both run on q, so a settlement
+// landing in the same transaction as the sale it settles is answered by the row
+// that transaction wrote rather than by a snapshot that cannot see it. See
+// [Store.CompletePurchaseTx].
+func (s *SQLStore) CompletePurchaseTx(
+	ctx context.Context,
+	q database.Tx,
+	scope tenancy.Scope,
+	purchaseID string,
+	at time.Time,
+) error {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(purchaseKey, purchaseID),
+	)
+	defer op.End()
+
+	if q == nil {
+		return op.Error(ErrNilExecutor, "completing purchase %q", purchaseID)
+	}
+
+	return s.completePurchase(ctx, op, q, scope, purchaseID, at)
+}
+
+// completePurchase is the shared body of CompletePurchase and
+// CompletePurchaseTx, which differ in the executor they run on and in nothing
+// else — the clock fallback included, so a comped order stamps the same instant
+// on both paths.
+func (s *SQLStore) completePurchase(
+	ctx context.Context,
+	op observability.Operation,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	purchaseID string,
+	at time.Time,
+) error {
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "completing purchase %q", purchaseID)
 	}
@@ -250,7 +347,7 @@ func (s *SQLStore) CompletePurchase(
 		stamped = s.clock.Now().UTC()
 	}
 
-	count, err := s.q.CompletePurchase(ctx, s.client.Writer(), billingdb.CompletePurchaseParams{
+	count, err := s.q.CompletePurchase(ctx, q, billingdb.CompletePurchaseParams{
 		CompletedAt: &stamped,
 		ID:          purchaseID,
 		Scope:       scope,
@@ -261,13 +358,16 @@ func (s *SQLStore) CompletePurchase(
 	}
 
 	if count == 0 {
-		return op.Error(s.refuseCompletion(ctx, scope, purchaseID), "completing purchase %q", purchaseID)
+		return op.Error(s.refuseCompletion(ctx, q, scope, purchaseID), "completing purchase %q", purchaseID)
 	}
 
 	return nil
 }
 
 // ArchivePurchase retires one of the scope's purchases administratively.
+//
+// It is one statement, so it runs on the writer rather than in a transaction of
+// its own; ArchivePurchaseTx is the form that joins somebody else's.
 func (s *SQLStore) ArchivePurchase(ctx context.Context, scope tenancy.Scope, purchaseID string) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
@@ -275,11 +375,44 @@ func (s *SQLStore) ArchivePurchase(ctx context.Context, scope tenancy.Scope, pur
 	)
 	defer op.End()
 
+	return s.archivePurchase(ctx, op, s.client.Writer(), scope, purchaseID)
+}
+
+// ArchivePurchaseTx is ArchivePurchase inside the caller's transaction. See
+// [Store.ArchivePurchaseTx].
+func (s *SQLStore) ArchivePurchaseTx(
+	ctx context.Context,
+	q database.Tx,
+	scope tenancy.Scope,
+	purchaseID string,
+) error {
+	ctx, op := s.o11y.Begin(ctx,
+		observability.WithValue(scopeKey, scope.String()),
+		observability.WithValue(purchaseKey, purchaseID),
+	)
+	defer op.End()
+
+	if q == nil {
+		return op.Error(ErrNilExecutor, "archiving purchase %q", purchaseID)
+	}
+
+	return s.archivePurchase(ctx, op, q, scope, purchaseID)
+}
+
+// archivePurchase is the shared body of ArchivePurchase and ArchivePurchaseTx,
+// which differ in the executor they run on and in nothing else.
+func (s *SQLStore) archivePurchase(
+	ctx context.Context,
+	op observability.Operation,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	purchaseID string,
+) error {
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "archiving purchase %q", purchaseID)
 	}
 
-	count, err := s.q.ArchivePurchase(ctx, s.client.Writer(),
+	count, err := s.q.ArchivePurchase(ctx, q,
 		billingdb.ArchivePurchaseParams{ID: purchaseID, Scope: scope})
 	if err = guardCount(count, err, ErrPurchaseNotFound, "archiving purchase"); err != nil {
 		return op.Error(err, "archiving purchase %q", purchaseID)
@@ -306,8 +439,16 @@ func (s *SQLStore) drainPurchases(
 
 // refuseCompletion reports why a completion touched nothing, having lost its
 // guard: a purchase that is not there, or one whose money already arrived.
-func (s *SQLStore) refuseCompletion(ctx context.Context, scope tenancy.Scope, purchaseID string) error {
-	if _, err := s.q.GetPurchase(ctx, s.client.Reader(),
+//
+// It reads through the executor the write ran on, for the reason
+// refuseStatusWrite does.
+func (s *SQLStore) refuseCompletion(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	purchaseID string,
+) error {
+	if _, err := s.q.GetPurchase(ctx, q,
 		billingdb.GetPurchaseParams{ID: purchaseID, Scope: scope}); err != nil {
 		return notFound(err, ErrPurchaseNotFound)
 	}
