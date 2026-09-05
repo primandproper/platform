@@ -28,6 +28,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 	runListSuite(t, env)
 	runSignupSuite(t, env)
 	runWithdrawalSuite(t, env)
+	runTransactionSuite(t, env)
 }
 
 func TestNewSQLStore(T *testing.T) {

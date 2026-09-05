@@ -597,6 +597,18 @@ WHERE archived_at IS NULL
 	AND waitlist_id = ?9
 	AND status <> ?10`
 
+const withdrawSignupsForSubjectSQLite = `UPDATE {{prefix}}waitlist_signups SET
+	contact = ?1,
+	subject_type = ?2,
+	subject_id = ?3,
+	notes = ?4,
+	status = ?5,
+	status_changed_at = ?6,
+	last_updated_at = CURRENT_TIMESTAMP
+WHERE scope = ?7
+	AND subject_type = ?8
+	AND subject_id = ?9`
+
 // sqliteQueries answers every query in Querier against sqlite.
 type sqliteQueries struct {
 	archiveList                     string
@@ -620,6 +632,7 @@ type sqliteQueries struct {
 	updateList                      string
 	updateSignupNotes               string
 	withdrawSignup                  string
+	withdrawSignupsForSubject       string
 }
 
 // newSQLite returns the sqlite querier with prefix substituted into every
@@ -647,6 +660,7 @@ func newSQLite(prefix string) *sqliteQueries {
 		updateList:                      strings.ReplaceAll(updateListSQLite, prefixMarker, prefix),
 		updateSignupNotes:               strings.ReplaceAll(updateSignupNotesSQLite, prefixMarker, prefix),
 		withdrawSignup:                  strings.ReplaceAll(withdrawSignupSQLite, prefixMarker, prefix),
+		withdrawSignupsForSubject:       strings.ReplaceAll(withdrawSignupsForSubjectSQLite, prefixMarker, prefix),
 	}
 }
 
@@ -1330,6 +1344,26 @@ func (q *sqliteQueries) WithdrawSignup(ctx context.Context, db DBTX, arg Withdra
 	return result.RowsAffected()
 }
 
+// WithdrawSignupsForSubject runs the :execrows query against sqlite.
+func (q *sqliteQueries) WithdrawSignupsForSubject(ctx context.Context, db DBTX, arg WithdrawSignupsForSubjectParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.withdrawSignupsForSubject,
+		arg.Contact,
+		arg.SubjectType,
+		arg.SubjectID,
+		arg.Notes,
+		arg.Status,
+		timeTextPtr(arg.StatusChangedAt),
+		arg.Scope,
+		arg.ErasedSubjectType,
+		arg.ErasedSubjectID,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // Shape assertions.
 //
 // Each conversion below compiles only if the shared type still has exactly
@@ -1668,4 +1702,15 @@ var (
 		WaitlistID      string
 		ExpectedStatus  string
 	}(WithdrawSignupParams{})
+	_ = struct {
+		Contact           string
+		SubjectType       string
+		SubjectID         string
+		Notes             string
+		Status            string
+		StatusChangedAt   *time.Time
+		Scope             tenancy.Scope
+		ErasedSubjectType string
+		ErasedSubjectID   string
+	}(WithdrawSignupsForSubjectParams{})
 )

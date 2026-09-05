@@ -7,6 +7,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/primandproper/platform-go/v14/database"
 	"github.com/primandproper/platform-go/v14/filtering"
 	"github.com/primandproper/platform-go/v14/tenancy"
 	"github.com/primandproper/platform-go/v14/waitlists"
@@ -25,14 +26,26 @@ var _ waitlists.Store = &StoreMock{}
 //			ArchiveListFunc: func(ctx context.Context, scope tenancy.Scope, listID string) error {
 //				panic("mock out the ArchiveList method")
 //			},
+//			ArchiveListTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string) error {
+//				panic("mock out the ArchiveListTx method")
+//			},
 //			ArchiveSignupFunc: func(ctx context.Context, scope tenancy.Scope, listID string, signupID string) error {
 //				panic("mock out the ArchiveSignup method")
+//			},
+//			ArchiveSignupTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error {
+//				panic("mock out the ArchiveSignupTx method")
 //			},
 //			ConvertFunc: func(ctx context.Context, scope tenancy.Scope, listID string, signupID string) error {
 //				panic("mock out the Convert method")
 //			},
+//			ConvertTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error {
+//				panic("mock out the ConvertTx method")
+//			},
 //			CreateListFunc: func(ctx context.Context, scope tenancy.Scope, list *waitlists.List) (*waitlists.List, error) {
 //				panic("mock out the CreateList method")
+//			},
+//			CreateListTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, list *waitlists.List) (*waitlists.List, error) {
+//				panic("mock out the CreateListTx method")
 //			},
 //			GetListFunc: func(ctx context.Context, scope tenancy.Scope, listID string) (*waitlists.List, error) {
 //				panic("mock out the GetList method")
@@ -46,8 +59,14 @@ var _ waitlists.Store = &StoreMock{}
 //			InviteFunc: func(ctx context.Context, scope tenancy.Scope, listID string, signupID string) error {
 //				panic("mock out the Invite method")
 //			},
+//			InviteTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error {
+//				panic("mock out the InviteTx method")
+//			},
 //			JoinFunc: func(ctx context.Context, scope tenancy.Scope, listID string, signup *waitlists.Signup) (*waitlists.Signup, error) {
 //				panic("mock out the Join method")
+//			},
+//			JoinTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signup *waitlists.Signup) (*waitlists.Signup, error) {
+//				panic("mock out the JoinTx method")
 //			},
 //			ListListsFunc: func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[waitlists.List], error) {
 //				panic("mock out the ListLists method")
@@ -64,11 +83,23 @@ var _ waitlists.Store = &StoreMock{}
 //			UpdateListFunc: func(ctx context.Context, scope tenancy.Scope, list *waitlists.List) error {
 //				panic("mock out the UpdateList method")
 //			},
+//			UpdateListTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, list *waitlists.List) error {
+//				panic("mock out the UpdateListTx method")
+//			},
 //			UpdateSignupNotesFunc: func(ctx context.Context, scope tenancy.Scope, listID string, signupID string, notes string) error {
 //				panic("mock out the UpdateSignupNotes method")
 //			},
+//			UpdateSignupNotesTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string, notes string) error {
+//				panic("mock out the UpdateSignupNotesTx method")
+//			},
 //			WithdrawFunc: func(ctx context.Context, scope tenancy.Scope, listID string, signupID string) error {
 //				panic("mock out the Withdraw method")
+//			},
+//			WithdrawSignupsForSubjectFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, subject waitlists.Subject) (int64, error) {
+//				panic("mock out the WithdrawSignupsForSubject method")
+//			},
+//			WithdrawTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error {
+//				panic("mock out the WithdrawTx method")
 //			},
 //		}
 //
@@ -80,14 +111,26 @@ type StoreMock struct {
 	// ArchiveListFunc mocks the ArchiveList method.
 	ArchiveListFunc func(ctx context.Context, scope tenancy.Scope, listID string) error
 
+	// ArchiveListTxFunc mocks the ArchiveListTx method.
+	ArchiveListTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string) error
+
 	// ArchiveSignupFunc mocks the ArchiveSignup method.
 	ArchiveSignupFunc func(ctx context.Context, scope tenancy.Scope, listID string, signupID string) error
+
+	// ArchiveSignupTxFunc mocks the ArchiveSignupTx method.
+	ArchiveSignupTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error
 
 	// ConvertFunc mocks the Convert method.
 	ConvertFunc func(ctx context.Context, scope tenancy.Scope, listID string, signupID string) error
 
+	// ConvertTxFunc mocks the ConvertTx method.
+	ConvertTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error
+
 	// CreateListFunc mocks the CreateList method.
 	CreateListFunc func(ctx context.Context, scope tenancy.Scope, list *waitlists.List) (*waitlists.List, error)
+
+	// CreateListTxFunc mocks the CreateListTx method.
+	CreateListTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, list *waitlists.List) (*waitlists.List, error)
 
 	// GetListFunc mocks the GetList method.
 	GetListFunc func(ctx context.Context, scope tenancy.Scope, listID string) (*waitlists.List, error)
@@ -101,8 +144,14 @@ type StoreMock struct {
 	// InviteFunc mocks the Invite method.
 	InviteFunc func(ctx context.Context, scope tenancy.Scope, listID string, signupID string) error
 
+	// InviteTxFunc mocks the InviteTx method.
+	InviteTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error
+
 	// JoinFunc mocks the Join method.
 	JoinFunc func(ctx context.Context, scope tenancy.Scope, listID string, signup *waitlists.Signup) (*waitlists.Signup, error)
+
+	// JoinTxFunc mocks the JoinTx method.
+	JoinTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signup *waitlists.Signup) (*waitlists.Signup, error)
 
 	// ListListsFunc mocks the ListLists method.
 	ListListsFunc func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[waitlists.List], error)
@@ -119,11 +168,23 @@ type StoreMock struct {
 	// UpdateListFunc mocks the UpdateList method.
 	UpdateListFunc func(ctx context.Context, scope tenancy.Scope, list *waitlists.List) error
 
+	// UpdateListTxFunc mocks the UpdateListTx method.
+	UpdateListTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, list *waitlists.List) error
+
 	// UpdateSignupNotesFunc mocks the UpdateSignupNotes method.
 	UpdateSignupNotesFunc func(ctx context.Context, scope tenancy.Scope, listID string, signupID string, notes string) error
 
+	// UpdateSignupNotesTxFunc mocks the UpdateSignupNotesTx method.
+	UpdateSignupNotesTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string, notes string) error
+
 	// WithdrawFunc mocks the Withdraw method.
 	WithdrawFunc func(ctx context.Context, scope tenancy.Scope, listID string, signupID string) error
+
+	// WithdrawSignupsForSubjectFunc mocks the WithdrawSignupsForSubject method.
+	WithdrawSignupsForSubjectFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, subject waitlists.Subject) (int64, error)
+
+	// WithdrawTxFunc mocks the WithdrawTx method.
+	WithdrawTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -136,10 +197,34 @@ type StoreMock struct {
 			// ListID is the listID argument value.
 			ListID string
 		}
+		// ArchiveListTx holds details about calls to the ArchiveListTx method.
+		ArchiveListTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// ListID is the listID argument value.
+			ListID string
+		}
 		// ArchiveSignup holds details about calls to the ArchiveSignup method.
 		ArchiveSignup []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// ListID is the listID argument value.
+			ListID string
+			// SignupID is the signupID argument value.
+			SignupID string
+		}
+		// ArchiveSignupTx holds details about calls to the ArchiveSignupTx method.
+		ArchiveSignupTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// ListID is the listID argument value.
@@ -158,10 +243,34 @@ type StoreMock struct {
 			// SignupID is the signupID argument value.
 			SignupID string
 		}
+		// ConvertTx holds details about calls to the ConvertTx method.
+		ConvertTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// ListID is the listID argument value.
+			ListID string
+			// SignupID is the signupID argument value.
+			SignupID string
+		}
 		// CreateList holds details about calls to the CreateList method.
 		CreateList []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// List is the list argument value.
+			List *waitlists.List
+		}
+		// CreateListTx holds details about calls to the CreateListTx method.
+		CreateListTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// List is the list argument value.
@@ -209,10 +318,36 @@ type StoreMock struct {
 			// SignupID is the signupID argument value.
 			SignupID string
 		}
+		// InviteTx holds details about calls to the InviteTx method.
+		InviteTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// ListID is the listID argument value.
+			ListID string
+			// SignupID is the signupID argument value.
+			SignupID string
+		}
 		// Join holds details about calls to the Join method.
 		Join []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// ListID is the listID argument value.
+			ListID string
+			// Signup is the signup argument value.
+			Signup *waitlists.Signup
+		}
+		// JoinTx holds details about calls to the JoinTx method.
+		JoinTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// ListID is the listID argument value.
@@ -269,10 +404,36 @@ type StoreMock struct {
 			// List is the list argument value.
 			List *waitlists.List
 		}
+		// UpdateListTx holds details about calls to the UpdateListTx method.
+		UpdateListTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// List is the list argument value.
+			List *waitlists.List
+		}
 		// UpdateSignupNotes holds details about calls to the UpdateSignupNotes method.
 		UpdateSignupNotes []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// ListID is the listID argument value.
+			ListID string
+			// SignupID is the signupID argument value.
+			SignupID string
+			// Notes is the notes argument value.
+			Notes string
+		}
+		// UpdateSignupNotesTx holds details about calls to the UpdateSignupNotesTx method.
+		UpdateSignupNotesTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// ListID is the listID argument value.
@@ -293,23 +454,57 @@ type StoreMock struct {
 			// SignupID is the signupID argument value.
 			SignupID string
 		}
+		// WithdrawSignupsForSubject holds details about calls to the WithdrawSignupsForSubject method.
+		WithdrawSignupsForSubject []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// Subject is the subject argument value.
+			Subject waitlists.Subject
+		}
+		// WithdrawTx holds details about calls to the WithdrawTx method.
+		WithdrawTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// ListID is the listID argument value.
+			ListID string
+			// SignupID is the signupID argument value.
+			SignupID string
+		}
 	}
-	lockArchiveList           sync.RWMutex
-	lockArchiveSignup         sync.RWMutex
-	lockConvert               sync.RWMutex
-	lockCreateList            sync.RWMutex
-	lockGetList               sync.RWMutex
-	lockGetSignup             sync.RWMutex
-	lockGetSignupByContact    sync.RWMutex
-	lockInvite                sync.RWMutex
-	lockJoin                  sync.RWMutex
-	lockListLists             sync.RWMutex
-	lockListOpenLists         sync.RWMutex
-	lockListSignups           sync.RWMutex
-	lockListSignupsForSubject sync.RWMutex
-	lockUpdateList            sync.RWMutex
-	lockUpdateSignupNotes     sync.RWMutex
-	lockWithdraw              sync.RWMutex
+	lockArchiveList               sync.RWMutex
+	lockArchiveListTx             sync.RWMutex
+	lockArchiveSignup             sync.RWMutex
+	lockArchiveSignupTx           sync.RWMutex
+	lockConvert                   sync.RWMutex
+	lockConvertTx                 sync.RWMutex
+	lockCreateList                sync.RWMutex
+	lockCreateListTx              sync.RWMutex
+	lockGetList                   sync.RWMutex
+	lockGetSignup                 sync.RWMutex
+	lockGetSignupByContact        sync.RWMutex
+	lockInvite                    sync.RWMutex
+	lockInviteTx                  sync.RWMutex
+	lockJoin                      sync.RWMutex
+	lockJoinTx                    sync.RWMutex
+	lockListLists                 sync.RWMutex
+	lockListOpenLists             sync.RWMutex
+	lockListSignups               sync.RWMutex
+	lockListSignupsForSubject     sync.RWMutex
+	lockUpdateList                sync.RWMutex
+	lockUpdateListTx              sync.RWMutex
+	lockUpdateSignupNotes         sync.RWMutex
+	lockUpdateSignupNotesTx       sync.RWMutex
+	lockWithdraw                  sync.RWMutex
+	lockWithdrawSignupsForSubject sync.RWMutex
+	lockWithdrawTx                sync.RWMutex
 }
 
 // ArchiveList calls ArchiveListFunc.
@@ -349,6 +544,50 @@ func (mock *StoreMock) ArchiveListCalls() []struct {
 	mock.lockArchiveList.RLock()
 	calls = mock.calls.ArchiveList
 	mock.lockArchiveList.RUnlock()
+	return calls
+}
+
+// ArchiveListTx calls ArchiveListTxFunc.
+func (mock *StoreMock) ArchiveListTx(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string) error {
+	if mock.ArchiveListTxFunc == nil {
+		panic("StoreMock.ArchiveListTxFunc: method is nil but Store.ArchiveListTx was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Q      database.Tx
+		Scope  tenancy.Scope
+		ListID string
+	}{
+		Ctx:    ctx,
+		Q:      q,
+		Scope:  scope,
+		ListID: listID,
+	}
+	mock.lockArchiveListTx.Lock()
+	mock.calls.ArchiveListTx = append(mock.calls.ArchiveListTx, callInfo)
+	mock.lockArchiveListTx.Unlock()
+	return mock.ArchiveListTxFunc(ctx, q, scope, listID)
+}
+
+// ArchiveListTxCalls gets all the calls that were made to ArchiveListTx.
+// Check the length with:
+//
+//	len(mockedStore.ArchiveListTxCalls())
+func (mock *StoreMock) ArchiveListTxCalls() []struct {
+	Ctx    context.Context
+	Q      database.Tx
+	Scope  tenancy.Scope
+	ListID string
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Q      database.Tx
+		Scope  tenancy.Scope
+		ListID string
+	}
+	mock.lockArchiveListTx.RLock()
+	calls = mock.calls.ArchiveListTx
+	mock.lockArchiveListTx.RUnlock()
 	return calls
 }
 
@@ -396,6 +635,54 @@ func (mock *StoreMock) ArchiveSignupCalls() []struct {
 	return calls
 }
 
+// ArchiveSignupTx calls ArchiveSignupTxFunc.
+func (mock *StoreMock) ArchiveSignupTx(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error {
+	if mock.ArchiveSignupTxFunc == nil {
+		panic("StoreMock.ArchiveSignupTxFunc: method is nil but Store.ArchiveSignupTx was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		Q        database.Tx
+		Scope    tenancy.Scope
+		ListID   string
+		SignupID string
+	}{
+		Ctx:      ctx,
+		Q:        q,
+		Scope:    scope,
+		ListID:   listID,
+		SignupID: signupID,
+	}
+	mock.lockArchiveSignupTx.Lock()
+	mock.calls.ArchiveSignupTx = append(mock.calls.ArchiveSignupTx, callInfo)
+	mock.lockArchiveSignupTx.Unlock()
+	return mock.ArchiveSignupTxFunc(ctx, q, scope, listID, signupID)
+}
+
+// ArchiveSignupTxCalls gets all the calls that were made to ArchiveSignupTx.
+// Check the length with:
+//
+//	len(mockedStore.ArchiveSignupTxCalls())
+func (mock *StoreMock) ArchiveSignupTxCalls() []struct {
+	Ctx      context.Context
+	Q        database.Tx
+	Scope    tenancy.Scope
+	ListID   string
+	SignupID string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		Q        database.Tx
+		Scope    tenancy.Scope
+		ListID   string
+		SignupID string
+	}
+	mock.lockArchiveSignupTx.RLock()
+	calls = mock.calls.ArchiveSignupTx
+	mock.lockArchiveSignupTx.RUnlock()
+	return calls
+}
+
 // Convert calls ConvertFunc.
 func (mock *StoreMock) Convert(ctx context.Context, scope tenancy.Scope, listID string, signupID string) error {
 	if mock.ConvertFunc == nil {
@@ -440,6 +727,54 @@ func (mock *StoreMock) ConvertCalls() []struct {
 	return calls
 }
 
+// ConvertTx calls ConvertTxFunc.
+func (mock *StoreMock) ConvertTx(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error {
+	if mock.ConvertTxFunc == nil {
+		panic("StoreMock.ConvertTxFunc: method is nil but Store.ConvertTx was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		Q        database.Tx
+		Scope    tenancy.Scope
+		ListID   string
+		SignupID string
+	}{
+		Ctx:      ctx,
+		Q:        q,
+		Scope:    scope,
+		ListID:   listID,
+		SignupID: signupID,
+	}
+	mock.lockConvertTx.Lock()
+	mock.calls.ConvertTx = append(mock.calls.ConvertTx, callInfo)
+	mock.lockConvertTx.Unlock()
+	return mock.ConvertTxFunc(ctx, q, scope, listID, signupID)
+}
+
+// ConvertTxCalls gets all the calls that were made to ConvertTx.
+// Check the length with:
+//
+//	len(mockedStore.ConvertTxCalls())
+func (mock *StoreMock) ConvertTxCalls() []struct {
+	Ctx      context.Context
+	Q        database.Tx
+	Scope    tenancy.Scope
+	ListID   string
+	SignupID string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		Q        database.Tx
+		Scope    tenancy.Scope
+		ListID   string
+		SignupID string
+	}
+	mock.lockConvertTx.RLock()
+	calls = mock.calls.ConvertTx
+	mock.lockConvertTx.RUnlock()
+	return calls
+}
+
 // CreateList calls CreateListFunc.
 func (mock *StoreMock) CreateList(ctx context.Context, scope tenancy.Scope, list *waitlists.List) (*waitlists.List, error) {
 	if mock.CreateListFunc == nil {
@@ -477,6 +812,50 @@ func (mock *StoreMock) CreateListCalls() []struct {
 	mock.lockCreateList.RLock()
 	calls = mock.calls.CreateList
 	mock.lockCreateList.RUnlock()
+	return calls
+}
+
+// CreateListTx calls CreateListTxFunc.
+func (mock *StoreMock) CreateListTx(ctx context.Context, q database.Tx, scope tenancy.Scope, list *waitlists.List) (*waitlists.List, error) {
+	if mock.CreateListTxFunc == nil {
+		panic("StoreMock.CreateListTxFunc: method is nil but Store.CreateListTx was just called")
+	}
+	callInfo := struct {
+		Ctx   context.Context
+		Q     database.Tx
+		Scope tenancy.Scope
+		List  *waitlists.List
+	}{
+		Ctx:   ctx,
+		Q:     q,
+		Scope: scope,
+		List:  list,
+	}
+	mock.lockCreateListTx.Lock()
+	mock.calls.CreateListTx = append(mock.calls.CreateListTx, callInfo)
+	mock.lockCreateListTx.Unlock()
+	return mock.CreateListTxFunc(ctx, q, scope, list)
+}
+
+// CreateListTxCalls gets all the calls that were made to CreateListTx.
+// Check the length with:
+//
+//	len(mockedStore.CreateListTxCalls())
+func (mock *StoreMock) CreateListTxCalls() []struct {
+	Ctx   context.Context
+	Q     database.Tx
+	Scope tenancy.Scope
+	List  *waitlists.List
+} {
+	var calls []struct {
+		Ctx   context.Context
+		Q     database.Tx
+		Scope tenancy.Scope
+		List  *waitlists.List
+	}
+	mock.lockCreateListTx.RLock()
+	calls = mock.calls.CreateListTx
+	mock.lockCreateListTx.RUnlock()
 	return calls
 }
 
@@ -652,6 +1031,54 @@ func (mock *StoreMock) InviteCalls() []struct {
 	return calls
 }
 
+// InviteTx calls InviteTxFunc.
+func (mock *StoreMock) InviteTx(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error {
+	if mock.InviteTxFunc == nil {
+		panic("StoreMock.InviteTxFunc: method is nil but Store.InviteTx was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		Q        database.Tx
+		Scope    tenancy.Scope
+		ListID   string
+		SignupID string
+	}{
+		Ctx:      ctx,
+		Q:        q,
+		Scope:    scope,
+		ListID:   listID,
+		SignupID: signupID,
+	}
+	mock.lockInviteTx.Lock()
+	mock.calls.InviteTx = append(mock.calls.InviteTx, callInfo)
+	mock.lockInviteTx.Unlock()
+	return mock.InviteTxFunc(ctx, q, scope, listID, signupID)
+}
+
+// InviteTxCalls gets all the calls that were made to InviteTx.
+// Check the length with:
+//
+//	len(mockedStore.InviteTxCalls())
+func (mock *StoreMock) InviteTxCalls() []struct {
+	Ctx      context.Context
+	Q        database.Tx
+	Scope    tenancy.Scope
+	ListID   string
+	SignupID string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		Q        database.Tx
+		Scope    tenancy.Scope
+		ListID   string
+		SignupID string
+	}
+	mock.lockInviteTx.RLock()
+	calls = mock.calls.InviteTx
+	mock.lockInviteTx.RUnlock()
+	return calls
+}
+
 // Join calls JoinFunc.
 func (mock *StoreMock) Join(ctx context.Context, scope tenancy.Scope, listID string, signup *waitlists.Signup) (*waitlists.Signup, error) {
 	if mock.JoinFunc == nil {
@@ -693,6 +1120,54 @@ func (mock *StoreMock) JoinCalls() []struct {
 	mock.lockJoin.RLock()
 	calls = mock.calls.Join
 	mock.lockJoin.RUnlock()
+	return calls
+}
+
+// JoinTx calls JoinTxFunc.
+func (mock *StoreMock) JoinTx(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signup *waitlists.Signup) (*waitlists.Signup, error) {
+	if mock.JoinTxFunc == nil {
+		panic("StoreMock.JoinTxFunc: method is nil but Store.JoinTx was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Q      database.Tx
+		Scope  tenancy.Scope
+		ListID string
+		Signup *waitlists.Signup
+	}{
+		Ctx:    ctx,
+		Q:      q,
+		Scope:  scope,
+		ListID: listID,
+		Signup: signup,
+	}
+	mock.lockJoinTx.Lock()
+	mock.calls.JoinTx = append(mock.calls.JoinTx, callInfo)
+	mock.lockJoinTx.Unlock()
+	return mock.JoinTxFunc(ctx, q, scope, listID, signup)
+}
+
+// JoinTxCalls gets all the calls that were made to JoinTx.
+// Check the length with:
+//
+//	len(mockedStore.JoinTxCalls())
+func (mock *StoreMock) JoinTxCalls() []struct {
+	Ctx    context.Context
+	Q      database.Tx
+	Scope  tenancy.Scope
+	ListID string
+	Signup *waitlists.Signup
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Q      database.Tx
+		Scope  tenancy.Scope
+		ListID string
+		Signup *waitlists.Signup
+	}
+	mock.lockJoinTx.RLock()
+	calls = mock.calls.JoinTx
+	mock.lockJoinTx.RUnlock()
 	return calls
 }
 
@@ -904,6 +1379,50 @@ func (mock *StoreMock) UpdateListCalls() []struct {
 	return calls
 }
 
+// UpdateListTx calls UpdateListTxFunc.
+func (mock *StoreMock) UpdateListTx(ctx context.Context, q database.Tx, scope tenancy.Scope, list *waitlists.List) error {
+	if mock.UpdateListTxFunc == nil {
+		panic("StoreMock.UpdateListTxFunc: method is nil but Store.UpdateListTx was just called")
+	}
+	callInfo := struct {
+		Ctx   context.Context
+		Q     database.Tx
+		Scope tenancy.Scope
+		List  *waitlists.List
+	}{
+		Ctx:   ctx,
+		Q:     q,
+		Scope: scope,
+		List:  list,
+	}
+	mock.lockUpdateListTx.Lock()
+	mock.calls.UpdateListTx = append(mock.calls.UpdateListTx, callInfo)
+	mock.lockUpdateListTx.Unlock()
+	return mock.UpdateListTxFunc(ctx, q, scope, list)
+}
+
+// UpdateListTxCalls gets all the calls that were made to UpdateListTx.
+// Check the length with:
+//
+//	len(mockedStore.UpdateListTxCalls())
+func (mock *StoreMock) UpdateListTxCalls() []struct {
+	Ctx   context.Context
+	Q     database.Tx
+	Scope tenancy.Scope
+	List  *waitlists.List
+} {
+	var calls []struct {
+		Ctx   context.Context
+		Q     database.Tx
+		Scope tenancy.Scope
+		List  *waitlists.List
+	}
+	mock.lockUpdateListTx.RLock()
+	calls = mock.calls.UpdateListTx
+	mock.lockUpdateListTx.RUnlock()
+	return calls
+}
+
 // UpdateSignupNotes calls UpdateSignupNotesFunc.
 func (mock *StoreMock) UpdateSignupNotes(ctx context.Context, scope tenancy.Scope, listID string, signupID string, notes string) error {
 	if mock.UpdateSignupNotesFunc == nil {
@@ -952,6 +1471,58 @@ func (mock *StoreMock) UpdateSignupNotesCalls() []struct {
 	return calls
 }
 
+// UpdateSignupNotesTx calls UpdateSignupNotesTxFunc.
+func (mock *StoreMock) UpdateSignupNotesTx(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string, notes string) error {
+	if mock.UpdateSignupNotesTxFunc == nil {
+		panic("StoreMock.UpdateSignupNotesTxFunc: method is nil but Store.UpdateSignupNotesTx was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		Q        database.Tx
+		Scope    tenancy.Scope
+		ListID   string
+		SignupID string
+		Notes    string
+	}{
+		Ctx:      ctx,
+		Q:        q,
+		Scope:    scope,
+		ListID:   listID,
+		SignupID: signupID,
+		Notes:    notes,
+	}
+	mock.lockUpdateSignupNotesTx.Lock()
+	mock.calls.UpdateSignupNotesTx = append(mock.calls.UpdateSignupNotesTx, callInfo)
+	mock.lockUpdateSignupNotesTx.Unlock()
+	return mock.UpdateSignupNotesTxFunc(ctx, q, scope, listID, signupID, notes)
+}
+
+// UpdateSignupNotesTxCalls gets all the calls that were made to UpdateSignupNotesTx.
+// Check the length with:
+//
+//	len(mockedStore.UpdateSignupNotesTxCalls())
+func (mock *StoreMock) UpdateSignupNotesTxCalls() []struct {
+	Ctx      context.Context
+	Q        database.Tx
+	Scope    tenancy.Scope
+	ListID   string
+	SignupID string
+	Notes    string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		Q        database.Tx
+		Scope    tenancy.Scope
+		ListID   string
+		SignupID string
+		Notes    string
+	}
+	mock.lockUpdateSignupNotesTx.RLock()
+	calls = mock.calls.UpdateSignupNotesTx
+	mock.lockUpdateSignupNotesTx.RUnlock()
+	return calls
+}
+
 // Withdraw calls WithdrawFunc.
 func (mock *StoreMock) Withdraw(ctx context.Context, scope tenancy.Scope, listID string, signupID string) error {
 	if mock.WithdrawFunc == nil {
@@ -996,6 +1567,98 @@ func (mock *StoreMock) WithdrawCalls() []struct {
 	return calls
 }
 
+// WithdrawSignupsForSubject calls WithdrawSignupsForSubjectFunc.
+func (mock *StoreMock) WithdrawSignupsForSubject(ctx context.Context, q database.Tx, scope tenancy.Scope, subject waitlists.Subject) (int64, error) {
+	if mock.WithdrawSignupsForSubjectFunc == nil {
+		panic("StoreMock.WithdrawSignupsForSubjectFunc: method is nil but Store.WithdrawSignupsForSubject was just called")
+	}
+	callInfo := struct {
+		Ctx     context.Context
+		Q       database.Tx
+		Scope   tenancy.Scope
+		Subject waitlists.Subject
+	}{
+		Ctx:     ctx,
+		Q:       q,
+		Scope:   scope,
+		Subject: subject,
+	}
+	mock.lockWithdrawSignupsForSubject.Lock()
+	mock.calls.WithdrawSignupsForSubject = append(mock.calls.WithdrawSignupsForSubject, callInfo)
+	mock.lockWithdrawSignupsForSubject.Unlock()
+	return mock.WithdrawSignupsForSubjectFunc(ctx, q, scope, subject)
+}
+
+// WithdrawSignupsForSubjectCalls gets all the calls that were made to WithdrawSignupsForSubject.
+// Check the length with:
+//
+//	len(mockedStore.WithdrawSignupsForSubjectCalls())
+func (mock *StoreMock) WithdrawSignupsForSubjectCalls() []struct {
+	Ctx     context.Context
+	Q       database.Tx
+	Scope   tenancy.Scope
+	Subject waitlists.Subject
+} {
+	var calls []struct {
+		Ctx     context.Context
+		Q       database.Tx
+		Scope   tenancy.Scope
+		Subject waitlists.Subject
+	}
+	mock.lockWithdrawSignupsForSubject.RLock()
+	calls = mock.calls.WithdrawSignupsForSubject
+	mock.lockWithdrawSignupsForSubject.RUnlock()
+	return calls
+}
+
+// WithdrawTx calls WithdrawTxFunc.
+func (mock *StoreMock) WithdrawTx(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error {
+	if mock.WithdrawTxFunc == nil {
+		panic("StoreMock.WithdrawTxFunc: method is nil but Store.WithdrawTx was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		Q        database.Tx
+		Scope    tenancy.Scope
+		ListID   string
+		SignupID string
+	}{
+		Ctx:      ctx,
+		Q:        q,
+		Scope:    scope,
+		ListID:   listID,
+		SignupID: signupID,
+	}
+	mock.lockWithdrawTx.Lock()
+	mock.calls.WithdrawTx = append(mock.calls.WithdrawTx, callInfo)
+	mock.lockWithdrawTx.Unlock()
+	return mock.WithdrawTxFunc(ctx, q, scope, listID, signupID)
+}
+
+// WithdrawTxCalls gets all the calls that were made to WithdrawTx.
+// Check the length with:
+//
+//	len(mockedStore.WithdrawTxCalls())
+func (mock *StoreMock) WithdrawTxCalls() []struct {
+	Ctx      context.Context
+	Q        database.Tx
+	Scope    tenancy.Scope
+	ListID   string
+	SignupID string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		Q        database.Tx
+		Scope    tenancy.Scope
+		ListID   string
+		SignupID string
+	}
+	mock.lockWithdrawTx.RLock()
+	calls = mock.calls.WithdrawTx
+	mock.lockWithdrawTx.RUnlock()
+	return calls
+}
+
 // Ensure, that ListStoreMock does implement waitlists.ListStore.
 // If this is not the case, regenerate this file with moq.
 var _ waitlists.ListStore = &ListStoreMock{}
@@ -1009,8 +1672,14 @@ var _ waitlists.ListStore = &ListStoreMock{}
 //			ArchiveListFunc: func(ctx context.Context, scope tenancy.Scope, listID string) error {
 //				panic("mock out the ArchiveList method")
 //			},
+//			ArchiveListTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string) error {
+//				panic("mock out the ArchiveListTx method")
+//			},
 //			CreateListFunc: func(ctx context.Context, scope tenancy.Scope, list *waitlists.List) (*waitlists.List, error) {
 //				panic("mock out the CreateList method")
+//			},
+//			CreateListTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, list *waitlists.List) (*waitlists.List, error) {
+//				panic("mock out the CreateListTx method")
 //			},
 //			GetListFunc: func(ctx context.Context, scope tenancy.Scope, listID string) (*waitlists.List, error) {
 //				panic("mock out the GetList method")
@@ -1024,6 +1693,9 @@ var _ waitlists.ListStore = &ListStoreMock{}
 //			UpdateListFunc: func(ctx context.Context, scope tenancy.Scope, list *waitlists.List) error {
 //				panic("mock out the UpdateList method")
 //			},
+//			UpdateListTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, list *waitlists.List) error {
+//				panic("mock out the UpdateListTx method")
+//			},
 //		}
 //
 //		// use mockedListStore in code that requires waitlists.ListStore
@@ -1034,8 +1706,14 @@ type ListStoreMock struct {
 	// ArchiveListFunc mocks the ArchiveList method.
 	ArchiveListFunc func(ctx context.Context, scope tenancy.Scope, listID string) error
 
+	// ArchiveListTxFunc mocks the ArchiveListTx method.
+	ArchiveListTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string) error
+
 	// CreateListFunc mocks the CreateList method.
 	CreateListFunc func(ctx context.Context, scope tenancy.Scope, list *waitlists.List) (*waitlists.List, error)
+
+	// CreateListTxFunc mocks the CreateListTx method.
+	CreateListTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, list *waitlists.List) (*waitlists.List, error)
 
 	// GetListFunc mocks the GetList method.
 	GetListFunc func(ctx context.Context, scope tenancy.Scope, listID string) (*waitlists.List, error)
@@ -1049,6 +1727,9 @@ type ListStoreMock struct {
 	// UpdateListFunc mocks the UpdateList method.
 	UpdateListFunc func(ctx context.Context, scope tenancy.Scope, list *waitlists.List) error
 
+	// UpdateListTxFunc mocks the UpdateListTx method.
+	UpdateListTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, list *waitlists.List) error
+
 	// calls tracks calls to the methods.
 	calls struct {
 		// ArchiveList holds details about calls to the ArchiveList method.
@@ -1060,10 +1741,32 @@ type ListStoreMock struct {
 			// ListID is the listID argument value.
 			ListID string
 		}
+		// ArchiveListTx holds details about calls to the ArchiveListTx method.
+		ArchiveListTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// ListID is the listID argument value.
+			ListID string
+		}
 		// CreateList holds details about calls to the CreateList method.
 		CreateList []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// List is the list argument value.
+			List *waitlists.List
+		}
+		// CreateListTx holds details about calls to the CreateListTx method.
+		CreateListTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// List is the list argument value.
@@ -1105,13 +1808,27 @@ type ListStoreMock struct {
 			// List is the list argument value.
 			List *waitlists.List
 		}
+		// UpdateListTx holds details about calls to the UpdateListTx method.
+		UpdateListTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// List is the list argument value.
+			List *waitlists.List
+		}
 	}
 	lockArchiveList   sync.RWMutex
+	lockArchiveListTx sync.RWMutex
 	lockCreateList    sync.RWMutex
+	lockCreateListTx  sync.RWMutex
 	lockGetList       sync.RWMutex
 	lockListLists     sync.RWMutex
 	lockListOpenLists sync.RWMutex
 	lockUpdateList    sync.RWMutex
+	lockUpdateListTx  sync.RWMutex
 }
 
 // ArchiveList calls ArchiveListFunc.
@@ -1154,6 +1871,50 @@ func (mock *ListStoreMock) ArchiveListCalls() []struct {
 	return calls
 }
 
+// ArchiveListTx calls ArchiveListTxFunc.
+func (mock *ListStoreMock) ArchiveListTx(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string) error {
+	if mock.ArchiveListTxFunc == nil {
+		panic("ListStoreMock.ArchiveListTxFunc: method is nil but ListStore.ArchiveListTx was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Q      database.Tx
+		Scope  tenancy.Scope
+		ListID string
+	}{
+		Ctx:    ctx,
+		Q:      q,
+		Scope:  scope,
+		ListID: listID,
+	}
+	mock.lockArchiveListTx.Lock()
+	mock.calls.ArchiveListTx = append(mock.calls.ArchiveListTx, callInfo)
+	mock.lockArchiveListTx.Unlock()
+	return mock.ArchiveListTxFunc(ctx, q, scope, listID)
+}
+
+// ArchiveListTxCalls gets all the calls that were made to ArchiveListTx.
+// Check the length with:
+//
+//	len(mockedListStore.ArchiveListTxCalls())
+func (mock *ListStoreMock) ArchiveListTxCalls() []struct {
+	Ctx    context.Context
+	Q      database.Tx
+	Scope  tenancy.Scope
+	ListID string
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Q      database.Tx
+		Scope  tenancy.Scope
+		ListID string
+	}
+	mock.lockArchiveListTx.RLock()
+	calls = mock.calls.ArchiveListTx
+	mock.lockArchiveListTx.RUnlock()
+	return calls
+}
+
 // CreateList calls CreateListFunc.
 func (mock *ListStoreMock) CreateList(ctx context.Context, scope tenancy.Scope, list *waitlists.List) (*waitlists.List, error) {
 	if mock.CreateListFunc == nil {
@@ -1191,6 +1952,50 @@ func (mock *ListStoreMock) CreateListCalls() []struct {
 	mock.lockCreateList.RLock()
 	calls = mock.calls.CreateList
 	mock.lockCreateList.RUnlock()
+	return calls
+}
+
+// CreateListTx calls CreateListTxFunc.
+func (mock *ListStoreMock) CreateListTx(ctx context.Context, q database.Tx, scope tenancy.Scope, list *waitlists.List) (*waitlists.List, error) {
+	if mock.CreateListTxFunc == nil {
+		panic("ListStoreMock.CreateListTxFunc: method is nil but ListStore.CreateListTx was just called")
+	}
+	callInfo := struct {
+		Ctx   context.Context
+		Q     database.Tx
+		Scope tenancy.Scope
+		List  *waitlists.List
+	}{
+		Ctx:   ctx,
+		Q:     q,
+		Scope: scope,
+		List:  list,
+	}
+	mock.lockCreateListTx.Lock()
+	mock.calls.CreateListTx = append(mock.calls.CreateListTx, callInfo)
+	mock.lockCreateListTx.Unlock()
+	return mock.CreateListTxFunc(ctx, q, scope, list)
+}
+
+// CreateListTxCalls gets all the calls that were made to CreateListTx.
+// Check the length with:
+//
+//	len(mockedListStore.CreateListTxCalls())
+func (mock *ListStoreMock) CreateListTxCalls() []struct {
+	Ctx   context.Context
+	Q     database.Tx
+	Scope tenancy.Scope
+	List  *waitlists.List
+} {
+	var calls []struct {
+		Ctx   context.Context
+		Q     database.Tx
+		Scope tenancy.Scope
+		List  *waitlists.List
+	}
+	mock.lockCreateListTx.RLock()
+	calls = mock.calls.CreateListTx
+	mock.lockCreateListTx.RUnlock()
 	return calls
 }
 
@@ -1354,6 +2159,50 @@ func (mock *ListStoreMock) UpdateListCalls() []struct {
 	return calls
 }
 
+// UpdateListTx calls UpdateListTxFunc.
+func (mock *ListStoreMock) UpdateListTx(ctx context.Context, q database.Tx, scope tenancy.Scope, list *waitlists.List) error {
+	if mock.UpdateListTxFunc == nil {
+		panic("ListStoreMock.UpdateListTxFunc: method is nil but ListStore.UpdateListTx was just called")
+	}
+	callInfo := struct {
+		Ctx   context.Context
+		Q     database.Tx
+		Scope tenancy.Scope
+		List  *waitlists.List
+	}{
+		Ctx:   ctx,
+		Q:     q,
+		Scope: scope,
+		List:  list,
+	}
+	mock.lockUpdateListTx.Lock()
+	mock.calls.UpdateListTx = append(mock.calls.UpdateListTx, callInfo)
+	mock.lockUpdateListTx.Unlock()
+	return mock.UpdateListTxFunc(ctx, q, scope, list)
+}
+
+// UpdateListTxCalls gets all the calls that were made to UpdateListTx.
+// Check the length with:
+//
+//	len(mockedListStore.UpdateListTxCalls())
+func (mock *ListStoreMock) UpdateListTxCalls() []struct {
+	Ctx   context.Context
+	Q     database.Tx
+	Scope tenancy.Scope
+	List  *waitlists.List
+} {
+	var calls []struct {
+		Ctx   context.Context
+		Q     database.Tx
+		Scope tenancy.Scope
+		List  *waitlists.List
+	}
+	mock.lockUpdateListTx.RLock()
+	calls = mock.calls.UpdateListTx
+	mock.lockUpdateListTx.RUnlock()
+	return calls
+}
+
 // Ensure, that SignupStoreMock does implement waitlists.SignupStore.
 // If this is not the case, regenerate this file with moq.
 var _ waitlists.SignupStore = &SignupStoreMock{}
@@ -1367,8 +2216,14 @@ var _ waitlists.SignupStore = &SignupStoreMock{}
 //			ArchiveSignupFunc: func(ctx context.Context, scope tenancy.Scope, listID string, signupID string) error {
 //				panic("mock out the ArchiveSignup method")
 //			},
+//			ArchiveSignupTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error {
+//				panic("mock out the ArchiveSignupTx method")
+//			},
 //			ConvertFunc: func(ctx context.Context, scope tenancy.Scope, listID string, signupID string) error {
 //				panic("mock out the Convert method")
+//			},
+//			ConvertTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error {
+//				panic("mock out the ConvertTx method")
 //			},
 //			GetSignupFunc: func(ctx context.Context, scope tenancy.Scope, listID string, signupID string) (*waitlists.Signup, error) {
 //				panic("mock out the GetSignup method")
@@ -1379,8 +2234,14 @@ var _ waitlists.SignupStore = &SignupStoreMock{}
 //			InviteFunc: func(ctx context.Context, scope tenancy.Scope, listID string, signupID string) error {
 //				panic("mock out the Invite method")
 //			},
+//			InviteTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error {
+//				panic("mock out the InviteTx method")
+//			},
 //			JoinFunc: func(ctx context.Context, scope tenancy.Scope, listID string, signup *waitlists.Signup) (*waitlists.Signup, error) {
 //				panic("mock out the Join method")
+//			},
+//			JoinTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signup *waitlists.Signup) (*waitlists.Signup, error) {
+//				panic("mock out the JoinTx method")
 //			},
 //			ListSignupsFunc: func(ctx context.Context, scope tenancy.Scope, listID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[waitlists.Signup], error) {
 //				panic("mock out the ListSignups method")
@@ -1391,8 +2252,17 @@ var _ waitlists.SignupStore = &SignupStoreMock{}
 //			UpdateSignupNotesFunc: func(ctx context.Context, scope tenancy.Scope, listID string, signupID string, notes string) error {
 //				panic("mock out the UpdateSignupNotes method")
 //			},
+//			UpdateSignupNotesTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string, notes string) error {
+//				panic("mock out the UpdateSignupNotesTx method")
+//			},
 //			WithdrawFunc: func(ctx context.Context, scope tenancy.Scope, listID string, signupID string) error {
 //				panic("mock out the Withdraw method")
+//			},
+//			WithdrawSignupsForSubjectFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, subject waitlists.Subject) (int64, error) {
+//				panic("mock out the WithdrawSignupsForSubject method")
+//			},
+//			WithdrawTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error {
+//				panic("mock out the WithdrawTx method")
 //			},
 //		}
 //
@@ -1404,8 +2274,14 @@ type SignupStoreMock struct {
 	// ArchiveSignupFunc mocks the ArchiveSignup method.
 	ArchiveSignupFunc func(ctx context.Context, scope tenancy.Scope, listID string, signupID string) error
 
+	// ArchiveSignupTxFunc mocks the ArchiveSignupTx method.
+	ArchiveSignupTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error
+
 	// ConvertFunc mocks the Convert method.
 	ConvertFunc func(ctx context.Context, scope tenancy.Scope, listID string, signupID string) error
+
+	// ConvertTxFunc mocks the ConvertTx method.
+	ConvertTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error
 
 	// GetSignupFunc mocks the GetSignup method.
 	GetSignupFunc func(ctx context.Context, scope tenancy.Scope, listID string, signupID string) (*waitlists.Signup, error)
@@ -1416,8 +2292,14 @@ type SignupStoreMock struct {
 	// InviteFunc mocks the Invite method.
 	InviteFunc func(ctx context.Context, scope tenancy.Scope, listID string, signupID string) error
 
+	// InviteTxFunc mocks the InviteTx method.
+	InviteTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error
+
 	// JoinFunc mocks the Join method.
 	JoinFunc func(ctx context.Context, scope tenancy.Scope, listID string, signup *waitlists.Signup) (*waitlists.Signup, error)
+
+	// JoinTxFunc mocks the JoinTx method.
+	JoinTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signup *waitlists.Signup) (*waitlists.Signup, error)
 
 	// ListSignupsFunc mocks the ListSignups method.
 	ListSignupsFunc func(ctx context.Context, scope tenancy.Scope, listID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[waitlists.Signup], error)
@@ -1428,8 +2310,17 @@ type SignupStoreMock struct {
 	// UpdateSignupNotesFunc mocks the UpdateSignupNotes method.
 	UpdateSignupNotesFunc func(ctx context.Context, scope tenancy.Scope, listID string, signupID string, notes string) error
 
+	// UpdateSignupNotesTxFunc mocks the UpdateSignupNotesTx method.
+	UpdateSignupNotesTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string, notes string) error
+
 	// WithdrawFunc mocks the Withdraw method.
 	WithdrawFunc func(ctx context.Context, scope tenancy.Scope, listID string, signupID string) error
+
+	// WithdrawSignupsForSubjectFunc mocks the WithdrawSignupsForSubject method.
+	WithdrawSignupsForSubjectFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, subject waitlists.Subject) (int64, error)
+
+	// WithdrawTxFunc mocks the WithdrawTx method.
+	WithdrawTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -1444,10 +2335,36 @@ type SignupStoreMock struct {
 			// SignupID is the signupID argument value.
 			SignupID string
 		}
+		// ArchiveSignupTx holds details about calls to the ArchiveSignupTx method.
+		ArchiveSignupTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// ListID is the listID argument value.
+			ListID string
+			// SignupID is the signupID argument value.
+			SignupID string
+		}
 		// Convert holds details about calls to the Convert method.
 		Convert []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// ListID is the listID argument value.
+			ListID string
+			// SignupID is the signupID argument value.
+			SignupID string
+		}
+		// ConvertTx holds details about calls to the ConvertTx method.
+		ConvertTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// ListID is the listID argument value.
@@ -1488,10 +2405,36 @@ type SignupStoreMock struct {
 			// SignupID is the signupID argument value.
 			SignupID string
 		}
+		// InviteTx holds details about calls to the InviteTx method.
+		InviteTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// ListID is the listID argument value.
+			ListID string
+			// SignupID is the signupID argument value.
+			SignupID string
+		}
 		// Join holds details about calls to the Join method.
 		Join []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// ListID is the listID argument value.
+			ListID string
+			// Signup is the signup argument value.
+			Signup *waitlists.Signup
+		}
+		// JoinTx holds details about calls to the JoinTx method.
+		JoinTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// ListID is the listID argument value.
@@ -1534,6 +2477,21 @@ type SignupStoreMock struct {
 			// Notes is the notes argument value.
 			Notes string
 		}
+		// UpdateSignupNotesTx holds details about calls to the UpdateSignupNotesTx method.
+		UpdateSignupNotesTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// ListID is the listID argument value.
+			ListID string
+			// SignupID is the signupID argument value.
+			SignupID string
+			// Notes is the notes argument value.
+			Notes string
+		}
 		// Withdraw holds details about calls to the Withdraw method.
 		Withdraw []struct {
 			// Ctx is the ctx argument value.
@@ -1545,17 +2503,48 @@ type SignupStoreMock struct {
 			// SignupID is the signupID argument value.
 			SignupID string
 		}
+		// WithdrawSignupsForSubject holds details about calls to the WithdrawSignupsForSubject method.
+		WithdrawSignupsForSubject []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// Subject is the subject argument value.
+			Subject waitlists.Subject
+		}
+		// WithdrawTx holds details about calls to the WithdrawTx method.
+		WithdrawTx []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q database.Tx
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
+			// ListID is the listID argument value.
+			ListID string
+			// SignupID is the signupID argument value.
+			SignupID string
+		}
 	}
-	lockArchiveSignup         sync.RWMutex
-	lockConvert               sync.RWMutex
-	lockGetSignup             sync.RWMutex
-	lockGetSignupByContact    sync.RWMutex
-	lockInvite                sync.RWMutex
-	lockJoin                  sync.RWMutex
-	lockListSignups           sync.RWMutex
-	lockListSignupsForSubject sync.RWMutex
-	lockUpdateSignupNotes     sync.RWMutex
-	lockWithdraw              sync.RWMutex
+	lockArchiveSignup             sync.RWMutex
+	lockArchiveSignupTx           sync.RWMutex
+	lockConvert                   sync.RWMutex
+	lockConvertTx                 sync.RWMutex
+	lockGetSignup                 sync.RWMutex
+	lockGetSignupByContact        sync.RWMutex
+	lockInvite                    sync.RWMutex
+	lockInviteTx                  sync.RWMutex
+	lockJoin                      sync.RWMutex
+	lockJoinTx                    sync.RWMutex
+	lockListSignups               sync.RWMutex
+	lockListSignupsForSubject     sync.RWMutex
+	lockUpdateSignupNotes         sync.RWMutex
+	lockUpdateSignupNotesTx       sync.RWMutex
+	lockWithdraw                  sync.RWMutex
+	lockWithdrawSignupsForSubject sync.RWMutex
+	lockWithdrawTx                sync.RWMutex
 }
 
 // ArchiveSignup calls ArchiveSignupFunc.
@@ -1602,6 +2591,54 @@ func (mock *SignupStoreMock) ArchiveSignupCalls() []struct {
 	return calls
 }
 
+// ArchiveSignupTx calls ArchiveSignupTxFunc.
+func (mock *SignupStoreMock) ArchiveSignupTx(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error {
+	if mock.ArchiveSignupTxFunc == nil {
+		panic("SignupStoreMock.ArchiveSignupTxFunc: method is nil but SignupStore.ArchiveSignupTx was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		Q        database.Tx
+		Scope    tenancy.Scope
+		ListID   string
+		SignupID string
+	}{
+		Ctx:      ctx,
+		Q:        q,
+		Scope:    scope,
+		ListID:   listID,
+		SignupID: signupID,
+	}
+	mock.lockArchiveSignupTx.Lock()
+	mock.calls.ArchiveSignupTx = append(mock.calls.ArchiveSignupTx, callInfo)
+	mock.lockArchiveSignupTx.Unlock()
+	return mock.ArchiveSignupTxFunc(ctx, q, scope, listID, signupID)
+}
+
+// ArchiveSignupTxCalls gets all the calls that were made to ArchiveSignupTx.
+// Check the length with:
+//
+//	len(mockedSignupStore.ArchiveSignupTxCalls())
+func (mock *SignupStoreMock) ArchiveSignupTxCalls() []struct {
+	Ctx      context.Context
+	Q        database.Tx
+	Scope    tenancy.Scope
+	ListID   string
+	SignupID string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		Q        database.Tx
+		Scope    tenancy.Scope
+		ListID   string
+		SignupID string
+	}
+	mock.lockArchiveSignupTx.RLock()
+	calls = mock.calls.ArchiveSignupTx
+	mock.lockArchiveSignupTx.RUnlock()
+	return calls
+}
+
 // Convert calls ConvertFunc.
 func (mock *SignupStoreMock) Convert(ctx context.Context, scope tenancy.Scope, listID string, signupID string) error {
 	if mock.ConvertFunc == nil {
@@ -1643,6 +2680,54 @@ func (mock *SignupStoreMock) ConvertCalls() []struct {
 	mock.lockConvert.RLock()
 	calls = mock.calls.Convert
 	mock.lockConvert.RUnlock()
+	return calls
+}
+
+// ConvertTx calls ConvertTxFunc.
+func (mock *SignupStoreMock) ConvertTx(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error {
+	if mock.ConvertTxFunc == nil {
+		panic("SignupStoreMock.ConvertTxFunc: method is nil but SignupStore.ConvertTx was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		Q        database.Tx
+		Scope    tenancy.Scope
+		ListID   string
+		SignupID string
+	}{
+		Ctx:      ctx,
+		Q:        q,
+		Scope:    scope,
+		ListID:   listID,
+		SignupID: signupID,
+	}
+	mock.lockConvertTx.Lock()
+	mock.calls.ConvertTx = append(mock.calls.ConvertTx, callInfo)
+	mock.lockConvertTx.Unlock()
+	return mock.ConvertTxFunc(ctx, q, scope, listID, signupID)
+}
+
+// ConvertTxCalls gets all the calls that were made to ConvertTx.
+// Check the length with:
+//
+//	len(mockedSignupStore.ConvertTxCalls())
+func (mock *SignupStoreMock) ConvertTxCalls() []struct {
+	Ctx      context.Context
+	Q        database.Tx
+	Scope    tenancy.Scope
+	ListID   string
+	SignupID string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		Q        database.Tx
+		Scope    tenancy.Scope
+		ListID   string
+		SignupID string
+	}
+	mock.lockConvertTx.RLock()
+	calls = mock.calls.ConvertTx
+	mock.lockConvertTx.RUnlock()
 	return calls
 }
 
@@ -1778,6 +2863,54 @@ func (mock *SignupStoreMock) InviteCalls() []struct {
 	return calls
 }
 
+// InviteTx calls InviteTxFunc.
+func (mock *SignupStoreMock) InviteTx(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error {
+	if mock.InviteTxFunc == nil {
+		panic("SignupStoreMock.InviteTxFunc: method is nil but SignupStore.InviteTx was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		Q        database.Tx
+		Scope    tenancy.Scope
+		ListID   string
+		SignupID string
+	}{
+		Ctx:      ctx,
+		Q:        q,
+		Scope:    scope,
+		ListID:   listID,
+		SignupID: signupID,
+	}
+	mock.lockInviteTx.Lock()
+	mock.calls.InviteTx = append(mock.calls.InviteTx, callInfo)
+	mock.lockInviteTx.Unlock()
+	return mock.InviteTxFunc(ctx, q, scope, listID, signupID)
+}
+
+// InviteTxCalls gets all the calls that were made to InviteTx.
+// Check the length with:
+//
+//	len(mockedSignupStore.InviteTxCalls())
+func (mock *SignupStoreMock) InviteTxCalls() []struct {
+	Ctx      context.Context
+	Q        database.Tx
+	Scope    tenancy.Scope
+	ListID   string
+	SignupID string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		Q        database.Tx
+		Scope    tenancy.Scope
+		ListID   string
+		SignupID string
+	}
+	mock.lockInviteTx.RLock()
+	calls = mock.calls.InviteTx
+	mock.lockInviteTx.RUnlock()
+	return calls
+}
+
 // Join calls JoinFunc.
 func (mock *SignupStoreMock) Join(ctx context.Context, scope tenancy.Scope, listID string, signup *waitlists.Signup) (*waitlists.Signup, error) {
 	if mock.JoinFunc == nil {
@@ -1819,6 +2952,54 @@ func (mock *SignupStoreMock) JoinCalls() []struct {
 	mock.lockJoin.RLock()
 	calls = mock.calls.Join
 	mock.lockJoin.RUnlock()
+	return calls
+}
+
+// JoinTx calls JoinTxFunc.
+func (mock *SignupStoreMock) JoinTx(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signup *waitlists.Signup) (*waitlists.Signup, error) {
+	if mock.JoinTxFunc == nil {
+		panic("SignupStoreMock.JoinTxFunc: method is nil but SignupStore.JoinTx was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Q      database.Tx
+		Scope  tenancy.Scope
+		ListID string
+		Signup *waitlists.Signup
+	}{
+		Ctx:    ctx,
+		Q:      q,
+		Scope:  scope,
+		ListID: listID,
+		Signup: signup,
+	}
+	mock.lockJoinTx.Lock()
+	mock.calls.JoinTx = append(mock.calls.JoinTx, callInfo)
+	mock.lockJoinTx.Unlock()
+	return mock.JoinTxFunc(ctx, q, scope, listID, signup)
+}
+
+// JoinTxCalls gets all the calls that were made to JoinTx.
+// Check the length with:
+//
+//	len(mockedSignupStore.JoinTxCalls())
+func (mock *SignupStoreMock) JoinTxCalls() []struct {
+	Ctx    context.Context
+	Q      database.Tx
+	Scope  tenancy.Scope
+	ListID string
+	Signup *waitlists.Signup
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Q      database.Tx
+		Scope  tenancy.Scope
+		ListID string
+		Signup *waitlists.Signup
+	}
+	mock.lockJoinTx.RLock()
+	calls = mock.calls.JoinTx
+	mock.lockJoinTx.RUnlock()
 	return calls
 }
 
@@ -1958,6 +3139,58 @@ func (mock *SignupStoreMock) UpdateSignupNotesCalls() []struct {
 	return calls
 }
 
+// UpdateSignupNotesTx calls UpdateSignupNotesTxFunc.
+func (mock *SignupStoreMock) UpdateSignupNotesTx(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string, notes string) error {
+	if mock.UpdateSignupNotesTxFunc == nil {
+		panic("SignupStoreMock.UpdateSignupNotesTxFunc: method is nil but SignupStore.UpdateSignupNotesTx was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		Q        database.Tx
+		Scope    tenancy.Scope
+		ListID   string
+		SignupID string
+		Notes    string
+	}{
+		Ctx:      ctx,
+		Q:        q,
+		Scope:    scope,
+		ListID:   listID,
+		SignupID: signupID,
+		Notes:    notes,
+	}
+	mock.lockUpdateSignupNotesTx.Lock()
+	mock.calls.UpdateSignupNotesTx = append(mock.calls.UpdateSignupNotesTx, callInfo)
+	mock.lockUpdateSignupNotesTx.Unlock()
+	return mock.UpdateSignupNotesTxFunc(ctx, q, scope, listID, signupID, notes)
+}
+
+// UpdateSignupNotesTxCalls gets all the calls that were made to UpdateSignupNotesTx.
+// Check the length with:
+//
+//	len(mockedSignupStore.UpdateSignupNotesTxCalls())
+func (mock *SignupStoreMock) UpdateSignupNotesTxCalls() []struct {
+	Ctx      context.Context
+	Q        database.Tx
+	Scope    tenancy.Scope
+	ListID   string
+	SignupID string
+	Notes    string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		Q        database.Tx
+		Scope    tenancy.Scope
+		ListID   string
+		SignupID string
+		Notes    string
+	}
+	mock.lockUpdateSignupNotesTx.RLock()
+	calls = mock.calls.UpdateSignupNotesTx
+	mock.lockUpdateSignupNotesTx.RUnlock()
+	return calls
+}
+
 // Withdraw calls WithdrawFunc.
 func (mock *SignupStoreMock) Withdraw(ctx context.Context, scope tenancy.Scope, listID string, signupID string) error {
 	if mock.WithdrawFunc == nil {
@@ -1999,5 +3232,97 @@ func (mock *SignupStoreMock) WithdrawCalls() []struct {
 	mock.lockWithdraw.RLock()
 	calls = mock.calls.Withdraw
 	mock.lockWithdraw.RUnlock()
+	return calls
+}
+
+// WithdrawSignupsForSubject calls WithdrawSignupsForSubjectFunc.
+func (mock *SignupStoreMock) WithdrawSignupsForSubject(ctx context.Context, q database.Tx, scope tenancy.Scope, subject waitlists.Subject) (int64, error) {
+	if mock.WithdrawSignupsForSubjectFunc == nil {
+		panic("SignupStoreMock.WithdrawSignupsForSubjectFunc: method is nil but SignupStore.WithdrawSignupsForSubject was just called")
+	}
+	callInfo := struct {
+		Ctx     context.Context
+		Q       database.Tx
+		Scope   tenancy.Scope
+		Subject waitlists.Subject
+	}{
+		Ctx:     ctx,
+		Q:       q,
+		Scope:   scope,
+		Subject: subject,
+	}
+	mock.lockWithdrawSignupsForSubject.Lock()
+	mock.calls.WithdrawSignupsForSubject = append(mock.calls.WithdrawSignupsForSubject, callInfo)
+	mock.lockWithdrawSignupsForSubject.Unlock()
+	return mock.WithdrawSignupsForSubjectFunc(ctx, q, scope, subject)
+}
+
+// WithdrawSignupsForSubjectCalls gets all the calls that were made to WithdrawSignupsForSubject.
+// Check the length with:
+//
+//	len(mockedSignupStore.WithdrawSignupsForSubjectCalls())
+func (mock *SignupStoreMock) WithdrawSignupsForSubjectCalls() []struct {
+	Ctx     context.Context
+	Q       database.Tx
+	Scope   tenancy.Scope
+	Subject waitlists.Subject
+} {
+	var calls []struct {
+		Ctx     context.Context
+		Q       database.Tx
+		Scope   tenancy.Scope
+		Subject waitlists.Subject
+	}
+	mock.lockWithdrawSignupsForSubject.RLock()
+	calls = mock.calls.WithdrawSignupsForSubject
+	mock.lockWithdrawSignupsForSubject.RUnlock()
+	return calls
+}
+
+// WithdrawTx calls WithdrawTxFunc.
+func (mock *SignupStoreMock) WithdrawTx(ctx context.Context, q database.Tx, scope tenancy.Scope, listID string, signupID string) error {
+	if mock.WithdrawTxFunc == nil {
+		panic("SignupStoreMock.WithdrawTxFunc: method is nil but SignupStore.WithdrawTx was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		Q        database.Tx
+		Scope    tenancy.Scope
+		ListID   string
+		SignupID string
+	}{
+		Ctx:      ctx,
+		Q:        q,
+		Scope:    scope,
+		ListID:   listID,
+		SignupID: signupID,
+	}
+	mock.lockWithdrawTx.Lock()
+	mock.calls.WithdrawTx = append(mock.calls.WithdrawTx, callInfo)
+	mock.lockWithdrawTx.Unlock()
+	return mock.WithdrawTxFunc(ctx, q, scope, listID, signupID)
+}
+
+// WithdrawTxCalls gets all the calls that were made to WithdrawTx.
+// Check the length with:
+//
+//	len(mockedSignupStore.WithdrawTxCalls())
+func (mock *SignupStoreMock) WithdrawTxCalls() []struct {
+	Ctx      context.Context
+	Q        database.Tx
+	Scope    tenancy.Scope
+	ListID   string
+	SignupID string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		Q        database.Tx
+		Scope    tenancy.Scope
+		ListID   string
+		SignupID string
+	}
+	mock.lockWithdrawTx.RLock()
+	calls = mock.calls.WithdrawTx
+	mock.lockWithdrawTx.RUnlock()
 	return calls
 }

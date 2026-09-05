@@ -426,3 +426,27 @@ func withdrawSignupParams(
 		ExpectedStatus:  string(StatusWithdrawn),
 	}
 }
+
+// withdrawSignupsForSubjectParams is the same erasure over every signup one
+// principal holds in the scope: the same columns blanked, the same status
+// pair stamped, and the subject bound twice — once as what the predicate
+// requires and once as the empty string the SET list assigns.
+func withdrawSignupsForSubjectParams(
+	scope tenancy.Scope,
+	subject Subject,
+	at time.Time,
+) waitlistsdb.WithdrawSignupsForSubjectParams {
+	stamped := at.UTC()
+
+	return waitlistsdb.WithdrawSignupsForSubjectParams{
+		Contact:           "",
+		SubjectType:       "",
+		SubjectID:         "",
+		Notes:             "",
+		Status:            string(StatusWithdrawn),
+		StatusChangedAt:   &stamped,
+		Scope:             scope,
+		ErasedSubjectType: string(subject.Type),
+		ErasedSubjectID:   subject.ID,
+	}
+}

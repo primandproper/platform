@@ -22,6 +22,13 @@ contacts, and a withdrawn contact stops being suppressed — so it is a
 waitlists.WithHasher passed through WithStoreOptions by a deployment that has
 also rewritten the column, rather than an environment variable a restart can
 change. See waitlists.WithHasher.
+
+The privacy seam is not here either, and that absence is the same reading the
+composition root takes of every registry: waitlists/privacy needs a
+ScopeResolver, which is a mapping from a person to the tenants they belong to,
+and no environment variable can express one. A service that wants its signups in
+its subject access requests registers the collector and the eraser itself, with
+the store this package built.
 */
 package waitlistscfg
 

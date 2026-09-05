@@ -597,6 +597,18 @@ WHERE archived_at IS NULL
 	AND waitlist_id = ?
 	AND status <> ?`
 
+const withdrawSignupsForSubjectMySQL = `UPDATE {{prefix}}waitlist_signups SET
+	contact = ?,
+	subject_type = ?,
+	subject_id = ?,
+	notes = ?,
+	status = ?,
+	status_changed_at = ?,
+	last_updated_at = CURRENT_TIMESTAMP(6)
+WHERE scope = ?
+	AND subject_type = ?
+	AND subject_id = ?`
+
 // mysqlQueries answers every query in Querier against mysql.
 type mysqlQueries struct {
 	archiveList                     string
@@ -620,6 +632,7 @@ type mysqlQueries struct {
 	updateList                      string
 	updateSignupNotes               string
 	withdrawSignup                  string
+	withdrawSignupsForSubject       string
 }
 
 // newMySQL returns the mysql querier with prefix substituted into every
@@ -647,6 +660,7 @@ func newMySQL(prefix string) *mysqlQueries {
 		updateList:                      strings.ReplaceAll(updateListMySQL, prefixMarker, prefix),
 		updateSignupNotes:               strings.ReplaceAll(updateSignupNotesMySQL, prefixMarker, prefix),
 		withdrawSignup:                  strings.ReplaceAll(withdrawSignupMySQL, prefixMarker, prefix),
+		withdrawSignupsForSubject:       strings.ReplaceAll(withdrawSignupsForSubjectMySQL, prefixMarker, prefix),
 	}
 }
 
@@ -1384,6 +1398,26 @@ func (q *mysqlQueries) WithdrawSignup(ctx context.Context, db DBTX, arg Withdraw
 	return result.RowsAffected()
 }
 
+// WithdrawSignupsForSubject runs the :execrows query against mysql.
+func (q *mysqlQueries) WithdrawSignupsForSubject(ctx context.Context, db DBTX, arg WithdrawSignupsForSubjectParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.withdrawSignupsForSubject,
+		arg.Contact,
+		arg.SubjectType,
+		arg.SubjectID,
+		arg.Notes,
+		arg.Status,
+		arg.StatusChangedAt,
+		arg.Scope,
+		arg.ErasedSubjectType,
+		arg.ErasedSubjectID,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // Shape assertions.
 //
 // Each conversion below compiles only if the shared type still has exactly
@@ -1722,4 +1756,15 @@ var (
 		WaitlistID      string
 		ExpectedStatus  string
 	}(WithdrawSignupParams{})
+	_ = struct {
+		Contact           string
+		SubjectType       string
+		SubjectID         string
+		Notes             string
+		Status            string
+		StatusChangedAt   *time.Time
+		Scope             tenancy.Scope
+		ErasedSubjectType string
+		ErasedSubjectID   string
+	}(WithdrawSignupsForSubjectParams{})
 )

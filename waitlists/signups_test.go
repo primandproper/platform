@@ -296,6 +296,36 @@ func runSignupSuite(t *testing.T, env *storeEnv) {
 			test.EqOp(t, alsoMine.ID, page.Data[0].ID)
 		})
 
+		T.Run("reaches archived signups when asked", func(t *testing.T) {
+			t.Parallel()
+
+			store := env.newStore(t)
+
+			first := mustCreateList(t, store, testScope, openList("first"))
+			second := mustCreateList(t, store, testScope, openList("second"))
+
+			live := mustJoin(t, store, testScope, first.ID, &Signup{Contact: "ada@example.com", Subject: testSubject})
+			retired := mustJoin(t, store, testScope, second.ID, &Signup{Contact: "ada@example.com", Subject: testSubject})
+			must.NoError(t, store.ArchiveSignup(t.Context(), testScope, second.ID, retired.ID))
+
+			page, err := store.ListSignupsForSubject(t.Context(), testScope, testSubject, nil)
+			must.NoError(t, err)
+			must.SliceLen(t, 1, page.Data)
+			test.EqOp(t, live.ID, page.Data[0].ID)
+
+			// An archived signup still holds the address it was made with, and
+			// the read an export walks has to be able to say so.
+			everything := filtering.DefaultQueryFilter()
+			everything.IncludeArchived = new(true)
+
+			page, err = store.ListSignupsForSubject(t.Context(), testScope, testSubject, everything)
+			must.NoError(t, err)
+			must.SliceLen(t, 2, page.Data)
+			test.EqOp(t, retired.ID, page.Data[1].ID)
+			test.NotNil(t, page.Data[1].ArchivedAt)
+			test.EqOp(t, "ada@example.com", page.Data[1].Contact)
+		})
+
 		T.Run("refuses the anonymous subject rather than paging everybody", func(t *testing.T) {
 			t.Parallel()
 
