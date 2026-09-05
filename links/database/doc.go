@@ -39,11 +39,19 @@ returned and Revoke takes — so a backup, a replica, or a support engineer's
 query yields a list of links that were issued rather than a set of live
 credentials.
 
-There is no tenancy scope column, and that is the one place this table departs
-from the module's rule. A link is never read by enumeration and never by
-anything but the bearer's own digest, and links.Mint takes no scope to bind:
-adding the column means changing that signature, which is a decision of its own
-rather than a consequence of moving the records into a table.
+There is no tenancy scope column, by decision rather than by deferral. The
+module's rule exists to stop a read that forgot the scope from matching
+everything, and that needs a read which can widen; every statement here is keyed
+by a primary key that is a digest of thirty-two bytes of randomness, so the only
+read this table has is the one row nobody can guess the name of. On the
+redemption path the column would add nothing besides: whoever holds the token
+holds the credential, and requiring a scope only obliges the redeemer to know a
+second fact, which a magic-login link — whose purpose is to identify a caller
+who is not yet known — cannot supply. The reads that would enumerate want the
+subject, which is a column here already: revoking every live link for a person
+should cross that person's tenants rather than stop inside one, and
+dataprivacy.Eraser is keyed on a subject throughout this module. What this table
+holds is a credential, not a domain record, and the rule governs domain records.
 
 # Expiry, retention, and the sweep
 

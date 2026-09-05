@@ -13,11 +13,30 @@
 -- column beside a surrogate id: a link has exactly one name, and a second one
 -- would be a second thing to look a redemption up by.
 --
--- There is no scope column, and its absence is the one departure from this
--- module's tenancy rule. A link is not read by enumeration and never by
--- anything but the bearer's own digest, and links.Mint takes no scope to bind —
--- adding the column means changing that signature, which is a decision of its
--- own rather than a consequence of moving the records into a table.
+-- There is no scope column, and that is a decision rather than a deferral.
+-- This module's tenancy rule exists to stop a read that forgot the scope from
+-- matching everything, and that failure needs a read which can widen. There is
+-- none here. Every statement is keyed by this primary key, and this primary key
+-- is a digest of thirty-two bytes of randomness, so the only read this table
+-- has is "the one row named by a value nobody can guess".
+--
+-- The column would not earn its place on the redemption path either. Whoever
+-- holds the token holds the credential, so a scope predicate refuses nobody it
+-- did not already refuse; what it adds is a second fact the redeemer must know
+-- first, and a magic-login link exists precisely to identify a caller who is
+-- not yet known and whose tenant therefore is not known either.
+--
+-- The reads that would enumerate want the subject instead. Revoking every live
+-- link for a person should cross whatever tenants that person belongs to rather
+-- than stop inside one, and erasure is subject-keyed throughout this module —
+-- dataprivacy.Eraser takes a subject and lets each component resolve its own
+-- scopes from it. subject is already a column here.
+--
+-- What this table holds is a credential and not a domain record: named by its
+-- own secret, legible only to the bearer, and collected within the retention
+-- window. The tenancy rule governs domain records. An application that wants a
+-- tenant recorded against a link it minted has metadata for it, and wants the
+-- invitation itself in its own schema regardless.
 --
 -- action and subject are what the link is bound to: which flow it belongs to,
 -- and who it is for. The action is the half that stops a verification link

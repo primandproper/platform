@@ -356,13 +356,14 @@ func TestRender_InsertConvergesOnNothing(T *testing.T) {
 	}
 }
 
-// TestRender_BindsNoTenancyScope pins the one place this table departs from the
-// module's rule, so the departure is a decision somebody reads rather than an
-// omission.
+// TestRender_BindsNoTenancyScope pins the absence of a scope column, so that it
+// stays a decision somebody reads rather than an omission somebody corrects.
 //
-// A link is never read by enumeration and never by anything but the bearer's
-// own digest, and links.Mint takes no scope to bind — adding the column means
-// changing that signature, which is a decision of its own.
+// The module's tenancy rule guards against a read that forgot the scope and so
+// matched everything. This corpus has no read that can widen: every statement
+// is keyed by a primary key that is a digest of thirty-two bytes of randomness.
+// The enumerating reads a scope would serve want the subject instead, which is
+// a column here already. See migrations/postgres.sql for the argument in full.
 func TestRender_BindsNoTenancyScope(T *testing.T) {
 	T.Parallel()
 
