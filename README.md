@@ -38,7 +38,7 @@ Selecting an implementation is deliberate: an unrecognized provider name returns
 
 **OpenTelemetry throughout.** HTTP, gRPC, database, and messaging layers emit traces and metrics. Observability primitives (logging, tracing, metrics, profiling) live under `observability/`.
 
-**Error handling.** Uses [`cockroachdb/errors`](https://github.com/cockroachdb/errors) for rich, wrapped error context. Platform-level sentinel errors live in `errors/`, conventionally imported as `platformerrors`. Transport mappings live in `errors/http` and `errors/grpc`, which map the primitives — `database`, `circuitbreaking`, `ratelimiting`, `idempotency`, `requestsigning`, the search indexes — and import those packages, so nothing in them may import back. Everything built on top maps itself: `dataprivacy`, `links`, `operations` and `sessions` each export an `HTTPMapper` and a `GRPCMapper`, and `service.Register` registers them. `internal/sentinelmatrix` checks that every exported sentinel in those four has a decision recorded and that it still holds on both transports.
+**Error handling.** Uses [`cockroachdb/errors`](https://github.com/cockroachdb/errors) for rich, wrapped error context. Platform-level sentinel errors live in `errors/`, conventionally imported as `platformerrors`. Transport mappings live in `errors/http` and `errors/grpc`, which map the primitives — `database`, `circuitbreaking`, `ratelimiting`, `idempotency`, `requestsigning`, the search indexes — and import those packages, so nothing in them may import back. Everything built on top maps itself: `dataprivacy`, `links`, `operations` and `sessions` each export an `HTTPMapper` and a `GRPCMapper`, and the composition root registers the four in one call — `errormappers.Register()`, which `service.Register` makes for a service built from a `service.Config` and a service assembled by hand makes itself. `operations/http.New` is the single exception, registering its own HTTP mapper because it is the only surface here that both answers through `errors/http` and belongs to a package on that list. `internal/sentinelmatrix` checks that every exported sentinel in those four has a decision recorded and that it still holds on both transports.
 
 ## Package Catalog
 
@@ -170,7 +170,7 @@ from today. The rule is what a new package is measured against either way.
 | `primitives-go` | the database and schema tooling stores are built with     | `database`, `filtering` |
 | `primitives-go` | the cross-cutting values and utilities both tiers build on | `batching`, `bitmask`, `charset`, `circuitbreaking`, `clock`, `config`, `errors`, `fake`, `files`, `identifiers`, `jobs`, `numbers`, `observability`, `panicking`, `pointer`, `qrcodes`, `random`, `reflection`, `retry`, `tenancy`, `testutils`, `version` |
 | `platform-go`   | a noun with a table, and what it owes                     | `audit`, `authentication/oauth2server/database`, `authentication/passwordreset`, `authentication/webauthn/database`, `authorization/database`, `billing`, `comments`, `cryptography/shredding`, `dataprivacy`, `entitlements`, `identity`, `issuereports`, `links`, `metering`, `notifications`, `operations`, `outbox`, `retention`, `saga`, `search/sync`, `sessions`, `settings`, `timers`, `uploads/registry`, `waitlists`, `webhooks`, `workqueue` |
-| `platform-go`   | the composition root that registers both tiers            | `service` |
+| `platform-go`   | the composition root that registers both tiers            | `errormappers`, `service` |
 
 A package with a path of its own on the other side is a package straddling the
 line, and today six do. Four are a primitive with a store nested inside it — `authentication` hashes
@@ -183,7 +183,10 @@ what has to get a home of its own before its parent can leave whole.
 
 `service` is neither tier and is why the split does not split it: it is one walk
 of one config that registers both, and a consumer of both sees the wiring it
-sees today.
+sees today. `errormappers` is the small half of the same job that does sit on
+this side — the one call that tells the two transport registries what the domain
+tier's sentinels mean — kept out of `service` so that a consumer wiring three
+packages by hand does not import the config tree of seventy to make it.
 
 ### Transports
 

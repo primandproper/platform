@@ -20,10 +20,19 @@ import (
 //
 // Nothing registers these on its own: there is no init here, because a mapper
 // that installs itself into a process-wide registry by being linked in is a
-// side effect a consumer cannot opt out of. service.Register registers them for
-// a service built from a service.Config, and a service assembled by hand calls
-// errors/http.RegisterHTTPErrorMapper and errors/grpc.RegisterGRPCErrorMapper
-// itself, next to its own.
+// side effect a consumer cannot opt out of. The composition root registers the
+// domain tier, and for this module that is one call — errormappers.Register,
+// which service.Register makes for a service built from a service.Config and a
+// service assembled by hand makes itself, next to the mappers it declares for
+// its own sentinels.
+//
+// operations/http.New registers the HTTP one a second time, and is the only
+// place in this module that registers anything for itself. It can be because it
+// is the only surface here that answers a request through errors/http and
+// belongs to a package in that list, so constructing it is already the statement
+// that this process serves operation errors on the wire. The registries are
+// append-only and stop at the first match, so the second copy answers
+// identically and is never reached.
 var (
 	// HTTPMapper maps this package's sentinels onto HTTP error codes.
 	HTTPMapper httperrors.HTTPErrorMapper = httpMapper{}

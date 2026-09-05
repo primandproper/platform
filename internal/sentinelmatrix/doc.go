@@ -45,6 +45,15 @@ them freely, and that is how the dependency comes back — a test reaching for a
 domain sentinel to assert something about, and errors/ quietly stops being a
 package that can be lifted out on its own.
 
+The roster is a package-level var rather than a test fixture, because two other
+test binaries need the same expectation. errormappers.Register is the one call
+that installs these four packages' mappers, service.Register is the caller that
+makes it for a service built from a service.Config, and each asserts that what
+its registration makes ToAPIError and MapToGRPC say matches what the owning
+package's mapper answers — MappedResolutions is that answer, computed here so
+that neither can drift from the other or from the mapper. Nothing outside this
+module can see any of it: this is internal/.
+
 What this package does not check is the reasons. Each mapper's own comments
 carry why a link that has expired is a 410 and a FailedPrecondition; repeating
 that here would be a second copy of an answer rather than a check on this one.

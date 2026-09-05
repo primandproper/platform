@@ -31,10 +31,12 @@ Registration is what makes a mapper reachable. RegisterGRPCErrorMapper appends
 one; MapToGRPC consults PlatformMapper first, then registered mappers in
 registration order. RegisterClientSafeSentinels is the companion for the other
 half of the answer — whether a sentinel's own words reach the client, described
-below. service.Register does both for this module's four; a service assembled by
-hand does it alongside its own. There is deliberately no init doing it: a mapper
-that installs itself into a process-wide registry by being linked in is a side
-effect a consumer cannot opt out of.
+below. This module's four are one call that does both, errormappers.Register,
+which service.Register makes for a service built from a service.Config and a
+service assembled by hand makes itself, alongside the mappers it declares for its
+own sentinels. There is deliberately no init doing it: a mapper that installs
+itself into a process-wide registry by being linked in is a side effect a
+consumer cannot opt out of.
 
 # What reaches the client, and what that assumes
 

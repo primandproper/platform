@@ -1,9 +1,10 @@
-package service
+package errormappers_test
 
 import (
 	"context"
 	"testing"
 
+	"github.com/primandproper/platform-go/v14/errormappers"
 	platformerrors "github.com/primandproper/platform-go/v14/errors"
 	grpcerrors "github.com/primandproper/platform-go/v14/errors/grpc"
 	httperrors "github.com/primandproper/platform-go/v14/errors/http"
@@ -17,30 +18,29 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// TestRegister_installsTheDomainErrorMappers is the other end of the inversion
-// that moved these mappings out of errors/http and errors/grpc. Those two are
-// primitives and answer only for primitives now, so a privacy request nobody
-// registered a mapper for reaches a subject as a 500 — the exact failure the
-// mappings were written to end. This is what registers them, through the one
-// call in errormappers.
-//
-// The Config names no DataPrivacy and no Operations, which is the point: those
-// two used to be registered inside their config blocks and are now registered
-// for every service, on the argument the other two always made — an unused
-// mapper is one comparison against a sentinel the service cannot produce, and
-// the expensive direction to be wrong in is a 500 for an error somebody took the
-// trouble to give a status. No other test in this package builds a Config with
-// either field set, so a mapper reaching a sentinel here reached it from this
-// call.
-//
-// The expectation is what the owning package's mapper answers, computed in
-// internal/sentinelmatrix, and errormappers' own test asserts the same values
-// against the same source. That is what makes the one call and this one unable
-// to drift apart: neither test carries a table of its own to disagree with.
-func TestRegister_installsTheDomainErrorMappers(T *testing.T) {
-	T.Parallel()
+// TestMain registers once for the whole binary, which is the only honest way to
+// test a process-global registry: every test below asks ToAPIError and MapToGRPC
+// what a wrapped sentinel resolves to, and those read a registry the process has
+// exactly one of. Registering inside each test would work too, and would be
+// asserting that appending the same mappers four times is harmless rather than
+// that appending them once is enough.
+func TestMain(m *testing.M) {
+	errormappers.Register()
+	m.Run()
+}
 
-	newInjector(T, &Config{Name: "example"})
+// TestRegister_resolvesEveryMappedSentinel is the acceptance test for the one
+// call: after it, every sentinel internal/sentinelmatrix records as mapped
+// reaches a client as the status its own package decided on, on both transports.
+//
+// The expectation comes from the owning package's mappers rather than from a
+// table here, so this asserts the registration and not the mapping — a mapper's
+// own cases are tested in its own package, and the roster is checked against
+// those packages' source in internal/sentinelmatrix. service.Register asserts
+// the same thing against the same expectation, which is what keeps the one call
+// and the config-driven one from answering a sentinel differently.
+func TestRegister_resolvesEveryMappedSentinel(T *testing.T) {
+	T.Parallel()
 
 	resolutions := sentinelmatrix.MappedResolutions()
 	must.SliceNotEmpty(T, resolutions, must.Sprint("no mapped sentinels, so this test asserted nothing"))
@@ -54,7 +54,7 @@ func TestRegister_installsTheDomainErrorMappers(T *testing.T) {
 
 			code, msg := httperrors.ToAPIError(err)
 			test.EqOp(t, want.HTTPCode, code, test.Sprintf(
-				"%s.%s resolved to %v after Register and %v through %s's own mapper",
+				"%s.%s resolved to %v through the registry and %v through %s's own mapper",
 				want.Package, want.Name, code, want.HTTPCode, want.Package))
 			test.EqOp(t, want.HTTPMsg, msg)
 			test.NotEqOp(t, httperrors.ErrNothingSpecific, code, test.Sprintf(
@@ -63,7 +63,7 @@ func TestRegister_installsTheDomainErrorMappers(T *testing.T) {
 
 			grpcCode := grpcerrors.MapToGRPC(err, codes.Unknown)
 			test.EqOp(t, want.GRPCCode, grpcCode, test.Sprintf(
-				"%s.%s resolved to %v after Register and %v through %s's own mapper",
+				"%s.%s resolved to %v through the registry and %v through %s's own mapper",
 				want.Package, want.Name, grpcCode, want.GRPCCode, want.Package))
 			test.NotEqOp(t, codes.Unknown, grpcCode, test.Sprintf(
 				"%s.%s resolved to codes.Unknown, so no gRPC mapper was registered for %s",
@@ -73,14 +73,12 @@ func TestRegister_installsTheDomainErrorMappers(T *testing.T) {
 }
 
 // TestRegister_installsTheClientSafeSentinels covers the other half of what
-// links needs from gRPC. Its four redemption outcomes share one code, so the
-// message is the only place the difference between "already used" and "expired"
+// links needs from gRPC. Its redemption outcomes share one code, so the message
+// is the only place the difference between "already used" and "expired"
 // survives, and a gRPC message is the code's name unless a sentinel is
 // registered as safe to quote.
 func TestRegister_installsTheClientSafeSentinels(T *testing.T) {
 	T.Parallel()
-
-	newInjector(T, &Config{Name: "example"})
 
 	interceptor := grpcerrors.UnaryErrorEncodingInterceptor()
 

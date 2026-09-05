@@ -12,191 +12,15 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/primandproper/platform-go/v14/dataprivacy"
 	platformerrors "github.com/primandproper/platform-go/v14/errors"
 	grpcerrors "github.com/primandproper/platform-go/v14/errors/grpc"
 	httperrors "github.com/primandproper/platform-go/v14/errors/http"
-	"github.com/primandproper/platform-go/v14/links"
-	"github.com/primandproper/platform-go/v14/operations"
-	"github.com/primandproper/platform-go/v14/sessions"
+	"github.com/primandproper/platform-go/v14/internal/sentinelmatrix"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
 	"google.golang.org/grpc/codes"
 )
-
-// disposition is what this module has decided one sentinel means on the wire.
-// The three are exhaustive by construction: a sentinel either has a case in its
-// own package's mappers, or wraps something the platform mappers answer, or
-// resolves to a 500.
-type disposition int
-
-const (
-	// mapped: the package's own HTTPMapper and GRPCMapper both answer.
-	mapped disposition = iota
-	// platform: those two are silent and errors/http and errors/grpc answer,
-	// because the sentinel wraps a platform one.
-	platform
-	// unhandled: nobody answers, and a 500 is the honest reply.
-	unhandled
-)
-
-func (d disposition) String() string {
-	switch d {
-	case mapped:
-		return "mapped by its own package"
-	case platform:
-		return "mapped by the platform mappers"
-	case unhandled:
-		return "deliberately unmapped"
-	default:
-		return "unknown"
-	}
-}
-
-type decision struct {
-	err error
-	is  disposition
-}
-
-// matrix is the decision made about every exported sentinel in the four
-// packages that map their own errors. Its keys are checked against those
-// packages' source in both directions, so it is a roster that cannot quietly
-// stop describing the tree.
-var matrix = map[string]map[string]decision{
-	"dataprivacy": {
-		// A subject asking after their own export or erasure is a client. These five
-		// are the answers they can act on: the ID is not one of theirs, the request
-		// is not in the state the call needs, or the request they sent is malformed.
-		"ErrArtifactUnavailable":     {err: dataprivacy.ErrArtifactUnavailable, is: mapped},
-		"ErrEmptySubjectID":          {err: dataprivacy.ErrEmptySubjectID, is: mapped},
-		"ErrNotAwaitingConfirmation": {err: dataprivacy.ErrNotAwaitingConfirmation, is: mapped},
-		"ErrRequestNotFound":         {err: dataprivacy.ErrRequestNotFound, is: mapped},
-		"ErrUnknownRequestType":      {err: dataprivacy.ErrUnknownRequestType, is: mapped},
-
-		// The nil-argument sentinels, which wrap errors.ErrNilInputParameter and are
-		// answered by the platform mapper for that reason. They are wiring failures
-		// and the 400 they resolve to is generous; the mapping predates this package
-		// and is not this package's to change.
-		"ErrNilDatabaseClient": {err: dataprivacy.ErrNilDatabaseClient, is: platform},
-		"ErrNilExecutor":       {err: dataprivacy.ErrNilExecutor, is: platform},
-		"ErrNilFetch":          {err: dataprivacy.ErrNilFetch, is: platform},
-		"ErrNilOperations":     {err: dataprivacy.ErrNilOperations, is: platform},
-		"ErrNilRequest":        {err: dataprivacy.ErrNilRequest, is: platform},
-		"ErrNilStore":          {err: dataprivacy.ErrNilStore, is: platform},
-
-		// Fulfillment-side outcomes and construction failures. A collector that
-		// panicked, an export document too large to store, an upload manager that
-		// cannot sign a URL, a registry with a duplicate key: none is a request a
-		// subject could have sent differently, and a 500 is the honest answer.
-		// ErrNilPage and ErrCursorStalled are a Store misbehaving toward its own
-		// caller and never reach a handler at all.
-		"ErrArtifactEncrypted":  {err: dataprivacy.ErrArtifactEncrypted, is: unhandled},
-		"ErrCollectorPanicked":  {err: dataprivacy.ErrCollectorPanicked, is: unhandled},
-		"ErrCursorStalled":      {err: dataprivacy.ErrCursorStalled, is: unhandled},
-		"ErrDocumentTooLarge":   {err: dataprivacy.ErrDocumentTooLarge, is: unhandled},
-		"ErrDuplicateKey":       {err: dataprivacy.ErrDuplicateKey, is: unhandled},
-		"ErrEraserPanicked":     {err: dataprivacy.ErrEraserPanicked, is: unhandled},
-		"ErrEverySectionFailed": {err: dataprivacy.ErrEverySectionFailed, is: unhandled},
-		"ErrInvalidFragment":    {err: dataprivacy.ErrInvalidFragment, is: unhandled},
-		"ErrInvalidKey":         {err: dataprivacy.ErrInvalidKey, is: unhandled},
-		"ErrNilPage":            {err: dataprivacy.ErrNilPage, is: unhandled},
-		"ErrNoCollectors":       {err: dataprivacy.ErrNoCollectors, is: unhandled},
-		"ErrNoErasers":          {err: dataprivacy.ErrNoErasers, is: unhandled},
-		"ErrNoURLSigner":        {err: dataprivacy.ErrNoURLSigner, is: unhandled},
-		"ErrNoUploadManager":    {err: dataprivacy.ErrNoUploadManager, is: unhandled},
-		"ErrNotInProgress":      {err: dataprivacy.ErrNotInProgress, is: unhandled},
-		"ErrUnexpiringArtifact": {err: dataprivacy.ErrUnexpiringArtifact, is: unhandled},
-		"ErrUnknownStatus":      {err: dataprivacy.ErrUnknownStatus, is: unhandled},
-	},
-	"links": {
-		// The four redemption outcomes and the malformed token. These are the whole
-		// of what a person holding a link can be told.
-		"ErrInvalidToken":        {err: links.ErrInvalidToken, is: mapped},
-		"ErrLinkAlreadyRedeemed": {err: links.ErrLinkAlreadyRedeemed, is: mapped},
-		"ErrLinkExpired":         {err: links.ErrLinkExpired, is: mapped},
-		"ErrLinkNotFound":        {err: links.ErrLinkNotFound, is: mapped},
-		"ErrLinkRevoked":         {err: links.ErrLinkRevoked, is: mapped},
-
-		// Wraps errors.ErrNilInputParameter, and the platform mapper answers it.
-		"ErrNilStore": {err: links.ErrNilStore, is: platform},
-
-		// Minter construction — an unregistered action, an unusable URL template, a
-		// non-positive TTL — and the store reporting itself. ErrStoreUnavailable is
-		// the one worth pausing on: redemption fails closed on it, and it is a 500
-		// deliberately, because a link this package cannot prove is unused is not a
-		// link the bearer should be told anything specific about.
-		"ErrEmptySubject":      {err: links.ErrEmptySubject, is: unhandled},
-		"ErrInsecureActionURL": {err: links.ErrInsecureActionURL, is: unhandled},
-		"ErrInvalidActionURL":  {err: links.ErrInvalidActionURL, is: unhandled},
-		"ErrInvalidID":         {err: links.ErrInvalidID, is: unhandled},
-		"ErrInvalidTTL":        {err: links.ErrInvalidTTL, is: unhandled},
-		"ErrNoActions":         {err: links.ErrNoActions, is: unhandled},
-		"ErrStaleRecord":       {err: links.ErrStaleRecord, is: unhandled},
-		"ErrStoreUnavailable":  {err: links.ErrStoreUnavailable, is: unhandled},
-		"ErrUnknownAction":     {err: links.ErrUnknownAction, is: unhandled},
-	},
-	"operations": {
-		// A missing operation, which is also what an operation belonging to somebody
-		// else reads as, and a subscription refused for capacity.
-		"ErrOperationNotFound": {err: operations.ErrOperationNotFound, is: mapped},
-		"ErrTooManyWatchers":   {err: operations.ErrTooManyWatchers, is: mapped},
-
-		// The nil-argument sentinels, which wrap errors.ErrNilInputParameter.
-		"ErrNilConfig":         {err: operations.ErrNilConfig, is: platform},
-		"ErrNilDatabaseClient": {err: operations.ErrNilDatabaseClient, is: platform},
-		"ErrNilExecutor":       {err: operations.ErrNilExecutor, is: platform},
-		"ErrNilOperation":      {err: operations.ErrNilOperation, is: platform},
-		"ErrNilQueue":          {err: operations.ErrNilQueue, is: platform},
-		"ErrNilRegistry":       {err: operations.ErrNilRegistry, is: platform},
-		"ErrNilService":        {err: operations.ErrNilService, is: platform},
-		"ErrNilStore":          {err: operations.ErrNilStore, is: platform},
-
-		// Registry and worker outcomes: a kind registered twice, a runner that
-		// panicked, a result too large to record, a watcher used after close. They
-		// describe the service rather than the request, and a 500 is the honest
-		// answer. ErrRequestTooLarge is the near miss — it is about something a
-		// caller sent — but it is raised by the service enqueuing work rather than
-		// by a handler decoding a request, and nothing today puts it on a response.
-		"ErrDuplicateKind":       {err: operations.ErrDuplicateKind, is: unhandled},
-		"ErrDuplicateOperation":  {err: operations.ErrDuplicateOperation, is: unhandled},
-		"ErrInvalidDefinition":   {err: operations.ErrInvalidDefinition, is: unhandled},
-		"ErrRequestTooLarge":     {err: operations.ErrRequestTooLarge, is: unhandled},
-		"ErrRequestTypeMismatch": {err: operations.ErrRequestTypeMismatch, is: unhandled},
-		"ErrResultTooLarge":      {err: operations.ErrResultTooLarge, is: unhandled},
-		"ErrRunnerPanicked":      {err: operations.ErrRunnerPanicked, is: unhandled},
-		"ErrUnknownKind":         {err: operations.ErrUnknownKind, is: unhandled},
-		"ErrWatcherClosed":       {err: operations.ErrWatcherClosed, is: unhandled},
-	},
-	"sessions": {
-		// Every unusable session. The two timeouts wrap ErrExpired, which wraps
-		// ErrNotFound, so all four resolve; they are listed because a sentinel that
-		// stops wrapping is exactly the kind of change this roster is here to catch.
-		"ErrAbsoluteTimeout": {err: sessions.ErrAbsoluteTimeout, is: mapped},
-		"ErrExpired":         {err: sessions.ErrExpired, is: mapped},
-		"ErrIdleTimeout":     {err: sessions.ErrIdleTimeout, is: mapped},
-		"ErrNotFound":        {err: sessions.ErrNotFound, is: mapped},
-
-		// Wrap errors.ErrEmptyInputParameter and errors.ErrNilInputParameter.
-		"ErrIDRequired":        {err: sessions.ErrIDRequired, is: platform},
-		"ErrNilBackend":        {err: sessions.ErrNilBackend, is: platform},
-		"ErrPrincipalRequired": {err: sessions.ErrPrincipalRequired, is: platform},
-
-		// A backend handed an identifier it did not mint, a backend that keeps no
-		// principal index, and the three Policy validation failures. None is
-		// something a client sent.
-		"ErrIDConflict":              {err: sessions.ErrIDConflict, is: unhandled},
-		"ErrNegativeTouchInterval":   {err: sessions.ErrNegativeTouchInterval, is: unhandled},
-		"ErrNoPrincipalIndex":        {err: sessions.ErrNoPrincipalIndex, is: unhandled},
-		"ErrNoTimeout":               {err: sessions.ErrNoTimeout, is: unhandled},
-		"ErrTouchExceedsIdleTimeout": {err: sessions.ErrTouchExceedsIdleTimeout, is: unhandled},
-	},
-}
-
-// packages are the directories matrix's rows are read out of, relative to the
-// module root. They are the four that export mappers of their own; a fifth
-// would be added here and in matrix together.
-var packages = []string{"dataprivacy", "links", "operations", "sessions"}
 
 // TestEverySentinelHasADecision is the entry this package exists to make
 // impossible to forget. A sentinel added to one of these packages and named in
@@ -206,7 +30,7 @@ var packages = []string{"dataprivacy", "links", "operations", "sessions"}
 func TestEverySentinelHasADecision(T *testing.T) {
 	T.Parallel()
 
-	for _, pkg := range packages {
+	for _, pkg := range sentinelmatrix.Packages {
 		T.Run(pkg, func(t *testing.T) {
 			t.Parallel()
 
@@ -214,7 +38,7 @@ func TestEverySentinelHasADecision(T *testing.T) {
 			must.SliceNotEmpty(t, declared, must.Sprintf("no sentinels parsed out of %s", pkg))
 
 			for _, name := range declared {
-				_, ok := matrix[pkg][name]
+				_, ok := sentinelmatrix.Matrix[pkg][name]
 				test.True(t, ok, test.Sprintf(
 					"%s.%s is a sentinel with no row here, so nothing says what a client is told when it happens", pkg, name))
 			}
@@ -229,13 +53,13 @@ func TestEverySentinelHasADecision(T *testing.T) {
 func TestNoRowOutlivesItsSentinel(T *testing.T) {
 	T.Parallel()
 
-	for _, pkg := range packages {
+	for _, pkg := range sentinelmatrix.Packages {
 		T.Run(pkg, func(t *testing.T) {
 			t.Parallel()
 
 			declared := sentinelNames(t, pkg)
 
-			for name := range matrix[pkg] {
+			for name := range sentinelmatrix.Matrix[pkg] {
 				test.True(t, slices.Contains(declared, name), test.Sprintf(
 					"%s.%s has a row here and is not a sentinel in that package any more", pkg, name))
 			}
@@ -252,15 +76,15 @@ func TestNoRowOutlivesItsSentinel(T *testing.T) {
 func TestEveryDecisionHoldsOnBothTransports(T *testing.T) {
 	T.Parallel()
 
-	for _, pkg := range packages {
-		for name, row := range matrix[pkg] {
+	for _, pkg := range sentinelmatrix.Packages {
+		for name, row := range sentinelmatrix.Matrix[pkg] {
 			T.Run(pkg+"."+name, func(t *testing.T) {
 				t.Parallel()
 
 				// Bare and wrapped, because a handler wraps: a mapping that only
 				// works on the sentinel itself works nowhere real.
-				assertDecision(t, pkg, name, row, row.err)
-				assertDecision(t, pkg, name, row, platformerrors.Wrap(row.err, "doing the thing"))
+				assertDecision(t, pkg, name, row, row.Err)
+				assertDecision(t, pkg, name, row, platformerrors.Wrap(row.Err, "doing the thing"))
 			})
 		}
 	}
@@ -273,10 +97,10 @@ func TestEveryDecisionHoldsOnBothTransports(T *testing.T) {
 // which would answer out of a process-global registry: whether somebody has
 // called RegisterHTTPErrorMapper is a property of a binary's wiring, and this
 // package is about whether the mapping exists to be registered.
-func assertDecision(t *testing.T, pkg, name string, row decision, err error) {
+func assertDecision(t *testing.T, pkg, name string, row sentinelmatrix.Decision, err error) {
 	t.Helper()
 
-	httpDomain, grpcDomain := domainMappers(pkg)
+	httpDomain, grpcDomain := sentinelmatrix.Mappers(pkg)
 
 	_, _, byDomainHTTP := httpDomain.Map(err)
 	_, byDomainGRPC := grpcDomain.Map(err)
@@ -284,41 +108,23 @@ func assertDecision(t *testing.T, pkg, name string, row decision, err error) {
 	_, _, byPlatformHTTP := httperrors.PlatformMapper.Map(err)
 	byPlatformCode, byPlatformGRPC := grpcerrors.PlatformMapper.Map(err)
 
-	switch row.is {
-	case mapped:
-		test.True(t, byDomainHTTP, test.Sprintf("%s.%s is %v and %s.HTTPMapper does not answer it", pkg, name, row.is, pkg))
-		test.True(t, byDomainGRPC, test.Sprintf("%s.%s is %v and %s.GRPCMapper does not answer it", pkg, name, row.is, pkg))
-	case platform:
-		test.False(t, byDomainHTTP, test.Sprintf("%s.%s is %v and %s.HTTPMapper claims it too", pkg, name, row.is, pkg))
-		test.False(t, byDomainGRPC, test.Sprintf("%s.%s is %v and %s.GRPCMapper claims it too", pkg, name, row.is, pkg))
-		test.True(t, byPlatformHTTP, test.Sprintf("%s.%s is %v and errors/http does not answer it", pkg, name, row.is))
-		test.True(t, byPlatformGRPC, test.Sprintf("%s.%s is %v and errors/grpc does not answer it", pkg, name, row.is))
-	case unhandled:
-		test.False(t, byDomainHTTP, test.Sprintf("%s.%s is %v and %s.HTTPMapper answers it", pkg, name, row.is, pkg))
-		test.False(t, byDomainGRPC, test.Sprintf("%s.%s is %v and %s.GRPCMapper answers it", pkg, name, row.is, pkg))
-		test.False(t, byPlatformHTTP, test.Sprintf("%s.%s is %v and errors/http answers it", pkg, name, row.is))
-		test.False(t, byPlatformGRPC, test.Sprintf("%s.%s is %v and errors/grpc answers it", pkg, name, row.is))
+	switch row.Is {
+	case sentinelmatrix.Mapped:
+		test.True(t, byDomainHTTP, test.Sprintf("%s.%s is %v and %s.HTTPMapper does not answer it", pkg, name, row.Is, pkg))
+		test.True(t, byDomainGRPC, test.Sprintf("%s.%s is %v and %s.GRPCMapper does not answer it", pkg, name, row.Is, pkg))
+	case sentinelmatrix.Platform:
+		test.False(t, byDomainHTTP, test.Sprintf("%s.%s is %v and %s.HTTPMapper claims it too", pkg, name, row.Is, pkg))
+		test.False(t, byDomainGRPC, test.Sprintf("%s.%s is %v and %s.GRPCMapper claims it too", pkg, name, row.Is, pkg))
+		test.True(t, byPlatformHTTP, test.Sprintf("%s.%s is %v and errors/http does not answer it", pkg, name, row.Is))
+		test.True(t, byPlatformGRPC, test.Sprintf("%s.%s is %v and errors/grpc does not answer it", pkg, name, row.Is))
+	case sentinelmatrix.Unhandled:
+		test.False(t, byDomainHTTP, test.Sprintf("%s.%s is %v and %s.HTTPMapper answers it", pkg, name, row.Is, pkg))
+		test.False(t, byDomainGRPC, test.Sprintf("%s.%s is %v and %s.GRPCMapper answers it", pkg, name, row.Is, pkg))
+		test.False(t, byPlatformHTTP, test.Sprintf("%s.%s is %v and errors/http answers it", pkg, name, row.Is))
+		test.False(t, byPlatformGRPC, test.Sprintf("%s.%s is %v and errors/grpc answers it", pkg, name, row.Is))
 		test.EqOp(t, codes.Unknown, byPlatformCode)
 	default:
 		t.Fatalf("%s.%s carries no disposition", pkg, name)
-	}
-}
-
-// domainMappers is the pair of mappers a package exports. The switch is the one
-// place this package spells the four out; everywhere else they are the strings
-// in packages.
-func domainMappers(pkg string) (httperrors.HTTPErrorMapper, grpcerrors.GRPCErrorMapper) {
-	switch pkg {
-	case "dataprivacy":
-		return dataprivacy.HTTPMapper, dataprivacy.GRPCMapper
-	case "links":
-		return links.HTTPMapper, links.GRPCMapper
-	case "operations":
-		return operations.HTTPMapper, operations.GRPCMapper
-	case "sessions":
-		return sessions.HTTPMapper, sessions.GRPCMapper
-	default:
-		panic("no mappers for " + pkg)
 	}
 }
 
@@ -333,7 +139,7 @@ func domainMappers(pkg string) (httperrors.HTTPErrorMapper, grpcerrors.GRPCError
 var parsed = sync.OnceValues(func() (map[string][]string, error) {
 	found := map[string][]string{}
 
-	for _, pkg := range packages {
+	for _, pkg := range sentinelmatrix.Packages {
 		dir := filepath.Join(moduleRootPath(), pkg)
 
 		entries, err := os.ReadDir(dir)
@@ -434,7 +240,7 @@ func TestErrorsDoesNotImportTheTierAboveIt(T *testing.T) {
 		}
 
 		for _, imported := range file.Imports {
-			for _, pkg := range packages {
+			for _, pkg := range sentinelmatrix.Packages {
 				test.False(T, strings.HasSuffix(strings.Trim(imported.Path.Value, `"`), "/"+pkg), test.Sprintf(
 					"%s imports %s, which imports errors/http and errors/grpc — the mappings were moved out of errors/ so that it depends on nothing above it", rel, pkg))
 			}
@@ -457,7 +263,7 @@ func TestModuleRootIsThisModule(T *testing.T) {
 
 	must.FileExists(T, filepath.Join(moduleRootPath(), "go.mod"))
 
-	for _, pkg := range packages {
+	for _, pkg := range sentinelmatrix.Packages {
 		must.DirExists(T, filepath.Join(moduleRootPath(), pkg))
 	}
 }
