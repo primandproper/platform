@@ -93,3 +93,5 @@ The module README's "Stores and Transports" section is where that rule is stated
 for the module as a whole, along with everything else on this side of it.
 */
 package http
+
+//platform:transport resource surface: poll, list, cancel, subscribe — over `Operation`

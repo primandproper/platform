@@ -100,3 +100,5 @@ what stops the client retrying at all. When the record then fails to store,
 idempotency_record_failures fires and the next retry runs the handler again.
 */
 package http
+
+//platform:transport middleware: the `Idempotency-Key` header, both sides of the wire

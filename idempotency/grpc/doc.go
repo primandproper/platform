@@ -99,3 +99,5 @@ exactly once either way: the handler is never invoked a second time to make up
 for a failed recording.
 */
 package grpc
+
+//platform:transport middleware: the same, over metadata

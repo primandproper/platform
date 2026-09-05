@@ -76,3 +76,5 @@ The module README's "Stores and Transports" section is where that line is drawn
 for the module as a whole.
 */
 package http
+
+//platform:transport binding: a signed cookie, whose security properties are ours

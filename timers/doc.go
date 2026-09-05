@@ -224,4 +224,6 @@ than after choosing this package.
 */
 package timers
 
+//platform:narrowing claims a due timer in the one statement, and would owe the same split anywhere else
+
 //go:generate go run ./internal/queriesgen
