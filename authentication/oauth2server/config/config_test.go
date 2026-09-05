@@ -1,8 +1,11 @@
 package oauth2servercfg
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -36,7 +39,7 @@ func TestConfig_EnsureDefaults(T *testing.T) {
 		test.EqOp(t, oauth2server.DefaultAuthorizationCodeTTL, cfg.AuthorizationCodeTTL)
 		test.EqOp(t, oauth2server.DefaultAccessTokenTTL, cfg.AccessTokenTTL)
 		test.EqOp(t, oauth2server.DefaultRefreshTokenTTL, cfg.RefreshTokenTTL)
-		test.EqOp(t, oauth2server.DefaultClientRegistrationTTL, cfg.ClientRegistrationTTL)
+		test.EqOp(t, oauth2server.DefaultClientRegistrationTTL, pointer.Dereference(cfg.ClientRegistrationTTL))
 		test.EqOp(t, oauth2server.DefaultSweepInterval, pointer.Dereference(cfg.SweepInterval))
 	})
 
@@ -71,6 +74,19 @@ func TestConfig_EnsureDefaults(T *testing.T) {
 		cfg.EnsureDefaults()
 
 		test.EqOp(t, time.Duration(0), pointer.Dereference(cfg.SweepInterval))
+	})
+
+	// The same defect two fields up. WithClientRegistrationTTL has always read
+	// zero as "never lapse"; what could not reach it was a configured zero,
+	// because this method mapped it to the ninety-day default first.
+	T.Run("leaves a spelled zero registration lifetime alone", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{ClientRegistrationTTL: pointer.To(time.Duration(0))}
+		cfg.EnsureDefaults()
+
+		must.NotNil(t, cfg.ClientRegistrationTTL)
+		test.EqOp(t, time.Duration(0), *cfg.ClientRegistrationTTL)
 	})
 }
 
@@ -132,6 +148,29 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		t.Parallel()
 
 		cfg := &Config{Provider: ProviderMemory, AccessTokenTTL: -time.Minute}
+		test.Error(t, cfg.ValidateWithContext(t.Context()))
+	})
+
+	// Nil is the unset field and zero is "never lapse"; both are answers the
+	// rule has to permit, and it is applied without EnsureDefaults having run
+	// so that the nil is really a nil when it reaches ozzo.
+	T.Run("accepts an unset and a zero registration lifetime", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Provider: ProviderMemory}
+		test.NoError(t, cfg.ValidateWithContext(t.Context()))
+
+		cfg.ClientRegistrationTTL = pointer.To(time.Duration(0))
+		test.NoError(t, cfg.ValidateWithContext(t.Context()))
+	})
+
+	// The option would fold a negative into zero, and a deployment that wrote
+	// one was not asking for registrations that never lapse. The pointer does
+	// not loosen this: Min reads through it.
+	T.Run("refuses a negative registration lifetime", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Provider: ProviderMemory, ClientRegistrationTTL: pointer.To(-time.Hour)}
 		test.Error(t, cfg.ValidateWithContext(t.Context()))
 	})
 }
@@ -252,6 +291,80 @@ func expiringCode() *oauth2server.AuthorizationCode {
 		ClientID:  "client",
 		Subject:   oauth2server.Subject{ID: "user"},
 	}
+}
+
+// TestConfig_ClientRegistrationTTL exercises the field's documented contract
+// where it is actually decided. WithClientRegistrationTTL has always read a
+// zero as registrations that never lapse; what could not reach it was a
+// configured zero, because EnsureDefaults mapped every zero to the ninety-day
+// default before the option was built.
+//
+// The observable is the registration response. RFC 7591's
+// client_secret_expires_at is rendered from the stored client's ExpiresAt —
+// zero when it is unset, the epoch seconds of the deadline otherwise — and
+// client_id_issued_at from its CreatedAt, so the two together are the client
+// record as the protocol shows it. The store a config-built server writes to
+// is its own, which is why the test reads the response rather than the row.
+func TestConfig_ClientRegistrationTTL(T *testing.T) {
+	T.Parallel()
+
+	T.Run("a zero lifetime registers a client that never lapses", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{
+			Provider:              ProviderMemory,
+			Issuer:                "https://auth.example",
+			ClientRegistrationTTL: pointer.To(time.Duration(0)),
+		}
+
+		srv, err := NewServer(t.Context(), cfg, nil, testAuthenticator)
+		must.NoError(t, err)
+
+		reg := registerClient(t, srv)
+
+		// The client holds a secret, so a zero here is the registration's own
+		// expiry being unset and not a public client with nothing to expire.
+		must.NotEq(t, "", reg.ClientSecret)
+		test.EqOp(t, int64(0), reg.ClientSecretExpiresAt)
+	})
+
+	T.Run("an unset lifetime registers a client that lapses after the default", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &Config{Provider: ProviderMemory, Issuer: "https://auth.example"}
+
+		srv, err := NewServer(t.Context(), cfg, nil, testAuthenticator)
+		must.NoError(t, err)
+
+		reg := registerClient(t, srv)
+
+		// Both stamps come from the same clock read, so the deadline is the
+		// issue time plus the default to the second.
+		must.NotEq(t, "", reg.ClientSecret)
+		test.EqOp(t, reg.ClientIDIssuedAt+int64(oauth2server.DefaultClientRegistrationTTL/time.Second),
+			reg.ClientSecretExpiresAt)
+	})
+}
+
+// registerClient registers one confidential client through a server's own
+// handler and hands back what the server said about it.
+func registerClient(t *testing.T, srv *oauth2server.Server) *oauth2server.RegistrationResponse {
+	t.Helper()
+
+	body, err := json.Marshal(map[string]any{"redirect_uris": []string{"https://client.example/callback"}})
+	must.NoError(t, err)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, oauth2server.PathRegister, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	res := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(res, req)
+	must.EqOp(t, http.StatusCreated, res.Code)
+
+	out := &oauth2server.RegistrationResponse{}
+	must.NoError(t, json.Unmarshal(res.Body.Bytes(), out))
+
+	return out
 }
 
 func TestNewServer_StoreFailure(T *testing.T) {
