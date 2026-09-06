@@ -133,13 +133,16 @@ func (p *Principal) AccountIDs() []string {
 
 // Registrar writes the rows that make a new account exist.
 //
-// All three take the caller's database.Tx and therefore run in one transaction:
-// a user without an account signs in to nothing, and an account without an owner
-// has no one its ownership checks can resolve to. That is why they are one
-// interface rather than three methods spread across the reader and writer seams
-// — the grouping is what makes the invariant visible, and the parameter type is
-// what makes it hold. A database.Tx comes from Client.WithTransaction and from
-// nowhere else, so a registration written through Writer does not compile.
+// All three run in the caller's one transaction: a user without an account signs
+// in to nothing, and an account without an owner has no one its ownership checks
+// can resolve to. That is why they are one interface rather than three methods
+// spread across the reader and writer seams — the grouping is what makes the
+// invariant visible, and the parameter type is what makes it hold.
+//
+// Every write in this package takes a database.Tx now, so what used to be this
+// interface's distinguishing property is the store's; what survives here is the
+// grouping. See Store for the shape and for why it is the compiler's obligation
+// rather than a doc comment's.
 type Registrar interface {
 	// CreateUser writes a new user through the caller's transaction.
 	//
@@ -147,6 +150,10 @@ type Registrar interface {
 	// membership, and a user who exists without an account is a user who signs
 	// in to nothing. CreateAccount and CreateMembership take the same executor;
 	// see the package documentation for the shape.
+	//
+	// The scope is the argument rather than User.Scope. A user naming none
+	// adopts it; one naming a different directory is ErrScopeMismatch rather
+	// than being moved into this one — see Store.
 	//
 	// The ID is generated if the user carries none, and both it and CreatedAt
 	// are written back onto the value. A username or email address already
@@ -162,12 +169,12 @@ type Registrar interface {
 	// create reads it back, so the value the caller is holding is the value in
 	// the row — a caller that serialized the struct straight into a response
 	// would otherwise be rendering the zero time as a date.
-	CreateUser(ctx context.Context, q database.Tx, user *User) error
+	CreateUser(ctx context.Context, tx database.Tx, scope tenancy.Scope, user *User) error
 
 	// CreateAccount writes a new account through the caller's transaction. The
 	// ID is generated if the account carries none, and CreatedAt is read back
 	// from the row — see CreateUser.
-	CreateAccount(ctx context.Context, q database.Tx, account *Account) error
+	CreateAccount(ctx context.Context, tx database.Tx, scope tenancy.Scope, account *Account) error
 
 	// CreateMembership puts a user in an account through the caller's transaction.
 	//
@@ -182,7 +189,7 @@ type Registrar interface {
 	// ErrAccountNotFound. The foreign keys prove that the ids exist somewhere,
 	// which for a multi-directory deployment is not the question being asked —
 	// a membership across two directories puts a stranger on a roster.
-	CreateMembership(ctx context.Context, q database.Tx, membership *Membership) error
+	CreateMembership(ctx context.Context, tx database.Tx, scope tenancy.Scope, membership *Membership) error
 }
 
 // CredentialStore is where the authentication engines put what they produce.
@@ -198,7 +205,7 @@ type CredentialStore interface {
 	// GetUserByEmailVerificationToken reads the user a verification link names.
 	// A token that has already been used matches nobody, because verifying
 	// clears it.
-	GetUserByEmailVerificationToken(ctx context.Context, scope tenancy.Scope, token string) (*User, error)
+	GetUserByEmailVerificationToken(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, token string) (*User, error)
 
 	// UpdateUserPassword replaces the stored hash, stamps PasswordLastChangedAt,
 	// and clears RequiresPasswordChange.
@@ -206,11 +213,22 @@ type CredentialStore interface {
 	// Clearing the flag here rather than leaving it to the caller is what makes
 	// a forced password change terminate: a flow that set the flag, prompted,
 	// wrote the new hash, and forgot to clear it prompts again forever.
-	UpdateUserPassword(ctx context.Context, scope tenancy.Scope, userID, hashedPassword string) error
+	UpdateUserPassword(
+		ctx context.Context,
+		tx database.Tx,
+		scope tenancy.Scope,
+		userID, hashedPassword string,
+	) error
 
 	// SetUserRequiresPasswordChange forces or releases a password change at next
 	// sign-in.
-	SetUserRequiresPasswordChange(ctx context.Context, scope tenancy.Scope, userID string, requires bool) error
+	SetUserRequiresPasswordChange(
+		ctx context.Context,
+		tx database.Tx,
+		scope tenancy.Scope,
+		userID string,
+		requires bool,
+	) error
 
 	// UpdateUserTwoFactorSecret stores a new TOTP secret and marks it
 	// unverified.
@@ -219,11 +237,16 @@ type CredentialStore interface {
 	// by definition not been proven, and a method that let the caller say
 	// otherwise would let a flow enroll a second factor nobody ever demonstrated
 	// possession of.
-	UpdateUserTwoFactorSecret(ctx context.Context, scope tenancy.Scope, userID, secret string) error
+	UpdateUserTwoFactorSecret(
+		ctx context.Context,
+		tx database.Tx,
+		scope tenancy.Scope,
+		userID, secret string,
+	) error
 
 	// MarkUserTwoFactorSecretVerified records that the user proved possession of
 	// the secret they hold.
-	MarkUserTwoFactorSecretVerified(ctx context.Context, scope tenancy.Scope, userID string) error
+	MarkUserTwoFactorSecretVerified(ctx context.Context, tx database.Tx, scope tenancy.Scope, userID string) error
 
 	// SetUserEmailAddressVerificationToken stores the token a verification link
 	// will carry, replacing any outstanding one — so re-sending a verification
@@ -236,7 +259,12 @@ type CredentialStore interface {
 	// because the column records that a link was mailed and not which address it
 	// went to, so a token minted before the change is one this package cannot
 	// tell apart from a token minted for the address being left behind.
-	SetUserEmailAddressVerificationToken(ctx context.Context, scope tenancy.Scope, userID, token string) error
+	SetUserEmailAddressVerificationToken(
+		ctx context.Context,
+		tx database.Tx,
+		scope tenancy.Scope,
+		userID, token string,
+	) error
 
 	// MarkUserEmailAddressVerified stamps the address as proven and clears the
 	// token, so the link cannot be replayed.
@@ -244,7 +272,12 @@ type CredentialStore interface {
 	// The token is a parameter and is compared in the statement's predicate: the
 	// caller has already read the user by token, and re-checking it here is what
 	// makes a verification that raced another one write once.
-	MarkUserEmailAddressVerified(ctx context.Context, scope tenancy.Scope, userID, token string) error
+	MarkUserEmailAddressVerified(
+		ctx context.Context,
+		tx database.Tx,
+		scope tenancy.Scope,
+		userID, token string,
+	) error
 
 	// MarkUserEmailAddressUnverified withdraws the proof from an address the
 	// user keeps — an administrator acting on a bounce, a support decision, a
@@ -255,7 +288,7 @@ type CredentialStore interface {
 	// safe direction, and an unverify that raced another one has still left the
 	// row where both callers wanted it. Any outstanding link survives, since it
 	// was minted for this address and the address has not moved.
-	MarkUserEmailAddressUnverified(ctx context.Context, scope tenancy.Scope, userID string) error
+	MarkUserEmailAddressUnverified(ctx context.Context, tx database.Tx, scope tenancy.Scope, userID string) error
 }
 
 // SignInReader is the read side of authenticating a request.
@@ -269,11 +302,11 @@ type SignInReader interface {
 	// GetUserByUsername reads a user by the handle they sign in with. Archived
 	// users are excluded: this is the sign-in read, and a deleted account must
 	// not authenticate.
-	GetUserByUsername(ctx context.Context, scope tenancy.Scope, username string) (*User, error)
+	GetUserByUsername(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, username string) (*User, error)
 
 	// GetUserByEmailAddress is GetUserByUsername for the address. It is the read
 	// a password-reset flow starts from.
-	GetUserByEmailAddress(ctx context.Context, scope tenancy.Scope, emailAddress string) (*User, error)
+	GetUserByEmailAddress(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, emailAddress string) (*User, error)
 
 	// GetPrincipal reads a user with their memberships and resolves which
 	// account the request is against.
@@ -296,7 +329,12 @@ type SignInReader interface {
 	// the reason this method exists rather than the caller joining the pieces:
 	// it is the one every hand-built session context eventually forgets, and
 	// forgetting it hands one account's data to another account's member.
-	GetPrincipal(ctx context.Context, scope tenancy.Scope, userID, activeAccountID string) (*Principal, error)
+	GetPrincipal(
+		ctx context.Context,
+		q database.SQLQueryExecutor,
+		scope tenancy.Scope,
+		userID, activeAccountID string,
+	) (*Principal, error)
 }
 
 // DirectoryReader reads the directory without changing it.
@@ -316,7 +354,7 @@ type DirectoryReader interface {
 	// read rather than a flag on this one: ListUsers with IncludeArchived is
 	// that read. This is a change — the statement behind it used to carry no
 	// archived clause — and it reaches every read by id, GetPrincipal included.
-	GetUser(ctx context.Context, scope tenancy.Scope, userID string) (*User, error)
+	GetUser(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, userID string) (*User, error)
 
 	// ListUsers pages the scope's directory, users redacted.
 	//
@@ -329,7 +367,12 @@ type DirectoryReader interface {
 	// The filter's SortBy decides which way that order runs: an id sorts by
 	// creation time, so "desc" is newest first. It reaches every paged read on
 	// this interface, and none of them defaults to anything but ascending.
-	ListUsers(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[User], error)
+	ListUsers(
+		ctx context.Context,
+		q database.SQLQueryExecutor,
+		scope tenancy.Scope,
+		filter *filtering.QueryFilter,
+	) (*filtering.QueryFilteredResult[User], error)
 
 	// ListUsersByIDs reads a batch of the scope's users in one query, redacted,
 	// skipping IDs that name nobody in this scope.
@@ -339,7 +382,12 @@ type DirectoryReader interface {
 	// names the user who created it. A partial answer rather than an error for a
 	// missing ID is deliberate — the caller is hydrating references, and one
 	// deleted author should not empty the page.
-	ListUsersByIDs(ctx context.Context, scope tenancy.Scope, userIDs []string) ([]*User, error)
+	ListUsersByIDs(
+		ctx context.Context,
+		q database.SQLQueryExecutor,
+		scope tenancy.Scope,
+		userIDs []string,
+	) ([]*User, error)
 
 	// SearchUsersByUsername pages the users in scope whose username begins with
 	// prefix, redacted.
@@ -353,7 +401,13 @@ type DirectoryReader interface {
 	// is a username and the filter's SortBy reverses the alphabet rather than
 	// the creation order — which is what a direction means for a read ordered by
 	// something other than an id.
-	SearchUsersByUsername(ctx context.Context, scope tenancy.Scope, prefix string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[User], error)
+	SearchUsersByUsername(
+		ctx context.Context,
+		q database.SQLQueryExecutor,
+		scope tenancy.Scope,
+		prefix string,
+		filter *filtering.QueryFilter,
+	) (*filtering.QueryFilteredResult[User], error)
 
 	// GetAccount reads one of the scope's live accounts, returning an error
 	// wrapping ErrAccountNotFound when it does not exist here.
@@ -362,18 +416,34 @@ type DirectoryReader interface {
 	// same reason — see GetUser. A caller reconciling an invoice against a
 	// closed account reaches it through ListAccounts with IncludeArchived, and
 	// checks Account.Archived on what comes back.
-	GetAccount(ctx context.Context, scope tenancy.Scope, accountID string) (*Account, error)
+	GetAccount(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string) (*Account, error)
 
 	// ListAccounts pages the scope's accounts, ordered by id and filtered
 	// through the whole QueryFilter — see ListUsers.
-	ListAccounts(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Account], error)
+	ListAccounts(
+		ctx context.Context,
+		q database.SQLQueryExecutor,
+		scope tenancy.Scope,
+		filter *filtering.QueryFilter,
+	) (*filtering.QueryFilteredResult[Account], error)
 
 	// ListAccountsForUser pages the accounts a user is a live member of.
-	ListAccountsForUser(ctx context.Context, scope tenancy.Scope, userID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Account], error)
+	ListAccountsForUser(
+		ctx context.Context,
+		q database.SQLQueryExecutor,
+		scope tenancy.Scope,
+		userID string,
+		filter *filtering.QueryFilter,
+	) (*filtering.QueryFilteredResult[Account], error)
 
 	// GetMembership reads the live membership between a user and an account,
 	// returning an error wrapping ErrMembershipNotFound when there is none.
-	GetMembership(ctx context.Context, scope tenancy.Scope, userID, accountID string) (*Membership, error)
+	GetMembership(
+		ctx context.Context,
+		q database.SQLQueryExecutor,
+		scope tenancy.Scope,
+		userID, accountID string,
+	) (*Membership, error)
 
 	// ListMembershipsForUser returns every live membership a user holds, default
 	// account first.
@@ -382,11 +452,22 @@ type DirectoryReader interface {
 	// of accounts, and paging a handful means a caller who forgets to loop reads
 	// some of somebody's memberships and authorizes against the rest as if they
 	// did not exist.
-	ListMembershipsForUser(ctx context.Context, scope tenancy.Scope, userID string) ([]*Membership, error)
+	ListMembershipsForUser(
+		ctx context.Context,
+		q database.SQLQueryExecutor,
+		scope tenancy.Scope,
+		userID string,
+	) ([]*Membership, error)
 
 	// ListAccountMembers pages an account's roster, each membership joined to
 	// the redacted user it names.
-	ListAccountMembers(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[MembershipWithUser], error)
+	ListAccountMembers(
+		ctx context.Context,
+		q database.SQLQueryExecutor,
+		scope tenancy.Scope,
+		accountID string,
+		filter *filtering.QueryFilter,
+	) (*filtering.QueryFilteredResult[MembershipWithUser], error)
 }
 
 // ProfileWriter writes what a user or an account may change about itself.
@@ -426,7 +507,9 @@ type ProfileWriter interface {
 	// work; it validates the columns it assigns rather than the whole user, and
 	// a caller therefore needs neither a password hash nor a status to save a
 	// display name.
-	UpdateUser(ctx context.Context, user *User) error
+	//
+	// The scope is the argument rather than User.Scope, as it is at creation.
+	UpdateUser(ctx context.Context, tx database.Tx, scope tenancy.Scope, user *User) error
 
 	// UpdateAccount writes the account's name and billing address.
 	//
@@ -435,19 +518,29 @@ type ProfileWriter interface {
 	// hold the rest of the account, and a read-modify-write over them loses
 	// whatever a processor webhook or an ownership transfer did in between. See
 	// BillingWriter and TransferAccountOwnership.
-	UpdateAccount(ctx context.Context, account *Account) error
+	UpdateAccount(ctx context.Context, tx database.Tx, scope tenancy.Scope, account *Account) error
 
 	// RecordAgreement stamps the user's acceptance of one or more documents, as
 	// of the Store's clock.
 	//
-	// It uses the Store's own handle rather than the caller's executor, so it
-	// cannot join a registration transaction. A registration that collects
-	// acceptance at sign-up should set LastAcceptedTermsOfService and
-	// LastAcceptedPrivacyPolicy on the User instead — CreateUser writes them
-	// with the row. This method is for the later acceptance, when a new version
-	// of a document is published and the user agrees to it in a request of its
-	// own.
-	RecordAgreement(ctx context.Context, scope tenancy.Scope, userID string, agreements ...Agreement) error
+	// It runs on the caller's transaction like every other write here, so a
+	// registration that collects acceptance at sign-up may either call it inside
+	// that transaction or set LastAcceptedTermsOfService and
+	// LastAcceptedPrivacyPolicy on the User and let CreateUser write them with
+	// the row. The second is still one statement fewer. What this method is for
+	// is the later acceptance, when a new version of a document is published and
+	// the user agrees to it in a request of its own.
+	//
+	// Naming several documents stamps them all with one clock read, so accepting
+	// two in one call records one moment rather than two a later comparison
+	// could order.
+	RecordAgreement(
+		ctx context.Context,
+		tx database.Tx,
+		scope tenancy.Scope,
+		userID string,
+		agreements ...Agreement,
+	) error
 }
 
 // MembershipWriter changes who belongs to an account and what they may do
@@ -473,12 +566,23 @@ type MembershipWriter interface {
 	// user who belongs to an account and may do nothing in it, which surfaces as
 	// an authorization bug far from the call that wrote it. Removing somebody is
 	// RemoveMembership.
-	SetMembershipRoles(ctx context.Context, scope tenancy.Scope, userID, accountID string, roles []string) error
+	SetMembershipRoles(
+		ctx context.Context,
+		tx database.Tx,
+		scope tenancy.Scope,
+		userID, accountID string,
+		roles []string,
+	) error
 
 	// SetDefaultAccount marks one of a user's accounts as the one they land in,
 	// clearing the flag from the others in the same transaction — the invariant
 	// being one default per user, not one per call.
-	SetDefaultAccount(ctx context.Context, scope tenancy.Scope, userID, accountID string) error
+	SetDefaultAccount(
+		ctx context.Context,
+		tx database.Tx,
+		scope tenancy.Scope,
+		userID, accountID string,
+	) error
 
 	// TransferAccountOwnership moves an account to a new owner, giving the new
 	// owner a membership if they lack one and leaving the old owner's in place.
@@ -501,7 +605,12 @@ type MembershipWriter interface {
 	// hold anywhere, which is the rule CreateMembership and AcceptInvitation
 	// apply to the memberships they mint. A new owner who already belongs
 	// somewhere keeps the default they chose.
-	TransferAccountOwnership(ctx context.Context, scope tenancy.Scope, accountID, newOwnerUserID string) error
+	TransferAccountOwnership(
+		ctx context.Context,
+		tx database.Tx,
+		scope tenancy.Scope,
+		accountID, newOwnerUserID string,
+	) error
 
 	// RemoveMembership ends a user's membership in an account.
 	//
@@ -512,7 +621,12 @@ type MembershipWriter interface {
 	//
 	// Removing a user's default account moves the default to another live
 	// membership, so a user is never left with memberships and nowhere to land.
-	RemoveMembership(ctx context.Context, scope tenancy.Scope, userID, accountID string) error
+	RemoveMembership(
+		ctx context.Context,
+		tx database.Tx,
+		scope tenancy.Scope,
+		userID, accountID string,
+	) error
 }
 
 // AdminWriter is the operator's half: the writes an account holder cannot make
@@ -525,7 +639,14 @@ type MembershipWriter interface {
 type AdminWriter interface {
 	// UpdateUserAccountStatus moves a user between statuses, recording the
 	// explanation shown to them.
-	UpdateUserAccountStatus(ctx context.Context, scope tenancy.Scope, userID string, status AccountStatus, explanation string) error
+	UpdateUserAccountStatus(
+		ctx context.Context,
+		tx database.Tx,
+		scope tenancy.Scope,
+		userID string,
+		status AccountStatus,
+		explanation string,
+	) error
 
 	// SetUserServiceRoles replaces the roles a user holds outside any account.
 	//
@@ -535,7 +656,13 @@ type AdminWriter interface {
 	// here where an empty membership role set is not — a user with no service
 	// roles is the ordinary case, and it is how an operator's access is
 	// withdrawn.
-	SetUserServiceRoles(ctx context.Context, scope tenancy.Scope, userID string, roles []string) error
+	SetUserServiceRoles(
+		ctx context.Context,
+		tx database.Tx,
+		scope tenancy.Scope,
+		userID string,
+		roles []string,
+	) error
 
 	// ArchiveUser soft-deletes a user and ends every membership they hold, in
 	// one transaction. A user archived with live memberships would still appear
@@ -548,17 +675,17 @@ type AdminWriter interface {
 	// a user every scoped read now reports as absent, and the ownership checks
 	// that resolve through it fail somewhere else entirely. Transfer the account
 	// or archive it first.
-	ArchiveUser(ctx context.Context, scope tenancy.Scope, userID string) error
+	ArchiveUser(ctx context.Context, tx database.Tx, scope tenancy.Scope, userID string) error
 
 	// EraseUser destroys the user row through the caller's transaction, returning
 	// how many rows went.
 	//
-	// It takes an executor rather than a handle of its own because a
-	// right-to-be-forgotten erasure shares one transaction with every other
-	// domain's eraser and with the record that the erasure happened. A subject
-	// erased from the directory and present in another domain's table has no
-	// coherent status, so the whole thing has to be able to roll back together.
-	// See this module's dataprivacy package.
+	// Every write here takes the caller's transaction, and this is the one where
+	// the reason predates the convention: a right-to-be-forgotten erasure shares
+	// one transaction with every other domain's eraser and with the record that
+	// the erasure happened. A subject erased from the directory and present in
+	// another domain's table has no coherent status, so the whole thing has to be
+	// able to roll back together. See this module's dataprivacy package.
 	//
 	// Unlike ArchiveUser it cannot refuse, and so it does not: accounts the
 	// subject owned survive the erasure with an owner_user_id that resolves to
@@ -567,7 +694,7 @@ type AdminWriter interface {
 	// account, and archiving those accounts here would take other members
 	// offline because one of them exercised a right. Resolve the subject's
 	// accounts before erasing them.
-	EraseUser(ctx context.Context, q database.Tx, scope tenancy.Scope, userID string) (int64, error)
+	EraseUser(ctx context.Context, tx database.Tx, scope tenancy.Scope, userID string) (int64, error)
 
 	// ArchiveAccount soft-deletes an account and ends every membership in it, in
 	// one transaction.
@@ -578,7 +705,7 @@ type AdminWriter interface {
 	// everybody at once, and neither leaves a user with memberships and nowhere
 	// to land. A member who belonged to nothing else keeps no default, because
 	// there is no membership left to point at.
-	ArchiveAccount(ctx context.Context, scope tenancy.Scope, accountID string) error
+	ArchiveAccount(ctx context.Context, tx database.Tx, scope tenancy.Scope, accountID string) error
 }
 
 // BillingWriter is what a payment processor's webhook handler needs, and
@@ -609,39 +736,63 @@ type BillingWriter interface {
 	// required — an ended subscription is RecordAccountSubscriptionEnded, so a
 	// handler passing through an unchecked payload cannot cancel a subscription
 	// while believing it renewed one.
-	RecordAccountSubscription(ctx context.Context, scope tenancy.Scope, accountID string, status BillingStatus, planID string) error
+	RecordAccountSubscription(
+		ctx context.Context,
+		tx database.Tx,
+		scope tenancy.Scope,
+		accountID string,
+		status BillingStatus,
+		planID string,
+	) error
 
 	// RecordAccountSubscriptionEnded writes the delivery that says there is no
 	// subscription any more: the new standing, no plan, and the reconciliation.
 	// The account is left on no plan rather than on the one it stopped paying
 	// for, which is what an entitlement check downstream would otherwise read.
-	RecordAccountSubscriptionEnded(ctx context.Context, scope tenancy.Scope, accountID string, status BillingStatus) error
+	RecordAccountSubscriptionEnded(
+		ctx context.Context,
+		tx database.Tx,
+		scope tenancy.Scope,
+		accountID string,
+		status BillingStatus,
+	) error
 
 	// SetAccountBillingStatus moves an account between standings without
 	// touching its plan or its reconciliation stamp. This is the operator's
 	// move — a suspension, which no processor reports and so has nothing to
 	// stamp.
-	SetAccountBillingStatus(ctx context.Context, scope tenancy.Scope, accountID string, status BillingStatus) error
+	SetAccountBillingStatus(
+		ctx context.Context,
+		tx database.Tx,
+		scope tenancy.Scope,
+		accountID string,
+		status BillingStatus,
+	) error
 
 	// SetAccountPaymentProcessorCustomerID attaches the account to its customer
 	// at the processor, which is the write that happens the first time it is
 	// created there. The identifier is required.
-	SetAccountPaymentProcessorCustomerID(ctx context.Context, scope tenancy.Scope, accountID, customerID string) error
+	SetAccountPaymentProcessorCustomerID(
+		ctx context.Context,
+		tx database.Tx,
+		scope tenancy.Scope,
+		accountID, customerID string,
+	) error
 
 	// MarkAccountBillingSynced stamps a reconciliation that moved nothing, as of
 	// the Store's clock. It is the write a reconciler owes the next run: without
 	// it, an account that has been current for a year is indistinguishable from
 	// one nobody has looked at since.
-	MarkAccountBillingSynced(ctx context.Context, scope tenancy.Scope, accountID string) error
+	MarkAccountBillingSynced(ctx context.Context, tx database.Tx, scope tenancy.Scope, accountID string) error
 }
 
 // InvitationStore covers an invitation's whole life: issued, looked up,
 // answered.
 //
-// AcceptInvitation takes the caller's executor because accepting is a
-// membership write and a status write that have to commit together, and it
-// takes the roles off the invitation rather than from a parameter — what
-// somebody was invited to is what they get.
+// AcceptInvitation is the one whose two writes have to commit together — a
+// membership write and a status write — and it takes the roles off the
+// invitation rather than from a parameter: what somebody was invited to is what
+// they get.
 type InvitationStore interface {
 	// CreateInvitation writes an invitation. The ID is generated if it carries
 	// none, and CreatedAt is read back from the row — see Registrar.CreateUser.
@@ -650,12 +801,22 @@ type InvitationStore interface {
 	// answer's and is not. An invitation carrying one at creation is refused
 	// with an error wrapping errors.ErrUnrecognizedInputValue, for the same
 	// reason one carrying a terminal status is: nothing has answered it yet.
-	CreateInvitation(ctx context.Context, invitation *Invitation) error
+	CreateInvitation(
+		ctx context.Context,
+		tx database.Tx,
+		scope tenancy.Scope,
+		invitation *Invitation,
+	) error
 
 	// GetInvitation reads one of the scope's live invitations by ID, for the
 	// sender looking at what they have sent. An archived one is not returned —
 	// see DirectoryReader.GetUser.
-	GetInvitation(ctx context.Context, scope tenancy.Scope, invitationID string) (*Invitation, error)
+	GetInvitation(
+		ctx context.Context,
+		q database.SQLQueryExecutor,
+		scope tenancy.Scope,
+		invitationID string,
+	) (*Invitation, error)
 
 	// GetInvitationByToken reads the invitation a link names, comparing the
 	// token.
@@ -669,23 +830,40 @@ type InvitationStore interface {
 	// An expired invitation returns an error wrapping ErrInvitationExpired
 	// rather than ErrInvitationNotFound, so the recipient can be told to ask for
 	// another rather than that their link was wrong.
-	GetInvitationByToken(ctx context.Context, scope tenancy.Scope, invitationID, token string) (*Invitation, error)
+	GetInvitationByToken(
+		ctx context.Context,
+		q database.SQLQueryExecutor,
+		scope tenancy.Scope,
+		invitationID, token string,
+	) (*Invitation, error)
 
 	// ListInvitationsFromUser pages the pending invitations a user has sent,
 	// redacted.
-	ListInvitationsFromUser(ctx context.Context, scope tenancy.Scope, userID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Invitation], error)
+	ListInvitationsFromUser(
+		ctx context.Context,
+		q database.SQLQueryExecutor,
+		scope tenancy.Scope,
+		userID string,
+		filter *filtering.QueryFilter,
+	) (*filtering.QueryFilteredResult[Invitation], error)
 
 	// ListInvitationsForEmailAddress pages the pending invitations addressed to
 	// an email address, redacted — what a newly registered user is shown.
-	ListInvitationsForEmailAddress(ctx context.Context, scope tenancy.Scope, emailAddress string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Invitation], error)
+	ListInvitationsForEmailAddress(
+		ctx context.Context,
+		q database.SQLQueryExecutor,
+		scope tenancy.Scope,
+		emailAddress string,
+		filter *filtering.QueryFilter,
+	) (*filtering.QueryFilteredResult[Invitation], error)
 
 	// AcceptInvitation marks an invitation accepted and writes the membership it
 	// promised, through the caller's transaction, returning that membership.
 	//
 	// The two are one call rather than two because an accepted invitation
 	// without a membership is a user who was told they joined and did not, and
-	// the executor is the caller's because a registration that accepts an
-	// invitation writes the user in the same transaction.
+	// the transaction is the caller's because a registration that accepts an
+	// invitation writes the user in the same one.
 	//
 	// The roles come from the invitation rather than from a parameter: what
 	// somebody was invited to is what they get, and a parameter here is where an
@@ -698,7 +876,12 @@ type InvitationStore interface {
 	// statusNote is why the answer went the way it did, and it lands in
 	// Invitation.StatusNote. The sender's Note is untouched — an invite email's
 	// message is still readable beside the acceptance that answered it.
-	AcceptInvitation(ctx context.Context, q database.Tx, scope tenancy.Scope, invitationID, token, acceptingUserID, statusNote string) (*Membership, error)
+	AcceptInvitation(
+		ctx context.Context,
+		tx database.Tx,
+		scope tenancy.Scope,
+		invitationID, token, acceptingUserID, statusNote string,
+	) (*Membership, error)
 
 	// SetInvitationStatus answers an invitation without producing a membership:
 	// rejection by the recipient, cancellation by the sender.
@@ -709,7 +892,14 @@ type InvitationStore interface {
 	//
 	// statusNote is the answer's, and lands in Invitation.StatusNote beside a
 	// sender's Note it does not touch.
-	SetInvitationStatus(ctx context.Context, scope tenancy.Scope, invitationID string, status InvitationStatus, statusNote string) error
+	SetInvitationStatus(
+		ctx context.Context,
+		tx database.Tx,
+		scope tenancy.Scope,
+		invitationID string,
+		status InvitationStatus,
+		statusNote string,
+	) error
 }
 
 // Store is the whole persistence seam for the identity directory: every
@@ -723,7 +913,7 @@ type InvitationStore interface {
 //
 // # Depend on a narrower one
 //
-// Store is forty-three methods, which is the right size for the thing that
+// Store is forty-eight methods, which is the right size for the thing that
 // implements it and the wrong size for almost everything that calls it. It is a
 // union of nine interfaces, each named for a job rather than for a table, and a
 // caller should name the smallest one that covers what it does: a sign-in
@@ -731,7 +921,7 @@ type InvitationStore interface {
 // support console takes a DirectoryReader.
 //
 // This is not only about the size of a test double, though a three-method fake
-// beats a forty-three-method mock. It is that the narrow interface is a
+// beats a forty-eight-method mock. It is that the narrow interface is a
 // statement about reach, checked by the compiler: a handler that holds a
 // DirectoryReader cannot ban a user, and one that holds a ProfileWriter cannot
 // write a credential or move an account's ownership. Depending on Store gives
@@ -740,20 +930,75 @@ type InvitationStore interface {
 //
 // A SQL implementation is deliberately one type behind all nine. The writes
 // that make a registration span three tables in one transaction, so splitting
-// the implementation would split a transaction; only the seam divides.
+// the implementation would split a transaction; only the seam divides. That the
+// transaction now arrives from outside does not change it — the caller supplies
+// one Tx, and three stores holding three handles could not all run on it.
 //
-// Methods taking a database.Tx run inside the caller's transaction and must use
-// it rather than a handle of their own. Those are exactly the writes that have
-// to commit with something else: the three that make a registration, the two
-// that make an accepted invitation, and the erasure that spans every domain a
-// subject appears in. The rest own their own statements.
+// # The transaction is the caller's
 //
-// Every method takes a tenancy.Scope or reads one off the value it was handed,
-// and none of them offers an unscoped variant. There is no ListAllUsers, and
-// the absence is deliberate: an operator console listing every user in a
-// deployment is listing one directory at a time, and the method that spans
-// directories is the one whose missing predicate serves one customer's user
-// list to another.
+// Every write takes a database.Tx and every read takes the wider
+// database.SQLQueryExecutor, which is the module's store convention rather than
+// anything this package invented. No write here opens a transaction of its own,
+// and there is no variant of one that does.
+//
+// Five of these writes always took a Tx, for reasons that read as local and were
+// not: a registration is three rows, an accepted invitation is two, and an
+// erasure spans every domain a subject appears in. What the other twenty-five
+// had instead was a transaction each, which is the same argument answered
+// wrongly — a consumer's write almost never travels alone. Every dinnerdonebetter
+// write carries an audit entry and a data change event in the row's transaction,
+// so a credential rotation that opened its own left its provenance in a second
+// one, and a refused audit entry left the new password hash committed with
+// nothing recording who changed it.
+//
+// TransferAccountOwnership is the sharpest instance and needs no consumer to
+// see: it is two membership writes that must commit together, and while it owned
+// the transaction they shared, they were reachable together and in no other
+// combination.
+//
+// A database.Tx is producible only by database.RunInTransaction, so the
+// obligation is the compiler's rather than a doc comment's. A caller with
+// nothing to join opens one with Client.WithTransaction and passes the Tx it is
+// handed.
+//
+// The read takes the wider type so that one method serves both moments. A
+// sign-in middleware holds no transaction and passes Client.Reader(); a
+// registration that has just written a user passes the Tx it wrote through, and
+// sees it. A read narrowed to Tx would have forced the first caller into a
+// transaction it has no use for, and one narrowed to Client.Reader() would have
+// read a database that does not yet hold the row its caller just wrote.
+//
+// That widening is load-bearing rather than incidental, because some of these
+// reads are the checks the writes make. CreateUser's uniqueness checks,
+// UpdateUser's read of the address it is replacing, TransferAccountOwnership's
+// read of the new owner, and AcceptInvitation's read of the invitation all run
+// on the executor their write runs on — which is what lets a registration
+// mint a user and read them back inside one transaction, and what keeps a
+// uniqueness check from reporting a handle free that the same transaction has
+// already taken.
+//
+// A Store that is not a SQL store still takes these types; an implementation
+// with no transaction of its own ignores the executor, and the seam stays one
+// signature rather than one per backing.
+//
+// # The scope is an argument, on every method
+//
+// Every method takes a tenancy.Scope, and none of them offers a variant that
+// omits it. A deployment with one directory passes tenancy.Global() everywhere
+// and behaves exactly as it would have without the column.
+//
+// That includes the six writes that take a whole entity. They read the scope
+// off the argument rather than off User.Scope and its siblings, for the reason
+// comments.Store gives about Comment.Scope: an entity field is exactly the
+// derivation the column rule exists to rule out, since it makes "which directory
+// is this write for" answerable only by reading a struct the caller assembled
+// somewhere else. An entity naming no scope adopts the argument, and one naming
+// a different scope is ErrScopeMismatch rather than being corrected.
+//
+// There is no ListAllUsers, and the absence is deliberate: an operator console
+// listing every user in a deployment is listing one directory at a time, and the
+// method that spans directories is the one whose missing predicate serves one
+// customer's user list to another.
 type Store interface {
 	Registrar
 	CredentialStore

@@ -24,15 +24,15 @@ func runBillingWriterSuite(t *testing.T, env *storeEnv) {
 		store, err := NewSQLStore(env.client, WithTablePrefix(env.migrate(t)), WithClock(clk))
 		must.NoError(t, err)
 
-		owner := createUser(t, store, newUser("ada"))
-		account := createAccountFor(t, store, owner, "Acme")
+		owner := seedUser(t, env, store, newUser("ada"))
+		account := seedAccountFor(t, env, store, owner, "Acme")
 
-		must.NoError(t, store.SetAccountPaymentProcessorCustomerID(t.Context(), testScope, account.ID, "cus_123"))
-		must.NoError(t, store.RecordAccountSubscription(t.Context(), testScope, account.ID, BillingTrial, "plan_pro"))
+		must.NoError(t, env.setAccountPaymentProcessorCustomerID(t, store, testScope, account.ID, "cus_123"))
+		must.NoError(t, env.recordAccountSubscription(t, store, testScope, account.ID, BillingTrial, "plan_pro"))
 
 		// The three columns of the delivery move as one fact, so there is no
 		// state in which the standing has moved and the plan has not.
-		full, err := store.GetAccount(t.Context(), testScope, account.ID)
+		full, err := store.GetAccount(t.Context(), env.reader(), testScope, account.ID)
 		must.NoError(t, err)
 		test.EqOp(t, BillingTrial, full.BillingStatus)
 		must.NotNil(t, full.SubscriptionPlanID)
@@ -45,9 +45,9 @@ func runBillingWriterSuite(t *testing.T, env *storeEnv) {
 
 		// A plan change is the same write, and it carries its own stamp.
 		clk.advance(time.Hour)
-		must.NoError(t, store.RecordAccountSubscription(t.Context(), testScope, account.ID, BillingPaid, "plan_basic"))
+		must.NoError(t, env.recordAccountSubscription(t, store, testScope, account.ID, BillingPaid, "plan_basic"))
 
-		moved, err := store.GetAccount(t.Context(), testScope, account.ID)
+		moved, err := store.GetAccount(t.Context(), env.reader(), testScope, account.ID)
 		must.NoError(t, err)
 		test.EqOp(t, BillingPaid, moved.BillingStatus)
 		must.NotNil(t, moved.SubscriptionPlanID)
@@ -61,18 +61,18 @@ func runBillingWriterSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		owner := createUser(t, store, newUser("ada"))
-		account := createAccountFor(t, store, owner, "Acme")
+		owner := seedUser(t, env, store, newUser("ada"))
+		account := seedAccountFor(t, env, store, owner, "Acme")
 
-		must.NoError(t, store.RecordAccountSubscription(t.Context(), testScope, account.ID, BillingPaid, "plan_pro"))
-		must.NoError(t, store.RecordAccountSubscriptionEnded(t.Context(), testScope, account.ID, BillingUnpaid))
+		must.NoError(t, env.recordAccountSubscription(t, store, testScope, account.ID, BillingPaid, "plan_pro"))
+		must.NoError(t, env.recordAccountSubscriptionEnded(t, store, testScope, account.ID, BillingUnpaid))
 
 		// NULL rather than the empty string, and rather than the plan the
 		// account has stopped paying for. This is the write the tempting static
 		// rewrite of the old conditional SET could not express: under a
 		// COALESCE(narg, column) encoding the NULL that says "set it to nothing"
 		// is the same NULL that says "leave it alone".
-		cancelled, err := store.GetAccount(t.Context(), testScope, account.ID)
+		cancelled, err := store.GetAccount(t.Context(), env.reader(), testScope, account.ID)
 		must.NoError(t, err)
 		test.Nil(t, cancelled.SubscriptionPlanID)
 		test.EqOp(t, BillingUnpaid, cancelled.BillingStatus)
@@ -80,9 +80,9 @@ func runBillingWriterSuite(t *testing.T, env *storeEnv) {
 
 		// Re-subscribing after a cancellation writes a plan again, so the
 		// column's whole domain stays reachable from this surface.
-		must.NoError(t, store.RecordAccountSubscription(t.Context(), testScope, account.ID, BillingPaid, "plan_basic"))
+		must.NoError(t, env.recordAccountSubscription(t, store, testScope, account.ID, BillingPaid, "plan_basic"))
 
-		resubscribed, err := store.GetAccount(t.Context(), testScope, account.ID)
+		resubscribed, err := store.GetAccount(t.Context(), env.reader(), testScope, account.ID)
 		must.NoError(t, err)
 		must.NotNil(t, resubscribed.SubscriptionPlanID)
 		test.EqOp(t, "plan_basic", *resubscribed.SubscriptionPlanID)
@@ -92,21 +92,21 @@ func runBillingWriterSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		owner := createUser(t, store, newUser("ada"))
-		account := createAccountFor(t, store, owner, "Acme")
+		owner := seedUser(t, env, store, newUser("ada"))
+		account := seedAccountFor(t, env, store, owner, "Acme")
 
-		must.NoError(t, store.RecordAccountSubscription(t.Context(), testScope, account.ID, BillingPaid, "plan_pro"))
+		must.NoError(t, env.recordAccountSubscription(t, store, testScope, account.ID, BillingPaid, "plan_pro"))
 
-		before, err := store.GetAccount(t.Context(), testScope, account.ID)
+		before, err := store.GetAccount(t.Context(), env.reader(), testScope, account.ID)
 		must.NoError(t, err)
 		must.NotNil(t, before.LastPaymentProviderSyncedAt)
 
-		must.NoError(t, store.SetAccountBillingStatus(t.Context(), testScope, account.ID, BillingSuspended))
+		must.NoError(t, env.setAccountBillingStatus(t, store, testScope, account.ID, BillingSuspended))
 
 		// The plan stays, because a suspension is not a cancellation, and the
 		// stamp stays where the last delivery left it, because nothing was asked
 		// of the processor.
-		suspended, err := store.GetAccount(t.Context(), testScope, account.ID)
+		suspended, err := store.GetAccount(t.Context(), env.reader(), testScope, account.ID)
 		must.NoError(t, err)
 		test.EqOp(t, BillingSuspended, suspended.BillingStatus)
 		must.NotNil(t, suspended.SubscriptionPlanID)
@@ -123,16 +123,16 @@ func runBillingWriterSuite(t *testing.T, env *storeEnv) {
 		store, err := NewSQLStore(env.client, WithTablePrefix(env.migrate(t)), WithClock(clk))
 		must.NoError(t, err)
 
-		owner := createUser(t, store, newUser("ada"))
-		account := createAccountFor(t, store, owner, "Acme")
+		owner := seedUser(t, env, store, newUser("ada"))
+		account := seedAccountFor(t, env, store, owner, "Acme")
 
-		before, err := store.GetAccount(t.Context(), testScope, account.ID)
+		before, err := store.GetAccount(t.Context(), env.reader(), testScope, account.ID)
 		must.NoError(t, err)
 		test.Nil(t, before.LastPaymentProviderSyncedAt)
 
-		must.NoError(t, store.MarkAccountBillingSynced(t.Context(), testScope, account.ID))
+		must.NoError(t, env.markAccountBillingSynced(t, store, testScope, account.ID))
 
-		synced, err := store.GetAccount(t.Context(), testScope, account.ID)
+		synced, err := store.GetAccount(t.Context(), env.reader(), testScope, account.ID)
 		must.NoError(t, err)
 		must.NotNil(t, synced.LastPaymentProviderSyncedAt)
 		test.EqOp(t, baseTime, *synced.LastPaymentProviderSyncedAt)
@@ -143,9 +143,9 @@ func runBillingWriterSuite(t *testing.T, env *storeEnv) {
 		test.Nil(t, synced.SubscriptionPlanID)
 
 		clk.advance(time.Hour)
-		must.NoError(t, store.MarkAccountBillingSynced(t.Context(), testScope, account.ID))
+		must.NoError(t, env.markAccountBillingSynced(t, store, testScope, account.ID))
 
-		again, err := store.GetAccount(t.Context(), testScope, account.ID)
+		again, err := store.GetAccount(t.Context(), env.reader(), testScope, account.ID)
 		must.NoError(t, err)
 		must.NotNil(t, again.LastPaymentProviderSyncedAt)
 		test.EqOp(t, baseTime.Add(time.Hour), *again.LastPaymentProviderSyncedAt)
@@ -155,39 +155,39 @@ func runBillingWriterSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		owner := createUser(t, store, newUser("ada"))
-		account := createAccountFor(t, store, owner, "Acme")
+		owner := seedUser(t, env, store, newUser("ada"))
+		account := seedAccountFor(t, env, store, owner, "Acme")
 
 		// An empty plan is an ended subscription, and ending has its own method.
 		must.ErrorIs(t,
-			store.RecordAccountSubscription(t.Context(), testScope, account.ID, BillingPaid, ""),
+			env.recordAccountSubscription(t, store, testScope, account.ID, BillingPaid, ""),
 			platformerrors.ErrEmptyInputParameter,
 		)
 
 		// The empty customer identifier is how "not created at the processor" is
 		// stored, so writing it here would be a detachment.
 		must.ErrorIs(t,
-			store.SetAccountPaymentProcessorCustomerID(t.Context(), testScope, account.ID, ""),
+			env.setAccountPaymentProcessorCustomerID(t, store, testScope, account.ID, ""),
 			platformerrors.ErrEmptyInputParameter,
 		)
 
 		nonsense := BillingStatus("nonsense")
 
 		must.ErrorIs(t,
-			store.SetAccountBillingStatus(t.Context(), testScope, account.ID, nonsense),
+			env.setAccountBillingStatus(t, store, testScope, account.ID, nonsense),
 			platformerrors.ErrUnrecognizedInputValue,
 		)
 		must.ErrorIs(t,
-			store.RecordAccountSubscription(t.Context(), testScope, account.ID, nonsense, "plan_pro"),
+			env.recordAccountSubscription(t, store, testScope, account.ID, nonsense, "plan_pro"),
 			platformerrors.ErrUnrecognizedInputValue,
 		)
 		must.ErrorIs(t,
-			store.RecordAccountSubscriptionEnded(t.Context(), testScope, account.ID, nonsense),
+			env.recordAccountSubscriptionEnded(t, store, testScope, account.ID, nonsense),
 			platformerrors.ErrUnrecognizedInputValue,
 		)
 
 		// None of the refusals reached the database.
-		unchanged, err := store.GetAccount(t.Context(), testScope, account.ID)
+		unchanged, err := store.GetAccount(t.Context(), env.reader(), testScope, account.ID)
 		must.NoError(t, err)
 		test.EqOp(t, BillingUnpaid, unchanged.BillingStatus)
 		test.Nil(t, unchanged.SubscriptionPlanID)
@@ -199,34 +199,34 @@ func runBillingWriterSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		owner := createUser(t, store, newUser("ada"))
-		account := createAccountFor(t, store, owner, "Acme")
+		owner := seedUser(t, env, store, newUser("ada"))
+		account := seedAccountFor(t, env, store, owner, "Acme")
 
 		// The scope is in every one of these predicates, so each matches
 		// nothing — and reporting success for a write that touched no row is
 		// what would tell the caller their change landed.
 		must.ErrorIs(t,
-			store.SetAccountBillingStatus(t.Context(), otherScope, account.ID, BillingPaid),
+			env.setAccountBillingStatus(t, store, otherScope, account.ID, BillingPaid),
 			ErrAccountNotFound,
 		)
 		must.ErrorIs(t,
-			store.RecordAccountSubscription(t.Context(), otherScope, account.ID, BillingPaid, "plan_pro"),
+			env.recordAccountSubscription(t, store, otherScope, account.ID, BillingPaid, "plan_pro"),
 			ErrAccountNotFound,
 		)
 		must.ErrorIs(t,
-			store.RecordAccountSubscriptionEnded(t.Context(), otherScope, account.ID, BillingUnpaid),
+			env.recordAccountSubscriptionEnded(t, store, otherScope, account.ID, BillingUnpaid),
 			ErrAccountNotFound,
 		)
 		must.ErrorIs(t,
-			store.SetAccountPaymentProcessorCustomerID(t.Context(), otherScope, account.ID, "cus_123"),
+			env.setAccountPaymentProcessorCustomerID(t, store, otherScope, account.ID, "cus_123"),
 			ErrAccountNotFound,
 		)
 		must.ErrorIs(t,
-			store.MarkAccountBillingSynced(t.Context(), otherScope, account.ID),
+			env.markAccountBillingSynced(t, store, otherScope, account.ID),
 			ErrAccountNotFound,
 		)
 
-		unchanged, err := store.GetAccount(t.Context(), testScope, account.ID)
+		unchanged, err := store.GetAccount(t.Context(), env.reader(), testScope, account.ID)
 		must.NoError(t, err)
 		test.EqOp(t, BillingUnpaid, unchanged.BillingStatus)
 	})
@@ -235,15 +235,15 @@ func runBillingWriterSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		owner := createUser(t, store, newUser("ada"))
-		account := createAccountFor(t, store, owner, "Acme")
+		owner := seedUser(t, env, store, newUser("ada"))
+		account := seedAccountFor(t, env, store, owner, "Acme")
 
 		var unset tenancy.Scope
 
-		must.Error(t, store.SetAccountBillingStatus(t.Context(), unset, account.ID, BillingPaid))
-		must.Error(t, store.RecordAccountSubscription(t.Context(), unset, account.ID, BillingPaid, "plan_pro"))
-		must.Error(t, store.RecordAccountSubscriptionEnded(t.Context(), unset, account.ID, BillingUnpaid))
-		must.Error(t, store.SetAccountPaymentProcessorCustomerID(t.Context(), unset, account.ID, "cus_123"))
-		must.Error(t, store.MarkAccountBillingSynced(t.Context(), unset, account.ID))
+		must.Error(t, env.setAccountBillingStatus(t, store, unset, account.ID, BillingPaid))
+		must.Error(t, env.recordAccountSubscription(t, store, unset, account.ID, BillingPaid, "plan_pro"))
+		must.Error(t, env.recordAccountSubscriptionEnded(t, store, unset, account.ID, BillingUnpaid))
+		must.Error(t, env.setAccountPaymentProcessorCustomerID(t, store, unset, account.ID, "cus_123"))
+		must.Error(t, env.markAccountBillingSynced(t, store, unset, account.ID))
 	})
 }

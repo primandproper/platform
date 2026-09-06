@@ -12,8 +12,14 @@ var (
 	// errors.ErrNilInputParameter, so a caller may check either.
 	ErrNilDatabaseClient = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil database client")
 
-	// ErrNilExecutor indicates a nil database.SQLQueryExecutor handed to one of
-	// the methods that run inside the caller's transaction.
+	// ErrNilStore indicates a nil Store where one was required. It wraps
+	// errors.ErrNilInputParameter, so a caller may check either.
+	ErrNilStore = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil identity store")
+
+	// ErrNilExecutor indicates a nil executor. Every method here runs on one the
+	// caller supplies — a database.Tx for a write, a database.SQLQueryExecutor
+	// for a read — so there is no method that can fall back to a connection of
+	// the store's own.
 	ErrNilExecutor = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil query executor")
 
 	// ErrNilUser indicates a nil *User where one was required.
@@ -27,6 +33,17 @@ var (
 
 	// ErrNilInvitation indicates a nil *Invitation where one was required.
 	ErrNilInvitation = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil invitation")
+
+	// ErrScopeMismatch indicates a write whose entity names a different tenant
+	// than the scope the call named.
+	//
+	// The argument is what the statement binds, so the two disagreeing is a
+	// caller holding one directory's user and writing it into another — either a
+	// stale value or a mix-up, and neither is a thing to guess at. An entity
+	// naming no scope adopts the argument; only a disagreement is refused. It is
+	// the reading comments.ErrScopeMismatch settled for every store in this
+	// module.
+	ErrScopeMismatch = platformerrors.New("entity names a different scope than the write")
 
 	// ErrUsernameTaken indicates a username already registered in this scope.
 	//

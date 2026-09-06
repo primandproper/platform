@@ -179,8 +179,8 @@ func TestLoginFlow_TreatsAnUnprovenSecretAsNoSecondFactor(t *testing.T) {
 		AccountStatus:   identity.StatusGood,
 	}
 
-	must.NoError(t, flow.client.WithTransaction(ctx, func(q database.Tx) error {
-		return flow.store.CreateUser(ctx, q, user)
+	must.NoError(t, flow.client.WithTransaction(ctx, func(tx database.Tx) error {
+		return flow.store.CreateUser(ctx, tx, scope, user)
 	}))
 
 	outcome, err := flow.SignIn(ctx, scope, &signInRequest{Handle: "grace", Password: examplePassword})
@@ -242,8 +242,8 @@ func TestLoginFlow_DoesNotCollapseABrokenHashIntoARefusal(t *testing.T) {
 		AccountStatus:  identity.StatusGood,
 	}
 
-	must.NoError(t, flow.client.WithTransaction(ctx, func(q database.Tx) error {
-		return flow.store.CreateUser(ctx, q, user)
+	must.NoError(t, flow.client.WithTransaction(ctx, func(tx database.Tx) error {
+		return flow.store.CreateUser(ctx, tx, scope, user)
 	}))
 
 	outcome, err := flow.SignIn(ctx, scope, &signInRequest{Handle: "hopper", Password: examplePassword})

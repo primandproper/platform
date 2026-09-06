@@ -17,15 +17,16 @@ import (
 	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
-// Example_registration shows the flow this package exists for: a user, an
-// account, and a membership, written in one transaction.
+// Example_registration shows the flow this package exists for, written against
+// the store: a user, an account, and a membership, in one transaction.
 //
-// Three writes rather than one method, because which of them a given
-// application performs is application judgement — a registration by invitation
-// joins somebody else's account instead of creating one, and one behind an SSO
-// provider may create neither. What the package guarantees is that they commit
-// together, so a user without an account or an account without an owner is
-// never left behind.
+// This is the shape [identity.Service.Register] performs, and it is spelled out
+// here because a registration is not always these three writes — one by
+// invitation joins somebody else's account instead of creating one, and one
+// behind an SSO provider may create neither. What the store guarantees either
+// way is that whichever writes a flow makes commit together, so a user without
+// an account or an account without an owner is never left behind. See
+// Example_service for the same registration through the service layer.
 func Example_registration() {
 	ctx := context.Background()
 	client, store := exampleWiring()
@@ -63,23 +64,22 @@ func Example_registration() {
 		Name:  "Ada's account",
 	}
 
-	err := client.WithTransaction(ctx, func(q database.Tx) error {
+	err := client.WithTransaction(ctx, func(tx database.Tx) error {
 		// CreateUser fills in the ID and CreatedAt, so the account below can
 		// name its owner.
-		if err := store.CreateUser(ctx, q, user); err != nil {
+		if err := store.CreateUser(ctx, tx, scope, user); err != nil {
 			return err
 		}
 
 		account.OwnerUserID = user.ID
 
-		if err := store.CreateAccount(ctx, q, account); err != nil {
+		if err := store.CreateAccount(ctx, tx, scope, account); err != nil {
 			return err
 		}
 
 		// The first membership becomes the default whatever this says, because
 		// a user with memberships and no default has nowhere to land.
-		return store.CreateMembership(ctx, q, &identity.Membership{
-			Scope:            scope,
+		return store.CreateMembership(ctx, tx, scope, &identity.Membership{
 			BelongsToUser:    user.ID,
 			BelongsToAccount: account.ID,
 			Roles:            []string{"account_admin"},
@@ -100,9 +100,8 @@ func Example_registration() {
 	// A second registration on the same handle is refused with an error the
 	// caller can act on, rather than a driver's constraint violation they would
 	// have to parse a SQLSTATE out of.
-	err = client.WithTransaction(ctx, func(q database.Tx) error {
-		return store.CreateUser(ctx, q, &identity.User{
-			Scope:          scope,
+	err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		return store.CreateUser(ctx, tx, scope, &identity.User{
 			Username:       "ada",
 			EmailAddress:   "someone-else@example.com",
 			HashedPassword: hashedPassword,
@@ -113,6 +112,82 @@ func Example_registration() {
 	// Output:
 	// registered ada
 	// true
+}
+
+// auditHooks is what a consumer hangs off the service's operations: a write of
+// its own, on the transaction the operation is running in.
+//
+// Embedding NoopHooks is what lets it implement one method out of ten — and
+// what keeps an operation added to identity.Hooks later from breaking it.
+type auditHooks struct {
+	identity.NoopHooks
+}
+
+func (h *auditHooks) AfterRegister(
+	_ context.Context, _ database.Tx, _ tenancy.Scope, registration *identity.Registration,
+) error {
+	// A real one writes its audit entry, data change event or outbox row on the
+	// tx it was handed, so that row and the registration commit together. What
+	// does not belong here is the welcome email: a hook runs with a write
+	// transaction open, and a mail provider being down would fail the
+	// registration.
+	fmt.Println("recorded the registration of", registration.User.Username,
+		"into", registration.Account.Name)
+
+	return nil
+}
+
+// Example_service shows the layer above the store: the operations that are more
+// than one write, each run as one transaction, with the consumer's own writes
+// joining through a hook.
+func Example_service() {
+	ctx := context.Background()
+	client, store := exampleWiring()
+
+	scope := tenancy.Global()
+
+	service, err := identity.NewService(client, store, identity.WithHooks(&auditHooks{}))
+	if err != nil {
+		panic(err)
+	}
+
+	// Policy stays the caller's: this flow decided that a password is required
+	// and hashed it, and that the first account is named after its owner.
+	registration, err := service.Register(ctx, scope,
+		&identity.User{
+			Username:       "ada",
+			EmailAddress:   "ada@example.com",
+			HashedPassword: "argon2id$v=19$m=65536,t=3,p=2$...",
+			AccountStatus:  identity.StatusUnverified,
+		},
+		&identity.Account{Name: "Ada's account"},
+		[]string{"account_admin"},
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	// The user, the account and the owner membership, all committed, and the
+	// membership is where Ada lands because it is the only one she holds.
+	fmt.Println(registration.User.Username, "owns", registration.Account.Name)
+	fmt.Println("default account:", registration.Membership.DefaultAccount)
+
+	// A hook that returns an error rolls its operation back. Nothing here is a
+	// veto on policy — whether Ada may be banned at all was decided before the
+	// call — but the record of the ban commits with the ban or neither does.
+	banned, err := service.UpdateUserAccountStatus(ctx, scope,
+		registration.User.ID, identity.StatusBanned, "spam")
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("status:", banned.AccountStatus)
+
+	// Output:
+	// recorded the registration of ada into Ada's account
+	// ada owns Ada's account
+	// default account: true
+	// status: banned
 }
 
 // Example_authenticatedRequest shows the read every authenticated request makes.
@@ -130,7 +205,7 @@ func Example_authenticatedRequest() {
 
 	// Both come off the session: who is calling, and which account they are
 	// looking at. An empty account means their default.
-	principal, err := store.GetPrincipal(ctx, scope, user.ID, "")
+	principal, err := store.GetPrincipal(ctx, client.Reader(), scope, user.ID, "")
 	if err != nil {
 		fmt.Println("cannot serve this request:", err)
 
@@ -148,7 +223,7 @@ func Example_authenticatedRequest() {
 	// A Principal never claims an account its user is not a member of.
 	stranger, _ := exampleRegister(ctx, client, store, "mallory", "Mallory's account")
 
-	_, err = store.GetPrincipal(ctx, scope, stranger.ID, account.ID)
+	_, err = store.GetPrincipal(ctx, client.Reader(), scope, stranger.ID, account.ID)
 	fmt.Println(errors.Is(err, identity.ErrMembershipNotFound))
 
 	// Output:
@@ -169,7 +244,7 @@ func Example_signIn() {
 	scope := tenancy.Global()
 	exampleRegister(ctx, client, store, "ada", "Ada's account")
 
-	user, err := store.GetUserByUsername(ctx, scope, "ada")
+	user, err := store.GetUserByUsername(ctx, client.Reader(), scope, "ada")
 	if err != nil {
 		// Archived users are excluded from this read, so a deleted account
 		// cannot authenticate.
@@ -185,13 +260,17 @@ func Example_signIn() {
 	// this is the check rather than whether the secret is set.
 	fmt.Println(user.TwoFactorEnabled())
 
-	if err = store.MarkUserTwoFactorSecretVerified(ctx, scope, user.ID); err != nil {
+	// The verification is a write, so it runs in a transaction — the one a
+	// consumer would already be holding for the audit entry beside it.
+	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		return store.MarkUserTwoFactorSecretVerified(ctx, tx, scope, user.ID)
+	}); err != nil {
 		fmt.Println(err)
 
 		return
 	}
 
-	proven, err := store.GetUserByUsername(ctx, scope, "ada")
+	proven, err := store.GetUserByUsername(ctx, client.Reader(), scope, "ada")
 	if err != nil {
 		fmt.Println(err)
 
@@ -241,7 +320,9 @@ func Example_invitation() {
 		Roles:     []string{"account_member"},
 	}
 
-	if err := store.CreateInvitation(ctx, invitation); err != nil {
+	if err := client.WithTransaction(ctx, func(tx database.Tx) error {
+		return store.CreateInvitation(ctx, tx, scope, invitation)
+	}); err != nil {
 		fmt.Println(err)
 
 		return
@@ -254,15 +335,15 @@ func Example_invitation() {
 		HashedPassword: "argon2id$v=19$...",
 	}
 
-	err := client.WithTransaction(ctx, func(q database.Tx) error {
-		if createErr := store.CreateUser(ctx, q, newcomer); createErr != nil {
+	err := client.WithTransaction(ctx, func(tx database.Tx) error {
+		if createErr := store.CreateUser(ctx, tx, scope, newcomer); createErr != nil {
 			return createErr
 		}
 
 		// Both halves of the link. Naming the row and then comparing the token
 		// keeps the secret out of an index.
 		membership, acceptErr := store.AcceptInvitation(
-			ctx, q, scope, invitation.ID, invitation.Token, newcomer.ID, "")
+			ctx, tx, scope, invitation.ID, invitation.Token, newcomer.ID, "")
 		if acceptErr != nil {
 			return acceptErr
 		}
@@ -283,9 +364,9 @@ func Example_invitation() {
 
 	// Clicking the link twice produces one membership: the second finds nothing
 	// pending.
-	err = client.WithTransaction(ctx, func(q database.Tx) error {
+	err = client.WithTransaction(ctx, func(tx database.Tx) error {
 		_, acceptErr := store.AcceptInvitation(
-			ctx, q, scope, invitation.ID, invitation.Token, newcomer.ID, "")
+			ctx, tx, scope, invitation.ID, invitation.Token, newcomer.ID, "")
 
 		return acceptErr
 	})
@@ -339,8 +420,11 @@ func exampleRegister(
 	store identity.Store,
 	username, accountName string,
 ) (*identity.User, *identity.Account) {
+	scope := tenancy.Global()
+
+	// None of the three names a scope of its own: an entity that names none
+	// adopts the argument, which is what a single-directory deployment writes.
 	user := &identity.User{
-		Scope:           tenancy.Global(),
 		Username:        username,
 		EmailAddress:    username + "@example.com",
 		HashedPassword:  "argon2id$v=19$...",
@@ -349,21 +433,20 @@ func exampleRegister(
 		ServiceRoles:    []string{"service_user"},
 	}
 
-	account := &identity.Account{Scope: tenancy.Global(), Name: accountName}
+	account := &identity.Account{Name: accountName}
 
-	if err := client.WithTransaction(ctx, func(q database.Tx) error {
-		if err := store.CreateUser(ctx, q, user); err != nil {
+	if err := client.WithTransaction(ctx, func(tx database.Tx) error {
+		if err := store.CreateUser(ctx, tx, scope, user); err != nil {
 			return err
 		}
 
 		account.OwnerUserID = user.ID
 
-		if err := store.CreateAccount(ctx, q, account); err != nil {
+		if err := store.CreateAccount(ctx, tx, scope, account); err != nil {
 			return err
 		}
 
-		return store.CreateMembership(ctx, q, &identity.Membership{
-			Scope:            tenancy.Global(),
+		return store.CreateMembership(ctx, tx, scope, &identity.Membership{
 			BelongsToUser:    user.ID,
 			BelongsToAccount: account.ID,
 			Roles:            []string{"account_admin"},

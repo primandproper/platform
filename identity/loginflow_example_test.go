@@ -167,6 +167,12 @@ type loginFlow struct {
 	secondFactor totp.Verifier
 	sessions     sessions.Store[principal]
 
+	// reader is the executor the directory read runs on. Every read in that
+	// store takes one, and a sign-in has nothing to commit alongside — so this
+	// is the client's read side, outside any transaction, and the flow never
+	// holds anything that could open one.
+	reader database.SQLQueryExecutor
+
 	// decoyHash is compared against when the handle resolved to nobody, so the
 	// miss costs an argon2id verification like every other answer does.
 	decoyHash string
@@ -189,7 +195,7 @@ func (f *loginFlow) SignIn(ctx context.Context, scope tenancy.Scope, req *signIn
 	// its budget on. ratelimiting.RateLimiter is the seam; the key is the
 	// policy, and this module has no opinion about it.
 
-	user, err := f.directory.GetUserByUsername(ctx, scope, req.Handle)
+	user, err := f.directory.GetUserByUsername(ctx, f.reader, scope, req.Handle)
 	switch {
 	case errors.Is(err, identity.ErrUserNotFound):
 		// Spend the comparison anyway. Returning here would make the response
@@ -331,6 +337,7 @@ func exampleFlow() (*exampleDeployment, tenancy.Scope) {
 	return &exampleDeployment{
 		loginFlow: &loginFlow{
 			directory:    store,
+			reader:       client.Reader(),
 			passwords:    authenticator,
 			secondFactor: totp.NewVerifier(),
 			sessions:     sessionStore,
@@ -360,15 +367,20 @@ func exampleUser(ctx context.Context, flow *exampleDeployment, username, passwor
 		AccountStatus:   identity.StatusGood,
 	}
 
-	if err = flow.client.WithTransaction(ctx, func(q database.Tx) error {
-		return flow.store.CreateUser(ctx, q, user)
+	// The registration and the verification that follows it are two
+	// transactions because they are two acts; a deployment doing both at once
+	// would pass one Tx to both.
+	if err = flow.client.WithTransaction(ctx, func(tx database.Tx) error {
+		return flow.store.CreateUser(ctx, tx, scope, user)
 	}); err != nil {
 		panic(err)
 	}
 
 	// Issuing a secret is not holding one. This is the write that turns the
 	// column into a second factor.
-	if err = flow.store.MarkUserTwoFactorSecretVerified(ctx, scope, user.ID); err != nil {
+	if err = flow.client.WithTransaction(ctx, func(tx database.Tx) error {
+		return flow.store.MarkUserTwoFactorSecretVerified(ctx, tx, scope, user.ID)
+	}); err != nil {
 		panic(err)
 	}
 
@@ -385,7 +397,9 @@ func exampleAnonymousSession(ctx context.Context, flow *exampleDeployment) strin
 }
 
 func exampleBan(ctx context.Context, flow *exampleDeployment, scope tenancy.Scope, userID, explanation string) {
-	if err := flow.store.UpdateUserAccountStatus(ctx, scope, userID, identity.StatusBanned, explanation); err != nil {
+	if err := flow.client.WithTransaction(ctx, func(tx database.Tx) error {
+		return flow.store.UpdateUserAccountStatus(ctx, tx, scope, userID, identity.StatusBanned, explanation)
+	}); err != nil {
 		panic(err)
 	}
 }

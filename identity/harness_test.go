@@ -1,7 +1,6 @@
 package identity
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -170,20 +169,422 @@ func newAccount(name, ownerID string) *Account {
 	}
 }
 
-// createUser writes a user through a transaction, the way a registration would.
-func createUser(t *testing.T, store *SQLStore, user *User) *User {
+// inTx runs fn inside a transaction on the environment's database and reports
+// what fn returned.
+//
+// Every write in this store takes the caller's transaction, so a test that wants
+// a row written opens one — which is what a consumer does. It hands back fn's
+// error rather than asserting on it, because a refused write is what a good
+// number of these cases are about and RunInTransaction returns the callback's
+// error unwrapped.
+func (e *storeEnv) inTx(t *testing.T, fn func(tx database.Tx) error) error {
 	t.Helper()
 
-	must.NoError(t, store.client.WithTransaction(t.Context(), func(q database.Tx) error {
-		return store.CreateUser(t.Context(), q, user)
-	}))
+	return e.client.WithTransaction(t.Context(), fn)
+}
+
+// reader is the executor an ordinary read runs on: the client's, outside any
+// transaction. The cases about a read that joins a transaction pass the Tx
+// instead, and they are in the caller-transaction suite.
+func (e *storeEnv) reader() database.SQLQueryExecutor { return e.client.Reader() }
+
+// The thirty writes, each in a transaction of its own, reporting what the write
+// returned.
+//
+// The transaction is a detail in most of these cases rather than the subject: a
+// consumer with nothing to commit alongside opens exactly this. What an identity
+// row commits *with* is the caller-transaction suite.
+
+func (e *storeEnv) createUser(t *testing.T, store *SQLStore, scope tenancy.Scope, user *User) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error { return store.CreateUser(t.Context(), tx, scope, user) })
+}
+
+func (e *storeEnv) createAccount(t *testing.T, store *SQLStore, scope tenancy.Scope, account *Account) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error { return store.CreateAccount(t.Context(), tx, scope, account) })
+}
+
+func (e *storeEnv) createMembership(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	membership *Membership,
+) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error {
+		return store.CreateMembership(t.Context(), tx, scope, membership)
+	})
+}
+
+func (e *storeEnv) updateUserPassword(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	userID, hashedPassword string,
+) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error {
+		return store.UpdateUserPassword(t.Context(), tx, scope, userID, hashedPassword)
+	})
+}
+
+func (e *storeEnv) setUserRequiresPasswordChange(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	userID string,
+	requires bool,
+) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error {
+		return store.SetUserRequiresPasswordChange(t.Context(), tx, scope, userID, requires)
+	})
+}
+
+func (e *storeEnv) updateUserTwoFactorSecret(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	userID, secret string,
+) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error {
+		return store.UpdateUserTwoFactorSecret(t.Context(), tx, scope, userID, secret)
+	})
+}
+
+func (e *storeEnv) markUserTwoFactorSecretVerified(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	userID string,
+) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error {
+		return store.MarkUserTwoFactorSecretVerified(t.Context(), tx, scope, userID)
+	})
+}
+
+func (e *storeEnv) setUserEmailAddressVerificationToken(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	userID, token string,
+) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error {
+		return store.SetUserEmailAddressVerificationToken(t.Context(), tx, scope, userID, token)
+	})
+}
+
+func (e *storeEnv) markUserEmailAddressVerified(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	userID, token string,
+) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error {
+		return store.MarkUserEmailAddressVerified(t.Context(), tx, scope, userID, token)
+	})
+}
+
+func (e *storeEnv) markUserEmailAddressUnverified(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	userID string,
+) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error {
+		return store.MarkUserEmailAddressUnverified(t.Context(), tx, scope, userID)
+	})
+}
+
+func (e *storeEnv) updateUser(t *testing.T, store *SQLStore, scope tenancy.Scope, user *User) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error { return store.UpdateUser(t.Context(), tx, scope, user) })
+}
+
+func (e *storeEnv) updateAccount(t *testing.T, store *SQLStore, scope tenancy.Scope, account *Account) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error { return store.UpdateAccount(t.Context(), tx, scope, account) })
+}
+
+func (e *storeEnv) recordAgreement(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	userID string,
+	agreements ...Agreement,
+) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error {
+		return store.RecordAgreement(t.Context(), tx, scope, userID, agreements...)
+	})
+}
+
+func (e *storeEnv) setMembershipRoles(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	userID, accountID string,
+	roles []string,
+) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error {
+		return store.SetMembershipRoles(t.Context(), tx, scope, userID, accountID, roles)
+	})
+}
+
+func (e *storeEnv) setDefaultAccount(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	userID, accountID string,
+) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error {
+		return store.SetDefaultAccount(t.Context(), tx, scope, userID, accountID)
+	})
+}
+
+func (e *storeEnv) transferAccountOwnership(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	accountID, newOwnerUserID string,
+) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error {
+		return store.TransferAccountOwnership(t.Context(), tx, scope, accountID, newOwnerUserID)
+	})
+}
+
+func (e *storeEnv) removeMembership(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	userID, accountID string,
+) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error {
+		return store.RemoveMembership(t.Context(), tx, scope, userID, accountID)
+	})
+}
+
+func (e *storeEnv) updateUserAccountStatus(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	userID string,
+	status AccountStatus,
+	explanation string,
+) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error {
+		return store.UpdateUserAccountStatus(t.Context(), tx, scope, userID, status, explanation)
+	})
+}
+
+func (e *storeEnv) setUserServiceRoles(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	userID string,
+	roles []string,
+) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error {
+		return store.SetUserServiceRoles(t.Context(), tx, scope, userID, roles)
+	})
+}
+
+func (e *storeEnv) archiveUser(t *testing.T, store *SQLStore, scope tenancy.Scope, userID string) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error { return store.ArchiveUser(t.Context(), tx, scope, userID) })
+}
+
+func (e *storeEnv) eraseUser(t *testing.T, store *SQLStore, scope tenancy.Scope, userID string) (int64, error) {
+	t.Helper()
+
+	var erased int64
+
+	err := e.inTx(t, func(tx database.Tx) error {
+		var txErr error
+		erased, txErr = store.EraseUser(t.Context(), tx, scope, userID)
+
+		return txErr
+	})
+
+	return erased, err
+}
+
+func (e *storeEnv) archiveAccount(t *testing.T, store *SQLStore, scope tenancy.Scope, accountID string) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error { return store.ArchiveAccount(t.Context(), tx, scope, accountID) })
+}
+
+func (e *storeEnv) recordAccountSubscription(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	accountID string,
+	status BillingStatus,
+	planID string,
+) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error {
+		return store.RecordAccountSubscription(t.Context(), tx, scope, accountID, status, planID)
+	})
+}
+
+func (e *storeEnv) recordAccountSubscriptionEnded(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	accountID string,
+	status BillingStatus,
+) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error {
+		return store.RecordAccountSubscriptionEnded(t.Context(), tx, scope, accountID, status)
+	})
+}
+
+func (e *storeEnv) setAccountBillingStatus(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	accountID string,
+	status BillingStatus,
+) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error {
+		return store.SetAccountBillingStatus(t.Context(), tx, scope, accountID, status)
+	})
+}
+
+func (e *storeEnv) setAccountPaymentProcessorCustomerID(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	accountID, customerID string,
+) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error {
+		return store.SetAccountPaymentProcessorCustomerID(t.Context(), tx, scope, accountID, customerID)
+	})
+}
+
+func (e *storeEnv) markAccountBillingSynced(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	accountID string,
+) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error {
+		return store.MarkAccountBillingSynced(t.Context(), tx, scope, accountID)
+	})
+}
+
+func (e *storeEnv) createInvitation(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	invitation *Invitation,
+) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error {
+		return store.CreateInvitation(t.Context(), tx, scope, invitation)
+	})
+}
+
+func (e *storeEnv) acceptInvitation(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	invitationID, token, acceptingUserID, statusNote string,
+) (*Membership, error) {
+	t.Helper()
+
+	var membership *Membership
+
+	err := e.inTx(t, func(tx database.Tx) error {
+		var txErr error
+		membership, txErr = store.AcceptInvitation(
+			t.Context(), tx, scope, invitationID, token, acceptingUserID, statusNote)
+
+		return txErr
+	})
+
+	return membership, err
+}
+
+func (e *storeEnv) setInvitationStatus(
+	t *testing.T,
+	store *SQLStore,
+	scope tenancy.Scope,
+	invitationID string,
+	status InvitationStatus,
+	statusNote string,
+) error {
+	t.Helper()
+
+	return e.inTx(t, func(tx database.Tx) error {
+		return store.SetInvitationStatus(t.Context(), tx, scope, invitationID, status, statusNote)
+	})
+}
+
+// The fixtures the suites start from, built on the helpers above. They assert
+// rather than report, because a failure here is the test not getting to its
+// subject.
+
+// seedUser writes a user through a transaction, the way a registration would.
+func seedUser(t *testing.T, env *storeEnv, store *SQLStore, user *User) *User {
+	t.Helper()
+
+	must.NoError(t, env.createUser(t, store, user.Scope, user))
 
 	return user
 }
 
-// createAccountFor writes an account and the owner's membership, which is what
-// a registration does and what almost every test needs before it can start.
-func createAccountFor(t *testing.T, store *SQLStore, owner *User, name string, roles ...string) *Account {
+// seedAccountFor writes an account and the owner's membership, which is what a
+// registration does and what almost every test needs before it can start.
+//
+// Both writes go in one transaction, because that is the invariant Registrar
+// exists to make visible: an account without an owner has nobody its ownership
+// checks resolve to.
+func seedAccountFor(t *testing.T, env *storeEnv, store *SQLStore, owner *User, name string, roles ...string) *Account {
 	t.Helper()
 
 	if len(roles) == 0 {
@@ -192,13 +593,12 @@ func createAccountFor(t *testing.T, store *SQLStore, owner *User, name string, r
 
 	account := newAccount(name, owner.ID)
 
-	must.NoError(t, store.client.WithTransaction(t.Context(), func(q database.Tx) error {
-		if err := store.CreateAccount(t.Context(), q, account); err != nil {
+	must.NoError(t, env.inTx(t, func(tx database.Tx) error {
+		if err := store.CreateAccount(t.Context(), tx, owner.Scope, account); err != nil {
 			return err
 		}
 
-		return store.CreateMembership(t.Context(), q, &Membership{
-			Scope:            owner.Scope,
+		return store.CreateMembership(t.Context(), tx, owner.Scope, &Membership{
 			BelongsToUser:    owner.ID,
 			BelongsToAccount: account.ID,
 			Roles:            roles,
@@ -208,21 +608,20 @@ func createAccountFor(t *testing.T, store *SQLStore, owner *User, name string, r
 	return account
 }
 
-// registerInto writes a user and puts them in an existing account.
-func registerInto(t *testing.T, store *SQLStore, user *User, accountID string, roles ...string) *User {
+// seedUserInto writes a user and puts them in an existing account.
+func seedUserInto(t *testing.T, env *storeEnv, store *SQLStore, user *User, accountID string, roles ...string) *User {
 	t.Helper()
 
 	if len(roles) == 0 {
 		roles = []string{"account_member"}
 	}
 
-	must.NoError(t, store.client.WithTransaction(t.Context(), func(q database.Tx) error {
-		if err := store.CreateUser(t.Context(), q, user); err != nil {
+	must.NoError(t, env.inTx(t, func(tx database.Tx) error {
+		if err := store.CreateUser(t.Context(), tx, user.Scope, user); err != nil {
 			return err
 		}
 
-		return store.CreateMembership(t.Context(), q, &Membership{
-			Scope:            user.Scope,
+		return store.CreateMembership(t.Context(), tx, user.Scope, &Membership{
 			BelongsToUser:    user.ID,
 			BelongsToAccount: accountID,
 			Roles:            roles,
@@ -252,13 +651,4 @@ func newInvitation(from *User, accountID, toEmail, token string, expires time.Ti
 		ExpiresAt: expires,
 		Roles:     []string{"account_member"},
 	}
-}
-
-// inTransaction runs fn with an executor, for the store methods that take one.
-func inTransaction(t *testing.T, store *SQLStore, fn func(ctx context.Context, q database.Tx) error) error {
-	t.Helper()
-
-	return store.client.WithTransaction(t.Context(), func(q database.Tx) error {
-		return fn(t.Context(), q)
-	})
 }

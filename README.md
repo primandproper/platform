@@ -238,8 +238,11 @@ where it falls today.
 So `identity`, `webhooks` endpoint management, `billing`, `settings`,
 `notifications`, `metering`, `audit`, `dataprivacy`, `saga`, `timers` and
 `workqueue` ship a store and no handlers. `identity` states the bargain plainly:
-a consumer keeps its service layer, its HTTP handlers, its proto and whatever
-columns are genuinely its own — it does not keep a users table.
+a consumer keeps its policy, its HTTP handlers, its proto and whatever columns
+are genuinely its own — it does not keep a users table. It also ships
+`identity.Service`, the operations that are more than one write, and that is on
+this side of the line rather than across it: a registration is a transaction,
+not a request, and its shape is decided by the rows it has to commit together.
 
 The line is not "no transports". It is this:
 

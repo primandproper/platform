@@ -63,6 +63,14 @@ func TestStore_PartitionsItsMethods(t *testing.T) {
 	}
 }
 
+// storeMethodCount is how many methods Store carries, read off the interface
+// rather than written down.
+//
+// The nil-executor case in the caller-transaction suite compares its table
+// against this, so a method added to Store and not to that table fails as a
+// count rather than as an absence nobody notices.
+func storeMethodCount() int { return reflect.TypeFor[Store]().NumMethod() }
+
 // TestSQLStore_SQLite runs the behavioral suite against SQLite, which every
 // developer has and every CI run executes. The same suite runs against real
 // servers in containers_test.go.
@@ -97,6 +105,8 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		{name: "admin", run: runAdminWriterSuite},
 		{name: "billing", run: runBillingWriterSuite},
 		{name: "invitations", run: runInvitationStoreSuite},
+		{name: "service", run: runServiceSuite},
+		{name: "transactions", run: runCallerTransactionSuite},
 		{name: "timestamps", run: runClockSuite},
 	}
 

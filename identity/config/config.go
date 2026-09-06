@@ -58,6 +58,12 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 // NewStore builds the Store. client must be the database holding the identity
 // tables.
 //
+// The client is read at construction and not kept: it supplies the dialect and
+// nothing else, because every write in the store takes the caller's
+// database.Tx and every read takes the caller's database.SQLQueryExecutor. A
+// consumer therefore holds the client itself — it is what opens the transaction
+// the store's writes require, and what supplies Reader() for its reads.
+//
 // Each provider is built into a variable and returned only once its error is
 // known to be nil. The provider constructors return their own concrete types,
 // so returning one straight through would convert a nil *identity.SQLStore into

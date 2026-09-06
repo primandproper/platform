@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 
+	"github.com/primandproper/platform-go/v14/database"
 	platformerrors "github.com/primandproper/platform-go/v14/errors"
 	"github.com/primandproper/platform-go/v14/identity/internal/identitydb"
 	"github.com/primandproper/platform-go/v14/observability"
@@ -33,12 +34,23 @@ var _ BillingWriter = (*SQLStore)(nil)
 // MarkUserEmailAddressVerified takes no time: the fact being recorded is that
 // this process heard from the processor, and the moment that happened is the
 // moment of the write.
-func (s *SQLStore) RecordAccountSubscription(ctx context.Context, scope tenancy.Scope, accountID string, status BillingStatus, planID string) error {
+func (s *SQLStore) RecordAccountSubscription(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	accountID string,
+	status BillingStatus,
+	planID string,
+) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(accountIDKey, accountID),
 	)
 	defer op.End()
+
+	if err := requireExecutor(tx); err != nil {
+		return op.Error(err, "recording identity account subscription")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "recording identity account subscription")
@@ -58,7 +70,7 @@ func (s *SQLStore) RecordAccountSubscription(ctx context.Context, scope tenancy.
 		)
 	}
 
-	if err := s.recordSubscription(ctx, scope, accountID, status, pointer.To(planID)); err != nil {
+	if err := s.recordSubscription(ctx, tx, scope, accountID, status, pointer.To(planID)); err != nil {
 		return op.Error(err, "recording identity account subscription")
 	}
 
@@ -79,12 +91,22 @@ func (s *SQLStore) RecordAccountSubscription(ctx context.Context, scope tenancy.
 // the customer cancelled, one the processor gave up collecting on, and one whose
 // trial simply ran out are the same write over different standings, and which of
 // them means what is the application's policy rather than this package's.
-func (s *SQLStore) RecordAccountSubscriptionEnded(ctx context.Context, scope tenancy.Scope, accountID string, status BillingStatus) error {
+func (s *SQLStore) RecordAccountSubscriptionEnded(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	accountID string,
+	status BillingStatus,
+) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(accountIDKey, accountID),
 	)
 	defer op.End()
+
+	if err := requireExecutor(tx); err != nil {
+		return op.Error(err, "recording identity account subscription ended")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "recording identity account subscription ended")
@@ -97,7 +119,7 @@ func (s *SQLStore) RecordAccountSubscriptionEnded(ctx context.Context, scope ten
 		)
 	}
 
-	if err := s.recordSubscription(ctx, scope, accountID, status, nil); err != nil {
+	if err := s.recordSubscription(ctx, tx, scope, accountID, status, nil); err != nil {
 		return op.Error(err, "recording identity account subscription ended")
 	}
 
@@ -110,8 +132,15 @@ func (s *SQLStore) RecordAccountSubscriptionEnded(ctx context.Context, scope ten
 // difference belongs: the column's whole domain stays writable precisely because
 // the argument saying what it becomes is not also the argument saying whether to
 // write it.
-func (s *SQLStore) recordSubscription(ctx context.Context, scope tenancy.Scope, accountID string, status BillingStatus, planID *string) error {
-	count, err := s.q.RecordAccountSubscription(ctx, s.client.Writer(), identitydb.RecordAccountSubscriptionParams{
+func (s *SQLStore) recordSubscription(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	accountID string,
+	status BillingStatus,
+	planID *string,
+) error {
+	count, err := s.q.RecordAccountSubscription(ctx, tx, identitydb.RecordAccountSubscriptionParams{
 		ID:                          accountID,
 		Scope:                       scope,
 		BillingStatus:               status.String(),
@@ -130,12 +159,22 @@ func (s *SQLStore) recordSubscription(ctx context.Context, scope tenancy.Scope, 
 // RecordAccountSubscriptionEnded, both of which stamp the reconciliation this
 // one deliberately does not: nothing was asked of the processor here, and
 // stamping would date the account's billing state to an operator's click.
-func (s *SQLStore) SetAccountBillingStatus(ctx context.Context, scope tenancy.Scope, accountID string, status BillingStatus) error {
+func (s *SQLStore) SetAccountBillingStatus(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	accountID string,
+	status BillingStatus,
+) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(accountIDKey, accountID),
 	)
 	defer op.End()
+
+	if err := requireExecutor(tx); err != nil {
+		return op.Error(err, "setting identity account billing status")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "setting identity account billing status")
@@ -148,7 +187,7 @@ func (s *SQLStore) SetAccountBillingStatus(ctx context.Context, scope tenancy.Sc
 		)
 	}
 
-	count, err := s.q.SetAccountBillingStatus(ctx, s.client.Writer(), identitydb.SetAccountBillingStatusParams{
+	count, err := s.q.SetAccountBillingStatus(ctx, tx, identitydb.SetAccountBillingStatusParams{
 		ID:            accountID,
 		Scope:         scope,
 		BillingStatus: status.String(),
@@ -163,12 +202,21 @@ func (s *SQLStore) SetAccountBillingStatus(ctx context.Context, scope tenancy.Sc
 // SetAccountPaymentProcessorCustomerID attaches the account to its customer at
 // the processor, which is the write that happens the first time it is created
 // there.
-func (s *SQLStore) SetAccountPaymentProcessorCustomerID(ctx context.Context, scope tenancy.Scope, accountID, customerID string) error {
+func (s *SQLStore) SetAccountPaymentProcessorCustomerID(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	accountID, customerID string,
+) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(accountIDKey, accountID),
 	)
 	defer op.End()
+
+	if err := requireExecutor(tx); err != nil {
+		return op.Error(err, "setting identity account payment processor customer")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "setting identity account payment processor customer")
@@ -183,7 +231,7 @@ func (s *SQLStore) SetAccountPaymentProcessorCustomerID(ctx context.Context, sco
 		)
 	}
 
-	count, err := s.q.SetAccountPaymentProcessorCustomerID(ctx, s.client.Writer(),
+	count, err := s.q.SetAccountPaymentProcessorCustomerID(ctx, tx,
 		identitydb.SetAccountPaymentProcessorCustomerIDParams{
 			ID:                         accountID,
 			Scope:                      scope,
@@ -212,18 +260,27 @@ func (s *SQLStore) SetAccountPaymentProcessorCustomerID(ctx context.Context, sco
 // would put a value bound in the caller's location into a column this package
 // compares lexically on one of its three dialects — see the timestamp note in
 // identity/queries.
-func (s *SQLStore) MarkAccountBillingSynced(ctx context.Context, scope tenancy.Scope, accountID string) error {
+func (s *SQLStore) MarkAccountBillingSynced(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	accountID string,
+) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(accountIDKey, accountID),
 	)
 	defer op.End()
 
+	if err := requireExecutor(tx); err != nil {
+		return op.Error(err, "marking identity account billing synced")
+	}
+
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "marking identity account billing synced")
 	}
 
-	count, err := s.q.MarkAccountBillingSynced(ctx, s.client.Writer(), identitydb.MarkAccountBillingSyncedParams{
+	count, err := s.q.MarkAccountBillingSynced(ctx, tx, identitydb.MarkAccountBillingSyncedParams{
 		ID:                          accountID,
 		Scope:                       scope,
 		LastPaymentProviderSyncedAt: pointer.To(s.now()),

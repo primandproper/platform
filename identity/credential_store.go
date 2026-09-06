@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 
+	"github.com/primandproper/platform-go/v14/database"
 	platformerrors "github.com/primandproper/platform-go/v14/errors"
 	"github.com/primandproper/platform-go/v14/identity/internal/identitydb"
 	"github.com/primandproper/platform-go/v14/observability"
@@ -16,7 +17,12 @@ import (
 var _ CredentialStore = (*SQLStore)(nil)
 
 // GetUserByEmailVerificationToken reads the live user a verification link names.
-func (s *SQLStore) GetUserByEmailVerificationToken(ctx context.Context, scope tenancy.Scope, token string) (*User, error) {
+func (s *SQLStore) GetUserByEmailVerificationToken(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	token string,
+) (*User, error) {
 	if token == "" {
 		// An empty token is what the column holds for every user with no
 		// outstanding link, so the query would match an arbitrary one of them.
@@ -25,9 +31,9 @@ func (s *SQLStore) GetUserByEmailVerificationToken(ctx context.Context, scope te
 		return nil, platformerrors.Wrap(platformerrors.ErrEmptyInputParameter, "empty email verification token")
 	}
 
-	return s.liveUser(ctx, scope, "reading identity user by email verification token",
+	return s.liveUser(ctx, q, scope, "reading identity user by email verification token",
 		func(ctx context.Context) (*User, error) {
-			row, err := s.q.GetUserByEmailVerificationToken(ctx, s.client.Reader(),
+			row, err := s.q.GetUserByEmailVerificationToken(ctx, q,
 				identitydb.GetUserByEmailVerificationTokenParams{
 					EmailAddressVerificationToken: token,
 					Scope:                         scope,
@@ -42,12 +48,21 @@ func (s *SQLStore) GetUserByEmailVerificationToken(ctx context.Context, scope te
 
 // UpdateUserPassword replaces the hash, stamps the change, and releases any
 // forced password change.
-func (s *SQLStore) UpdateUserPassword(ctx context.Context, scope tenancy.Scope, userID, hashedPassword string) error {
+func (s *SQLStore) UpdateUserPassword(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	userID, hashedPassword string,
+) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(userIDKey, userID),
 	)
 	defer op.End()
+
+	if err := requireExecutor(tx); err != nil {
+		return op.Error(err, "updating identity user password")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "updating identity user password")
@@ -65,7 +80,7 @@ func (s *SQLStore) UpdateUserPassword(ctx context.Context, scope tenancy.Scope, 
 	// The forced-change flag is released in the same statement rather than left
 	// to the caller — see Store.UpdateUserPassword for why that is what makes a
 	// forced password change terminate.
-	count, err := s.q.UpdateUserPassword(ctx, s.client.Writer(), identitydb.UpdateUserPasswordParams{
+	count, err := s.q.UpdateUserPassword(ctx, tx, identitydb.UpdateUserPasswordParams{
 		ID:                     userID,
 		Scope:                  scope,
 		HashedPassword:         hashedPassword,
@@ -81,18 +96,28 @@ func (s *SQLStore) UpdateUserPassword(ctx context.Context, scope tenancy.Scope, 
 
 // SetUserRequiresPasswordChange forces or releases a password change at next
 // sign-in.
-func (s *SQLStore) SetUserRequiresPasswordChange(ctx context.Context, scope tenancy.Scope, userID string, requires bool) error {
+func (s *SQLStore) SetUserRequiresPasswordChange(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	userID string,
+	requires bool,
+) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(userIDKey, userID),
 	)
 	defer op.End()
 
+	if err := requireExecutor(tx); err != nil {
+		return op.Error(err, "setting identity password change requirement")
+	}
+
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "setting identity password change requirement")
 	}
 
-	count, err := s.q.SetUserRequiresPasswordChange(ctx, s.client.Writer(), identitydb.SetUserRequiresPasswordChangeParams{
+	count, err := s.q.SetUserRequiresPasswordChange(ctx, tx, identitydb.SetUserRequiresPasswordChangeParams{
 		ID:                     userID,
 		Scope:                  scope,
 		RequiresPasswordChange: requires,
@@ -105,12 +130,21 @@ func (s *SQLStore) SetUserRequiresPasswordChange(ctx context.Context, scope tena
 }
 
 // UpdateUserTwoFactorSecret stores a new TOTP secret, unverified.
-func (s *SQLStore) UpdateUserTwoFactorSecret(ctx context.Context, scope tenancy.Scope, userID, secret string) error {
+func (s *SQLStore) UpdateUserTwoFactorSecret(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	userID, secret string,
+) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(userIDKey, userID),
 	)
 	defer op.End()
+
+	if err := requireExecutor(tx); err != nil {
+		return op.Error(err, "updating identity two factor secret")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "updating identity two factor secret")
@@ -126,7 +160,7 @@ func (s *SQLStore) UpdateUserTwoFactorSecret(ctx context.Context, scope tenancy.
 	// The new secret and its cleared verification are one statement. Two would
 	// leave a window in which a freshly issued secret reads as already proven,
 	// which is a window in which a second factor is bypassed by re-enrolling.
-	count, err := s.q.UpdateUserTwoFactorSecret(ctx, s.client.Writer(), identitydb.UpdateUserTwoFactorSecretParams{
+	count, err := s.q.UpdateUserTwoFactorSecret(ctx, tx, identitydb.UpdateUserTwoFactorSecretParams{
 		ID:                        userID,
 		Scope:                     scope,
 		TwoFactorSecret:           secret,
@@ -146,12 +180,21 @@ func (s *SQLStore) UpdateUserTwoFactorSecret(ctx context.Context, scope tenancy.
 // ErrUserNotFound rather than succeeding silently — a second verification is
 // either a replayed request or a flow that lost track of its own state, and
 // both are worth surfacing.
-func (s *SQLStore) MarkUserTwoFactorSecretVerified(ctx context.Context, scope tenancy.Scope, userID string) error {
+func (s *SQLStore) MarkUserTwoFactorSecretVerified(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	userID string,
+) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(userIDKey, userID),
 	)
 	defer op.End()
+
+	if err := requireExecutor(tx); err != nil {
+		return op.Error(err, "marking identity two factor secret verified")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "marking identity two factor secret verified")
@@ -162,7 +205,7 @@ func (s *SQLStore) MarkUserTwoFactorSecretVerified(ctx context.Context, scope te
 	// here, so neither is expressible as an argument — see querygen's
 	// Comparand — and that is what keeps a replayed verification from moving
 	// the timestamp forward.
-	count, err := s.q.MarkUserTwoFactorSecretVerified(ctx, s.client.Writer(),
+	count, err := s.q.MarkUserTwoFactorSecretVerified(ctx, tx,
 		identitydb.MarkUserTwoFactorSecretVerifiedParams{
 			ID:                        userID,
 			Scope:                     scope,
@@ -178,12 +221,21 @@ func (s *SQLStore) MarkUserTwoFactorSecretVerified(ctx context.Context, scope te
 // SetUserEmailAddressVerificationToken stores the token a verification link will
 // carry, replacing any outstanding one and dropping any proof the address
 // already had.
-func (s *SQLStore) SetUserEmailAddressVerificationToken(ctx context.Context, scope tenancy.Scope, userID, token string) error {
+func (s *SQLStore) SetUserEmailAddressVerificationToken(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	userID, token string,
+) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(userIDKey, userID),
 	)
 	defer op.End()
+
+	if err := requireExecutor(tx); err != nil {
+		return op.Error(err, "setting identity email verification token")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "setting identity email verification token")
@@ -207,7 +259,7 @@ func (s *SQLStore) SetUserEmailAddressVerificationToken(ctx context.Context, sco
 	// both leaves which one is true up to whichever column a reader consulted.
 	// Issuing a link is a statement that the address wants proving, so it is the
 	// column that says otherwise which has to go.
-	count, err := s.q.SetUserEmailAddressVerificationToken(ctx, s.client.Writer(),
+	count, err := s.q.SetUserEmailAddressVerificationToken(ctx, tx,
 		identitydb.SetUserEmailAddressVerificationTokenParams{
 			ID:                            userID,
 			Scope:                         scope,
@@ -222,12 +274,21 @@ func (s *SQLStore) SetUserEmailAddressVerificationToken(ctx context.Context, sco
 }
 
 // MarkUserEmailAddressVerified stamps the address as proven and burns the token.
-func (s *SQLStore) MarkUserEmailAddressVerified(ctx context.Context, scope tenancy.Scope, userID, token string) error {
+func (s *SQLStore) MarkUserEmailAddressVerified(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	userID, token string,
+) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(userIDKey, userID),
 	)
 	defer op.End()
+
+	if err := requireExecutor(tx); err != nil {
+		return op.Error(err, "marking identity email address verified")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "marking identity email address verified")
@@ -244,7 +305,7 @@ func (s *SQLStore) MarkUserEmailAddressVerified(ctx context.Context, scope tenan
 	// is what makes two concurrent clicks on the same link write once: the
 	// second finds it already cleared and matches nothing. Comparing it here
 	// rather than trusting an earlier read is the whole of that guarantee.
-	count, err := s.q.MarkUserEmailAddressVerified(ctx, s.client.Writer(),
+	count, err := s.q.MarkUserEmailAddressVerified(ctx, tx,
 		identitydb.MarkUserEmailAddressVerifiedParams{
 			ID:                                   userID,
 			Scope:                                scope,
@@ -261,12 +322,21 @@ func (s *SQLStore) MarkUserEmailAddressVerified(ctx context.Context, scope tenan
 
 // MarkUserEmailAddressUnverified withdraws the proof without touching the
 // address it was given for.
-func (s *SQLStore) MarkUserEmailAddressUnverified(ctx context.Context, scope tenancy.Scope, userID string) error {
+func (s *SQLStore) MarkUserEmailAddressUnverified(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	userID string,
+) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(userIDKey, userID),
 	)
 	defer op.End()
+
+	if err := requireExecutor(tx); err != nil {
+		return op.Error(err, "marking identity email address unverified")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "marking identity email address unverified")
@@ -280,7 +350,7 @@ func (s *SQLStore) MarkUserEmailAddressUnverified(ctx context.Context, scope ten
 	// nil is written rather than left out because the statement assigns the
 	// column: this package's writes name what they set, so "unverified" is a
 	// value bound here rather than a NULL literal in the SQL.
-	count, err := s.q.MarkUserEmailAddressUnverified(ctx, s.client.Writer(),
+	count, err := s.q.MarkUserEmailAddressUnverified(ctx, tx,
 		identitydb.MarkUserEmailAddressUnverifiedParams{
 			ID:                     userID,
 			Scope:                  scope,

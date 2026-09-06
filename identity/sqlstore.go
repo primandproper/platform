@@ -46,10 +46,9 @@ var _ Store = (*SQLStore)(nil)
 // storage can depend on that choice rather than on the Store seam every backing
 // shares.
 type SQLStore struct {
-	client database.Client
-	q      identitydb.Querier
-	o11y   observability.Observer
-	clock  clock.Clock
+	q     identitydb.Querier
+	o11y  observability.Observer
+	clock clock.Clock
 
 	unmatchedWritesCounter metrics.Int64Counter
 
@@ -71,10 +70,18 @@ type SQLStore struct {
 
 // NewSQLStore builds a Store over the given database.
 //
-// The dialect comes from the client, so the two cannot disagree. The prefix must
-// still match the one the migrations were rendered with — nothing here can check
-// that, and a mismatch surfaces as a missing table on the first query rather
-// than at construction.
+// The client is read at construction and not kept. It supplies the dialect,
+// which decides which generated querier is built, and nothing else: every write
+// runs on the database.Tx its caller hands over and every read on the
+// database.SQLQueryExecutor its caller hands over, so there is no Writer() or
+// Reader() of the store's own for either to fall back to. The one handle this
+// store does keep is its clock, which stamps the columns the schema does not
+// default — see WithClock.
+//
+// The dialect coming from the client means the two cannot disagree. The prefix
+// must still match the one the migrations were rendered with — nothing here can
+// check that, and a mismatch surfaces as a missing table on the first query
+// rather than at construction.
 //
 // Observability is optional and defaults to nothing: an unconfigured store logs
 // to a noop logger, traces to a noop provider, and records to a noop meter.
@@ -89,7 +96,6 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	}
 
 	s := &SQLStore{
-		client:      client,
 		clock:       clock.NewClock(),
 		tablePrefix: DefaultTablePrefix,
 	}
@@ -136,10 +142,11 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	return s, nil
 }
 
-// storeOpAttr labels an unmatched write with the operation it happened in,
-// since the places it can happen mean different things.
-func storeOpAttr(operation string) metric.MeasurementOption {
-	return metric.WithAttributes(attribute.String(storeOpKey, operation))
+// operationAttr labels an instrument with the operation it was recorded in,
+// since the places a measurement can be taken mean different things. Both
+// layers of this package record through it — see operationKey.
+func operationAttr(operation string) metric.MeasurementOption {
+	return metric.WithAttributes(attribute.String(operationKey, operation))
 }
 
 // now is the one clock read every write in this package goes through, in UTC —
@@ -379,6 +386,32 @@ func uniquenessResult(err, taken error) error {
 	}
 }
 
+// adoptScope settles which tenant a write is for, and writes the answer back
+// onto the entity.
+//
+// The scope the call named is the one the statement binds, so an entity that
+// names a different one is refused rather than corrected: the two disagreeing is
+// a caller holding one directory's user and writing it into another, which is a
+// stale value or a mix-up and is not a thing to guess at. An entity that names
+// none adopts the argument. tenancy.Scope tells its zero value apart from
+// Global(), so "unset" here is genuinely unset rather than the global scope
+// spelled shortly.
+//
+// It takes the entity's field rather than the entity because the six writes that
+// carry one carry four different types between them, and the rule is the row's
+// rather than any one of theirs — see comments.Store.CreateComment, which
+// settled it for every store in this module.
+func adoptScope(scope tenancy.Scope, carried *tenancy.Scope, entity string) error {
+	if *carried != (tenancy.Scope{}) && *carried != scope {
+		return platformerrors.Wrapf(ErrScopeMismatch,
+			"%s names %q, the write names %q", entity, *carried, scope)
+	}
+
+	*carried = scope
+
+	return nil
+}
+
 // newID returns the identifier a write should carry: the one the caller set, or
 // a fresh one.
 //
@@ -404,8 +437,14 @@ func newID(existing string) string {
 // more — nor is the verification token, which went the same way.
 
 // liveUser is what the three single-user reads keyed on something other than the
-// id share: the scope check, the not-found mapping, the service roles, and the
-// span.
+// id share: the executor and scope checks, the not-found mapping, the service
+// roles, and the span.
+//
+// The roles are read on the caller's executor, which is the same one the user
+// was read on. Reading them from a handle of the store's own would answer half
+// of one call from the caller's transaction and half from outside it, so a
+// registration that granted a service role and then read the user back would
+// see the user and not the grant.
 //
 // The read itself is the caller's closure rather than a column this takes, and
 // that is the shape the canonical corpus asks for. A query name is a Go method
@@ -416,12 +455,17 @@ func newID(existing string) string {
 // column list, so the sign-in read cannot be the one that forgot either.
 func (s *SQLStore) liveUser(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	description string,
 	read func(context.Context) (*User, error),
 ) (*User, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
+
+	if err := requireExecutor(q); err != nil {
+		return nil, op.Error(err, "%s", description)
+	}
 
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "%s", description)
@@ -432,7 +476,7 @@ func (s *SQLStore) liveUser(
 		return nil, op.Error(notFound(err, ErrUserNotFound), "%s", description)
 	}
 
-	if err = s.attachServiceRoles(ctx, s.client.Reader(), []*User{user}); err != nil {
+	if err = s.attachServiceRoles(ctx, q, []*User{user}); err != nil {
 		return nil, op.Error(err, "%s", description)
 	}
 
@@ -795,7 +839,7 @@ func (s *SQLStore) guardCount(ctx context.Context, count int64, err, missing err
 	}
 
 	if count == 0 {
-		s.unmatchedWritesCounter.Add(ctx, 1, storeOpAttr(operation))
+		s.unmatchedWritesCounter.Add(ctx, 1, operationAttr(operation))
 
 		return missing
 	}
