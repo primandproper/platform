@@ -158,8 +158,17 @@ type harness struct {
 	rootCtx   context.Context
 	principal identitygrpc.Principal
 	client    *identityclient.Client
-	svc       *identity.Service
-	scope     tenancy.Scope
+
+	// conn is the same connection the client wraps, for the one test that
+	// invokes every RPC off the service descriptor rather than by name.
+	conn *grpc.ClientConn
+
+	// listener is the server's, so a test can open a second connection of its
+	// own — the one that declines the default interceptors, and has to reach the
+	// same server to be asserting anything.
+	listener *bufconn.Listener
+	svc      *identity.Service
+	scope    tenancy.Scope
 }
 
 // newHarness stands the whole stack up.
@@ -220,6 +229,8 @@ func newHarnessAs(t *testing.T, principal identitygrpc.Principal, opts ...identi
 
 	return &harness{
 		client:    identityclient.Wrap(conn),
+		conn:      conn,
+		listener:  listener,
 		store:     store,
 		svc:       svc,
 		db:        db,
@@ -227,6 +238,25 @@ func newHarnessAs(t *testing.T, principal identitygrpc.Principal, opts ...identi
 		rootCtx:   t.Context(),
 		principal: principal,
 	}
+}
+
+// dial opens a second connection to the same server, with whatever dial options
+// the caller asks for and none of its own.
+func (h *harness) dial(t *testing.T, opts ...grpc.DialOption) *grpc.ClientConn {
+	t.Helper()
+
+	dialOptions := append([]grpc.DialOption{
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+			return h.listener.DialContext(ctx)
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	}, opts...)
+
+	conn, err := grpc.NewClient("passthrough:///bufnet", dialOptions...)
+	must.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	return conn
 }
 
 // ctx is the context a request goes out on: the harness's caller on it.
@@ -268,6 +298,30 @@ func (h *harness) seedAccount(t *testing.T, scope tenancy.Scope, username string
 	must.NoError(t, err)
 
 	return registration
+}
+
+// seedMembership puts a user in an account directly through the store, for the
+// tests whose subject is a membership rather than the registration that would
+// otherwise be the only way to mint one.
+func (h *harness) seedMembership(
+	t *testing.T,
+	scope tenancy.Scope,
+	userID, accountID string,
+	roles ...string,
+) *identity.Membership {
+	t.Helper()
+
+	membership := &identity.Membership{
+		BelongsToUser:    userID,
+		BelongsToAccount: accountID,
+		Roles:            roles,
+	}
+
+	must.NoError(t, h.db.WithTransaction(t.Context(), func(tx database.Tx) error {
+		return h.store.CreateMembership(t.Context(), tx, scope, membership)
+	}))
+
+	return membership
 }
 
 func migrate(t *testing.T, db database.Client) string {

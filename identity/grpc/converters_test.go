@@ -111,11 +111,86 @@ func TestNilConvertsToNil(T *testing.T) {
 	test.Nil(T, identitygrpc.RegistrationToProto(nil))
 	test.Nil(T, identitygrpc.AcceptanceToProto(nil))
 
+	test.Nil(T, identitygrpc.MembershipWithUserToProto(nil))
+
 	test.Nil(T, identitygrpc.UserFromProto(nil))
 	test.Nil(T, identitygrpc.AccountFromProto(nil))
 	test.Nil(T, identitygrpc.MembershipFromProto(nil))
 	test.Nil(T, identitygrpc.InvitationFromProto(nil))
 	test.Nil(T, identitygrpc.PrincipalFromProto(nil))
+	test.Nil(T, identitygrpc.MembershipWithUserFromProto(nil))
+}
+
+// TestAnAccountWithNoBillingAddressRoundTripsAsAnEmptyOne is the shape the Go
+// type decides rather than the schema: Account.BillingAddress is a value, so an
+// account that has none renders a message whose fields are all empty, and
+// BillingAddress.Zero is what tells the two apart. The trip back has to produce
+// a zero address rather than something a caller would store as a real one.
+func TestAnAccountWithNoBillingAddressRoundTripsAsAnEmptyOne(T *testing.T) {
+	T.Parallel()
+
+	rendered := identitygrpc.AccountToProto(&identity.Account{Name: "an account"})
+	must.NotNil(T, rendered)
+
+	got := identitygrpc.AccountFromProto(rendered)
+	must.NotNil(T, got)
+	test.True(T, got.BillingAddress.Zero(),
+		test.Sprint("an account with no billing address came back with one"))
+
+	// A message the wire did not carry at all reads back the same way, which is
+	// what a client generated from this schema sends when it has no address.
+	fromNothing := identitygrpc.AccountFromProto(&identitypb.Account{Name: "an account"})
+	must.NotNil(T, fromNothing)
+	test.True(T, fromNothing.BillingAddress.Zero())
+}
+
+// TestAStatusThisPackageDoesNotRecognizeRendersUnspecified covers the two enums
+// no RPC accepts from a client. Their columns are written by something else —
+// the billing writer, an answer to an invitation — so a value this package's
+// constants do not name is a column it does not understand, and UNSPECIFIED is
+// the honest rendering of that. Guessing the nearest one would report a
+// suspended account as paid.
+func TestAStatusThisPackageDoesNotRecognizeRendersUnspecified(T *testing.T) {
+	T.Parallel()
+
+	account := identitygrpc.AccountToProto(&identity.Account{BillingStatus: identity.BillingStatus("cursed")})
+	must.NotNil(T, account)
+	test.EqOp(T, identitypb.BillingStatus_BILLING_STATUS_UNSPECIFIED, account.GetBillingStatus())
+
+	invitation := identitygrpc.InvitationToProto(
+		&identity.Invitation{Status: identity.InvitationStatus("cursed")})
+	must.NotNil(T, invitation)
+	test.EqOp(T, identitypb.InvitationStatus_INVITATION_STATUS_UNSPECIFIED, invitation.GetStatus())
+}
+
+// TestAnUnspecifiedStatusReadsBackAsTheEmptyOne is the other direction, and it
+// is deliberately not an error where AccountStatusFromProto's is: no request
+// carries either of these, so what reaches these two is a round trip rather
+// than a client's input, and the empty status is what the column holds for a
+// row that never had one.
+func TestAnUnspecifiedStatusReadsBackAsTheEmptyOne(T *testing.T) {
+	T.Parallel()
+
+	account := identitygrpc.AccountFromProto(&identitypb.Account{
+		BillingStatus: identitypb.BillingStatus_BILLING_STATUS_UNSPECIFIED,
+	})
+	must.NotNil(T, account)
+	test.EqOp(T, identity.BillingStatus(""), account.BillingStatus)
+
+	unknownStatus := identitygrpc.AccountFromProto(&identitypb.Account{BillingStatus: identitypb.BillingStatus(9999)})
+	must.NotNil(T, unknownStatus)
+	test.EqOp(T, identity.BillingStatus(""), unknownStatus.BillingStatus)
+
+	invitation := identitygrpc.InvitationFromProto(&identitypb.Invitation{
+		Status: identitypb.InvitationStatus_INVITATION_STATUS_UNSPECIFIED,
+	})
+	must.NotNil(T, invitation)
+	test.EqOp(T, identity.InvitationStatus(""), invitation.Status)
+
+	unknownInvitation := identitygrpc.InvitationFromProto(
+		&identitypb.Invitation{Status: identitypb.InvitationStatus(9999)})
+	must.NotNil(T, unknownInvitation)
+	test.EqOp(T, identity.InvitationStatus(""), unknownInvitation.Status)
 }
 
 func TestAccountRoundTrip(T *testing.T) {
@@ -290,6 +365,11 @@ func TestAgreementRefusesUnspecified(T *testing.T) {
 	T.Parallel()
 
 	_, err := identitygrpc.AgreementFromProto(identitypb.Agreement_AGREEMENT_UNSPECIFIED)
+	test.Error(T, err)
+
+	// And a number the enum does not name, which is what a client generated
+	// from a newer schema than this one sends.
+	_, err = identitygrpc.AgreementFromProto(identitypb.Agreement(9999))
 	test.Error(T, err)
 
 	tos, err := identitygrpc.AgreementFromProto(identitypb.Agreement_AGREEMENT_TERMS_OF_SERVICE)

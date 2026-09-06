@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v14/database"
+	"github.com/primandproper/platform-go/v14/filtering/filteringpb"
 	"github.com/primandproper/platform-go/v14/identity"
 	identitygrpc "github.com/primandproper/platform-go/v14/identity/grpc"
 	"github.com/primandproper/platform-go/v14/identity/identitypb"
@@ -21,6 +22,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/dynamicpb"
 )
 
 func TestNewServerRefusesItsMissingDependencies(T *testing.T) {
@@ -59,62 +62,56 @@ func TestNewServerRefusesItsMissingDependencies(T *testing.T) {
 // because it is one property, and the property is the reason the extractor is
 // not optional: there is no anonymous read here, since a read with no principal
 // has no scope to filter on.
+//
+// It invokes off the service descriptor rather than through the typed client,
+// with an empty request and response built by dynamicpb. A list of typed calls
+// would have to be extended by hand for every RPC added later, and the one that
+// somebody forgets is the one that answers an anonymous caller: this way the
+// test grows with the schema, and a new RPC that reaches its handler without a
+// principal fails here rather than in somebody's production.
 func TestEveryRPCRefusesAnAnonymousCaller(T *testing.T) {
 	T.Parallel()
 
 	h := newHarness(T)
 
-	// No principal on this context, which is what an unauthenticated request
-	// looks like once the consumer's interceptor has declined to add one.
-	ctx := T.Context()
+	service := identityServiceDescriptor(T)
+	methods := service.Methods()
 
-	calls := map[string]func() error{
-		"Register": func() error {
-			_, err := h.client.Register(ctx, &identitypb.RegisterRequest{})
+	// The descriptor and the generated service registration have to agree, or
+	// this loop could be covering a subset of the RPCs and reporting a pass.
+	must.EqOp(T, len(serviceMethods()), methods.Len())
 
-			return err
-		},
-		"GetPrincipal": func() error {
-			_, err := h.client.GetPrincipal(ctx, &identitypb.GetPrincipalRequest{})
+	for i := range methods.Len() {
+		method := methods.Get(i)
 
-			return err
-		},
-		"GetUser": func() error {
-			_, err := h.client.GetUser(ctx, &identitypb.GetUserRequest{UserId: "x"})
-
-			return err
-		},
-		"ListUsers": func() error {
-			_, err := h.client.ListUsers(ctx, &identitypb.ListUsersRequest{})
-
-			return err
-		},
-		"UpdateProfile": func() error {
-			_, err := h.client.UpdateProfile(ctx, &identitypb.UpdateProfileRequest{})
-
-			return err
-		},
-		"ArchiveUser": func() error {
-			_, err := h.client.ArchiveUser(ctx, &identitypb.ArchiveUserRequest{UserId: "x"})
-
-			return err
-		},
-		"Invite": func() error {
-			_, err := h.client.Invite(ctx, &identitypb.InviteRequest{AccountId: "x"})
-
-			return err
-		},
-	}
-
-	for name, call := range calls {
-		T.Run(name, func(t *testing.T) {
+		T.Run(string(method.Name()), func(t *testing.T) {
 			t.Parallel()
 
-			err := call()
+			// No principal on this context, which is what an unauthenticated
+			// request looks like once the consumer's interceptor has declined to
+			// add one.
+			err := h.conn.Invoke(t.Context(),
+				"/"+string(service.FullName())+"/"+string(method.Name()),
+				dynamicpb.NewMessage(method.Input()),
+				dynamicpb.NewMessage(method.Output()))
 			must.Error(t, err)
 			test.EqOp(t, codes.Unauthenticated, status.Code(err))
+			test.True(t, errors.Is(err, identitygrpc.ErrNoPrincipal))
 		})
 	}
+}
+
+// identityServiceDescriptor is the schema's own account of the service, which is
+// what makes the test above enumerate RPCs rather than list them.
+func identityServiceDescriptor(t *testing.T) protoreflect.ServiceDescriptor {
+	t.Helper()
+
+	file := (&identitypb.RegisterRequest{}).ProtoReflect().Descriptor().ParentFile()
+
+	service := file.Services().ByName("IdentityService")
+	must.NotNil(t, service, must.Sprint("the generated file describes no IdentityService"))
+
+	return service
 }
 
 func TestRegisterWritesTheUserTheAccountAndTheMembership(T *testing.T) {
@@ -488,4 +485,118 @@ func TestUpdateUserAccountStatusMovesTheUser(T *testing.T) {
 
 	test.EqOp(T, identitypb.AccountStatus_ACCOUNT_STATUS_BANNED, response.GetUser().GetAccountStatus())
 	test.EqOp(T, "spam", response.GetUser().GetAccountStatusExplanation())
+}
+
+// TestRegisterRefusesAnAbsentUserOrAccount is the pair of inputs a registration
+// cannot invent. Both are InvalidArgument rather than the Internal the rest of
+// the RPC defaults to, because a request that named neither is a client's
+// mistake and not a failure of anything downstream.
+func TestRegisterRefusesAnAbsentUserOrAccount(T *testing.T) {
+	T.Parallel()
+
+	h := newHarness(T)
+
+	_, err := h.client.Register(h.ctx(), &identitypb.RegisterRequest{
+		Account: &identitypb.AccountCreationInput{Name: "an account"},
+	})
+	must.Error(T, err)
+	test.EqOp(T, codes.InvalidArgument, status.Code(err))
+	test.True(T, errors.Is(err, identity.ErrNilUser))
+
+	_, err = h.client.Register(h.ctx(), &identitypb.RegisterRequest{
+		User: &identitypb.UserRegistrationInput{
+			Username:     "somebody",
+			EmailAddress: "somebody@example.com",
+		},
+	})
+	must.Error(T, err)
+	test.EqOp(T, codes.InvalidArgument, status.Code(err))
+	test.True(T, errors.Is(err, identity.ErrNilAccount))
+}
+
+// TestUpdateProfileRefusesAnAbsentInput draws the same line UpdateAccount does:
+// an empty form changes nothing because every field is optional, and no form at
+// all is a request that asked for nothing.
+func TestUpdateProfileRefusesAnAbsentInput(T *testing.T) {
+	T.Parallel()
+
+	h := newHarness(T)
+
+	registration := h.seedAccount(T, testScope, "somebody")
+	ctx := h.as(&testPrincipal{userID: registration.User.ID, scope: testScope})
+
+	_, err := h.client.UpdateProfile(ctx, &identitypb.UpdateProfileRequest{})
+	must.Error(T, err)
+	test.EqOp(T, codes.InvalidArgument, status.Code(err))
+	test.True(T, errors.Is(err, identity.ErrNilProfileUpdate))
+}
+
+// TestEveryPagedReadRefusesAMalformedFilter is the one thing on these requests a
+// client can get wrong by itself, and the reason filterFromProto answers
+// InvalidArgument where every other failure here defaults to Internal. A read
+// that defaulted the page instead would serve a page nobody asked for and report
+// it as the one they did.
+func TestEveryPagedReadRefusesAMalformedFilter(T *testing.T) {
+	T.Parallel()
+
+	h := newHarness(T)
+
+	// A sort direction the filtering package does not recognize. It is the
+	// smallest malformed filter there is, and the converter reports it.
+	badFilter := func() *filteringpb.QueryFilter {
+		return &filteringpb.QueryFilter{SortBy: new("sideways")}
+	}
+
+	calls := map[string]func(context.Context) error{
+		"ListUsers": func(ctx context.Context) error {
+			_, err := h.client.ListUsers(ctx, &identitypb.ListUsersRequest{Filter: badFilter()})
+
+			return err
+		},
+		"SearchUsersByUsername": func(ctx context.Context) error {
+			_, err := h.client.SearchUsersByUsername(ctx,
+				&identitypb.SearchUsersByUsernameRequest{Prefix: "a", Filter: badFilter()})
+
+			return err
+		},
+		"ListAccounts": func(ctx context.Context) error {
+			_, err := h.client.ListAccounts(ctx, &identitypb.ListAccountsRequest{Filter: badFilter()})
+
+			return err
+		},
+		"ListAccountsForUser": func(ctx context.Context) error {
+			_, err := h.client.ListAccountsForUser(ctx,
+				&identitypb.ListAccountsForUserRequest{UserId: "somebody", Filter: badFilter()})
+
+			return err
+		},
+		"ListAccountMembers": func(ctx context.Context) error {
+			_, err := h.client.ListAccountMembers(ctx,
+				&identitypb.ListAccountMembersRequest{AccountId: "an-account", Filter: badFilter()})
+
+			return err
+		},
+		"ListInvitationsFromUser": func(ctx context.Context) error {
+			_, err := h.client.ListInvitationsFromUser(ctx,
+				&identitypb.ListInvitationsFromUserRequest{Filter: badFilter()})
+
+			return err
+		},
+		"ListInvitationsForEmailAddress": func(ctx context.Context) error {
+			_, err := h.client.ListInvitationsForEmailAddress(ctx,
+				&identitypb.ListInvitationsForEmailAddressRequest{Filter: badFilter()})
+
+			return err
+		},
+	}
+
+	for name, call := range calls {
+		T.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			err := call(h.ctx())
+			must.Error(t, err)
+			test.EqOp(t, codes.InvalidArgument, status.Code(err))
+		})
+	}
 }

@@ -344,6 +344,22 @@ func TestUnaryErrorDecodingInterceptorKeepsBothIdioms(T *testing.T) {
 	st, ok := status.FromError(got)
 	must.True(T, ok, must.Sprint("the decoded error is no longer a status"))
 	test.EqOp(T, codes.PermissionDenied, st.Code())
+
+	// The third property, and the one a caller sees first: what the error prints
+	// is the chain the server sent rather than the status's own rendering, so a
+	// log line names the failure and not "rpc error: code = PermissionDenied".
+	test.StrContains(T, got.Error(), sentinel.Error())
+	test.StrNotContains(T, got.Error(), "rpc error")
+
+	// And it unwraps to the decoded chain — which is exactly the error std
+	// errors.Is cannot match on its own, since what crossed the wire is the
+	// mark and not the sentinel's identity. That is the whole reason the
+	// returned error is a type with an Is method rather than the decoded chain
+	// itself, and unwrapping past it is how a caller loses the match.
+	unwrapped := errors.Unwrap(got)
+	must.Error(T, unwrapped)
+	test.False(T, errors.Is(unwrapped, sentinel))
+	test.True(T, platformerrors.Is(unwrapped, sentinel))
 }
 
 // TestUnaryErrorDecodingInterceptorPassesThroughAPlainStatus covers the other

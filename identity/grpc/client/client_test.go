@@ -72,3 +72,34 @@ func TestDefaultInterceptorsIsADialOption(T *testing.T) {
 
 	test.NotNil(T, identityclient.DefaultInterceptors())
 }
+
+// TestWithoutDefaultInterceptorsBuildsAClient is the escape hatch for a caller
+// assembling their own chain. What it costs them is asserted where a server
+// exists to assert it against — see identity/grpc's suite — and what is checked
+// here is that declining the defaults is not declining the client.
+func TestWithoutDefaultInterceptorsBuildsAClient(T *testing.T) {
+	T.Parallel()
+
+	c, err := identityclient.New("passthrough:///nowhere",
+		identityclient.WithoutDefaultInterceptors(),
+		identityclient.WithDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials())))
+	must.NoError(T, err)
+	must.NotNil(T, c)
+
+	test.NoError(T, c.Close())
+}
+
+// TestNilOptionsAreIgnored: a caller building an option list conditionally ends
+// up with a nil in it, and a constructor that panicked on one would make the
+// conditional the caller's problem.
+func TestNilOptionsAreIgnored(T *testing.T) {
+	T.Parallel()
+
+	c, err := identityclient.New("passthrough:///nowhere",
+		nil,
+		identityclient.WithDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials())))
+	must.NoError(T, err)
+	must.NotNil(T, c)
+
+	test.NoError(T, c.Close())
+}

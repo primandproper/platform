@@ -193,6 +193,25 @@ func TestNewService(T *testing.T) {
 		test.NotNil(t, svc)
 	})
 
+	T.Run("applies caller options after the ones it derives", func(t *testing.T) {
+		t.Parallel()
+
+		// Hooks are an option this constructor sets from WithHooks, so a
+		// caller's own identity.WithHooks passed through WithServiceOptions has
+		// to be applied after it — that ordering is what makes the pass-through
+		// an override rather than a suggestion.
+		client := newClient(dialect.Postgres)
+
+		store, err := NewStore(t.Context(), &Config{}, client)
+		must.NoError(t, err)
+
+		svc, err := NewService(t.Context(), &Config{}, client, store,
+			WithHooks(identity.NoopHooks{}),
+			WithServiceOptions(identity.WithHooks(identity.NoopHooks{})))
+		must.NoError(t, err)
+		test.NotNil(t, svc)
+	})
+
 	T.Run("refuses a nil config", func(t *testing.T) {
 		t.Parallel()
 

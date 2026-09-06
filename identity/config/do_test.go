@@ -10,6 +10,7 @@ import (
 	databasecfg "github.com/primandproper/platform-go/v14/database/config"
 	"github.com/primandproper/platform-go/v14/identity"
 	identitygrpc "github.com/primandproper/platform-go/v14/identity/grpc"
+	"github.com/primandproper/platform-go/v14/observability"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"
@@ -191,5 +192,59 @@ func TestRegisterServer(T *testing.T) {
 		srv, err := do.Invoke[*identitygrpc.Server](container(t))
 		test.Nil(t, srv)
 		test.Error(t, err)
+	})
+}
+
+// TestAPillarsProviderThatFailsToBuildFailsEveryRegistration is the line
+// observability.InvokePillars draws, and all three registrations here are on the
+// same side of it: absent observability is a configuration and wires up silently
+// — the cases above — while a registered provider that cannot be built is a
+// failure. A component that fell back to the noops for it would look configured
+// and export nothing, which is the state nobody finds until an incident.
+func TestAPillarsProviderThatFailsToBuildFailsEveryRegistration(T *testing.T) {
+	T.Parallel()
+
+	boom := errors.New("the collector is unreachable")
+
+	build := func(t *testing.T) do.Injector {
+		t.Helper()
+
+		i := do.New()
+		do.ProvideValue[context.Context](i, t.Context())
+		do.ProvideValue[database.Client](i, testDBClient(t))
+		do.ProvideValue(i, &Config{})
+		do.Provide(i, func(do.Injector) (*observability.Pillars, error) { return nil, boom })
+		do.ProvideValue[identitygrpc.PrincipalExtractor](i,
+			func(context.Context) (identitygrpc.Principal, bool) { return nil, false })
+
+		RegisterStore(i)
+		RegisterService(i)
+		RegisterServer(i)
+
+		return i
+	}
+
+	T.Run("store", func(t *testing.T) {
+		t.Parallel()
+
+		store, err := do.Invoke[identity.Store](build(t))
+		test.Nil(t, store)
+		test.ErrorIs(t, err, boom)
+	})
+
+	T.Run("service", func(t *testing.T) {
+		t.Parallel()
+
+		svc, err := do.Invoke[*identity.Service](build(t))
+		test.Nil(t, svc)
+		test.ErrorIs(t, err, boom)
+	})
+
+	T.Run("server", func(t *testing.T) {
+		t.Parallel()
+
+		srv, err := do.Invoke[*identitygrpc.Server](build(t))
+		test.Nil(t, srv)
+		test.ErrorIs(t, err, boom)
 	})
 }

@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -897,6 +898,85 @@ func runServiceSuite(t *testing.T, env *storeEnv) {
 		test.EqOp(t, "Analytical Engines", saved.Name)
 	})
 
+	t.Run("an account save that changes nothing writes nothing", func(t *testing.T) {
+		t.Parallel()
+
+		hooks := &recordingHooks{}
+		service, store := env.newService(t, hooks)
+
+		registration := registerAda(t, service, "ada")
+
+		before, err := store.GetAccount(t.Context(), env.reader(), testScope, registration.Account.ID)
+		must.NoError(t, err)
+
+		updated, err := service.UpdateAccount(t.Context(), testScope, registration.Account.ID,
+			&AccountUpdate{Name: pointer.To(before.Name)})
+		must.NoError(t, err)
+		must.NotNil(t, updated)
+
+		// The same bargain the profile save makes, for the other noun: no hook,
+		// and no LastUpdatedAt to make an unedited form look like an edit.
+		test.EqOp(t, 0, hooks.ran("account"))
+
+		after, err := store.GetAccount(t.Context(), env.reader(), testScope, registration.Account.ID)
+		must.NoError(t, err)
+		test.Nil(t, after.LastUpdatedAt)
+	})
+
+	t.Run("an account save moves the billing address", func(t *testing.T) {
+		t.Parallel()
+
+		hooks := &recordingHooks{}
+		service, store := env.newService(t, hooks)
+
+		registration := registerAda(t, service, "ada")
+
+		address := BillingAddress{
+			Line1:      "12 Analytical Way",
+			City:       "London",
+			PostalCode: "SW1A 1AA",
+			Country:    "GB",
+		}
+
+		updated, err := service.UpdateAccount(t.Context(), testScope, registration.Account.ID,
+			&AccountUpdate{BillingAddress: &address})
+		must.NoError(t, err)
+
+		test.EqOp(t, address, updated.BillingAddress)
+		test.Eq(t, []string{"billingAddress"}, hooks.changed)
+
+		saved, err := store.GetAccount(t.Context(), env.reader(), testScope, registration.Account.ID)
+		must.NoError(t, err)
+		test.EqOp(t, address, saved.BillingAddress)
+
+		// Sent again unchanged, the address is not a change: the comparison is
+		// on the whole address, so a form that round-trips one writes nothing.
+		_, err = service.UpdateAccount(t.Context(), testScope, registration.Account.ID,
+			&AccountUpdate{BillingAddress: &address})
+		must.NoError(t, err)
+		test.EqOp(t, 1, hooks.ran("account"))
+	})
+
+	t.Run("a save with no update at all is refused", func(t *testing.T) {
+		t.Parallel()
+
+		hooks := &recordingHooks{}
+		service, _ := env.newService(t, hooks)
+
+		registration := registerAda(t, service, "ada")
+
+		// Distinct from a form with every field absent, which is a save that
+		// changes nothing: a nil update is a caller who assembled no form.
+		_, err := service.UpdateProfile(t.Context(), testScope, registration.User.ID, nil)
+		must.ErrorIs(t, err, ErrNilProfileUpdate)
+
+		_, err = service.UpdateAccount(t.Context(), testScope, registration.Account.ID, nil)
+		must.ErrorIs(t, err, ErrNilAccountUpdate)
+
+		test.EqOp(t, 0, hooks.ran("profile"))
+		test.EqOp(t, 0, hooks.ran("account"))
+	})
+
 	t.Run("recording an agreement stamps the user and hooks once", func(t *testing.T) {
 		t.Parallel()
 
@@ -1120,19 +1200,35 @@ func TestNoopHooks(t *testing.T) {
 
 	var hooks Hooks = NoopHooks{}
 
-	ctx := t.Context()
+	// Every method, enumerated off the interface rather than listed. The point
+	// of the type is that a consumer embedding it gets a working implementation
+	// of all of them — one that returned an error would abort an operation its
+	// embedder never opted into — and a list here is a second place to forget a
+	// method, which is what a written-out one did when Hooks grew from ten to
+	// fifteen.
+	hooksType := reflect.TypeFor[Hooks]()
+	noop := reflect.ValueOf(hooks)
 
-	// Every method, because the point of the type is that a consumer embedding
-	// it gets a working implementation of all of them — one that returned an
-	// error would abort an operation its embedder never opted into.
-	must.NoError(t, hooks.AfterRegister(ctx, nil, testScope, nil))
-	must.NoError(t, hooks.AfterInvite(ctx, nil, testScope, nil))
-	must.NoError(t, hooks.AfterAcceptInvitation(ctx, nil, testScope, nil))
-	must.NoError(t, hooks.AfterRejectInvitation(ctx, nil, testScope, nil))
-	must.NoError(t, hooks.AfterCancelInvitation(ctx, nil, testScope, nil))
-	must.NoError(t, hooks.AfterTransferAccountOwnership(ctx, nil, testScope, nil, ""))
-	must.NoError(t, hooks.AfterSetDefaultAccount(ctx, nil, testScope, nil, ""))
-	must.NoError(t, hooks.AfterArchiveUser(ctx, nil, testScope, nil, nil))
-	must.NoError(t, hooks.AfterUpdateUserAccountStatus(ctx, nil, testScope, nil, StatusGood))
-	must.NoError(t, hooks.AfterSetUserServiceRoles(ctx, nil, testScope, nil, nil))
+	must.True(t, hooksType.NumMethod() > 0, must.Sprint("Hooks declares no methods, so this asserted nothing"))
+
+	for method := range hooksType.Methods() {
+		t.Run(method.Name, func(t *testing.T) {
+			t.Parallel()
+
+			// The zero value of every argument, which is what a noop has to
+			// tolerate: a nil entity, a nil Tx and the zero scope all reach it
+			// from a Service whose operation failed on the way past.
+			args := make([]reflect.Value, 0, method.Type.NumIn())
+			for in := range method.Type.Ins() {
+				args = append(args, reflect.New(in).Elem())
+			}
+
+			args[0] = reflect.ValueOf(t.Context())
+
+			returned := noop.MethodByName(method.Name).Call(args)
+			must.SliceLen(t, 1, returned)
+			test.Nil(t, returned[0].Interface(),
+				test.Sprintf("NoopHooks.%s returned an error", method.Name))
+		})
+	}
 }
