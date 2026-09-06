@@ -22,9 +22,12 @@ const (
 	invitationIDKey = serviceName + ".invitation_id"
 	countKey        = serviceName + ".count"
 
-	// storeOpKey labels the unmatched-write counter with the write that matched
-	// no row.
-	storeOpKey = serviceName + ".operation"
+	// operationKey labels an instrument with the operation it was recorded in:
+	// the store's unmatched-write counter with the write that matched no row,
+	// the service's request, error and latency instruments with the operation
+	// they measured. One name because it is one fact, on instruments that are
+	// already told apart by their own.
+	operationKey = serviceName + ".operation"
 )
 
 // UserAttributeKey is the metric and span attribute a caller labels its own

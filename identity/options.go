@@ -64,3 +64,54 @@ func WithClock(c clock.Clock) SQLStoreOption {
 		}
 	}
 }
+
+// ServiceOption configures a Service.
+//
+// The observability dependencies are options rather than parameters for the
+// reason SQLStoreOption gives, and Hooks is one because a consumer with nothing
+// to commit alongside an identity write should have to name nothing.
+type ServiceOption func(*Service)
+
+// WithHooks attaches the hooks every operation calls inside its transaction.
+// A nil Hooks is ignored, leaving the NoopHooks the Service is built with.
+//
+// It is the seam a consumer's audit entry, data change event or search stamp
+// commits with the row — see Hooks for what belongs in one.
+func WithHooks(hooks Hooks) ServiceOption {
+	return func(s *Service) {
+		if hooks != nil {
+			s.hooks = hooks
+		}
+	}
+}
+
+// WithServiceLogger attaches a logger. An absent logger logs nowhere.
+func WithServiceLogger(logger logging.Logger) ServiceOption {
+	return func(s *Service) { s.logger = logger }
+}
+
+// WithServiceTracerProvider attaches a tracer provider, enabling a span per
+// operation. An absent provider traces nowhere.
+//
+// It takes a provider rather than a ready-made tracer for the reason
+// WithStoreTracerProvider does: the spans carry this package's instrumentation
+// scope rather than whoever built the tracer.
+func WithServiceTracerProvider(tracerProvider tracing.Provider) ServiceOption {
+	return func(s *Service) { s.tracerProvider = tracerProvider }
+}
+
+// WithServiceMetricsProvider attaches a metrics provider, enabling the request,
+// error and latency instruments each operation records. An absent provider
+// records nothing.
+func WithServiceMetricsProvider(metricsProvider metrics.Provider) ServiceOption {
+	return func(s *Service) { s.metricsProvider = metricsProvider }
+}
+
+// WithServicePillars attaches a logger, tracer provider, and metrics provider
+// in one go. A nil Pillars attaches nothing.
+//
+// Options apply in order, so a caller can hand over its pillars and then
+// override one of them.
+func WithServicePillars(p *observability.Pillars) ServiceOption {
+	return func(s *Service) { s.logger, s.tracerProvider, s.metricsProvider = p.Deps() }
+}

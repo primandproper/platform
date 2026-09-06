@@ -13,9 +13,12 @@ user type were fields every application has.
 So this package owns the four things — users, accounts, memberships, invitations —
 in the same way [github.com/primandproper/platform-go/v14/webhooks] owns
 endpoints: a Store interface, a SQL implementation of it, the DDL for three
-dialects, and a mock. A consumer keeps its service layer, its HTTP handlers,
-its proto, and whatever columns are genuinely its own; it does not keep a
-users table.
+dialects, and a mock. Over that it owns [Service], the operations that are more
+than one write — a registration, an invitation answered, an ownership
+transferred — each in one transaction with the consumer's own writes joining it
+through [Hooks]. A consumer keeps its policy, its HTTP handlers, its proto, and
+whatever columns are genuinely its own; it does not keep a users table, and it
+no longer keeps the transaction-shaped code around one.
 
 # Where the boundary with authentication falls
 
@@ -144,12 +147,9 @@ function — the list is complete and read from the DDL, so a between-tests
 TRUNCATE, a backup policy or a privacy inventory names every one of them without
 anybody copying seven names out of the schema.
 
-# What a consumer still writes
+# The operations, and what a consumer still writes
 
-The service layer, and that is the point of the split. Registration policy —
-whether an invitation is required, what a username may look like, which
-transactional email goes out — is application judgement. This package gives
-that service a place to put the result, in one transaction:
+A registration is three writes in one transaction:
 
 	err := client.WithTransaction(ctx, func(tx database.Tx) error {
 		if err := store.CreateUser(ctx, tx, scope, user); err != nil {
@@ -163,7 +163,29 @@ that service a place to put the result, in one transaction:
 
 A user without an account, or an account without an owner, is the failure mode
 every application discovers in production rather than in a test, and the shape
-above is what rules it out.
+above is what rules it out — which is why [Service] ships it rather than this
+documentation showing it. [Service.Register] is that block, and its eight
+siblings are the rest of what the block-writing turned out to be: the
+invitation lifecycle, an ownership transfer, a default-account switch, an
+archival with its membership fan-out, and the two administrative status
+changes. Measured in the consumer this package was extracted from, the layer
+those replace is a little over two thousand lines.
+
+The transaction is the Service's there rather than the caller's, which is the
+one place this package departs from the module's store convention and does so
+on purpose: an operation is several store writes plus the consumer's own, and
+something has to own the transaction they share. [Hooks] is how the consumer
+gets into it — one method per operation, each called inside that transaction,
+so an audit entry, a data change event or a search stamp commits with the row
+or neither does.
+
+What a consumer still writes is the policy, and that is the point of the split.
+Whether a registration requires a password, whether an invitation is required
+to begin one, what a username may look like, how long a link lives, who may
+invite, which transactional email goes out — all application judgement, all
+decided before the call. The Service holds none of it, and the omission is the
+design: a package that decided any of those would be a package a consumer
+forks the first time their answer differs.
 
 # The transaction is the caller's
 
@@ -286,8 +308,8 @@ happens to sort right — see identity/migrations.
 
 # Why there are no handlers here
 
-The bargain above — you keep your service layer, your HTTP handlers and your
-proto — is not this package's alone. It is where the module draws the line
+The bargain above — you keep your policy, your HTTP handlers and your proto —
+is not this package's alone. It is where the module draws the line
 between what it stores and what it serves, and the module README states it once,
 under "Transports", along with the few components on the other side of it and
 the reason each is there.
