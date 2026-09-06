@@ -3,17 +3,29 @@ Package settings stores the runtime settings a user or an account sets about
 themselves: administrator-defined definitions with a kind, a default and an
 enumeration, and per-subject values stored against them.
 
-	definitions, err := store.CreateDefinition(ctx, tenancy.Global(), &settings.Definition{
-		Name:        "notifications.digest",
-		Kind:        settings.KindString,
-		Default:     pointer.To("weekly"),
-		Enumeration: []string{"daily", "never", "weekly"},
+	err := client.WithTransaction(ctx, func(tx database.Tx) error {
+		_, txErr := store.CreateDefinition(ctx, tx, tenancy.Global(), &settings.Definition{
+			Name:        "notifications.digest",
+			Kind:        settings.KindString,
+			Default:     pointer.To("weekly"),
+			Enumeration: []string{"daily", "never", "weekly"},
+		})
+
+		return txErr
 	})
 
-	// On the request path.
-	if _, err = store.SetValue(ctx, tenancy.Global(), me, "notifications.digest", "daily"); err != nil { ... }
+	// On the request path, where the value's write and the audit entry beside it
+	// are one transaction.
+	err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		if _, txErr := store.SetValue(ctx, tx, tenancy.Global(), me, "notifications.digest", "daily"); txErr != nil {
+			return txErr
+		}
 
-	resolved, err := store.Resolve(ctx, tenancy.Global(), me, "notifications.digest")
+		return audit.Record(ctx, tx, ...)
+	})
+
+	// And the read, on whatever executor the caller is holding.
+	resolved, err := store.Resolve(ctx, client.Reader(), tenancy.Global(), me, "notifications.digest")
 	digest, err := resolved.String() // "daily", and "weekly" for anyone who has not chosen
 
 # This is not featureflags, and it is not config
@@ -96,15 +108,19 @@ to "" answers every subject who has not chosen; a text setting with no default
 answers none of them, and a plain string column has nowhere to put the
 difference.
 
-# Joining a caller's transaction
+# The transaction is the caller's
 
-Every write here has a form that runs inside a transaction the caller owns:
-[Store.CreateDefinitionTx], [Store.UpdateDefinitionTx],
-[Store.ArchiveDefinitionTx], [Store.SetValueTx] and [Store.ClearValueTx], plus
-[Store.DeleteValuesForSubject], which has no other form. Each takes a
-database.Tx rather than reaching for the store's own writer, and the type is
-what says so — only database.RunInTransaction produces one, so the obligation
-is the compiler's rather than a doc comment's.
+Every write runs inside a transaction the caller owns, and none of them opens
+one. Each takes a database.Tx rather than reaching for a writer of the store's
+own, and the type is what says so — only database.RunInTransaction produces one,
+so the obligation is the compiler's rather than a doc comment's. A consumer with
+nothing to join writes:
+
+	err := client.WithTransaction(ctx, func(tx database.Tx) error {
+		_, txErr := store.SetValue(ctx, tx, scope, subject, "notifications.digest", "daily")
+
+		return txErr
+	})
 
 The reason is that a setting is rarely the only row a consumer writes. An audit
 entry naming who changed what and a data change event on an outbox somebody fans
@@ -112,15 +128,29 @@ out are the ordinary companions, and a companion written after the setting's own
 write has committed is a companion that can go missing while the setting stays.
 The gap is narrow and it is one-directional — a value with no event, never an
 event naming a value that was not written — and nothing outside this package can
-close it, which is why these are here rather than left to a consumer to work
-around.
+close it. A write that could still be called without a transaction is a write
+that will be, so there is no such call.
 
-Every read the writes depend on runs on that executor too: the definition a
+Every read the writes depend on runs on that transaction too: the definition a
 value is checked against, the name a definition is checked for, and the walk
-[Store.UpdateDefinitionTx] runs over stored values. So a definition and a value
+[Store.UpdateDefinition] runs over stored values. So a definition and a value
 against it can be written in one transaction, and so can a clearance and the
 narrowing that would otherwise have been refused on its account —
-[Store.UpdateDefinitionTx] says what that changes.
+[Store.UpdateDefinition] says what that changes.
+
+# The reads take the wider executor
+
+A read takes a database.SQLQueryExecutor, which a database.Tx satisfies. A caller
+rendering a preferences page passes Client.Reader(); a caller that has just
+written an override passes the same Tx it wrote through, and sees it. Neither
+needs a second method.
+
+[Store.Resolve] and [Store.ResolveAll] are why that matters most here. A
+resolution is a definition's default read against a subject's override, so a
+service that saves somebody's preference and returns the new effective value in
+the same response is resolving a row it has written and not yet committed. Read
+on a connection of the store's own it would answer with the value the subject had
+before the request — a stale answer with nothing reporting an error.
 
 # Erasure
 
@@ -137,7 +167,11 @@ built on.
 # Scope
 
 Every method takes a tenancy.Scope, and there is no unscoped read of anything
-here. A deployment with one catalog of settings passes tenancy.Global()
+here. That includes the two writes that take a whole [Definition]: the scope the
+statement binds is the argument's, and the value's own Scope field is overwritten
+with it rather than read from — a scope derived from a struct the caller
+assembled somewhere else is exactly the derivation the column rule exists to rule
+out. A deployment with one catalog of settings passes tenancy.Global()
 everywhere and behaves exactly as it would have without the column.
 
 A definition and the values stored against it share a scope. That is a real

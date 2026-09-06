@@ -23,62 +23,47 @@ var _ settings.Store = &StoreMock{}
 //
 //		// make and configure a mocked settings.Store
 //		mockedStore := &StoreMock{
-//			ArchiveDefinitionFunc: func(ctx context.Context, scope tenancy.Scope, definitionID string) error {
+//			ArchiveDefinitionFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, definitionID string) error {
 //				panic("mock out the ArchiveDefinition method")
 //			},
-//			ArchiveDefinitionTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, definitionID string) error {
-//				panic("mock out the ArchiveDefinitionTx method")
-//			},
-//			ClearValueFunc: func(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string) error {
+//			ClearValueFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subject settings.Subject, name string) error {
 //				panic("mock out the ClearValue method")
 //			},
-//			ClearValueTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, subject settings.Subject, name string) error {
-//				panic("mock out the ClearValueTx method")
-//			},
-//			CreateDefinitionFunc: func(ctx context.Context, scope tenancy.Scope, definition *settings.Definition) (*settings.Definition, error) {
+//			CreateDefinitionFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, definition *settings.Definition) (*settings.Definition, error) {
 //				panic("mock out the CreateDefinition method")
 //			},
-//			CreateDefinitionTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, definition *settings.Definition) (*settings.Definition, error) {
-//				panic("mock out the CreateDefinitionTx method")
-//			},
-//			DeleteValuesForSubjectFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, subject settings.Subject) (int64, error) {
+//			DeleteValuesForSubjectFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subject settings.Subject) (int64, error) {
 //				panic("mock out the DeleteValuesForSubject method")
 //			},
-//			GetDefinitionFunc: func(ctx context.Context, scope tenancy.Scope, definitionID string) (*settings.Definition, error) {
+//			GetDefinitionFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, definitionID string) (*settings.Definition, error) {
 //				panic("mock out the GetDefinition method")
 //			},
-//			GetDefinitionByNameFunc: func(ctx context.Context, scope tenancy.Scope, name string) (*settings.Definition, error) {
+//			GetDefinitionByNameFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, name string) (*settings.Definition, error) {
 //				panic("mock out the GetDefinitionByName method")
 //			},
-//			GetValueFunc: func(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Value, error) {
+//			GetValueFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Value, error) {
 //				panic("mock out the GetValue method")
 //			},
-//			ListDefinitionsFunc: func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Definition], error) {
+//			ListDefinitionsFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Definition], error) {
 //				panic("mock out the ListDefinitions method")
 //			},
-//			ListValuesForDefinitionFunc: func(ctx context.Context, scope tenancy.Scope, name string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error) {
+//			ListValuesForDefinitionFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, name string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error) {
 //				panic("mock out the ListValuesForDefinition method")
 //			},
-//			ListValuesForSubjectFunc: func(ctx context.Context, scope tenancy.Scope, subject settings.Subject, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error) {
+//			ListValuesForSubjectFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error) {
 //				panic("mock out the ListValuesForSubject method")
 //			},
-//			ResolveFunc: func(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Resolution, error) {
+//			ResolveFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Resolution, error) {
 //				panic("mock out the Resolve method")
 //			},
-//			ResolveAllFunc: func(ctx context.Context, scope tenancy.Scope, subject settings.Subject) ([]*settings.Resolution, error) {
+//			ResolveAllFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject) ([]*settings.Resolution, error) {
 //				panic("mock out the ResolveAll method")
 //			},
-//			SetValueFunc: func(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string, raw string) (*settings.Value, error) {
+//			SetValueFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subject settings.Subject, name string, raw string) (*settings.Value, error) {
 //				panic("mock out the SetValue method")
 //			},
-//			SetValueTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, subject settings.Subject, name string, raw string) (*settings.Value, error) {
-//				panic("mock out the SetValueTx method")
-//			},
-//			UpdateDefinitionFunc: func(ctx context.Context, scope tenancy.Scope, definition *settings.Definition) error {
+//			UpdateDefinitionFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, definition *settings.Definition) error {
 //				panic("mock out the UpdateDefinition method")
-//			},
-//			UpdateDefinitionTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, definition *settings.Definition) error {
-//				panic("mock out the UpdateDefinitionTx method")
 //			},
 //		}
 //
@@ -88,61 +73,46 @@ var _ settings.Store = &StoreMock{}
 //	}
 type StoreMock struct {
 	// ArchiveDefinitionFunc mocks the ArchiveDefinition method.
-	ArchiveDefinitionFunc func(ctx context.Context, scope tenancy.Scope, definitionID string) error
-
-	// ArchiveDefinitionTxFunc mocks the ArchiveDefinitionTx method.
-	ArchiveDefinitionTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, definitionID string) error
+	ArchiveDefinitionFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, definitionID string) error
 
 	// ClearValueFunc mocks the ClearValue method.
-	ClearValueFunc func(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string) error
-
-	// ClearValueTxFunc mocks the ClearValueTx method.
-	ClearValueTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, subject settings.Subject, name string) error
+	ClearValueFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subject settings.Subject, name string) error
 
 	// CreateDefinitionFunc mocks the CreateDefinition method.
-	CreateDefinitionFunc func(ctx context.Context, scope tenancy.Scope, definition *settings.Definition) (*settings.Definition, error)
-
-	// CreateDefinitionTxFunc mocks the CreateDefinitionTx method.
-	CreateDefinitionTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, definition *settings.Definition) (*settings.Definition, error)
+	CreateDefinitionFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, definition *settings.Definition) (*settings.Definition, error)
 
 	// DeleteValuesForSubjectFunc mocks the DeleteValuesForSubject method.
-	DeleteValuesForSubjectFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, subject settings.Subject) (int64, error)
+	DeleteValuesForSubjectFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subject settings.Subject) (int64, error)
 
 	// GetDefinitionFunc mocks the GetDefinition method.
-	GetDefinitionFunc func(ctx context.Context, scope tenancy.Scope, definitionID string) (*settings.Definition, error)
+	GetDefinitionFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, definitionID string) (*settings.Definition, error)
 
 	// GetDefinitionByNameFunc mocks the GetDefinitionByName method.
-	GetDefinitionByNameFunc func(ctx context.Context, scope tenancy.Scope, name string) (*settings.Definition, error)
+	GetDefinitionByNameFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, name string) (*settings.Definition, error)
 
 	// GetValueFunc mocks the GetValue method.
-	GetValueFunc func(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Value, error)
+	GetValueFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Value, error)
 
 	// ListDefinitionsFunc mocks the ListDefinitions method.
-	ListDefinitionsFunc func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Definition], error)
+	ListDefinitionsFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Definition], error)
 
 	// ListValuesForDefinitionFunc mocks the ListValuesForDefinition method.
-	ListValuesForDefinitionFunc func(ctx context.Context, scope tenancy.Scope, name string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error)
+	ListValuesForDefinitionFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, name string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error)
 
 	// ListValuesForSubjectFunc mocks the ListValuesForSubject method.
-	ListValuesForSubjectFunc func(ctx context.Context, scope tenancy.Scope, subject settings.Subject, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error)
+	ListValuesForSubjectFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error)
 
 	// ResolveFunc mocks the Resolve method.
-	ResolveFunc func(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Resolution, error)
+	ResolveFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Resolution, error)
 
 	// ResolveAllFunc mocks the ResolveAll method.
-	ResolveAllFunc func(ctx context.Context, scope tenancy.Scope, subject settings.Subject) ([]*settings.Resolution, error)
+	ResolveAllFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject) ([]*settings.Resolution, error)
 
 	// SetValueFunc mocks the SetValue method.
-	SetValueFunc func(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string, raw string) (*settings.Value, error)
-
-	// SetValueTxFunc mocks the SetValueTx method.
-	SetValueTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, subject settings.Subject, name string, raw string) (*settings.Value, error)
+	SetValueFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subject settings.Subject, name string, raw string) (*settings.Value, error)
 
 	// UpdateDefinitionFunc mocks the UpdateDefinition method.
-	UpdateDefinitionFunc func(ctx context.Context, scope tenancy.Scope, definition *settings.Definition) error
-
-	// UpdateDefinitionTxFunc mocks the UpdateDefinitionTx method.
-	UpdateDefinitionTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, definition *settings.Definition) error
+	UpdateDefinitionFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, definition *settings.Definition) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -150,17 +120,8 @@ type StoreMock struct {
 		ArchiveDefinition []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// DefinitionID is the definitionID argument value.
-			DefinitionID string
-		}
-		// ArchiveDefinitionTx holds details about calls to the ArchiveDefinitionTx method.
-		ArchiveDefinitionTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// DefinitionID is the definitionID argument value.
@@ -170,19 +131,8 @@ type StoreMock struct {
 		ClearValue []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// Subject is the subject argument value.
-			Subject settings.Subject
-			// Name is the name argument value.
-			Name string
-		}
-		// ClearValueTx holds details about calls to the ClearValueTx method.
-		ClearValueTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Subject is the subject argument value.
@@ -194,17 +144,8 @@ type StoreMock struct {
 		CreateDefinition []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// Definition is the definition argument value.
-			Definition *settings.Definition
-		}
-		// CreateDefinitionTx holds details about calls to the CreateDefinitionTx method.
-		CreateDefinitionTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Definition is the definition argument value.
@@ -214,8 +155,8 @@ type StoreMock struct {
 		DeleteValuesForSubject []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Subject is the subject argument value.
@@ -225,6 +166,8 @@ type StoreMock struct {
 		GetDefinition []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// DefinitionID is the definitionID argument value.
@@ -234,6 +177,8 @@ type StoreMock struct {
 		GetDefinitionByName []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Name is the name argument value.
@@ -243,6 +188,8 @@ type StoreMock struct {
 		GetValue []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Subject is the subject argument value.
@@ -254,6 +201,8 @@ type StoreMock struct {
 		ListDefinitions []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Filter is the filter argument value.
@@ -263,6 +212,8 @@ type StoreMock struct {
 		ListValuesForDefinition []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Name is the name argument value.
@@ -274,6 +225,8 @@ type StoreMock struct {
 		ListValuesForSubject []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Subject is the subject argument value.
@@ -285,6 +238,8 @@ type StoreMock struct {
 		Resolve []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Subject is the subject argument value.
@@ -296,6 +251,8 @@ type StoreMock struct {
 		ResolveAll []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Subject is the subject argument value.
@@ -305,21 +262,8 @@ type StoreMock struct {
 		SetValue []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// Subject is the subject argument value.
-			Subject settings.Subject
-			// Name is the name argument value.
-			Name string
-			// Raw is the raw argument value.
-			Raw string
-		}
-		// SetValueTx holds details about calls to the SetValueTx method.
-		SetValueTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Subject is the subject argument value.
@@ -333,17 +277,8 @@ type StoreMock struct {
 		UpdateDefinition []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// Definition is the definition argument value.
-			Definition *settings.Definition
-		}
-		// UpdateDefinitionTx holds details about calls to the UpdateDefinitionTx method.
-		UpdateDefinitionTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Definition is the definition argument value.
@@ -351,11 +286,8 @@ type StoreMock struct {
 		}
 	}
 	lockArchiveDefinition       sync.RWMutex
-	lockArchiveDefinitionTx     sync.RWMutex
 	lockClearValue              sync.RWMutex
-	lockClearValueTx            sync.RWMutex
 	lockCreateDefinition        sync.RWMutex
-	lockCreateDefinitionTx      sync.RWMutex
 	lockDeleteValuesForSubject  sync.RWMutex
 	lockGetDefinition           sync.RWMutex
 	lockGetDefinitionByName     sync.RWMutex
@@ -366,29 +298,29 @@ type StoreMock struct {
 	lockResolve                 sync.RWMutex
 	lockResolveAll              sync.RWMutex
 	lockSetValue                sync.RWMutex
-	lockSetValueTx              sync.RWMutex
 	lockUpdateDefinition        sync.RWMutex
-	lockUpdateDefinitionTx      sync.RWMutex
 }
 
 // ArchiveDefinition calls ArchiveDefinitionFunc.
-func (mock *StoreMock) ArchiveDefinition(ctx context.Context, scope tenancy.Scope, definitionID string) error {
+func (mock *StoreMock) ArchiveDefinition(ctx context.Context, tx database.Tx, scope tenancy.Scope, definitionID string) error {
 	if mock.ArchiveDefinitionFunc == nil {
 		panic("StoreMock.ArchiveDefinitionFunc: method is nil but Store.ArchiveDefinition was just called")
 	}
 	callInfo := struct {
 		Ctx          context.Context
+		Tx           database.Tx
 		Scope        tenancy.Scope
 		DefinitionID string
 	}{
 		Ctx:          ctx,
+		Tx:           tx,
 		Scope:        scope,
 		DefinitionID: definitionID,
 	}
 	mock.lockArchiveDefinition.Lock()
 	mock.calls.ArchiveDefinition = append(mock.calls.ArchiveDefinition, callInfo)
 	mock.lockArchiveDefinition.Unlock()
-	return mock.ArchiveDefinitionFunc(ctx, scope, definitionID)
+	return mock.ArchiveDefinitionFunc(ctx, tx, scope, definitionID)
 }
 
 // ArchiveDefinitionCalls gets all the calls that were made to ArchiveDefinition.
@@ -397,11 +329,13 @@ func (mock *StoreMock) ArchiveDefinition(ctx context.Context, scope tenancy.Scop
 //	len(mockedStore.ArchiveDefinitionCalls())
 func (mock *StoreMock) ArchiveDefinitionCalls() []struct {
 	Ctx          context.Context
+	Tx           database.Tx
 	Scope        tenancy.Scope
 	DefinitionID string
 } {
 	var calls []struct {
 		Ctx          context.Context
+		Tx           database.Tx
 		Scope        tenancy.Scope
 		DefinitionID string
 	}
@@ -411,62 +345,20 @@ func (mock *StoreMock) ArchiveDefinitionCalls() []struct {
 	return calls
 }
 
-// ArchiveDefinitionTx calls ArchiveDefinitionTxFunc.
-func (mock *StoreMock) ArchiveDefinitionTx(ctx context.Context, q database.Tx, scope tenancy.Scope, definitionID string) error {
-	if mock.ArchiveDefinitionTxFunc == nil {
-		panic("StoreMock.ArchiveDefinitionTxFunc: method is nil but Store.ArchiveDefinitionTx was just called")
-	}
-	callInfo := struct {
-		Ctx          context.Context
-		Q            database.Tx
-		Scope        tenancy.Scope
-		DefinitionID string
-	}{
-		Ctx:          ctx,
-		Q:            q,
-		Scope:        scope,
-		DefinitionID: definitionID,
-	}
-	mock.lockArchiveDefinitionTx.Lock()
-	mock.calls.ArchiveDefinitionTx = append(mock.calls.ArchiveDefinitionTx, callInfo)
-	mock.lockArchiveDefinitionTx.Unlock()
-	return mock.ArchiveDefinitionTxFunc(ctx, q, scope, definitionID)
-}
-
-// ArchiveDefinitionTxCalls gets all the calls that were made to ArchiveDefinitionTx.
-// Check the length with:
-//
-//	len(mockedStore.ArchiveDefinitionTxCalls())
-func (mock *StoreMock) ArchiveDefinitionTxCalls() []struct {
-	Ctx          context.Context
-	Q            database.Tx
-	Scope        tenancy.Scope
-	DefinitionID string
-} {
-	var calls []struct {
-		Ctx          context.Context
-		Q            database.Tx
-		Scope        tenancy.Scope
-		DefinitionID string
-	}
-	mock.lockArchiveDefinitionTx.RLock()
-	calls = mock.calls.ArchiveDefinitionTx
-	mock.lockArchiveDefinitionTx.RUnlock()
-	return calls
-}
-
 // ClearValue calls ClearValueFunc.
-func (mock *StoreMock) ClearValue(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string) error {
+func (mock *StoreMock) ClearValue(ctx context.Context, tx database.Tx, scope tenancy.Scope, subject settings.Subject, name string) error {
 	if mock.ClearValueFunc == nil {
 		panic("StoreMock.ClearValueFunc: method is nil but Store.ClearValue was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
+		Tx      database.Tx
 		Scope   tenancy.Scope
 		Subject settings.Subject
 		Name    string
 	}{
 		Ctx:     ctx,
+		Tx:      tx,
 		Scope:   scope,
 		Subject: subject,
 		Name:    name,
@@ -474,7 +366,7 @@ func (mock *StoreMock) ClearValue(ctx context.Context, scope tenancy.Scope, subj
 	mock.lockClearValue.Lock()
 	mock.calls.ClearValue = append(mock.calls.ClearValue, callInfo)
 	mock.lockClearValue.Unlock()
-	return mock.ClearValueFunc(ctx, scope, subject, name)
+	return mock.ClearValueFunc(ctx, tx, scope, subject, name)
 }
 
 // ClearValueCalls gets all the calls that were made to ClearValue.
@@ -483,12 +375,14 @@ func (mock *StoreMock) ClearValue(ctx context.Context, scope tenancy.Scope, subj
 //	len(mockedStore.ClearValueCalls())
 func (mock *StoreMock) ClearValueCalls() []struct {
 	Ctx     context.Context
+	Tx      database.Tx
 	Scope   tenancy.Scope
 	Subject settings.Subject
 	Name    string
 } {
 	var calls []struct {
 		Ctx     context.Context
+		Tx      database.Tx
 		Scope   tenancy.Scope
 		Subject settings.Subject
 		Name    string
@@ -499,72 +393,26 @@ func (mock *StoreMock) ClearValueCalls() []struct {
 	return calls
 }
 
-// ClearValueTx calls ClearValueTxFunc.
-func (mock *StoreMock) ClearValueTx(ctx context.Context, q database.Tx, scope tenancy.Scope, subject settings.Subject, name string) error {
-	if mock.ClearValueTxFunc == nil {
-		panic("StoreMock.ClearValueTxFunc: method is nil but Store.ClearValueTx was just called")
-	}
-	callInfo := struct {
-		Ctx     context.Context
-		Q       database.Tx
-		Scope   tenancy.Scope
-		Subject settings.Subject
-		Name    string
-	}{
-		Ctx:     ctx,
-		Q:       q,
-		Scope:   scope,
-		Subject: subject,
-		Name:    name,
-	}
-	mock.lockClearValueTx.Lock()
-	mock.calls.ClearValueTx = append(mock.calls.ClearValueTx, callInfo)
-	mock.lockClearValueTx.Unlock()
-	return mock.ClearValueTxFunc(ctx, q, scope, subject, name)
-}
-
-// ClearValueTxCalls gets all the calls that were made to ClearValueTx.
-// Check the length with:
-//
-//	len(mockedStore.ClearValueTxCalls())
-func (mock *StoreMock) ClearValueTxCalls() []struct {
-	Ctx     context.Context
-	Q       database.Tx
-	Scope   tenancy.Scope
-	Subject settings.Subject
-	Name    string
-} {
-	var calls []struct {
-		Ctx     context.Context
-		Q       database.Tx
-		Scope   tenancy.Scope
-		Subject settings.Subject
-		Name    string
-	}
-	mock.lockClearValueTx.RLock()
-	calls = mock.calls.ClearValueTx
-	mock.lockClearValueTx.RUnlock()
-	return calls
-}
-
 // CreateDefinition calls CreateDefinitionFunc.
-func (mock *StoreMock) CreateDefinition(ctx context.Context, scope tenancy.Scope, definition *settings.Definition) (*settings.Definition, error) {
+func (mock *StoreMock) CreateDefinition(ctx context.Context, tx database.Tx, scope tenancy.Scope, definition *settings.Definition) (*settings.Definition, error) {
 	if mock.CreateDefinitionFunc == nil {
 		panic("StoreMock.CreateDefinitionFunc: method is nil but Store.CreateDefinition was just called")
 	}
 	callInfo := struct {
 		Ctx        context.Context
+		Tx         database.Tx
 		Scope      tenancy.Scope
 		Definition *settings.Definition
 	}{
 		Ctx:        ctx,
+		Tx:         tx,
 		Scope:      scope,
 		Definition: definition,
 	}
 	mock.lockCreateDefinition.Lock()
 	mock.calls.CreateDefinition = append(mock.calls.CreateDefinition, callInfo)
 	mock.lockCreateDefinition.Unlock()
-	return mock.CreateDefinitionFunc(ctx, scope, definition)
+	return mock.CreateDefinitionFunc(ctx, tx, scope, definition)
 }
 
 // CreateDefinitionCalls gets all the calls that were made to CreateDefinition.
@@ -573,11 +421,13 @@ func (mock *StoreMock) CreateDefinition(ctx context.Context, scope tenancy.Scope
 //	len(mockedStore.CreateDefinitionCalls())
 func (mock *StoreMock) CreateDefinitionCalls() []struct {
 	Ctx        context.Context
+	Tx         database.Tx
 	Scope      tenancy.Scope
 	Definition *settings.Definition
 } {
 	var calls []struct {
 		Ctx        context.Context
+		Tx         database.Tx
 		Scope      tenancy.Scope
 		Definition *settings.Definition
 	}
@@ -587,70 +437,26 @@ func (mock *StoreMock) CreateDefinitionCalls() []struct {
 	return calls
 }
 
-// CreateDefinitionTx calls CreateDefinitionTxFunc.
-func (mock *StoreMock) CreateDefinitionTx(ctx context.Context, q database.Tx, scope tenancy.Scope, definition *settings.Definition) (*settings.Definition, error) {
-	if mock.CreateDefinitionTxFunc == nil {
-		panic("StoreMock.CreateDefinitionTxFunc: method is nil but Store.CreateDefinitionTx was just called")
-	}
-	callInfo := struct {
-		Ctx        context.Context
-		Q          database.Tx
-		Scope      tenancy.Scope
-		Definition *settings.Definition
-	}{
-		Ctx:        ctx,
-		Q:          q,
-		Scope:      scope,
-		Definition: definition,
-	}
-	mock.lockCreateDefinitionTx.Lock()
-	mock.calls.CreateDefinitionTx = append(mock.calls.CreateDefinitionTx, callInfo)
-	mock.lockCreateDefinitionTx.Unlock()
-	return mock.CreateDefinitionTxFunc(ctx, q, scope, definition)
-}
-
-// CreateDefinitionTxCalls gets all the calls that were made to CreateDefinitionTx.
-// Check the length with:
-//
-//	len(mockedStore.CreateDefinitionTxCalls())
-func (mock *StoreMock) CreateDefinitionTxCalls() []struct {
-	Ctx        context.Context
-	Q          database.Tx
-	Scope      tenancy.Scope
-	Definition *settings.Definition
-} {
-	var calls []struct {
-		Ctx        context.Context
-		Q          database.Tx
-		Scope      tenancy.Scope
-		Definition *settings.Definition
-	}
-	mock.lockCreateDefinitionTx.RLock()
-	calls = mock.calls.CreateDefinitionTx
-	mock.lockCreateDefinitionTx.RUnlock()
-	return calls
-}
-
 // DeleteValuesForSubject calls DeleteValuesForSubjectFunc.
-func (mock *StoreMock) DeleteValuesForSubject(ctx context.Context, q database.Tx, scope tenancy.Scope, subject settings.Subject) (int64, error) {
+func (mock *StoreMock) DeleteValuesForSubject(ctx context.Context, tx database.Tx, scope tenancy.Scope, subject settings.Subject) (int64, error) {
 	if mock.DeleteValuesForSubjectFunc == nil {
 		panic("StoreMock.DeleteValuesForSubjectFunc: method is nil but Store.DeleteValuesForSubject was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
-		Q       database.Tx
+		Tx      database.Tx
 		Scope   tenancy.Scope
 		Subject settings.Subject
 	}{
 		Ctx:     ctx,
-		Q:       q,
+		Tx:      tx,
 		Scope:   scope,
 		Subject: subject,
 	}
 	mock.lockDeleteValuesForSubject.Lock()
 	mock.calls.DeleteValuesForSubject = append(mock.calls.DeleteValuesForSubject, callInfo)
 	mock.lockDeleteValuesForSubject.Unlock()
-	return mock.DeleteValuesForSubjectFunc(ctx, q, scope, subject)
+	return mock.DeleteValuesForSubjectFunc(ctx, tx, scope, subject)
 }
 
 // DeleteValuesForSubjectCalls gets all the calls that were made to DeleteValuesForSubject.
@@ -659,13 +465,13 @@ func (mock *StoreMock) DeleteValuesForSubject(ctx context.Context, q database.Tx
 //	len(mockedStore.DeleteValuesForSubjectCalls())
 func (mock *StoreMock) DeleteValuesForSubjectCalls() []struct {
 	Ctx     context.Context
-	Q       database.Tx
+	Tx      database.Tx
 	Scope   tenancy.Scope
 	Subject settings.Subject
 } {
 	var calls []struct {
 		Ctx     context.Context
-		Q       database.Tx
+		Tx      database.Tx
 		Scope   tenancy.Scope
 		Subject settings.Subject
 	}
@@ -676,23 +482,25 @@ func (mock *StoreMock) DeleteValuesForSubjectCalls() []struct {
 }
 
 // GetDefinition calls GetDefinitionFunc.
-func (mock *StoreMock) GetDefinition(ctx context.Context, scope tenancy.Scope, definitionID string) (*settings.Definition, error) {
+func (mock *StoreMock) GetDefinition(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, definitionID string) (*settings.Definition, error) {
 	if mock.GetDefinitionFunc == nil {
 		panic("StoreMock.GetDefinitionFunc: method is nil but Store.GetDefinition was just called")
 	}
 	callInfo := struct {
 		Ctx          context.Context
+		Q            database.SQLQueryExecutor
 		Scope        tenancy.Scope
 		DefinitionID string
 	}{
 		Ctx:          ctx,
+		Q:            q,
 		Scope:        scope,
 		DefinitionID: definitionID,
 	}
 	mock.lockGetDefinition.Lock()
 	mock.calls.GetDefinition = append(mock.calls.GetDefinition, callInfo)
 	mock.lockGetDefinition.Unlock()
-	return mock.GetDefinitionFunc(ctx, scope, definitionID)
+	return mock.GetDefinitionFunc(ctx, q, scope, definitionID)
 }
 
 // GetDefinitionCalls gets all the calls that were made to GetDefinition.
@@ -701,11 +509,13 @@ func (mock *StoreMock) GetDefinition(ctx context.Context, scope tenancy.Scope, d
 //	len(mockedStore.GetDefinitionCalls())
 func (mock *StoreMock) GetDefinitionCalls() []struct {
 	Ctx          context.Context
+	Q            database.SQLQueryExecutor
 	Scope        tenancy.Scope
 	DefinitionID string
 } {
 	var calls []struct {
 		Ctx          context.Context
+		Q            database.SQLQueryExecutor
 		Scope        tenancy.Scope
 		DefinitionID string
 	}
@@ -716,23 +526,25 @@ func (mock *StoreMock) GetDefinitionCalls() []struct {
 }
 
 // GetDefinitionByName calls GetDefinitionByNameFunc.
-func (mock *StoreMock) GetDefinitionByName(ctx context.Context, scope tenancy.Scope, name string) (*settings.Definition, error) {
+func (mock *StoreMock) GetDefinitionByName(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, name string) (*settings.Definition, error) {
 	if mock.GetDefinitionByNameFunc == nil {
 		panic("StoreMock.GetDefinitionByNameFunc: method is nil but Store.GetDefinitionByName was just called")
 	}
 	callInfo := struct {
 		Ctx   context.Context
+		Q     database.SQLQueryExecutor
 		Scope tenancy.Scope
 		Name  string
 	}{
 		Ctx:   ctx,
+		Q:     q,
 		Scope: scope,
 		Name:  name,
 	}
 	mock.lockGetDefinitionByName.Lock()
 	mock.calls.GetDefinitionByName = append(mock.calls.GetDefinitionByName, callInfo)
 	mock.lockGetDefinitionByName.Unlock()
-	return mock.GetDefinitionByNameFunc(ctx, scope, name)
+	return mock.GetDefinitionByNameFunc(ctx, q, scope, name)
 }
 
 // GetDefinitionByNameCalls gets all the calls that were made to GetDefinitionByName.
@@ -741,11 +553,13 @@ func (mock *StoreMock) GetDefinitionByName(ctx context.Context, scope tenancy.Sc
 //	len(mockedStore.GetDefinitionByNameCalls())
 func (mock *StoreMock) GetDefinitionByNameCalls() []struct {
 	Ctx   context.Context
+	Q     database.SQLQueryExecutor
 	Scope tenancy.Scope
 	Name  string
 } {
 	var calls []struct {
 		Ctx   context.Context
+		Q     database.SQLQueryExecutor
 		Scope tenancy.Scope
 		Name  string
 	}
@@ -756,17 +570,19 @@ func (mock *StoreMock) GetDefinitionByNameCalls() []struct {
 }
 
 // GetValue calls GetValueFunc.
-func (mock *StoreMock) GetValue(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Value, error) {
+func (mock *StoreMock) GetValue(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Value, error) {
 	if mock.GetValueFunc == nil {
 		panic("StoreMock.GetValueFunc: method is nil but Store.GetValue was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
+		Q       database.SQLQueryExecutor
 		Scope   tenancy.Scope
 		Subject settings.Subject
 		Name    string
 	}{
 		Ctx:     ctx,
+		Q:       q,
 		Scope:   scope,
 		Subject: subject,
 		Name:    name,
@@ -774,7 +590,7 @@ func (mock *StoreMock) GetValue(ctx context.Context, scope tenancy.Scope, subjec
 	mock.lockGetValue.Lock()
 	mock.calls.GetValue = append(mock.calls.GetValue, callInfo)
 	mock.lockGetValue.Unlock()
-	return mock.GetValueFunc(ctx, scope, subject, name)
+	return mock.GetValueFunc(ctx, q, scope, subject, name)
 }
 
 // GetValueCalls gets all the calls that were made to GetValue.
@@ -783,12 +599,14 @@ func (mock *StoreMock) GetValue(ctx context.Context, scope tenancy.Scope, subjec
 //	len(mockedStore.GetValueCalls())
 func (mock *StoreMock) GetValueCalls() []struct {
 	Ctx     context.Context
+	Q       database.SQLQueryExecutor
 	Scope   tenancy.Scope
 	Subject settings.Subject
 	Name    string
 } {
 	var calls []struct {
 		Ctx     context.Context
+		Q       database.SQLQueryExecutor
 		Scope   tenancy.Scope
 		Subject settings.Subject
 		Name    string
@@ -800,23 +618,25 @@ func (mock *StoreMock) GetValueCalls() []struct {
 }
 
 // ListDefinitions calls ListDefinitionsFunc.
-func (mock *StoreMock) ListDefinitions(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Definition], error) {
+func (mock *StoreMock) ListDefinitions(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Definition], error) {
 	if mock.ListDefinitionsFunc == nil {
 		panic("StoreMock.ListDefinitionsFunc: method is nil but Store.ListDefinitions was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}{
 		Ctx:    ctx,
+		Q:      q,
 		Scope:  scope,
 		Filter: filter,
 	}
 	mock.lockListDefinitions.Lock()
 	mock.calls.ListDefinitions = append(mock.calls.ListDefinitions, callInfo)
 	mock.lockListDefinitions.Unlock()
-	return mock.ListDefinitionsFunc(ctx, scope, filter)
+	return mock.ListDefinitionsFunc(ctx, q, scope, filter)
 }
 
 // ListDefinitionsCalls gets all the calls that were made to ListDefinitions.
@@ -825,11 +645,13 @@ func (mock *StoreMock) ListDefinitions(ctx context.Context, scope tenancy.Scope,
 //	len(mockedStore.ListDefinitionsCalls())
 func (mock *StoreMock) ListDefinitionsCalls() []struct {
 	Ctx    context.Context
+	Q      database.SQLQueryExecutor
 	Scope  tenancy.Scope
 	Filter *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}
@@ -840,17 +662,19 @@ func (mock *StoreMock) ListDefinitionsCalls() []struct {
 }
 
 // ListValuesForDefinition calls ListValuesForDefinitionFunc.
-func (mock *StoreMock) ListValuesForDefinition(ctx context.Context, scope tenancy.Scope, name string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error) {
+func (mock *StoreMock) ListValuesForDefinition(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, name string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error) {
 	if mock.ListValuesForDefinitionFunc == nil {
 		panic("StoreMock.ListValuesForDefinitionFunc: method is nil but Store.ListValuesForDefinition was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Name   string
 		Filter *filtering.QueryFilter
 	}{
 		Ctx:    ctx,
+		Q:      q,
 		Scope:  scope,
 		Name:   name,
 		Filter: filter,
@@ -858,7 +682,7 @@ func (mock *StoreMock) ListValuesForDefinition(ctx context.Context, scope tenanc
 	mock.lockListValuesForDefinition.Lock()
 	mock.calls.ListValuesForDefinition = append(mock.calls.ListValuesForDefinition, callInfo)
 	mock.lockListValuesForDefinition.Unlock()
-	return mock.ListValuesForDefinitionFunc(ctx, scope, name, filter)
+	return mock.ListValuesForDefinitionFunc(ctx, q, scope, name, filter)
 }
 
 // ListValuesForDefinitionCalls gets all the calls that were made to ListValuesForDefinition.
@@ -867,12 +691,14 @@ func (mock *StoreMock) ListValuesForDefinition(ctx context.Context, scope tenanc
 //	len(mockedStore.ListValuesForDefinitionCalls())
 func (mock *StoreMock) ListValuesForDefinitionCalls() []struct {
 	Ctx    context.Context
+	Q      database.SQLQueryExecutor
 	Scope  tenancy.Scope
 	Name   string
 	Filter *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Name   string
 		Filter *filtering.QueryFilter
@@ -884,17 +710,19 @@ func (mock *StoreMock) ListValuesForDefinitionCalls() []struct {
 }
 
 // ListValuesForSubject calls ListValuesForSubjectFunc.
-func (mock *StoreMock) ListValuesForSubject(ctx context.Context, scope tenancy.Scope, subject settings.Subject, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error) {
+func (mock *StoreMock) ListValuesForSubject(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error) {
 	if mock.ListValuesForSubjectFunc == nil {
 		panic("StoreMock.ListValuesForSubjectFunc: method is nil but Store.ListValuesForSubject was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
+		Q       database.SQLQueryExecutor
 		Scope   tenancy.Scope
 		Subject settings.Subject
 		Filter  *filtering.QueryFilter
 	}{
 		Ctx:     ctx,
+		Q:       q,
 		Scope:   scope,
 		Subject: subject,
 		Filter:  filter,
@@ -902,7 +730,7 @@ func (mock *StoreMock) ListValuesForSubject(ctx context.Context, scope tenancy.S
 	mock.lockListValuesForSubject.Lock()
 	mock.calls.ListValuesForSubject = append(mock.calls.ListValuesForSubject, callInfo)
 	mock.lockListValuesForSubject.Unlock()
-	return mock.ListValuesForSubjectFunc(ctx, scope, subject, filter)
+	return mock.ListValuesForSubjectFunc(ctx, q, scope, subject, filter)
 }
 
 // ListValuesForSubjectCalls gets all the calls that were made to ListValuesForSubject.
@@ -911,12 +739,14 @@ func (mock *StoreMock) ListValuesForSubject(ctx context.Context, scope tenancy.S
 //	len(mockedStore.ListValuesForSubjectCalls())
 func (mock *StoreMock) ListValuesForSubjectCalls() []struct {
 	Ctx     context.Context
+	Q       database.SQLQueryExecutor
 	Scope   tenancy.Scope
 	Subject settings.Subject
 	Filter  *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx     context.Context
+		Q       database.SQLQueryExecutor
 		Scope   tenancy.Scope
 		Subject settings.Subject
 		Filter  *filtering.QueryFilter
@@ -928,17 +758,19 @@ func (mock *StoreMock) ListValuesForSubjectCalls() []struct {
 }
 
 // Resolve calls ResolveFunc.
-func (mock *StoreMock) Resolve(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Resolution, error) {
+func (mock *StoreMock) Resolve(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Resolution, error) {
 	if mock.ResolveFunc == nil {
 		panic("StoreMock.ResolveFunc: method is nil but Store.Resolve was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
+		Q       database.SQLQueryExecutor
 		Scope   tenancy.Scope
 		Subject settings.Subject
 		Name    string
 	}{
 		Ctx:     ctx,
+		Q:       q,
 		Scope:   scope,
 		Subject: subject,
 		Name:    name,
@@ -946,7 +778,7 @@ func (mock *StoreMock) Resolve(ctx context.Context, scope tenancy.Scope, subject
 	mock.lockResolve.Lock()
 	mock.calls.Resolve = append(mock.calls.Resolve, callInfo)
 	mock.lockResolve.Unlock()
-	return mock.ResolveFunc(ctx, scope, subject, name)
+	return mock.ResolveFunc(ctx, q, scope, subject, name)
 }
 
 // ResolveCalls gets all the calls that were made to Resolve.
@@ -955,12 +787,14 @@ func (mock *StoreMock) Resolve(ctx context.Context, scope tenancy.Scope, subject
 //	len(mockedStore.ResolveCalls())
 func (mock *StoreMock) ResolveCalls() []struct {
 	Ctx     context.Context
+	Q       database.SQLQueryExecutor
 	Scope   tenancy.Scope
 	Subject settings.Subject
 	Name    string
 } {
 	var calls []struct {
 		Ctx     context.Context
+		Q       database.SQLQueryExecutor
 		Scope   tenancy.Scope
 		Subject settings.Subject
 		Name    string
@@ -972,23 +806,25 @@ func (mock *StoreMock) ResolveCalls() []struct {
 }
 
 // ResolveAll calls ResolveAllFunc.
-func (mock *StoreMock) ResolveAll(ctx context.Context, scope tenancy.Scope, subject settings.Subject) ([]*settings.Resolution, error) {
+func (mock *StoreMock) ResolveAll(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject) ([]*settings.Resolution, error) {
 	if mock.ResolveAllFunc == nil {
 		panic("StoreMock.ResolveAllFunc: method is nil but Store.ResolveAll was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
+		Q       database.SQLQueryExecutor
 		Scope   tenancy.Scope
 		Subject settings.Subject
 	}{
 		Ctx:     ctx,
+		Q:       q,
 		Scope:   scope,
 		Subject: subject,
 	}
 	mock.lockResolveAll.Lock()
 	mock.calls.ResolveAll = append(mock.calls.ResolveAll, callInfo)
 	mock.lockResolveAll.Unlock()
-	return mock.ResolveAllFunc(ctx, scope, subject)
+	return mock.ResolveAllFunc(ctx, q, scope, subject)
 }
 
 // ResolveAllCalls gets all the calls that were made to ResolveAll.
@@ -997,11 +833,13 @@ func (mock *StoreMock) ResolveAll(ctx context.Context, scope tenancy.Scope, subj
 //	len(mockedStore.ResolveAllCalls())
 func (mock *StoreMock) ResolveAllCalls() []struct {
 	Ctx     context.Context
+	Q       database.SQLQueryExecutor
 	Scope   tenancy.Scope
 	Subject settings.Subject
 } {
 	var calls []struct {
 		Ctx     context.Context
+		Q       database.SQLQueryExecutor
 		Scope   tenancy.Scope
 		Subject settings.Subject
 	}
@@ -1012,18 +850,20 @@ func (mock *StoreMock) ResolveAllCalls() []struct {
 }
 
 // SetValue calls SetValueFunc.
-func (mock *StoreMock) SetValue(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string, raw string) (*settings.Value, error) {
+func (mock *StoreMock) SetValue(ctx context.Context, tx database.Tx, scope tenancy.Scope, subject settings.Subject, name string, raw string) (*settings.Value, error) {
 	if mock.SetValueFunc == nil {
 		panic("StoreMock.SetValueFunc: method is nil but Store.SetValue was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
+		Tx      database.Tx
 		Scope   tenancy.Scope
 		Subject settings.Subject
 		Name    string
 		Raw     string
 	}{
 		Ctx:     ctx,
+		Tx:      tx,
 		Scope:   scope,
 		Subject: subject,
 		Name:    name,
@@ -1032,7 +872,7 @@ func (mock *StoreMock) SetValue(ctx context.Context, scope tenancy.Scope, subjec
 	mock.lockSetValue.Lock()
 	mock.calls.SetValue = append(mock.calls.SetValue, callInfo)
 	mock.lockSetValue.Unlock()
-	return mock.SetValueFunc(ctx, scope, subject, name, raw)
+	return mock.SetValueFunc(ctx, tx, scope, subject, name, raw)
 }
 
 // SetValueCalls gets all the calls that were made to SetValue.
@@ -1041,6 +881,7 @@ func (mock *StoreMock) SetValue(ctx context.Context, scope tenancy.Scope, subjec
 //	len(mockedStore.SetValueCalls())
 func (mock *StoreMock) SetValueCalls() []struct {
 	Ctx     context.Context
+	Tx      database.Tx
 	Scope   tenancy.Scope
 	Subject settings.Subject
 	Name    string
@@ -1048,6 +889,7 @@ func (mock *StoreMock) SetValueCalls() []struct {
 } {
 	var calls []struct {
 		Ctx     context.Context
+		Tx      database.Tx
 		Scope   tenancy.Scope
 		Subject settings.Subject
 		Name    string
@@ -1059,76 +901,26 @@ func (mock *StoreMock) SetValueCalls() []struct {
 	return calls
 }
 
-// SetValueTx calls SetValueTxFunc.
-func (mock *StoreMock) SetValueTx(ctx context.Context, q database.Tx, scope tenancy.Scope, subject settings.Subject, name string, raw string) (*settings.Value, error) {
-	if mock.SetValueTxFunc == nil {
-		panic("StoreMock.SetValueTxFunc: method is nil but Store.SetValueTx was just called")
-	}
-	callInfo := struct {
-		Ctx     context.Context
-		Q       database.Tx
-		Scope   tenancy.Scope
-		Subject settings.Subject
-		Name    string
-		Raw     string
-	}{
-		Ctx:     ctx,
-		Q:       q,
-		Scope:   scope,
-		Subject: subject,
-		Name:    name,
-		Raw:     raw,
-	}
-	mock.lockSetValueTx.Lock()
-	mock.calls.SetValueTx = append(mock.calls.SetValueTx, callInfo)
-	mock.lockSetValueTx.Unlock()
-	return mock.SetValueTxFunc(ctx, q, scope, subject, name, raw)
-}
-
-// SetValueTxCalls gets all the calls that were made to SetValueTx.
-// Check the length with:
-//
-//	len(mockedStore.SetValueTxCalls())
-func (mock *StoreMock) SetValueTxCalls() []struct {
-	Ctx     context.Context
-	Q       database.Tx
-	Scope   tenancy.Scope
-	Subject settings.Subject
-	Name    string
-	Raw     string
-} {
-	var calls []struct {
-		Ctx     context.Context
-		Q       database.Tx
-		Scope   tenancy.Scope
-		Subject settings.Subject
-		Name    string
-		Raw     string
-	}
-	mock.lockSetValueTx.RLock()
-	calls = mock.calls.SetValueTx
-	mock.lockSetValueTx.RUnlock()
-	return calls
-}
-
 // UpdateDefinition calls UpdateDefinitionFunc.
-func (mock *StoreMock) UpdateDefinition(ctx context.Context, scope tenancy.Scope, definition *settings.Definition) error {
+func (mock *StoreMock) UpdateDefinition(ctx context.Context, tx database.Tx, scope tenancy.Scope, definition *settings.Definition) error {
 	if mock.UpdateDefinitionFunc == nil {
 		panic("StoreMock.UpdateDefinitionFunc: method is nil but Store.UpdateDefinition was just called")
 	}
 	callInfo := struct {
 		Ctx        context.Context
+		Tx         database.Tx
 		Scope      tenancy.Scope
 		Definition *settings.Definition
 	}{
 		Ctx:        ctx,
+		Tx:         tx,
 		Scope:      scope,
 		Definition: definition,
 	}
 	mock.lockUpdateDefinition.Lock()
 	mock.calls.UpdateDefinition = append(mock.calls.UpdateDefinition, callInfo)
 	mock.lockUpdateDefinition.Unlock()
-	return mock.UpdateDefinitionFunc(ctx, scope, definition)
+	return mock.UpdateDefinitionFunc(ctx, tx, scope, definition)
 }
 
 // UpdateDefinitionCalls gets all the calls that were made to UpdateDefinition.
@@ -1137,61 +929,19 @@ func (mock *StoreMock) UpdateDefinition(ctx context.Context, scope tenancy.Scope
 //	len(mockedStore.UpdateDefinitionCalls())
 func (mock *StoreMock) UpdateDefinitionCalls() []struct {
 	Ctx        context.Context
+	Tx         database.Tx
 	Scope      tenancy.Scope
 	Definition *settings.Definition
 } {
 	var calls []struct {
 		Ctx        context.Context
+		Tx         database.Tx
 		Scope      tenancy.Scope
 		Definition *settings.Definition
 	}
 	mock.lockUpdateDefinition.RLock()
 	calls = mock.calls.UpdateDefinition
 	mock.lockUpdateDefinition.RUnlock()
-	return calls
-}
-
-// UpdateDefinitionTx calls UpdateDefinitionTxFunc.
-func (mock *StoreMock) UpdateDefinitionTx(ctx context.Context, q database.Tx, scope tenancy.Scope, definition *settings.Definition) error {
-	if mock.UpdateDefinitionTxFunc == nil {
-		panic("StoreMock.UpdateDefinitionTxFunc: method is nil but Store.UpdateDefinitionTx was just called")
-	}
-	callInfo := struct {
-		Ctx        context.Context
-		Q          database.Tx
-		Scope      tenancy.Scope
-		Definition *settings.Definition
-	}{
-		Ctx:        ctx,
-		Q:          q,
-		Scope:      scope,
-		Definition: definition,
-	}
-	mock.lockUpdateDefinitionTx.Lock()
-	mock.calls.UpdateDefinitionTx = append(mock.calls.UpdateDefinitionTx, callInfo)
-	mock.lockUpdateDefinitionTx.Unlock()
-	return mock.UpdateDefinitionTxFunc(ctx, q, scope, definition)
-}
-
-// UpdateDefinitionTxCalls gets all the calls that were made to UpdateDefinitionTx.
-// Check the length with:
-//
-//	len(mockedStore.UpdateDefinitionTxCalls())
-func (mock *StoreMock) UpdateDefinitionTxCalls() []struct {
-	Ctx        context.Context
-	Q          database.Tx
-	Scope      tenancy.Scope
-	Definition *settings.Definition
-} {
-	var calls []struct {
-		Ctx        context.Context
-		Q          database.Tx
-		Scope      tenancy.Scope
-		Definition *settings.Definition
-	}
-	mock.lockUpdateDefinitionTx.RLock()
-	calls = mock.calls.UpdateDefinitionTx
-	mock.lockUpdateDefinitionTx.RUnlock()
 	return calls
 }
 
@@ -1205,32 +955,23 @@ var _ settings.DefinitionStore = &DefinitionStoreMock{}
 //
 //		// make and configure a mocked settings.DefinitionStore
 //		mockedDefinitionStore := &DefinitionStoreMock{
-//			ArchiveDefinitionFunc: func(ctx context.Context, scope tenancy.Scope, definitionID string) error {
+//			ArchiveDefinitionFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, definitionID string) error {
 //				panic("mock out the ArchiveDefinition method")
 //			},
-//			ArchiveDefinitionTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, definitionID string) error {
-//				panic("mock out the ArchiveDefinitionTx method")
-//			},
-//			CreateDefinitionFunc: func(ctx context.Context, scope tenancy.Scope, definition *settings.Definition) (*settings.Definition, error) {
+//			CreateDefinitionFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, definition *settings.Definition) (*settings.Definition, error) {
 //				panic("mock out the CreateDefinition method")
 //			},
-//			CreateDefinitionTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, definition *settings.Definition) (*settings.Definition, error) {
-//				panic("mock out the CreateDefinitionTx method")
-//			},
-//			GetDefinitionFunc: func(ctx context.Context, scope tenancy.Scope, definitionID string) (*settings.Definition, error) {
+//			GetDefinitionFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, definitionID string) (*settings.Definition, error) {
 //				panic("mock out the GetDefinition method")
 //			},
-//			GetDefinitionByNameFunc: func(ctx context.Context, scope tenancy.Scope, name string) (*settings.Definition, error) {
+//			GetDefinitionByNameFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, name string) (*settings.Definition, error) {
 //				panic("mock out the GetDefinitionByName method")
 //			},
-//			ListDefinitionsFunc: func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Definition], error) {
+//			ListDefinitionsFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Definition], error) {
 //				panic("mock out the ListDefinitions method")
 //			},
-//			UpdateDefinitionFunc: func(ctx context.Context, scope tenancy.Scope, definition *settings.Definition) error {
+//			UpdateDefinitionFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, definition *settings.Definition) error {
 //				panic("mock out the UpdateDefinition method")
-//			},
-//			UpdateDefinitionTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, definition *settings.Definition) error {
-//				panic("mock out the UpdateDefinitionTx method")
 //			},
 //		}
 //
@@ -1240,31 +981,22 @@ var _ settings.DefinitionStore = &DefinitionStoreMock{}
 //	}
 type DefinitionStoreMock struct {
 	// ArchiveDefinitionFunc mocks the ArchiveDefinition method.
-	ArchiveDefinitionFunc func(ctx context.Context, scope tenancy.Scope, definitionID string) error
-
-	// ArchiveDefinitionTxFunc mocks the ArchiveDefinitionTx method.
-	ArchiveDefinitionTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, definitionID string) error
+	ArchiveDefinitionFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, definitionID string) error
 
 	// CreateDefinitionFunc mocks the CreateDefinition method.
-	CreateDefinitionFunc func(ctx context.Context, scope tenancy.Scope, definition *settings.Definition) (*settings.Definition, error)
-
-	// CreateDefinitionTxFunc mocks the CreateDefinitionTx method.
-	CreateDefinitionTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, definition *settings.Definition) (*settings.Definition, error)
+	CreateDefinitionFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, definition *settings.Definition) (*settings.Definition, error)
 
 	// GetDefinitionFunc mocks the GetDefinition method.
-	GetDefinitionFunc func(ctx context.Context, scope tenancy.Scope, definitionID string) (*settings.Definition, error)
+	GetDefinitionFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, definitionID string) (*settings.Definition, error)
 
 	// GetDefinitionByNameFunc mocks the GetDefinitionByName method.
-	GetDefinitionByNameFunc func(ctx context.Context, scope tenancy.Scope, name string) (*settings.Definition, error)
+	GetDefinitionByNameFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, name string) (*settings.Definition, error)
 
 	// ListDefinitionsFunc mocks the ListDefinitions method.
-	ListDefinitionsFunc func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Definition], error)
+	ListDefinitionsFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Definition], error)
 
 	// UpdateDefinitionFunc mocks the UpdateDefinition method.
-	UpdateDefinitionFunc func(ctx context.Context, scope tenancy.Scope, definition *settings.Definition) error
-
-	// UpdateDefinitionTxFunc mocks the UpdateDefinitionTx method.
-	UpdateDefinitionTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, definition *settings.Definition) error
+	UpdateDefinitionFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, definition *settings.Definition) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -1272,17 +1004,8 @@ type DefinitionStoreMock struct {
 		ArchiveDefinition []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// DefinitionID is the definitionID argument value.
-			DefinitionID string
-		}
-		// ArchiveDefinitionTx holds details about calls to the ArchiveDefinitionTx method.
-		ArchiveDefinitionTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// DefinitionID is the definitionID argument value.
@@ -1292,17 +1015,8 @@ type DefinitionStoreMock struct {
 		CreateDefinition []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// Definition is the definition argument value.
-			Definition *settings.Definition
-		}
-		// CreateDefinitionTx holds details about calls to the CreateDefinitionTx method.
-		CreateDefinitionTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Definition is the definition argument value.
@@ -1312,6 +1026,8 @@ type DefinitionStoreMock struct {
 		GetDefinition []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// DefinitionID is the definitionID argument value.
@@ -1321,6 +1037,8 @@ type DefinitionStoreMock struct {
 		GetDefinitionByName []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Name is the name argument value.
@@ -1330,6 +1048,8 @@ type DefinitionStoreMock struct {
 		ListDefinitions []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Filter is the filter argument value.
@@ -1339,17 +1059,8 @@ type DefinitionStoreMock struct {
 		UpdateDefinition []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// Definition is the definition argument value.
-			Definition *settings.Definition
-		}
-		// UpdateDefinitionTx holds details about calls to the UpdateDefinitionTx method.
-		UpdateDefinitionTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Definition is the definition argument value.
@@ -1357,34 +1068,33 @@ type DefinitionStoreMock struct {
 		}
 	}
 	lockArchiveDefinition   sync.RWMutex
-	lockArchiveDefinitionTx sync.RWMutex
 	lockCreateDefinition    sync.RWMutex
-	lockCreateDefinitionTx  sync.RWMutex
 	lockGetDefinition       sync.RWMutex
 	lockGetDefinitionByName sync.RWMutex
 	lockListDefinitions     sync.RWMutex
 	lockUpdateDefinition    sync.RWMutex
-	lockUpdateDefinitionTx  sync.RWMutex
 }
 
 // ArchiveDefinition calls ArchiveDefinitionFunc.
-func (mock *DefinitionStoreMock) ArchiveDefinition(ctx context.Context, scope tenancy.Scope, definitionID string) error {
+func (mock *DefinitionStoreMock) ArchiveDefinition(ctx context.Context, tx database.Tx, scope tenancy.Scope, definitionID string) error {
 	if mock.ArchiveDefinitionFunc == nil {
 		panic("DefinitionStoreMock.ArchiveDefinitionFunc: method is nil but DefinitionStore.ArchiveDefinition was just called")
 	}
 	callInfo := struct {
 		Ctx          context.Context
+		Tx           database.Tx
 		Scope        tenancy.Scope
 		DefinitionID string
 	}{
 		Ctx:          ctx,
+		Tx:           tx,
 		Scope:        scope,
 		DefinitionID: definitionID,
 	}
 	mock.lockArchiveDefinition.Lock()
 	mock.calls.ArchiveDefinition = append(mock.calls.ArchiveDefinition, callInfo)
 	mock.lockArchiveDefinition.Unlock()
-	return mock.ArchiveDefinitionFunc(ctx, scope, definitionID)
+	return mock.ArchiveDefinitionFunc(ctx, tx, scope, definitionID)
 }
 
 // ArchiveDefinitionCalls gets all the calls that were made to ArchiveDefinition.
@@ -1393,11 +1103,13 @@ func (mock *DefinitionStoreMock) ArchiveDefinition(ctx context.Context, scope te
 //	len(mockedDefinitionStore.ArchiveDefinitionCalls())
 func (mock *DefinitionStoreMock) ArchiveDefinitionCalls() []struct {
 	Ctx          context.Context
+	Tx           database.Tx
 	Scope        tenancy.Scope
 	DefinitionID string
 } {
 	var calls []struct {
 		Ctx          context.Context
+		Tx           database.Tx
 		Scope        tenancy.Scope
 		DefinitionID string
 	}
@@ -1407,68 +1119,26 @@ func (mock *DefinitionStoreMock) ArchiveDefinitionCalls() []struct {
 	return calls
 }
 
-// ArchiveDefinitionTx calls ArchiveDefinitionTxFunc.
-func (mock *DefinitionStoreMock) ArchiveDefinitionTx(ctx context.Context, q database.Tx, scope tenancy.Scope, definitionID string) error {
-	if mock.ArchiveDefinitionTxFunc == nil {
-		panic("DefinitionStoreMock.ArchiveDefinitionTxFunc: method is nil but DefinitionStore.ArchiveDefinitionTx was just called")
-	}
-	callInfo := struct {
-		Ctx          context.Context
-		Q            database.Tx
-		Scope        tenancy.Scope
-		DefinitionID string
-	}{
-		Ctx:          ctx,
-		Q:            q,
-		Scope:        scope,
-		DefinitionID: definitionID,
-	}
-	mock.lockArchiveDefinitionTx.Lock()
-	mock.calls.ArchiveDefinitionTx = append(mock.calls.ArchiveDefinitionTx, callInfo)
-	mock.lockArchiveDefinitionTx.Unlock()
-	return mock.ArchiveDefinitionTxFunc(ctx, q, scope, definitionID)
-}
-
-// ArchiveDefinitionTxCalls gets all the calls that were made to ArchiveDefinitionTx.
-// Check the length with:
-//
-//	len(mockedDefinitionStore.ArchiveDefinitionTxCalls())
-func (mock *DefinitionStoreMock) ArchiveDefinitionTxCalls() []struct {
-	Ctx          context.Context
-	Q            database.Tx
-	Scope        tenancy.Scope
-	DefinitionID string
-} {
-	var calls []struct {
-		Ctx          context.Context
-		Q            database.Tx
-		Scope        tenancy.Scope
-		DefinitionID string
-	}
-	mock.lockArchiveDefinitionTx.RLock()
-	calls = mock.calls.ArchiveDefinitionTx
-	mock.lockArchiveDefinitionTx.RUnlock()
-	return calls
-}
-
 // CreateDefinition calls CreateDefinitionFunc.
-func (mock *DefinitionStoreMock) CreateDefinition(ctx context.Context, scope tenancy.Scope, definition *settings.Definition) (*settings.Definition, error) {
+func (mock *DefinitionStoreMock) CreateDefinition(ctx context.Context, tx database.Tx, scope tenancy.Scope, definition *settings.Definition) (*settings.Definition, error) {
 	if mock.CreateDefinitionFunc == nil {
 		panic("DefinitionStoreMock.CreateDefinitionFunc: method is nil but DefinitionStore.CreateDefinition was just called")
 	}
 	callInfo := struct {
 		Ctx        context.Context
+		Tx         database.Tx
 		Scope      tenancy.Scope
 		Definition *settings.Definition
 	}{
 		Ctx:        ctx,
+		Tx:         tx,
 		Scope:      scope,
 		Definition: definition,
 	}
 	mock.lockCreateDefinition.Lock()
 	mock.calls.CreateDefinition = append(mock.calls.CreateDefinition, callInfo)
 	mock.lockCreateDefinition.Unlock()
-	return mock.CreateDefinitionFunc(ctx, scope, definition)
+	return mock.CreateDefinitionFunc(ctx, tx, scope, definition)
 }
 
 // CreateDefinitionCalls gets all the calls that were made to CreateDefinition.
@@ -1477,11 +1147,13 @@ func (mock *DefinitionStoreMock) CreateDefinition(ctx context.Context, scope ten
 //	len(mockedDefinitionStore.CreateDefinitionCalls())
 func (mock *DefinitionStoreMock) CreateDefinitionCalls() []struct {
 	Ctx        context.Context
+	Tx         database.Tx
 	Scope      tenancy.Scope
 	Definition *settings.Definition
 } {
 	var calls []struct {
 		Ctx        context.Context
+		Tx         database.Tx
 		Scope      tenancy.Scope
 		Definition *settings.Definition
 	}
@@ -1491,68 +1163,26 @@ func (mock *DefinitionStoreMock) CreateDefinitionCalls() []struct {
 	return calls
 }
 
-// CreateDefinitionTx calls CreateDefinitionTxFunc.
-func (mock *DefinitionStoreMock) CreateDefinitionTx(ctx context.Context, q database.Tx, scope tenancy.Scope, definition *settings.Definition) (*settings.Definition, error) {
-	if mock.CreateDefinitionTxFunc == nil {
-		panic("DefinitionStoreMock.CreateDefinitionTxFunc: method is nil but DefinitionStore.CreateDefinitionTx was just called")
-	}
-	callInfo := struct {
-		Ctx        context.Context
-		Q          database.Tx
-		Scope      tenancy.Scope
-		Definition *settings.Definition
-	}{
-		Ctx:        ctx,
-		Q:          q,
-		Scope:      scope,
-		Definition: definition,
-	}
-	mock.lockCreateDefinitionTx.Lock()
-	mock.calls.CreateDefinitionTx = append(mock.calls.CreateDefinitionTx, callInfo)
-	mock.lockCreateDefinitionTx.Unlock()
-	return mock.CreateDefinitionTxFunc(ctx, q, scope, definition)
-}
-
-// CreateDefinitionTxCalls gets all the calls that were made to CreateDefinitionTx.
-// Check the length with:
-//
-//	len(mockedDefinitionStore.CreateDefinitionTxCalls())
-func (mock *DefinitionStoreMock) CreateDefinitionTxCalls() []struct {
-	Ctx        context.Context
-	Q          database.Tx
-	Scope      tenancy.Scope
-	Definition *settings.Definition
-} {
-	var calls []struct {
-		Ctx        context.Context
-		Q          database.Tx
-		Scope      tenancy.Scope
-		Definition *settings.Definition
-	}
-	mock.lockCreateDefinitionTx.RLock()
-	calls = mock.calls.CreateDefinitionTx
-	mock.lockCreateDefinitionTx.RUnlock()
-	return calls
-}
-
 // GetDefinition calls GetDefinitionFunc.
-func (mock *DefinitionStoreMock) GetDefinition(ctx context.Context, scope tenancy.Scope, definitionID string) (*settings.Definition, error) {
+func (mock *DefinitionStoreMock) GetDefinition(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, definitionID string) (*settings.Definition, error) {
 	if mock.GetDefinitionFunc == nil {
 		panic("DefinitionStoreMock.GetDefinitionFunc: method is nil but DefinitionStore.GetDefinition was just called")
 	}
 	callInfo := struct {
 		Ctx          context.Context
+		Q            database.SQLQueryExecutor
 		Scope        tenancy.Scope
 		DefinitionID string
 	}{
 		Ctx:          ctx,
+		Q:            q,
 		Scope:        scope,
 		DefinitionID: definitionID,
 	}
 	mock.lockGetDefinition.Lock()
 	mock.calls.GetDefinition = append(mock.calls.GetDefinition, callInfo)
 	mock.lockGetDefinition.Unlock()
-	return mock.GetDefinitionFunc(ctx, scope, definitionID)
+	return mock.GetDefinitionFunc(ctx, q, scope, definitionID)
 }
 
 // GetDefinitionCalls gets all the calls that were made to GetDefinition.
@@ -1561,11 +1191,13 @@ func (mock *DefinitionStoreMock) GetDefinition(ctx context.Context, scope tenanc
 //	len(mockedDefinitionStore.GetDefinitionCalls())
 func (mock *DefinitionStoreMock) GetDefinitionCalls() []struct {
 	Ctx          context.Context
+	Q            database.SQLQueryExecutor
 	Scope        tenancy.Scope
 	DefinitionID string
 } {
 	var calls []struct {
 		Ctx          context.Context
+		Q            database.SQLQueryExecutor
 		Scope        tenancy.Scope
 		DefinitionID string
 	}
@@ -1576,23 +1208,25 @@ func (mock *DefinitionStoreMock) GetDefinitionCalls() []struct {
 }
 
 // GetDefinitionByName calls GetDefinitionByNameFunc.
-func (mock *DefinitionStoreMock) GetDefinitionByName(ctx context.Context, scope tenancy.Scope, name string) (*settings.Definition, error) {
+func (mock *DefinitionStoreMock) GetDefinitionByName(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, name string) (*settings.Definition, error) {
 	if mock.GetDefinitionByNameFunc == nil {
 		panic("DefinitionStoreMock.GetDefinitionByNameFunc: method is nil but DefinitionStore.GetDefinitionByName was just called")
 	}
 	callInfo := struct {
 		Ctx   context.Context
+		Q     database.SQLQueryExecutor
 		Scope tenancy.Scope
 		Name  string
 	}{
 		Ctx:   ctx,
+		Q:     q,
 		Scope: scope,
 		Name:  name,
 	}
 	mock.lockGetDefinitionByName.Lock()
 	mock.calls.GetDefinitionByName = append(mock.calls.GetDefinitionByName, callInfo)
 	mock.lockGetDefinitionByName.Unlock()
-	return mock.GetDefinitionByNameFunc(ctx, scope, name)
+	return mock.GetDefinitionByNameFunc(ctx, q, scope, name)
 }
 
 // GetDefinitionByNameCalls gets all the calls that were made to GetDefinitionByName.
@@ -1601,11 +1235,13 @@ func (mock *DefinitionStoreMock) GetDefinitionByName(ctx context.Context, scope 
 //	len(mockedDefinitionStore.GetDefinitionByNameCalls())
 func (mock *DefinitionStoreMock) GetDefinitionByNameCalls() []struct {
 	Ctx   context.Context
+	Q     database.SQLQueryExecutor
 	Scope tenancy.Scope
 	Name  string
 } {
 	var calls []struct {
 		Ctx   context.Context
+		Q     database.SQLQueryExecutor
 		Scope tenancy.Scope
 		Name  string
 	}
@@ -1616,23 +1252,25 @@ func (mock *DefinitionStoreMock) GetDefinitionByNameCalls() []struct {
 }
 
 // ListDefinitions calls ListDefinitionsFunc.
-func (mock *DefinitionStoreMock) ListDefinitions(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Definition], error) {
+func (mock *DefinitionStoreMock) ListDefinitions(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Definition], error) {
 	if mock.ListDefinitionsFunc == nil {
 		panic("DefinitionStoreMock.ListDefinitionsFunc: method is nil but DefinitionStore.ListDefinitions was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}{
 		Ctx:    ctx,
+		Q:      q,
 		Scope:  scope,
 		Filter: filter,
 	}
 	mock.lockListDefinitions.Lock()
 	mock.calls.ListDefinitions = append(mock.calls.ListDefinitions, callInfo)
 	mock.lockListDefinitions.Unlock()
-	return mock.ListDefinitionsFunc(ctx, scope, filter)
+	return mock.ListDefinitionsFunc(ctx, q, scope, filter)
 }
 
 // ListDefinitionsCalls gets all the calls that were made to ListDefinitions.
@@ -1641,11 +1279,13 @@ func (mock *DefinitionStoreMock) ListDefinitions(ctx context.Context, scope tena
 //	len(mockedDefinitionStore.ListDefinitionsCalls())
 func (mock *DefinitionStoreMock) ListDefinitionsCalls() []struct {
 	Ctx    context.Context
+	Q      database.SQLQueryExecutor
 	Scope  tenancy.Scope
 	Filter *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}
@@ -1656,23 +1296,25 @@ func (mock *DefinitionStoreMock) ListDefinitionsCalls() []struct {
 }
 
 // UpdateDefinition calls UpdateDefinitionFunc.
-func (mock *DefinitionStoreMock) UpdateDefinition(ctx context.Context, scope tenancy.Scope, definition *settings.Definition) error {
+func (mock *DefinitionStoreMock) UpdateDefinition(ctx context.Context, tx database.Tx, scope tenancy.Scope, definition *settings.Definition) error {
 	if mock.UpdateDefinitionFunc == nil {
 		panic("DefinitionStoreMock.UpdateDefinitionFunc: method is nil but DefinitionStore.UpdateDefinition was just called")
 	}
 	callInfo := struct {
 		Ctx        context.Context
+		Tx         database.Tx
 		Scope      tenancy.Scope
 		Definition *settings.Definition
 	}{
 		Ctx:        ctx,
+		Tx:         tx,
 		Scope:      scope,
 		Definition: definition,
 	}
 	mock.lockUpdateDefinition.Lock()
 	mock.calls.UpdateDefinition = append(mock.calls.UpdateDefinition, callInfo)
 	mock.lockUpdateDefinition.Unlock()
-	return mock.UpdateDefinitionFunc(ctx, scope, definition)
+	return mock.UpdateDefinitionFunc(ctx, tx, scope, definition)
 }
 
 // UpdateDefinitionCalls gets all the calls that were made to UpdateDefinition.
@@ -1681,61 +1323,19 @@ func (mock *DefinitionStoreMock) UpdateDefinition(ctx context.Context, scope ten
 //	len(mockedDefinitionStore.UpdateDefinitionCalls())
 func (mock *DefinitionStoreMock) UpdateDefinitionCalls() []struct {
 	Ctx        context.Context
+	Tx         database.Tx
 	Scope      tenancy.Scope
 	Definition *settings.Definition
 } {
 	var calls []struct {
 		Ctx        context.Context
+		Tx         database.Tx
 		Scope      tenancy.Scope
 		Definition *settings.Definition
 	}
 	mock.lockUpdateDefinition.RLock()
 	calls = mock.calls.UpdateDefinition
 	mock.lockUpdateDefinition.RUnlock()
-	return calls
-}
-
-// UpdateDefinitionTx calls UpdateDefinitionTxFunc.
-func (mock *DefinitionStoreMock) UpdateDefinitionTx(ctx context.Context, q database.Tx, scope tenancy.Scope, definition *settings.Definition) error {
-	if mock.UpdateDefinitionTxFunc == nil {
-		panic("DefinitionStoreMock.UpdateDefinitionTxFunc: method is nil but DefinitionStore.UpdateDefinitionTx was just called")
-	}
-	callInfo := struct {
-		Ctx        context.Context
-		Q          database.Tx
-		Scope      tenancy.Scope
-		Definition *settings.Definition
-	}{
-		Ctx:        ctx,
-		Q:          q,
-		Scope:      scope,
-		Definition: definition,
-	}
-	mock.lockUpdateDefinitionTx.Lock()
-	mock.calls.UpdateDefinitionTx = append(mock.calls.UpdateDefinitionTx, callInfo)
-	mock.lockUpdateDefinitionTx.Unlock()
-	return mock.UpdateDefinitionTxFunc(ctx, q, scope, definition)
-}
-
-// UpdateDefinitionTxCalls gets all the calls that were made to UpdateDefinitionTx.
-// Check the length with:
-//
-//	len(mockedDefinitionStore.UpdateDefinitionTxCalls())
-func (mock *DefinitionStoreMock) UpdateDefinitionTxCalls() []struct {
-	Ctx        context.Context
-	Q          database.Tx
-	Scope      tenancy.Scope
-	Definition *settings.Definition
-} {
-	var calls []struct {
-		Ctx        context.Context
-		Q          database.Tx
-		Scope      tenancy.Scope
-		Definition *settings.Definition
-	}
-	mock.lockUpdateDefinitionTx.RLock()
-	calls = mock.calls.UpdateDefinitionTx
-	mock.lockUpdateDefinitionTx.RUnlock()
 	return calls
 }
 
@@ -1749,35 +1349,29 @@ var _ settings.ValueStore = &ValueStoreMock{}
 //
 //		// make and configure a mocked settings.ValueStore
 //		mockedValueStore := &ValueStoreMock{
-//			ClearValueFunc: func(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string) error {
+//			ClearValueFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subject settings.Subject, name string) error {
 //				panic("mock out the ClearValue method")
 //			},
-//			ClearValueTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, subject settings.Subject, name string) error {
-//				panic("mock out the ClearValueTx method")
-//			},
-//			DeleteValuesForSubjectFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, subject settings.Subject) (int64, error) {
+//			DeleteValuesForSubjectFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subject settings.Subject) (int64, error) {
 //				panic("mock out the DeleteValuesForSubject method")
 //			},
-//			GetValueFunc: func(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Value, error) {
+//			GetValueFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Value, error) {
 //				panic("mock out the GetValue method")
 //			},
-//			ListValuesForDefinitionFunc: func(ctx context.Context, scope tenancy.Scope, name string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error) {
+//			ListValuesForDefinitionFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, name string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error) {
 //				panic("mock out the ListValuesForDefinition method")
 //			},
-//			ListValuesForSubjectFunc: func(ctx context.Context, scope tenancy.Scope, subject settings.Subject, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error) {
+//			ListValuesForSubjectFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error) {
 //				panic("mock out the ListValuesForSubject method")
 //			},
-//			ResolveFunc: func(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Resolution, error) {
+//			ResolveFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Resolution, error) {
 //				panic("mock out the Resolve method")
 //			},
-//			ResolveAllFunc: func(ctx context.Context, scope tenancy.Scope, subject settings.Subject) ([]*settings.Resolution, error) {
+//			ResolveAllFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject) ([]*settings.Resolution, error) {
 //				panic("mock out the ResolveAll method")
 //			},
-//			SetValueFunc: func(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string, raw string) (*settings.Value, error) {
+//			SetValueFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subject settings.Subject, name string, raw string) (*settings.Value, error) {
 //				panic("mock out the SetValue method")
-//			},
-//			SetValueTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, subject settings.Subject, name string, raw string) (*settings.Value, error) {
-//				panic("mock out the SetValueTx method")
 //			},
 //		}
 //
@@ -1787,34 +1381,28 @@ var _ settings.ValueStore = &ValueStoreMock{}
 //	}
 type ValueStoreMock struct {
 	// ClearValueFunc mocks the ClearValue method.
-	ClearValueFunc func(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string) error
-
-	// ClearValueTxFunc mocks the ClearValueTx method.
-	ClearValueTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, subject settings.Subject, name string) error
+	ClearValueFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subject settings.Subject, name string) error
 
 	// DeleteValuesForSubjectFunc mocks the DeleteValuesForSubject method.
-	DeleteValuesForSubjectFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, subject settings.Subject) (int64, error)
+	DeleteValuesForSubjectFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subject settings.Subject) (int64, error)
 
 	// GetValueFunc mocks the GetValue method.
-	GetValueFunc func(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Value, error)
+	GetValueFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Value, error)
 
 	// ListValuesForDefinitionFunc mocks the ListValuesForDefinition method.
-	ListValuesForDefinitionFunc func(ctx context.Context, scope tenancy.Scope, name string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error)
+	ListValuesForDefinitionFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, name string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error)
 
 	// ListValuesForSubjectFunc mocks the ListValuesForSubject method.
-	ListValuesForSubjectFunc func(ctx context.Context, scope tenancy.Scope, subject settings.Subject, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error)
+	ListValuesForSubjectFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error)
 
 	// ResolveFunc mocks the Resolve method.
-	ResolveFunc func(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Resolution, error)
+	ResolveFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Resolution, error)
 
 	// ResolveAllFunc mocks the ResolveAll method.
-	ResolveAllFunc func(ctx context.Context, scope tenancy.Scope, subject settings.Subject) ([]*settings.Resolution, error)
+	ResolveAllFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject) ([]*settings.Resolution, error)
 
 	// SetValueFunc mocks the SetValue method.
-	SetValueFunc func(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string, raw string) (*settings.Value, error)
-
-	// SetValueTxFunc mocks the SetValueTx method.
-	SetValueTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, subject settings.Subject, name string, raw string) (*settings.Value, error)
+	SetValueFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subject settings.Subject, name string, raw string) (*settings.Value, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -1822,19 +1410,8 @@ type ValueStoreMock struct {
 		ClearValue []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// Subject is the subject argument value.
-			Subject settings.Subject
-			// Name is the name argument value.
-			Name string
-		}
-		// ClearValueTx holds details about calls to the ClearValueTx method.
-		ClearValueTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Subject is the subject argument value.
@@ -1846,8 +1423,8 @@ type ValueStoreMock struct {
 		DeleteValuesForSubject []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Subject is the subject argument value.
@@ -1857,6 +1434,8 @@ type ValueStoreMock struct {
 		GetValue []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Subject is the subject argument value.
@@ -1868,6 +1447,8 @@ type ValueStoreMock struct {
 		ListValuesForDefinition []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Name is the name argument value.
@@ -1879,6 +1460,8 @@ type ValueStoreMock struct {
 		ListValuesForSubject []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Subject is the subject argument value.
@@ -1890,6 +1473,8 @@ type ValueStoreMock struct {
 		Resolve []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Subject is the subject argument value.
@@ -1901,6 +1486,8 @@ type ValueStoreMock struct {
 		ResolveAll []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Subject is the subject argument value.
@@ -1910,21 +1497,8 @@ type ValueStoreMock struct {
 		SetValue []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// Subject is the subject argument value.
-			Subject settings.Subject
-			// Name is the name argument value.
-			Name string
-			// Raw is the raw argument value.
-			Raw string
-		}
-		// SetValueTx holds details about calls to the SetValueTx method.
-		SetValueTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Subject is the subject argument value.
@@ -1936,7 +1510,6 @@ type ValueStoreMock struct {
 		}
 	}
 	lockClearValue              sync.RWMutex
-	lockClearValueTx            sync.RWMutex
 	lockDeleteValuesForSubject  sync.RWMutex
 	lockGetValue                sync.RWMutex
 	lockListValuesForDefinition sync.RWMutex
@@ -1944,21 +1517,22 @@ type ValueStoreMock struct {
 	lockResolve                 sync.RWMutex
 	lockResolveAll              sync.RWMutex
 	lockSetValue                sync.RWMutex
-	lockSetValueTx              sync.RWMutex
 }
 
 // ClearValue calls ClearValueFunc.
-func (mock *ValueStoreMock) ClearValue(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string) error {
+func (mock *ValueStoreMock) ClearValue(ctx context.Context, tx database.Tx, scope tenancy.Scope, subject settings.Subject, name string) error {
 	if mock.ClearValueFunc == nil {
 		panic("ValueStoreMock.ClearValueFunc: method is nil but ValueStore.ClearValue was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
+		Tx      database.Tx
 		Scope   tenancy.Scope
 		Subject settings.Subject
 		Name    string
 	}{
 		Ctx:     ctx,
+		Tx:      tx,
 		Scope:   scope,
 		Subject: subject,
 		Name:    name,
@@ -1966,7 +1540,7 @@ func (mock *ValueStoreMock) ClearValue(ctx context.Context, scope tenancy.Scope,
 	mock.lockClearValue.Lock()
 	mock.calls.ClearValue = append(mock.calls.ClearValue, callInfo)
 	mock.lockClearValue.Unlock()
-	return mock.ClearValueFunc(ctx, scope, subject, name)
+	return mock.ClearValueFunc(ctx, tx, scope, subject, name)
 }
 
 // ClearValueCalls gets all the calls that were made to ClearValue.
@@ -1975,12 +1549,14 @@ func (mock *ValueStoreMock) ClearValue(ctx context.Context, scope tenancy.Scope,
 //	len(mockedValueStore.ClearValueCalls())
 func (mock *ValueStoreMock) ClearValueCalls() []struct {
 	Ctx     context.Context
+	Tx      database.Tx
 	Scope   tenancy.Scope
 	Subject settings.Subject
 	Name    string
 } {
 	var calls []struct {
 		Ctx     context.Context
+		Tx      database.Tx
 		Scope   tenancy.Scope
 		Subject settings.Subject
 		Name    string
@@ -1991,74 +1567,26 @@ func (mock *ValueStoreMock) ClearValueCalls() []struct {
 	return calls
 }
 
-// ClearValueTx calls ClearValueTxFunc.
-func (mock *ValueStoreMock) ClearValueTx(ctx context.Context, q database.Tx, scope tenancy.Scope, subject settings.Subject, name string) error {
-	if mock.ClearValueTxFunc == nil {
-		panic("ValueStoreMock.ClearValueTxFunc: method is nil but ValueStore.ClearValueTx was just called")
-	}
-	callInfo := struct {
-		Ctx     context.Context
-		Q       database.Tx
-		Scope   tenancy.Scope
-		Subject settings.Subject
-		Name    string
-	}{
-		Ctx:     ctx,
-		Q:       q,
-		Scope:   scope,
-		Subject: subject,
-		Name:    name,
-	}
-	mock.lockClearValueTx.Lock()
-	mock.calls.ClearValueTx = append(mock.calls.ClearValueTx, callInfo)
-	mock.lockClearValueTx.Unlock()
-	return mock.ClearValueTxFunc(ctx, q, scope, subject, name)
-}
-
-// ClearValueTxCalls gets all the calls that were made to ClearValueTx.
-// Check the length with:
-//
-//	len(mockedValueStore.ClearValueTxCalls())
-func (mock *ValueStoreMock) ClearValueTxCalls() []struct {
-	Ctx     context.Context
-	Q       database.Tx
-	Scope   tenancy.Scope
-	Subject settings.Subject
-	Name    string
-} {
-	var calls []struct {
-		Ctx     context.Context
-		Q       database.Tx
-		Scope   tenancy.Scope
-		Subject settings.Subject
-		Name    string
-	}
-	mock.lockClearValueTx.RLock()
-	calls = mock.calls.ClearValueTx
-	mock.lockClearValueTx.RUnlock()
-	return calls
-}
-
 // DeleteValuesForSubject calls DeleteValuesForSubjectFunc.
-func (mock *ValueStoreMock) DeleteValuesForSubject(ctx context.Context, q database.Tx, scope tenancy.Scope, subject settings.Subject) (int64, error) {
+func (mock *ValueStoreMock) DeleteValuesForSubject(ctx context.Context, tx database.Tx, scope tenancy.Scope, subject settings.Subject) (int64, error) {
 	if mock.DeleteValuesForSubjectFunc == nil {
 		panic("ValueStoreMock.DeleteValuesForSubjectFunc: method is nil but ValueStore.DeleteValuesForSubject was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
-		Q       database.Tx
+		Tx      database.Tx
 		Scope   tenancy.Scope
 		Subject settings.Subject
 	}{
 		Ctx:     ctx,
-		Q:       q,
+		Tx:      tx,
 		Scope:   scope,
 		Subject: subject,
 	}
 	mock.lockDeleteValuesForSubject.Lock()
 	mock.calls.DeleteValuesForSubject = append(mock.calls.DeleteValuesForSubject, callInfo)
 	mock.lockDeleteValuesForSubject.Unlock()
-	return mock.DeleteValuesForSubjectFunc(ctx, q, scope, subject)
+	return mock.DeleteValuesForSubjectFunc(ctx, tx, scope, subject)
 }
 
 // DeleteValuesForSubjectCalls gets all the calls that were made to DeleteValuesForSubject.
@@ -2067,13 +1595,13 @@ func (mock *ValueStoreMock) DeleteValuesForSubject(ctx context.Context, q databa
 //	len(mockedValueStore.DeleteValuesForSubjectCalls())
 func (mock *ValueStoreMock) DeleteValuesForSubjectCalls() []struct {
 	Ctx     context.Context
-	Q       database.Tx
+	Tx      database.Tx
 	Scope   tenancy.Scope
 	Subject settings.Subject
 } {
 	var calls []struct {
 		Ctx     context.Context
-		Q       database.Tx
+		Tx      database.Tx
 		Scope   tenancy.Scope
 		Subject settings.Subject
 	}
@@ -2084,17 +1612,19 @@ func (mock *ValueStoreMock) DeleteValuesForSubjectCalls() []struct {
 }
 
 // GetValue calls GetValueFunc.
-func (mock *ValueStoreMock) GetValue(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Value, error) {
+func (mock *ValueStoreMock) GetValue(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Value, error) {
 	if mock.GetValueFunc == nil {
 		panic("ValueStoreMock.GetValueFunc: method is nil but ValueStore.GetValue was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
+		Q       database.SQLQueryExecutor
 		Scope   tenancy.Scope
 		Subject settings.Subject
 		Name    string
 	}{
 		Ctx:     ctx,
+		Q:       q,
 		Scope:   scope,
 		Subject: subject,
 		Name:    name,
@@ -2102,7 +1632,7 @@ func (mock *ValueStoreMock) GetValue(ctx context.Context, scope tenancy.Scope, s
 	mock.lockGetValue.Lock()
 	mock.calls.GetValue = append(mock.calls.GetValue, callInfo)
 	mock.lockGetValue.Unlock()
-	return mock.GetValueFunc(ctx, scope, subject, name)
+	return mock.GetValueFunc(ctx, q, scope, subject, name)
 }
 
 // GetValueCalls gets all the calls that were made to GetValue.
@@ -2111,12 +1641,14 @@ func (mock *ValueStoreMock) GetValue(ctx context.Context, scope tenancy.Scope, s
 //	len(mockedValueStore.GetValueCalls())
 func (mock *ValueStoreMock) GetValueCalls() []struct {
 	Ctx     context.Context
+	Q       database.SQLQueryExecutor
 	Scope   tenancy.Scope
 	Subject settings.Subject
 	Name    string
 } {
 	var calls []struct {
 		Ctx     context.Context
+		Q       database.SQLQueryExecutor
 		Scope   tenancy.Scope
 		Subject settings.Subject
 		Name    string
@@ -2128,17 +1660,19 @@ func (mock *ValueStoreMock) GetValueCalls() []struct {
 }
 
 // ListValuesForDefinition calls ListValuesForDefinitionFunc.
-func (mock *ValueStoreMock) ListValuesForDefinition(ctx context.Context, scope tenancy.Scope, name string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error) {
+func (mock *ValueStoreMock) ListValuesForDefinition(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, name string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error) {
 	if mock.ListValuesForDefinitionFunc == nil {
 		panic("ValueStoreMock.ListValuesForDefinitionFunc: method is nil but ValueStore.ListValuesForDefinition was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Name   string
 		Filter *filtering.QueryFilter
 	}{
 		Ctx:    ctx,
+		Q:      q,
 		Scope:  scope,
 		Name:   name,
 		Filter: filter,
@@ -2146,7 +1680,7 @@ func (mock *ValueStoreMock) ListValuesForDefinition(ctx context.Context, scope t
 	mock.lockListValuesForDefinition.Lock()
 	mock.calls.ListValuesForDefinition = append(mock.calls.ListValuesForDefinition, callInfo)
 	mock.lockListValuesForDefinition.Unlock()
-	return mock.ListValuesForDefinitionFunc(ctx, scope, name, filter)
+	return mock.ListValuesForDefinitionFunc(ctx, q, scope, name, filter)
 }
 
 // ListValuesForDefinitionCalls gets all the calls that were made to ListValuesForDefinition.
@@ -2155,12 +1689,14 @@ func (mock *ValueStoreMock) ListValuesForDefinition(ctx context.Context, scope t
 //	len(mockedValueStore.ListValuesForDefinitionCalls())
 func (mock *ValueStoreMock) ListValuesForDefinitionCalls() []struct {
 	Ctx    context.Context
+	Q      database.SQLQueryExecutor
 	Scope  tenancy.Scope
 	Name   string
 	Filter *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Name   string
 		Filter *filtering.QueryFilter
@@ -2172,17 +1708,19 @@ func (mock *ValueStoreMock) ListValuesForDefinitionCalls() []struct {
 }
 
 // ListValuesForSubject calls ListValuesForSubjectFunc.
-func (mock *ValueStoreMock) ListValuesForSubject(ctx context.Context, scope tenancy.Scope, subject settings.Subject, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error) {
+func (mock *ValueStoreMock) ListValuesForSubject(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[settings.Value], error) {
 	if mock.ListValuesForSubjectFunc == nil {
 		panic("ValueStoreMock.ListValuesForSubjectFunc: method is nil but ValueStore.ListValuesForSubject was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
+		Q       database.SQLQueryExecutor
 		Scope   tenancy.Scope
 		Subject settings.Subject
 		Filter  *filtering.QueryFilter
 	}{
 		Ctx:     ctx,
+		Q:       q,
 		Scope:   scope,
 		Subject: subject,
 		Filter:  filter,
@@ -2190,7 +1728,7 @@ func (mock *ValueStoreMock) ListValuesForSubject(ctx context.Context, scope tena
 	mock.lockListValuesForSubject.Lock()
 	mock.calls.ListValuesForSubject = append(mock.calls.ListValuesForSubject, callInfo)
 	mock.lockListValuesForSubject.Unlock()
-	return mock.ListValuesForSubjectFunc(ctx, scope, subject, filter)
+	return mock.ListValuesForSubjectFunc(ctx, q, scope, subject, filter)
 }
 
 // ListValuesForSubjectCalls gets all the calls that were made to ListValuesForSubject.
@@ -2199,12 +1737,14 @@ func (mock *ValueStoreMock) ListValuesForSubject(ctx context.Context, scope tena
 //	len(mockedValueStore.ListValuesForSubjectCalls())
 func (mock *ValueStoreMock) ListValuesForSubjectCalls() []struct {
 	Ctx     context.Context
+	Q       database.SQLQueryExecutor
 	Scope   tenancy.Scope
 	Subject settings.Subject
 	Filter  *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx     context.Context
+		Q       database.SQLQueryExecutor
 		Scope   tenancy.Scope
 		Subject settings.Subject
 		Filter  *filtering.QueryFilter
@@ -2216,17 +1756,19 @@ func (mock *ValueStoreMock) ListValuesForSubjectCalls() []struct {
 }
 
 // Resolve calls ResolveFunc.
-func (mock *ValueStoreMock) Resolve(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Resolution, error) {
+func (mock *ValueStoreMock) Resolve(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject, name string) (*settings.Resolution, error) {
 	if mock.ResolveFunc == nil {
 		panic("ValueStoreMock.ResolveFunc: method is nil but ValueStore.Resolve was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
+		Q       database.SQLQueryExecutor
 		Scope   tenancy.Scope
 		Subject settings.Subject
 		Name    string
 	}{
 		Ctx:     ctx,
+		Q:       q,
 		Scope:   scope,
 		Subject: subject,
 		Name:    name,
@@ -2234,7 +1776,7 @@ func (mock *ValueStoreMock) Resolve(ctx context.Context, scope tenancy.Scope, su
 	mock.lockResolve.Lock()
 	mock.calls.Resolve = append(mock.calls.Resolve, callInfo)
 	mock.lockResolve.Unlock()
-	return mock.ResolveFunc(ctx, scope, subject, name)
+	return mock.ResolveFunc(ctx, q, scope, subject, name)
 }
 
 // ResolveCalls gets all the calls that were made to Resolve.
@@ -2243,12 +1785,14 @@ func (mock *ValueStoreMock) Resolve(ctx context.Context, scope tenancy.Scope, su
 //	len(mockedValueStore.ResolveCalls())
 func (mock *ValueStoreMock) ResolveCalls() []struct {
 	Ctx     context.Context
+	Q       database.SQLQueryExecutor
 	Scope   tenancy.Scope
 	Subject settings.Subject
 	Name    string
 } {
 	var calls []struct {
 		Ctx     context.Context
+		Q       database.SQLQueryExecutor
 		Scope   tenancy.Scope
 		Subject settings.Subject
 		Name    string
@@ -2260,23 +1804,25 @@ func (mock *ValueStoreMock) ResolveCalls() []struct {
 }
 
 // ResolveAll calls ResolveAllFunc.
-func (mock *ValueStoreMock) ResolveAll(ctx context.Context, scope tenancy.Scope, subject settings.Subject) ([]*settings.Resolution, error) {
+func (mock *ValueStoreMock) ResolveAll(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject settings.Subject) ([]*settings.Resolution, error) {
 	if mock.ResolveAllFunc == nil {
 		panic("ValueStoreMock.ResolveAllFunc: method is nil but ValueStore.ResolveAll was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
+		Q       database.SQLQueryExecutor
 		Scope   tenancy.Scope
 		Subject settings.Subject
 	}{
 		Ctx:     ctx,
+		Q:       q,
 		Scope:   scope,
 		Subject: subject,
 	}
 	mock.lockResolveAll.Lock()
 	mock.calls.ResolveAll = append(mock.calls.ResolveAll, callInfo)
 	mock.lockResolveAll.Unlock()
-	return mock.ResolveAllFunc(ctx, scope, subject)
+	return mock.ResolveAllFunc(ctx, q, scope, subject)
 }
 
 // ResolveAllCalls gets all the calls that were made to ResolveAll.
@@ -2285,11 +1831,13 @@ func (mock *ValueStoreMock) ResolveAll(ctx context.Context, scope tenancy.Scope,
 //	len(mockedValueStore.ResolveAllCalls())
 func (mock *ValueStoreMock) ResolveAllCalls() []struct {
 	Ctx     context.Context
+	Q       database.SQLQueryExecutor
 	Scope   tenancy.Scope
 	Subject settings.Subject
 } {
 	var calls []struct {
 		Ctx     context.Context
+		Q       database.SQLQueryExecutor
 		Scope   tenancy.Scope
 		Subject settings.Subject
 	}
@@ -2300,18 +1848,20 @@ func (mock *ValueStoreMock) ResolveAllCalls() []struct {
 }
 
 // SetValue calls SetValueFunc.
-func (mock *ValueStoreMock) SetValue(ctx context.Context, scope tenancy.Scope, subject settings.Subject, name string, raw string) (*settings.Value, error) {
+func (mock *ValueStoreMock) SetValue(ctx context.Context, tx database.Tx, scope tenancy.Scope, subject settings.Subject, name string, raw string) (*settings.Value, error) {
 	if mock.SetValueFunc == nil {
 		panic("ValueStoreMock.SetValueFunc: method is nil but ValueStore.SetValue was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
+		Tx      database.Tx
 		Scope   tenancy.Scope
 		Subject settings.Subject
 		Name    string
 		Raw     string
 	}{
 		Ctx:     ctx,
+		Tx:      tx,
 		Scope:   scope,
 		Subject: subject,
 		Name:    name,
@@ -2320,7 +1870,7 @@ func (mock *ValueStoreMock) SetValue(ctx context.Context, scope tenancy.Scope, s
 	mock.lockSetValue.Lock()
 	mock.calls.SetValue = append(mock.calls.SetValue, callInfo)
 	mock.lockSetValue.Unlock()
-	return mock.SetValueFunc(ctx, scope, subject, name, raw)
+	return mock.SetValueFunc(ctx, tx, scope, subject, name, raw)
 }
 
 // SetValueCalls gets all the calls that were made to SetValue.
@@ -2329,6 +1879,7 @@ func (mock *ValueStoreMock) SetValue(ctx context.Context, scope tenancy.Scope, s
 //	len(mockedValueStore.SetValueCalls())
 func (mock *ValueStoreMock) SetValueCalls() []struct {
 	Ctx     context.Context
+	Tx      database.Tx
 	Scope   tenancy.Scope
 	Subject settings.Subject
 	Name    string
@@ -2336,6 +1887,7 @@ func (mock *ValueStoreMock) SetValueCalls() []struct {
 } {
 	var calls []struct {
 		Ctx     context.Context
+		Tx      database.Tx
 		Scope   tenancy.Scope
 		Subject settings.Subject
 		Name    string
@@ -2344,57 +1896,5 @@ func (mock *ValueStoreMock) SetValueCalls() []struct {
 	mock.lockSetValue.RLock()
 	calls = mock.calls.SetValue
 	mock.lockSetValue.RUnlock()
-	return calls
-}
-
-// SetValueTx calls SetValueTxFunc.
-func (mock *ValueStoreMock) SetValueTx(ctx context.Context, q database.Tx, scope tenancy.Scope, subject settings.Subject, name string, raw string) (*settings.Value, error) {
-	if mock.SetValueTxFunc == nil {
-		panic("ValueStoreMock.SetValueTxFunc: method is nil but ValueStore.SetValueTx was just called")
-	}
-	callInfo := struct {
-		Ctx     context.Context
-		Q       database.Tx
-		Scope   tenancy.Scope
-		Subject settings.Subject
-		Name    string
-		Raw     string
-	}{
-		Ctx:     ctx,
-		Q:       q,
-		Scope:   scope,
-		Subject: subject,
-		Name:    name,
-		Raw:     raw,
-	}
-	mock.lockSetValueTx.Lock()
-	mock.calls.SetValueTx = append(mock.calls.SetValueTx, callInfo)
-	mock.lockSetValueTx.Unlock()
-	return mock.SetValueTxFunc(ctx, q, scope, subject, name, raw)
-}
-
-// SetValueTxCalls gets all the calls that were made to SetValueTx.
-// Check the length with:
-//
-//	len(mockedValueStore.SetValueTxCalls())
-func (mock *ValueStoreMock) SetValueTxCalls() []struct {
-	Ctx     context.Context
-	Q       database.Tx
-	Scope   tenancy.Scope
-	Subject settings.Subject
-	Name    string
-	Raw     string
-} {
-	var calls []struct {
-		Ctx     context.Context
-		Q       database.Tx
-		Scope   tenancy.Scope
-		Subject settings.Subject
-		Name    string
-		Raw     string
-	}
-	mock.lockSetValueTx.RLock()
-	calls = mock.calls.SetValueTx
-	mock.lockSetValueTx.RUnlock()
 	return calls
 }

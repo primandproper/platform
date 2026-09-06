@@ -22,22 +22,29 @@ import (
 // the default standing in for everyone who has not.
 func Example() {
 	ctx := context.Background()
-	store := exampleWiring()
+	client, store := exampleWiring(ctx)
 
 	// One catalog, so the scope is global — the shape a single-tenant
 	// application has, behaving exactly as it would without the column.
 	scope := tenancy.Global()
 
 	// The administrative half. Written once, by a migration or an admin console,
-	// rather than on a request path.
-	definition, err := store.CreateDefinition(ctx, scope, &settings.Definition{
-		Name:        "notifications.digest",
-		Description: "how often a digest email is sent",
-		Kind:        settings.KindString,
-		Default:     pointer.To("weekly"),
-		Enumeration: []string{"daily", "weekly", "never"},
-	})
-	if err != nil {
+	// rather than on a request path — and inside a transaction, because every
+	// write here takes the caller's.
+	var definition *settings.Definition
+
+	if err := client.WithTransaction(ctx, func(tx database.Tx) error {
+		var txErr error
+		definition, txErr = store.CreateDefinition(ctx, tx, scope, &settings.Definition{
+			Name:        "notifications.digest",
+			Description: "how often a digest email is sent",
+			Kind:        settings.KindString,
+			Default:     pointer.To("weekly"),
+			Enumeration: []string{"daily", "weekly", "never"},
+		})
+
+		return txErr
+	}); err != nil {
 		panic(err)
 	}
 
@@ -46,20 +53,29 @@ func Example() {
 
 	// The request path. The value is checked against the definition inside the
 	// write, so a setting can only hold what it admits.
-	if _, err = store.SetValue(ctx, scope, ada, definition.Name, "daily"); err != nil {
+	if err := client.WithTransaction(ctx, func(tx database.Tx) error {
+		_, txErr := store.SetValue(ctx, tx, scope, ada, definition.Name, "daily")
+
+		return txErr
+	}); err != nil {
 		panic(err)
 	}
 
-	if _, err = store.SetValue(ctx, scope, ada, definition.Name, "hourly"); err != nil {
+	if err := client.WithTransaction(ctx, func(tx database.Tx) error {
+		_, txErr := store.SetValue(ctx, tx, scope, ada, definition.Name, "hourly")
+
+		return txErr
+	}); err != nil {
 		fmt.Println("refused:", errors.Is(err, settings.ErrNotEnumerated))
 	}
 
-	// Reading it back. Ada chose; Grace did not and gets the default.
+	// Reading it back, on the client's reader because there is nothing to join.
+	// Ada chose; Grace did not and gets the default.
 	subjects := []settings.Subject{ada, grace}
 	for i := range subjects {
 		subject := subjects[i]
 
-		resolved, resolveErr := store.Resolve(ctx, scope, subject, definition.Name)
+		resolved, resolveErr := store.Resolve(ctx, client.Reader(), scope, subject, definition.Name)
 		if resolveErr != nil {
 			panic(resolveErr)
 		}
@@ -86,17 +102,21 @@ func Example() {
 // leaving the caller unable to tell "nobody has said" from "somebody said this".
 func Example_unset() {
 	ctx := context.Background()
-	store := exampleWiring()
+	client, store := exampleWiring(ctx)
 	scope := tenancy.Global()
 
-	if _, err := store.CreateDefinition(ctx, scope, &settings.Definition{
-		Name: "retention.days",
-		Kind: settings.KindInt,
+	if err := client.WithTransaction(ctx, func(tx database.Tx) error {
+		_, txErr := store.CreateDefinition(ctx, tx, scope, &settings.Definition{
+			Name: "retention.days",
+			Kind: settings.KindInt,
+		})
+
+		return txErr
 	}); err != nil {
 		panic(err)
 	}
 
-	resolved, err := store.Resolve(ctx, scope,
+	resolved, err := store.Resolve(ctx, client.Reader(), scope,
 		settings.Subject{Type: settings.SubjectAccount, ID: "account-1"}, "retention.days")
 	if err != nil {
 		panic(err)
@@ -115,10 +135,14 @@ func Example_unset() {
 	// nobody has decided; the caller's own policy applies
 }
 
-// A preference change is rarely the only row a write produces. SetValueTx puts
-// it in the transaction that carries its companions — here an audit entry naming
-// who changed what — so neither can land without the other.
-func ExampleStore_SetValueTx() {
+// A preference change is rarely the only row a write produces. SetValue takes the
+// transaction that carries its companions — here an audit entry naming who
+// changed what — so neither can land without the other.
+//
+// Resolve runs on the same transaction, which is what lets a handler answer with
+// the new effective value rather than with what the subject had before the
+// request.
+func ExampleStore_SetValue() {
 	ctx := context.Background()
 	client := exampleDatabase(ctx)
 	scope := tenancy.Global()
@@ -135,21 +159,38 @@ func ExampleStore_SetValueTx() {
 		panic(err)
 	}
 
-	if _, err = store.CreateDefinition(ctx, scope, &settings.Definition{
-		Name:        "notifications.digest",
-		Kind:        settings.KindString,
-		Enumeration: []string{"daily", "weekly", "never"},
+	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		_, txErr := store.CreateDefinition(ctx, tx, scope, &settings.Definition{
+			Name:        "notifications.digest",
+			Kind:        settings.KindString,
+			Default:     pointer.To("weekly"),
+			Enumeration: []string{"daily", "weekly", "never"},
+		})
+
+		return txErr
 	}); err != nil {
 		panic(err)
 	}
 
 	ada := settings.Subject{Type: settings.SubjectUser, ID: "user-ada"}
 
+	var effective string
+
 	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
-		value, txErr := store.SetValueTx(ctx, tx, scope, ada, "notifications.digest", "daily")
+		value, txErr := store.SetValue(ctx, tx, scope, ada, "notifications.digest", "daily")
 		if txErr != nil {
 			return txErr
 		}
+
+		// The resolution the handler answers with, read on the transaction that
+		// wrote the override. On the client's reader it would still say
+		// "weekly (default)".
+		resolved, txErr := store.Resolve(ctx, tx, scope, ada, "notifications.digest")
+		if txErr != nil {
+			return txErr
+		}
+
+		effective = fmt.Sprintf("%s (%s)", resolved.Raw, resolved.Source)
 
 		// A failure here takes the value back with it, which is the whole
 		// reason this is one transaction rather than two.
@@ -168,22 +209,27 @@ func ExampleStore_SetValueTx() {
 		panic(err)
 	}
 
+	fmt.Println("effective:", effective)
 	fmt.Println("audited:", audited)
 
 	// Output:
+	// effective: daily (subject)
 	// audited: daily
 }
 
-// exampleWiring builds a throwaway SQLite-backed store. A real application hands
-// migrations.SQL to its own migration run and builds the store over the database
-// it already has.
-func exampleWiring() settings.Store {
-	store, err := settings.NewSQLStore(exampleDatabase(context.Background()))
+// exampleWiring builds a throwaway SQLite-backed store and hands back the client
+// beside it, because every write takes a transaction the caller opens. A real
+// application hands migrations.SQL to its own migration run and builds the store
+// over the database it already has.
+func exampleWiring(ctx context.Context) (database.Client, settings.Store) {
+	client := exampleDatabase(ctx)
+
+	store, err := settings.NewSQLStore(client)
 	if err != nil {
 		panic(err)
 	}
 
-	return store
+	return client, store
 }
 
 // exampleDatabase is a throwaway SQLite database with the settings tables in it.

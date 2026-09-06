@@ -19,78 +19,28 @@ import (
 // a deployment and read by everything else.
 var _ DefinitionStore = (*SQLStore)(nil)
 
-// CreateDefinition adds a setting to the scope's catalog.
+// CreateDefinition adds a setting to the scope's catalog, inside the caller's
+// transaction.
 //
-// The definition, its enumeration and the read-back of the creation time share
-// one transaction. Without it a definition could exist with half its enumeration
-// written, which is the state that makes every value legal or no value legal
-// depending on which half landed — and an enumeration is what every subsequent
-// write is checked against.
+// The definition, its enumeration and the read-back of the creation time all run
+// on tx, along with whatever the caller is writing beside them. Without one
+// transaction over the three, a definition could exist with half its enumeration
+// written — which is the state that makes every value legal or no value legal
+// depending on which half landed, and an enumeration is what every subsequent
+// write is checked against. See [Store] for why the transaction is the caller's.
 func (s *SQLStore) CreateDefinition(
 	ctx context.Context,
+	tx database.Tx,
 	scope tenancy.Scope,
 	definition *Definition,
 ) (*Definition, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
-	created, err := definitionToCreate(op, scope, definition)
-	if err != nil {
-		return nil, err
-	}
-
-	if err = s.client.WithTransaction(ctx, func(q database.Tx) error {
-		return s.insertDefinition(ctx, q, scope, created)
-	}); err != nil {
-		return nil, op.Error(err, "creating setting definition %q", created.Name)
-	}
-
-	return created, nil
-}
-
-// CreateDefinitionTx is CreateDefinition inside the caller's transaction.
-//
-// Every check CreateDefinition makes is made here, and every statement runs on
-// q rather than in a transaction of this store's own — so the definition lands
-// with whatever the caller writes beside it, and a value set against it later
-// in the same transaction finds it. See [Store.CreateDefinitionTx].
-func (s *SQLStore) CreateDefinitionTx(
-	ctx context.Context,
-	q database.Tx,
-	scope tenancy.Scope,
-	definition *Definition,
-) (*Definition, error) {
-	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
-	defer op.End()
-
-	if q == nil {
+	if tx == nil {
 		return nil, op.Error(ErrNilExecutor, "creating setting definition")
 	}
 
-	created, err := definitionToCreate(op, scope, definition)
-	if err != nil {
-		return nil, err
-	}
-
-	if err = s.insertDefinition(ctx, q, scope, created); err != nil {
-		return nil, op.Error(err, "creating setting definition %q", created.Name)
-	}
-
-	return created, nil
-}
-
-// definitionToCreate is the checks CreateDefinition and CreateDefinitionTx
-// share, and the value they write: a copy of the caller's, under the scope, with
-// its enumeration sorted and its id minted where the caller left it empty.
-//
-// Shared rather than written twice so that the two paths cannot drift into
-// accepting different definitions. It runs before any transaction is opened,
-// because a definition refused here is refused without a round trip.
-func definitionToCreate(
-	op observability.Operation,
-	scope tenancy.Scope,
-	definition *Definition,
-) (*Definition, error) {
 	if definition == nil {
 		return nil, op.Error(ErrNilDefinition, "creating setting definition")
 	}
@@ -105,6 +55,8 @@ func definitionToCreate(
 		return nil, op.Error(err, "creating setting definition %q", definition.Name)
 	}
 
+	// A copy of the caller's, under the scope the argument names, with its
+	// enumeration sorted and its id minted where the caller left it empty.
 	created := *definition
 	created.Scope = scope
 	created.Enumeration = sortedEnumeration(definition.Enumeration)
@@ -113,12 +65,15 @@ func definitionToCreate(
 		created.ID = identifiers.New()
 	}
 
+	if err := s.insertDefinition(ctx, tx, scope, &created); err != nil {
+		return nil, op.Error(err, "creating setting definition %q", created.Name)
+	}
+
 	return &created, nil
 }
 
-// insertDefinition is the statements the create runs, on whatever executor the
-// caller is holding: the name collision check, the row, its enumeration, and the
-// read-back of the creation time onto created.
+// insertDefinition is the statements the create runs: the name collision check,
+// the row, its enumeration, and the read-back of the creation time onto created.
 func (s *SQLStore) insertDefinition(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
@@ -140,9 +95,11 @@ func (s *SQLStore) insertDefinition(
 	return s.stampCreatedAt(ctx, q, created)
 }
 
-// GetDefinition reads one of the scope's live definitions by id.
+// GetDefinition reads one of the scope's live definitions by id, on the caller's
+// executor.
 func (s *SQLStore) GetDefinition(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	definitionID string,
 ) (*Definition, error) {
@@ -152,19 +109,16 @@ func (s *SQLStore) GetDefinition(
 	)
 	defer op.End()
 
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "reading setting definition %q", definitionID)
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "reading setting definition %q", definitionID)
 	}
 
-	row, err := s.q.GetDefinition(ctx, s.client.Reader(),
-		settingsdb.GetDefinitionParams{ID: definitionID, Scope: scope})
+	definition, err := s.readDefinition(ctx, q, scope, definitionID)
 	if err != nil {
-		return nil, op.Error(notFound(err, ErrDefinitionNotFound), "reading setting definition %q", definitionID)
-	}
-
-	definition := definitionFromRow(&row)
-
-	if err = s.hydrateEnumerations(ctx, s.client.Reader(), []*Definition{definition}); err != nil {
 		return nil, op.Error(err, "reading setting definition %q", definitionID)
 	}
 
@@ -172,9 +126,10 @@ func (s *SQLStore) GetDefinition(
 }
 
 // GetDefinitionByName reads one of the scope's live definitions by the name
-// application code spells.
+// application code spells, on the caller's executor.
 func (s *SQLStore) GetDefinitionByName(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	name string,
 ) (*Definition, error) {
@@ -184,11 +139,15 @@ func (s *SQLStore) GetDefinitionByName(
 	)
 	defer op.End()
 
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "reading setting definition %q", name)
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "reading setting definition %q", name)
 	}
 
-	definition, err := s.readDefinitionByName(ctx, s.client.Reader(), scope, name)
+	definition, err := s.readDefinitionByName(ctx, q, scope, name)
 	if err != nil {
 		return nil, op.Error(err, "reading setting definition %q", name)
 	}
@@ -197,7 +156,7 @@ func (s *SQLStore) GetDefinitionByName(
 }
 
 // ListDefinitions pages the scope's catalog, in the direction the filter
-// names.
+// names, on the caller's executor.
 //
 // The direction is a choice between two generated statements rather than an
 // argument either of them binds — see sortedRows — so what this method does with
@@ -205,31 +164,54 @@ func (s *SQLStore) GetDefinitionByName(
 // it.
 func (s *SQLStore) ListDefinitions(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	filter *filtering.QueryFilter,
 ) (*filtering.QueryFilteredResult[Definition], error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "listing setting definitions")
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "listing setting definitions")
 	}
 
+	page, err := s.listDefinitions(ctx, q, scope, filter)
+	if err != nil {
+		return nil, op.Error(err, "listing setting definitions")
+	}
+
+	op.SpanOnly(countKey, len(page.Data))
+
+	return page, nil
+}
+
+// listDefinitions is the paged read behind the exported method and behind
+// ResolveAll's first walk, on whatever executor the caller is holding.
+func (s *SQLStore) listDefinitions(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	filter *filtering.QueryFilter,
+) (*filtering.QueryFilteredResult[Definition], error) {
 	filter = pageFilter(filter)
 
 	listRows, err := sortedRows(filter,
 		func() ([]settingsdb.ListDefinitionsRow, error) {
-			return s.q.ListDefinitions(ctx, s.client.Reader(), listDefinitionsParams(scope, filter))
+			return s.q.ListDefinitions(ctx, q, listDefinitionsParams(scope, filter))
 		},
 		func() ([]settingsdb.ListDefinitionsDescendingRow, error) {
-			return s.q.ListDefinitionsDescending(ctx, s.client.Reader(),
+			return s.q.ListDefinitionsDescending(ctx, q,
 				settingsdb.ListDefinitionsDescendingParams(listDefinitionsParams(scope, filter)))
 		},
 		func(r settingsdb.ListDefinitionsDescendingRow) settingsdb.ListDefinitionsRow {
 			return settingsdb.ListDefinitionsRow(r)
 		})
 	if err != nil {
-		return nil, op.Error(err, "listing setting definitions")
+		return nil, err
 	}
 
 	rows := make([]pageRow[Definition], 0, len(listRows))
@@ -240,11 +222,9 @@ func (s *SQLStore) ListDefinitions(
 	// One batched read for the whole page's enumerations rather than one per
 	// definition — see querygen.Generator.SetReadQuery, and settings/migrations
 	// for why an enumeration is its own table.
-	if err = s.hydrateEnumerations(ctx, s.client.Reader(), pageValues(rows)); err != nil {
-		return nil, op.Error(err, "listing setting definitions")
+	if err = s.hydrateEnumerations(ctx, q, pageValues(rows)); err != nil {
+		return nil, err
 	}
-
-	op.SpanOnly(countKey, len(rows))
 
 	// The cursor is the id, because the statement orders by it. A cursor naming
 	// a position in an order the query does not use is a page that skips rows
@@ -253,16 +233,21 @@ func (s *SQLStore) ListDefinitions(
 		func(d *Definition) string { return d.ID }, filter), nil
 }
 
-// UpdateDefinition rewrites a definition, enumeration included, refusing an edit
-// that some stored value no longer satisfies.
+// UpdateDefinition rewrites a definition, enumeration included, inside the
+// caller's transaction, refusing an edit that some stored value no longer
+// satisfies.
 //
 // The refusal is the rule this store owns. A narrowed enumeration or a changed
 // kind decides how every value already written against the definition is read,
 // and an edit applied over them leaves rows that exist, resolve, and fail to
 // parse — a setting that works for most subjects and is broken for whoever chose
 // the value somebody just made illegal. So the values are walked first, in the
-// same transaction as the write, and the first one the new definition would not
-// admit stops it.
+// caller's transaction, and the first one the new definition would not admit
+// stops it.
+//
+// The walk reading through tx is what lets an administrator clear the offending
+// values and narrow the enumeration together: a value cleared earlier in the
+// transaction is already not live, and does not strand the edit.
 //
 // Only live values are checked. A cleared value resolves to the default rather
 // than to itself, and setting it again goes through the write path with the new
@@ -271,93 +256,52 @@ func (s *SQLStore) ListDefinitions(
 // The walk is skipped where the edit cannot strand anything: renaming a setting,
 // rewording it, changing its default or its admin flag leaves every stored value
 // exactly as legal as it was.
-func (s *SQLStore) UpdateDefinition(ctx context.Context, scope tenancy.Scope, definition *Definition) error {
-	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
-	defer op.End()
-
-	updated, err := definitionToUpdate(op, scope, definition)
-	if err != nil {
-		return err
-	}
-
-	if err = s.client.WithTransaction(ctx, func(q database.Tx) error {
-		return s.rewriteDefinition(ctx, q, scope, updated)
-	}); err != nil {
-		return op.Error(err, "updating setting definition %q", updated.Name)
-	}
-
-	return nil
-}
-
-// UpdateDefinitionTx is UpdateDefinition inside the caller's transaction.
-//
-// The same checks, the same walk, the same statements, on q. The walk is where
-// the two paths answer differently and it is deliberate: reading through q, it
-// sees a value the caller cleared earlier in the same transaction as cleared,
-// and does not refuse the edit on its account. See [Store.UpdateDefinitionTx].
-func (s *SQLStore) UpdateDefinitionTx(
+func (s *SQLStore) UpdateDefinition(
 	ctx context.Context,
-	q database.Tx,
+	tx database.Tx,
 	scope tenancy.Scope,
 	definition *Definition,
 ) error {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
-	if q == nil {
+	if tx == nil {
 		return op.Error(ErrNilExecutor, "updating setting definition")
 	}
 
-	updated, err := definitionToUpdate(op, scope, definition)
-	if err != nil {
-		return err
-	}
-
-	if err = s.rewriteDefinition(ctx, q, scope, updated); err != nil {
-		return op.Error(err, "updating setting definition %q", updated.Name)
-	}
-
-	return nil
-}
-
-// definitionToUpdate is the checks UpdateDefinition and UpdateDefinitionTx
-// share, and the value they write. It runs before any transaction is opened, for
-// the reason definitionToCreate does.
-func definitionToUpdate(
-	op observability.Operation,
-	scope tenancy.Scope,
-	definition *Definition,
-) (*Definition, error) {
 	if definition == nil {
-		return nil, op.Error(ErrNilDefinition, "updating setting definition")
+		return op.Error(ErrNilDefinition, "updating setting definition")
 	}
 
 	op.Set(definitionIDKey, definition.ID)
 	op.Set(definitionKey, definition.Name)
 
 	if err := scope.Validate(); err != nil {
-		return nil, op.Error(err, "updating setting definition %q", definition.Name)
+		return op.Error(err, "updating setting definition %q", definition.Name)
 	}
 
 	if definition.ID == "" {
-		return nil, op.Error(platformerrors.ErrInvalidIDProvided, "updating setting definition %q", definition.Name)
+		return op.Error(platformerrors.ErrInvalidIDProvided, "updating setting definition %q", definition.Name)
 	}
 
 	if err := definition.validate(); err != nil {
-		return nil, op.Error(err, "updating setting definition %q", definition.Name)
+		return op.Error(err, "updating setting definition %q", definition.Name)
 	}
 
 	updated := *definition
 	updated.Scope = scope
 	updated.Enumeration = sortedEnumeration(definition.Enumeration)
 
-	return &updated, nil
+	if err := s.rewriteDefinition(ctx, tx, scope, &updated); err != nil {
+		return op.Error(err, "updating setting definition %q", updated.Name)
+	}
+
+	return nil
 }
 
-// rewriteDefinition is the statements the update runs, on whatever executor the
-// caller is holding: the read of what is there, the name collision check, the
-// stranded-value walk where the edit reinterprets stored values, the row, and
-// its enumeration.
+// rewriteDefinition is the statements the update runs: the read of what is
+// there, the name collision check, the stranded-value walk where the edit
+// reinterprets stored values, the row, and its enumeration.
 func (s *SQLStore) rewriteDefinition(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
@@ -387,25 +331,16 @@ func (s *SQLStore) rewriteDefinition(
 	return s.writeEnumeration(ctx, q, updated.ID, updated.Enumeration)
 }
 
-// ArchiveDefinition retires one of the scope's settings.
+// ArchiveDefinition retires one of the scope's settings, inside the caller's
+// transaction.
 //
-// It is one statement, so it runs on the writer rather than in a transaction of
-// its own; ArchiveDefinitionTx is the form that joins somebody else's.
-func (s *SQLStore) ArchiveDefinition(ctx context.Context, scope tenancy.Scope, definitionID string) error {
-	ctx, op := s.o11y.Begin(ctx,
-		observability.WithValue(scopeKey, scope.String()),
-		observability.WithValue(definitionIDKey, definitionID),
-	)
-	defer op.End()
-
-	return s.archiveDefinition(ctx, op, s.client.Writer(), scope, definitionID)
-}
-
-// ArchiveDefinitionTx is ArchiveDefinition inside the caller's transaction. See
-// [Store.ArchiveDefinitionTx].
-func (s *SQLStore) ArchiveDefinitionTx(
+// It is one statement, and it still takes the caller's transaction rather than a
+// writer of the store's own: retiring a setting is an administrative act with an
+// audit entry beside it, and the entry is worth what its atomicity with the
+// retirement is worth.
+func (s *SQLStore) ArchiveDefinition(
 	ctx context.Context,
-	q database.Tx,
+	tx database.Tx,
 	scope tenancy.Scope,
 	definitionID string,
 ) error {
@@ -415,28 +350,15 @@ func (s *SQLStore) ArchiveDefinitionTx(
 	)
 	defer op.End()
 
-	if q == nil {
+	if tx == nil {
 		return op.Error(ErrNilExecutor, "archiving setting definition %q", definitionID)
 	}
 
-	return s.archiveDefinition(ctx, op, q, scope, definitionID)
-}
-
-// archiveDefinition is the shared body of ArchiveDefinition and
-// ArchiveDefinitionTx, which differ in the executor they run on and in nothing
-// else.
-func (s *SQLStore) archiveDefinition(
-	ctx context.Context,
-	op observability.Operation,
-	q database.SQLQueryExecutor,
-	scope tenancy.Scope,
-	definitionID string,
-) error {
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "archiving setting definition %q", definitionID)
 	}
 
-	count, err := s.q.ArchiveDefinition(ctx, q, settingsdb.ArchiveDefinitionParams{ID: definitionID, Scope: scope})
+	count, err := s.q.ArchiveDefinition(ctx, tx, settingsdb.ArchiveDefinitionParams{ID: definitionID, Scope: scope})
 	if err = guardCount(count, err, ErrDefinitionNotFound, "archiving setting definition"); err != nil {
 		return op.Error(err, "archiving setting definition %q", definitionID)
 	}
@@ -547,8 +469,8 @@ func (s *SQLStore) hydrateEnumerations(
 // are the legal values now" and a read-modify-write besides. One statement per
 // option rather than one multi-row INSERT, because the multi-row form's shape is
 // the caller's cardinality — no static text for sqlc to check — and the
-// cardinalities are single-digit inside a transaction the definition's own write
-// already opened.
+// cardinalities are single-digit inside the transaction the definition's own
+// write is already in.
 func (s *SQLStore) writeEnumeration(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
@@ -638,7 +560,7 @@ func (s *SQLStore) refuseStrandedValues(
 // says 0001-01-01 for a row written a moment ago. CreatedAt is exported and a
 // service serializes the value it just created straight into a response, where a
 // zero time renders as a date rather than reading as an absence. It costs one
-// round trip inside a transaction the write already needed, and it reads its own
+// round trip inside the transaction the write is already in, and it reads its own
 // uncommitted row on all three servers.
 func (s *SQLStore) stampCreatedAt(ctx context.Context, q database.SQLQueryExecutor, definition *Definition) error {
 	row, err := s.q.GetDefinitionCreatedAt(ctx, q, settingsdb.GetDefinitionCreatedAtParams{ID: definition.ID})

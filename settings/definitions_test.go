@@ -22,7 +22,7 @@ func runDefinitionSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		created := mustCreate(t, store, testScope, stringDefinition("digest"))
+		created := mustCreate(t, env, store, testScope, stringDefinition("digest"))
 
 		test.NotEqOp(t, "", created.ID)
 		test.False(t, created.CreatedAt.IsZero())
@@ -33,7 +33,7 @@ func runDefinitionSuite(t *testing.T, env *storeEnv) {
 		// caller re-reading it see the same slice.
 		test.Eq(t, []string{"daily", "never", "weekly"}, created.Enumeration)
 
-		read, err := store.GetDefinition(t.Context(), testScope, created.ID)
+		read, err := store.GetDefinition(t.Context(), env.reader(), testScope, created.ID)
 		must.NoError(t, err)
 		test.EqOp(t, created.ID, read.ID)
 		test.EqOp(t, "digest", read.Name)
@@ -43,7 +43,7 @@ func runDefinitionSuite(t *testing.T, env *storeEnv) {
 		test.Nil(t, read.LastUpdatedAt)
 		test.Nil(t, read.ArchivedAt)
 
-		byName, err := store.GetDefinitionByName(t.Context(), testScope, "digest")
+		byName, err := store.GetDefinitionByName(t.Context(), env.reader(), testScope, "digest")
 		must.NoError(t, err)
 		test.EqOp(t, created.ID, byName.ID)
 		test.Eq(t, read.Enumeration, byName.Enumeration)
@@ -54,14 +54,14 @@ func runDefinitionSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		created := mustCreate(t, store, testScope, intDefinition("retention.days"))
+		created := mustCreate(t, env, store, testScope, intDefinition("retention.days"))
 
 		// Empty rather than nil: a nil enumeration is indistinguishable from one
 		// nothing attached, and that reading admits every value.
 		test.NotNil(t, created.Enumeration)
 		test.SliceEmpty(t, created.Enumeration)
 
-		read, err := store.GetDefinition(t.Context(), testScope, created.ID)
+		read, err := store.GetDefinition(t.Context(), env.reader(), testScope, created.ID)
 		must.NoError(t, err)
 		test.NotNil(t, read.Enumeration)
 		test.SliceEmpty(t, read.Enumeration)
@@ -72,13 +72,13 @@ func runDefinitionSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		mustCreate(t, store, testScope, stringDefinition("digest"))
+		mustCreate(t, env, store, testScope, stringDefinition("digest"))
 
-		_, err := store.CreateDefinition(t.Context(), testScope, stringDefinition("digest"))
+		_, err := env.create(t, store, testScope, stringDefinition("digest"))
 		test.ErrorIs(t, err, ErrDefinitionNameTaken)
 
 		// The other scope's catalog is its own.
-		other, err := store.CreateDefinition(t.Context(), otherScope, stringDefinition("digest"))
+		other, err := env.create(t, store, otherScope, stringDefinition("digest"))
 		must.NoError(t, err)
 		test.EqOp(t, otherScope, other.Scope)
 	})
@@ -88,15 +88,15 @@ func runDefinitionSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		created := mustCreate(t, store, testScope, stringDefinition("digest"))
-		must.NoError(t, store.ArchiveDefinition(t.Context(), testScope, created.ID))
+		created := mustCreate(t, env, store, testScope, stringDefinition("digest"))
+		must.NoError(t, env.archive(t, store, testScope, created.ID))
 
-		_, err := store.GetDefinition(t.Context(), testScope, created.ID)
+		_, err := store.GetDefinition(t.Context(), env.reader(), testScope, created.ID)
 		test.ErrorIs(t, err, ErrDefinitionNotFound)
 
 		// The values written under the name are still interpreted against this
 		// definition, so a second definition must not be able to claim it.
-		_, err = store.CreateDefinition(t.Context(), testScope, stringDefinition("digest"))
+		_, err = env.create(t, store, testScope, stringDefinition("digest"))
 		test.ErrorIs(t, err, ErrDefinitionNameTaken)
 	})
 
@@ -134,7 +134,7 @@ func runDefinitionSuite(t *testing.T, env *storeEnv) {
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()
 
-				created, err := store.CreateDefinition(t.Context(), testScope, c.definition)
+				created, err := env.create(t, store, testScope, c.definition)
 				test.Nil(t, created)
 				test.ErrorIs(t, err, c.sentinel)
 			})
@@ -146,10 +146,10 @@ func runDefinitionSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		_, err := store.CreateDefinition(t.Context(), testScope, nil)
+		_, err := env.create(t, store, testScope, nil)
 		test.ErrorIs(t, err, ErrNilDefinition)
 
-		test.ErrorIs(t, store.UpdateDefinition(t.Context(), testScope, nil), ErrNilDefinition)
+		test.ErrorIs(t, env.update(t, store, testScope, nil), ErrNilDefinition)
 	})
 
 	t.Run("an unset scope reaches no statement", func(t *testing.T) {
@@ -161,16 +161,16 @@ func runDefinitionSuite(t *testing.T, env *storeEnv) {
 		// scope, so every entry point rejects it before it reaches a statement.
 		var unset tenancy.Scope
 
-		_, err := store.CreateDefinition(t.Context(), unset, stringDefinition("digest"))
+		_, err := env.create(t, store, unset, stringDefinition("digest"))
 		test.ErrorIs(t, err, tenancy.ErrNoScope)
 
-		_, err = store.GetDefinition(t.Context(), unset, "whatever")
+		_, err = store.GetDefinition(t.Context(), env.reader(), unset, "whatever")
 		test.ErrorIs(t, err, tenancy.ErrNoScope)
 
-		_, err = store.ListDefinitions(t.Context(), unset, nil)
+		_, err = store.ListDefinitions(t.Context(), env.reader(), unset, nil)
 		test.ErrorIs(t, err, tenancy.ErrNoScope)
 
-		test.ErrorIs(t, store.ArchiveDefinition(t.Context(), unset, "whatever"), tenancy.ErrNoScope)
+		test.ErrorIs(t, env.archive(t, store, unset, "whatever"), tenancy.ErrNoScope)
 	})
 
 	t.Run("reads are keyed on the scope", func(t *testing.T) {
@@ -178,15 +178,15 @@ func runDefinitionSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		created := mustCreate(t, store, testScope, stringDefinition("digest"))
+		created := mustCreate(t, env, store, testScope, stringDefinition("digest"))
 
-		_, err := store.GetDefinition(t.Context(), otherScope, created.ID)
+		_, err := store.GetDefinition(t.Context(), env.reader(), otherScope, created.ID)
 		test.ErrorIs(t, err, ErrDefinitionNotFound)
 
-		_, err = store.GetDefinitionByName(t.Context(), otherScope, "digest")
+		_, err = store.GetDefinitionByName(t.Context(), env.reader(), otherScope, "digest")
 		test.ErrorIs(t, err, ErrDefinitionNotFound)
 
-		test.ErrorIs(t, store.ArchiveDefinition(t.Context(), otherScope, created.ID), ErrDefinitionNotFound)
+		test.ErrorIs(t, env.archive(t, store, otherScope, created.ID), ErrDefinitionNotFound)
 	})
 
 	t.Run("the catalog pages in both directions", func(t *testing.T) {
@@ -194,11 +194,11 @@ func runDefinitionSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		first := mustCreate(t, store, testScope, stringDefinition("a.digest"))
-		second := mustCreate(t, store, testScope, boolDefinition("b.compact"))
-		third := mustCreate(t, store, testScope, intDefinition("c.retention"))
+		first := mustCreate(t, env, store, testScope, stringDefinition("a.digest"))
+		second := mustCreate(t, env, store, testScope, boolDefinition("b.compact"))
+		third := mustCreate(t, env, store, testScope, intDefinition("c.retention"))
 
-		page, err := store.ListDefinitions(t.Context(), testScope, nil)
+		page, err := store.ListDefinitions(t.Context(), env.reader(), testScope, nil)
 		must.NoError(t, err)
 		must.SliceLen(t, 3, page.Data)
 		test.EqOp(t, first.ID, page.Data[0].ID)
@@ -217,7 +217,7 @@ func runDefinitionSuite(t *testing.T, env *storeEnv) {
 		descending := filtering.DefaultQueryFilter()
 		descending.SortBy = filtering.SortDescending
 
-		reversed, err := store.ListDefinitions(t.Context(), testScope, descending)
+		reversed, err := store.ListDefinitions(t.Context(), env.reader(), testScope, descending)
 		must.NoError(t, err)
 		must.SliceLen(t, 3, reversed.Data)
 		test.EqOp(t, third.ID, reversed.Data[0].ID)
@@ -230,11 +230,11 @@ func runDefinitionSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		live := mustCreate(t, store, testScope, boolDefinition("live"))
-		retired := mustCreate(t, store, testScope, boolDefinition("retired"))
-		must.NoError(t, store.ArchiveDefinition(t.Context(), testScope, retired.ID))
+		live := mustCreate(t, env, store, testScope, boolDefinition("live"))
+		retired := mustCreate(t, env, store, testScope, boolDefinition("retired"))
+		must.NoError(t, env.archive(t, store, testScope, retired.ID))
 
-		page, err := store.ListDefinitions(t.Context(), testScope, nil)
+		page, err := store.ListDefinitions(t.Context(), env.reader(), testScope, nil)
 		must.NoError(t, err)
 		must.SliceLen(t, 1, page.Data)
 		test.EqOp(t, live.ID, page.Data[0].ID)
@@ -242,7 +242,7 @@ func runDefinitionSuite(t *testing.T, env *storeEnv) {
 		filter := filtering.DefaultQueryFilter()
 		filter.IncludeArchived = pointer.To(true)
 
-		all, err := store.ListDefinitions(t.Context(), testScope, filter)
+		all, err := store.ListDefinitions(t.Context(), env.reader(), testScope, filter)
 		must.NoError(t, err)
 		test.SliceLen(t, 2, all.Data)
 	})
@@ -252,7 +252,7 @@ func runDefinitionSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		created := mustCreate(t, store, testScope, stringDefinition("digest"))
+		created := mustCreate(t, env, store, testScope, stringDefinition("digest"))
 
 		created.Name = "digest.frequency"
 		created.Description = "reworded"
@@ -260,9 +260,9 @@ func runDefinitionSuite(t *testing.T, env *storeEnv) {
 		created.AdminOnly = true
 		created.Enumeration = []string{"weekly", "daily", "never", "hourly"}
 
-		must.NoError(t, store.UpdateDefinition(t.Context(), testScope, created))
+		must.NoError(t, env.update(t, store, testScope, created))
 
-		read, err := store.GetDefinition(t.Context(), testScope, created.ID)
+		read, err := store.GetDefinition(t.Context(), env.reader(), testScope, created.ID)
 		must.NoError(t, err)
 		test.EqOp(t, "digest.frequency", read.Name)
 		test.EqOp(t, "reworded", read.Description)
@@ -273,7 +273,7 @@ func runDefinitionSuite(t *testing.T, env *storeEnv) {
 
 		// The name it was renamed away from is free again, because uniqueness is
 		// on the row rather than on the history.
-		_, err = store.CreateDefinition(t.Context(), testScope, stringDefinition("digest"))
+		_, err = env.create(t, store, testScope, stringDefinition("digest"))
 		test.NoError(t, err)
 	})
 
@@ -282,15 +282,15 @@ func runDefinitionSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		mustCreate(t, store, testScope, boolDefinition("taken"))
-		other := mustCreate(t, store, testScope, boolDefinition("free"))
+		mustCreate(t, env, store, testScope, boolDefinition("taken"))
+		other := mustCreate(t, env, store, testScope, boolDefinition("free"))
 
 		other.Name = "taken"
-		test.ErrorIs(t, store.UpdateDefinition(t.Context(), testScope, other), ErrDefinitionNameTaken)
+		test.ErrorIs(t, env.update(t, store, testScope, other), ErrDefinitionNameTaken)
 
 		// Saving a definition under its own name is not a collision with itself.
 		other.Name = "free"
-		test.NoError(t, store.UpdateDefinition(t.Context(), testScope, other))
+		test.NoError(t, env.update(t, store, testScope, other))
 	})
 
 	t.Run("an update needs a definition to update", func(t *testing.T) {
@@ -298,10 +298,10 @@ func runDefinitionSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		test.ErrorIs(t, store.UpdateDefinition(t.Context(), testScope, &Definition{Name: "a", Kind: KindBool}),
+		test.ErrorIs(t, env.update(t, store, testScope, &Definition{Name: "a", Kind: KindBool}),
 			platformerrors.ErrInvalidIDProvided)
 
-		test.ErrorIs(t, store.UpdateDefinition(t.Context(), testScope,
+		test.ErrorIs(t, env.update(t, store, testScope,
 			&Definition{ID: "no-such-row", Name: "a", Kind: KindBool}), ErrDefinitionNotFound)
 	})
 
@@ -310,6 +310,6 @@ func runDefinitionSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		test.ErrorIs(t, store.ArchiveDefinition(t.Context(), testScope, "no-such-row"), ErrDefinitionNotFound)
+		test.ErrorIs(t, env.archive(t, store, testScope, "no-such-row"), ErrDefinitionNotFound)
 	})
 }

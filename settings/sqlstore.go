@@ -43,9 +43,8 @@ var _ Store = (*SQLStore)(nil)
 // storage can depend on that choice rather than on the Store seam every backing
 // shares.
 type SQLStore struct {
-	client database.Client
-	q      settingsdb.Querier
-	o11y   observability.Observer
+	q    settingsdb.Querier
+	o11y observability.Observer
 
 	resolutionsCounter metrics.Int64Counter
 
@@ -65,6 +64,14 @@ type SQLStore struct {
 // that, and a mismatch surfaces as a missing table on the first query rather
 // than at construction.
 //
+// The client is taken for its dialect and for nothing else, and the store keeps
+// no reference to it. Every write is handed a database.Tx and every read an
+// executor, so there is no statement this store runs on a connection of its own:
+// no Writer() for the writes, no Reader() for the reads, and no CurrentTime(),
+// because the one timestamp this package reads back is the database server's. A
+// consumer with nothing to join opens a transaction with Client.WithTransaction
+// and passes the Tx it is handed.
+//
 // Observability is optional and defaults to nothing: an unconfigured store logs
 // to a noop logger and traces to a noop provider.
 func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, error) {
@@ -77,7 +84,7 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "settings dialect %q", d)
 	}
 
-	s := &SQLStore{client: client, prefix: DefaultTablePrefix}
+	s := &SQLStore{prefix: DefaultTablePrefix}
 
 	for _, opt := range opts {
 		if opt != nil {

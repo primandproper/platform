@@ -108,6 +108,110 @@ func (e *storeEnv) newStoreWithPrefix(tb testing.TB, opts ...SQLStoreOption) (st
 	return store, prefix
 }
 
+// inTx runs fn inside a transaction on the environment's database and reports
+// what fn returned.
+//
+// Every write in this store takes the caller's transaction, so a test that wants
+// a definition or a value written opens one — which is what a consumer does. It
+// hands back fn's error rather than asserting on it, because a refused write is
+// what half of these cases are about and RunInTransaction returns the callback's
+// error unwrapped.
+func (e *storeEnv) inTx(tb testing.TB, fn func(tx database.Tx) error) error {
+	tb.Helper()
+
+	return e.client.WithTransaction(tb.Context(), fn)
+}
+
+// reader is the executor an ordinary read runs on: the client's, outside any
+// transaction. The cases about a read that joins a transaction pass the Tx
+// instead, and they are in the transactions suite.
+func (e *storeEnv) reader() database.SQLQueryExecutor { return e.client.Reader() }
+
+// create writes one definition in a transaction of its own and reports what the
+// write returned.
+//
+// The transaction is a detail here rather than the subject: these cases are about
+// what the write checks, and a consumer that has nothing to commit alongside
+// opens exactly this. What a definition commits *with* is the transactions suite.
+func (e *storeEnv) create(tb testing.TB, store *SQLStore, scope tenancy.Scope, definition *Definition) (*Definition, error) {
+	tb.Helper()
+
+	var created *Definition
+
+	err := e.inTx(tb, func(tx database.Tx) error {
+		var txErr error
+		created, txErr = store.CreateDefinition(tb.Context(), tx, scope, definition)
+
+		return txErr
+	})
+
+	return created, err
+}
+
+// update rewrites one definition in a transaction of its own and reports what
+// the write returned.
+func (e *storeEnv) update(tb testing.TB, store *SQLStore, scope tenancy.Scope, definition *Definition) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.UpdateDefinition(tb.Context(), tx, scope, definition)
+	})
+}
+
+// archive retires one definition in a transaction of its own and reports what
+// the write returned.
+func (e *storeEnv) archive(tb testing.TB, store *SQLStore, scope tenancy.Scope, definitionID string) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.ArchiveDefinition(tb.Context(), tx, scope, definitionID)
+	})
+}
+
+// set stores one subject's answer in a transaction of its own and reports what
+// the write returned.
+func (e *storeEnv) set(tb testing.TB, store *SQLStore, scope tenancy.Scope, subject Subject, name, raw string) (*Value, error) {
+	tb.Helper()
+
+	var value *Value
+
+	err := e.inTx(tb, func(tx database.Tx) error {
+		var txErr error
+		value, txErr = store.SetValue(tb.Context(), tx, scope, subject, name, raw)
+
+		return txErr
+	})
+
+	return value, err
+}
+
+// clear takes one subject's answer back in a transaction of its own and reports
+// what the write returned.
+func (e *storeEnv) clear(tb testing.TB, store *SQLStore, scope tenancy.Scope, subject Subject, name string) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.ClearValue(tb.Context(), tx, scope, subject, name)
+	})
+}
+
+// erase runs DeleteValuesForSubject in a transaction of its own and returns the
+// count, since every caller of it here wants exactly that.
+func (e *storeEnv) erase(tb testing.TB, store *SQLStore, scope tenancy.Scope, subject Subject) int64 {
+	tb.Helper()
+
+	var deleted int64
+
+	must.NoError(tb, e.inTx(tb, func(tx database.Tx) error {
+		var err error
+		deleted, err = store.DeleteValuesForSubject(tb.Context(), tx, scope, subject)
+
+		return err
+	}))
+
+	return deleted
+}
+
 // The definitions this suite writes. Each is a function rather than a var
 // because CreateDefinition fills in the id and the creation time, and a shared
 // value would carry one subtest's row into the next.
@@ -131,12 +235,23 @@ func intDefinition(name string) *Definition {
 }
 
 // mustCreate writes a definition and fails the test if it will not go in.
-func mustCreate(tb testing.TB, store *SQLStore, scope tenancy.Scope, definition *Definition) *Definition {
+func mustCreate(tb testing.TB, e *storeEnv, store *SQLStore, scope tenancy.Scope, definition *Definition) *Definition {
 	tb.Helper()
 
-	created, err := store.CreateDefinition(tb.Context(), scope, definition)
+	created, err := e.create(tb, store, scope, definition)
 	must.NoError(tb, err)
 	must.NotNil(tb, created)
 
 	return created
+}
+
+// mustSet stores a subject's answer and fails the test if it will not go in.
+func mustSet(tb testing.TB, e *storeEnv, store *SQLStore, scope tenancy.Scope, subject Subject, name, raw string) *Value {
+	tb.Helper()
+
+	value, err := e.set(tb, store, scope, subject, name, raw)
+	must.NoError(tb, err)
+	must.NotNil(tb, value)
+
+	return value
 }
