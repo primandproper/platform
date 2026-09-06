@@ -129,6 +129,13 @@ func NewStore(ctx context.Context, cfg *Config, client database.Client, opts ...
 // every event, which is the correct failure but a confusing one to debug, so it
 // is passed explicitly here.
 //
+// The client is here for one read: webhooks.StoreDispatcher.Replay checks the
+// endpoint before it requeues, and that check has to see committed state because
+// the requeue does not wait for its caller. This passes client.Reader(), which
+// is what the store reached for internally before its reads took an executor. A
+// deployment that wants the check against the primary calls
+// webhooks.NewDispatcher directly with client.Writer().
+//
 // Explicit options run after the config-derived ones, so a caller can still
 // override anything.
 //
@@ -140,6 +147,7 @@ func NewStore(ctx context.Context, cfg *Config, client database.Client, opts ...
 func NewDispatcher(
 	ctx context.Context,
 	cfg *Config,
+	client database.Client,
 	store webhooks.Store,
 	catalog webhooks.Catalog,
 	opts ...Option,
@@ -149,6 +157,10 @@ func NewDispatcher(
 
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
+	}
+
+	if client == nil {
+		return nil, webhooks.ErrNilDatabaseClient
 	}
 
 	cfg.EnsureDefaults()
@@ -168,7 +180,7 @@ func NewDispatcher(
 		base = append(base, webhooks.WithDispatcherMetricsProvider(metricsProvider))
 	}
 
-	d, dispatcherErr := webhooks.NewDispatcher(store, append(base, o.dispatcher...)...)
+	d, dispatcherErr := webhooks.NewDispatcher(store, client.Reader(), append(base, o.dispatcher...)...)
 	if dispatcherErr != nil {
 		return nil, dispatcherErr
 	}

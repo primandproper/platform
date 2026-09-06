@@ -126,7 +126,7 @@ func runUpgradeSuite(t *testing.T, env *storeEnv) {
 		store, err := NewSQLStore(client, WithTablePrefix(prefix))
 		must.NoError(t, err)
 
-		got, err := store.GetEndpoint(t.Context(), testScope, "legacy-endpoint")
+		got, err := store.GetEndpoint(t.Context(), readerOf(t, store), testScope, "legacy-endpoint")
 		must.NoError(t, err)
 
 		// The subscription set is unchanged, and the endpoint still reads.
@@ -179,21 +179,21 @@ func runUpgradeSuite(t *testing.T, env *storeEnv) {
 		store, err := NewSQLStore(client, WithTablePrefix(prefix))
 		must.NoError(t, err)
 
-		got, err := store.GetEndpoint(t.Context(), testScope, "legacy-endpoint")
+		got, err := store.GetEndpoint(t.Context(), readerOf(t, store), testScope, "legacy-endpoint")
 		must.NoError(t, err)
 		must.SliceLen(t, 2, got.Subscriptions)
 
 		retired := got.Subscriptions[0]
-		must.NoError(t, store.ArchiveSubscription(t.Context(), testScope, retired.ID))
+		must.NoError(t, archiveSubscription(t, store, testScope, retired.ID))
 
-		after, err := store.GetEndpoint(t.Context(), testScope, "legacy-endpoint")
+		after, err := store.GetEndpoint(t.Context(), readerOf(t, store), testScope, "legacy-endpoint")
 		must.NoError(t, err)
 
 		test.Eq(t, []EventType{orderUpdated}, after.EventTypes())
 		test.SliceEmpty(t, endpointsFor(t, store, orderCreated))
 
 		// And the row is still readable, which is the point of archiving it.
-		archived, err := store.GetSubscription(t.Context(), testScope, retired.ID)
+		archived, err := store.GetSubscription(t.Context(), readerOf(t, store), testScope, retired.ID)
 		must.NoError(t, err)
 		test.NotNil(t, archived.ArchivedAt)
 	})

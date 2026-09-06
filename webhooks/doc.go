@@ -17,12 +17,12 @@ Dispatcher is the write side. Dispatch takes the caller's transaction executor,
 resolves who is subscribed, and writes one dispatch row per subscriber inside
 that transaction:
 
-	err := client.WithTransaction(ctx, func(q database.Tx) error {
-		if err := updateOrder(ctx, q, order); err != nil {
+	err := client.WithTransaction(ctx, func(tx database.Tx) error {
+		if err := updateOrder(ctx, tx, order); err != nil {
 			return err
 		}
 
-		return dispatcher.Dispatch(ctx, q, &webhooks.Delivery{
+		return dispatcher.Dispatch(ctx, tx, &webhooks.Delivery{
 			Scope:       tenancy.Of(order.AccountID),
 			EventType:   OrderUpdated,
 			OrderingKey: order.ID,
@@ -32,8 +32,19 @@ that transaction:
 
 The deliveries commit with the state change that caused them, or not at all.
 There is no way to dispatch outside a transaction by accident: holding a
-SQLQueryExecutor from WithTransaction means you are already in one. This is the
-same seam outbox.Enqueue uses, for the same reason.
+database.Tx from WithTransaction means you are already in one. This is the same
+seam outbox.Enqueue uses, for the same reason.
+
+Every other consumer write takes that same transaction, and every consumer read
+takes an executor — a database.Tx for a write, a database.SQLQueryExecutor for a
+read, always as the argument after the context. Registering an endpoint is not
+usually the only thing an application writes when a subscriber signs up, and the
+audit entry recording who did it belongs in the same commit as the endpoint. The
+delivery machinery is the deliberate exception: Claim, MarkDelivered,
+RecordFailure, RecordAttempt, Requeue, Backlog and Reap take no executor at all,
+because a worker draining a queue has no caller's transaction to join and its
+lease has to be committed before the request goes out. See webhooks.Store, where
+the split is written down.
 
 Worker is the delivery side. It claims due dispatches, signs and sends them,
 records every attempt, and schedules retries. It runs in its own process or
@@ -89,12 +100,18 @@ so with a tenancy.Scope. Fan-out is bounded by it: Dispatch resolves subscribers
 within the delivery's scope, so an endpoint registered by one account never
 receives another account's copy of the same event type.
 
-	err := dispatcher.Register(ctx, &webhooks.Endpoint{
-		Scope:         tenancy.Of(accountID),
-		URL:           "https://subscriber.example/hooks",
-		Secret:        webhooks.Secret{Current: key},
-		Subscriptions: webhooks.SubscribeTo(OrderUpdated),
+	err := client.WithTransaction(ctx, func(tx database.Tx) error {
+		return dispatcher.Register(ctx, tx, tenancy.Of(accountID), &webhooks.Endpoint{
+			URL:           "https://subscriber.example/hooks",
+			Secret:        webhooks.Secret{Current: key},
+			Subscriptions: webhooks.SubscribeTo(OrderUpdated),
+		})
 	})
+
+The scope is the argument rather than Endpoint.Scope, so what the statement binds
+is what the call named. An endpoint that names none adopts it; one naming a
+different tenant is webhooks.ErrScopeMismatch rather than either value quietly
+winning.
 
 An application whose events are global says tenancy.Global() in both places and
 gets what this package did before the dimension existed — Global is a scope like
@@ -102,12 +119,11 @@ any other, matching only itself, and it is stored as the empty identifier that
 the scope columns default to.
 
 There is no unscoped read. Every Store method that reaches an endpoint, a
-subscription, or a delivery takes a scope or carries one on the value it is
-given, the zero
-tenancy.Scope is not a scope, and a query that lost one fails at the driver
-rather than widening. The exceptions are the worker's own machinery — Claim,
-Backlog, and Reap span every scope, because one worker drains one queue for the
-whole deployment — and they say so.
+subscription, or a delivery on a consumer's behalf takes a scope as an argument,
+the zero tenancy.Scope is not a scope, and a query that lost one fails at the
+driver rather than widening. The exceptions are the worker's own machinery —
+Claim, Backlog, and Reap span every scope, because one worker drains one queue
+for the whole deployment — and they say so.
 
 What a scope is not is permission. Passing tenancy.Of(accountID) says these rows
 are that account's; whether the caller may act for that account is
@@ -126,9 +142,9 @@ cannot say when the subscription ended, has no identifier for the request that
 asked to name, and silently reverts whatever a concurrent edit of the same
 endpoint did. Against rows it is Unsubscribe on one ID:
 
-	sub, err := dispatcher.Subscribe(ctx, scope, endpointID, OrderShipped)
+	sub, err := dispatcher.Subscribe(ctx, tx, scope, endpointID, OrderShipped)
 	// ...
-	err = dispatcher.Unsubscribe(ctx, scope, sub.ID)
+	err = dispatcher.Unsubscribe(ctx, tx, scope, sub.ID)
 
 Register and SaveEndpoint still take the whole set, because registration names
 event types rather than subscription IDs — there are none yet — and SubscribeTo

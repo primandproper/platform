@@ -24,13 +24,13 @@ var _ webhooks.Store = &StoreMock{}
 //
 //		// make and configure a mocked webhooks.Store
 //		mockedStore := &StoreMock{
-//			AddSubscriptionFunc: func(ctx context.Context, scope tenancy.Scope, endpointID string, eventType webhooks.EventType) (*webhooks.Subscription, error) {
+//			AddSubscriptionFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, endpointID string, eventType webhooks.EventType) (*webhooks.Subscription, error) {
 //				panic("mock out the AddSubscription method")
 //			},
-//			ArchiveEndpointFunc: func(ctx context.Context, scope tenancy.Scope, endpointID string) error {
+//			ArchiveEndpointFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, endpointID string) error {
 //				panic("mock out the ArchiveEndpoint method")
 //			},
-//			ArchiveSubscriptionFunc: func(ctx context.Context, scope tenancy.Scope, subscriptionID string) error {
+//			ArchiveSubscriptionFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscriptionID string) error {
 //				panic("mock out the ArchiveSubscription method")
 //			},
 //			BacklogFunc: func(ctx context.Context) (int64, time.Time, error) {
@@ -42,22 +42,22 @@ var _ webhooks.Store = &StoreMock{}
 //			EndpointsForEventFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, eventType webhooks.EventType) ([]*webhooks.Endpoint, error) {
 //				panic("mock out the EndpointsForEvent method")
 //			},
-//			EnqueueFunc: func(ctx context.Context, q database.Tx, delivery *webhooks.Delivery, endpointIDs []string, now time.Time) error {
+//			EnqueueFunc: func(ctx context.Context, tx database.Tx, delivery *webhooks.Delivery, endpointIDs []string, now time.Time) error {
 //				panic("mock out the Enqueue method")
 //			},
-//			GetEndpointFunc: func(ctx context.Context, scope tenancy.Scope, endpointID string) (*webhooks.Endpoint, error) {
+//			GetEndpointFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, endpointID string) (*webhooks.Endpoint, error) {
 //				panic("mock out the GetEndpoint method")
 //			},
-//			GetSubscriptionFunc: func(ctx context.Context, scope tenancy.Scope, subscriptionID string) (*webhooks.Subscription, error) {
+//			GetSubscriptionFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subscriptionID string) (*webhooks.Subscription, error) {
 //				panic("mock out the GetSubscription method")
 //			},
-//			ListAttemptsFunc: func(ctx context.Context, scope tenancy.Scope, deliveryID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[webhooks.Attempt], error) {
+//			ListAttemptsFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, deliveryID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[webhooks.Attempt], error) {
 //				panic("mock out the ListAttempts method")
 //			},
-//			ListEndpointsFunc: func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[webhooks.Endpoint], error) {
+//			ListEndpointsFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[webhooks.Endpoint], error) {
 //				panic("mock out the ListEndpoints method")
 //			},
-//			ListSubscriptionsFunc: func(ctx context.Context, scope tenancy.Scope, endpointID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[webhooks.Subscription], error) {
+//			ListSubscriptionsFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, endpointID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[webhooks.Subscription], error) {
 //				panic("mock out the ListSubscriptions method")
 //			},
 //			MarkDeliveredFunc: func(ctx context.Context, dispatchID string, at time.Time) error {
@@ -75,7 +75,7 @@ var _ webhooks.Store = &StoreMock{}
 //			RequeueFunc: func(ctx context.Context, deliveryID string, endpointID string, at time.Time) error {
 //				panic("mock out the Requeue method")
 //			},
-//			SaveEndpointFunc: func(ctx context.Context, endpoint *webhooks.Endpoint) error {
+//			SaveEndpointFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, endpoint *webhooks.Endpoint) error {
 //				panic("mock out the SaveEndpoint method")
 //			},
 //		}
@@ -86,13 +86,13 @@ var _ webhooks.Store = &StoreMock{}
 //	}
 type StoreMock struct {
 	// AddSubscriptionFunc mocks the AddSubscription method.
-	AddSubscriptionFunc func(ctx context.Context, scope tenancy.Scope, endpointID string, eventType webhooks.EventType) (*webhooks.Subscription, error)
+	AddSubscriptionFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, endpointID string, eventType webhooks.EventType) (*webhooks.Subscription, error)
 
 	// ArchiveEndpointFunc mocks the ArchiveEndpoint method.
-	ArchiveEndpointFunc func(ctx context.Context, scope tenancy.Scope, endpointID string) error
+	ArchiveEndpointFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, endpointID string) error
 
 	// ArchiveSubscriptionFunc mocks the ArchiveSubscription method.
-	ArchiveSubscriptionFunc func(ctx context.Context, scope tenancy.Scope, subscriptionID string) error
+	ArchiveSubscriptionFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscriptionID string) error
 
 	// BacklogFunc mocks the Backlog method.
 	BacklogFunc func(ctx context.Context) (int64, time.Time, error)
@@ -104,22 +104,22 @@ type StoreMock struct {
 	EndpointsForEventFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, eventType webhooks.EventType) ([]*webhooks.Endpoint, error)
 
 	// EnqueueFunc mocks the Enqueue method.
-	EnqueueFunc func(ctx context.Context, q database.Tx, delivery *webhooks.Delivery, endpointIDs []string, now time.Time) error
+	EnqueueFunc func(ctx context.Context, tx database.Tx, delivery *webhooks.Delivery, endpointIDs []string, now time.Time) error
 
 	// GetEndpointFunc mocks the GetEndpoint method.
-	GetEndpointFunc func(ctx context.Context, scope tenancy.Scope, endpointID string) (*webhooks.Endpoint, error)
+	GetEndpointFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, endpointID string) (*webhooks.Endpoint, error)
 
 	// GetSubscriptionFunc mocks the GetSubscription method.
-	GetSubscriptionFunc func(ctx context.Context, scope tenancy.Scope, subscriptionID string) (*webhooks.Subscription, error)
+	GetSubscriptionFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subscriptionID string) (*webhooks.Subscription, error)
 
 	// ListAttemptsFunc mocks the ListAttempts method.
-	ListAttemptsFunc func(ctx context.Context, scope tenancy.Scope, deliveryID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[webhooks.Attempt], error)
+	ListAttemptsFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, deliveryID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[webhooks.Attempt], error)
 
 	// ListEndpointsFunc mocks the ListEndpoints method.
-	ListEndpointsFunc func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[webhooks.Endpoint], error)
+	ListEndpointsFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[webhooks.Endpoint], error)
 
 	// ListSubscriptionsFunc mocks the ListSubscriptions method.
-	ListSubscriptionsFunc func(ctx context.Context, scope tenancy.Scope, endpointID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[webhooks.Subscription], error)
+	ListSubscriptionsFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, endpointID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[webhooks.Subscription], error)
 
 	// MarkDeliveredFunc mocks the MarkDelivered method.
 	MarkDeliveredFunc func(ctx context.Context, dispatchID string, at time.Time) error
@@ -137,7 +137,7 @@ type StoreMock struct {
 	RequeueFunc func(ctx context.Context, deliveryID string, endpointID string, at time.Time) error
 
 	// SaveEndpointFunc mocks the SaveEndpoint method.
-	SaveEndpointFunc func(ctx context.Context, endpoint *webhooks.Endpoint) error
+	SaveEndpointFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, endpoint *webhooks.Endpoint) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -145,6 +145,8 @@ type StoreMock struct {
 		AddSubscription []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// EndpointID is the endpointID argument value.
@@ -156,6 +158,8 @@ type StoreMock struct {
 		ArchiveEndpoint []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// EndpointID is the endpointID argument value.
@@ -165,6 +169,8 @@ type StoreMock struct {
 		ArchiveSubscription []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// SubscriptionID is the subscriptionID argument value.
@@ -201,8 +207,8 @@ type StoreMock struct {
 		Enqueue []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Delivery is the delivery argument value.
 			Delivery *webhooks.Delivery
 			// EndpointIDs is the endpointIDs argument value.
@@ -214,6 +220,8 @@ type StoreMock struct {
 		GetEndpoint []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// EndpointID is the endpointID argument value.
@@ -223,6 +231,8 @@ type StoreMock struct {
 		GetSubscription []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// SubscriptionID is the subscriptionID argument value.
@@ -232,6 +242,8 @@ type StoreMock struct {
 		ListAttempts []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// DeliveryID is the deliveryID argument value.
@@ -243,6 +255,8 @@ type StoreMock struct {
 		ListEndpoints []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Filter is the filter argument value.
@@ -252,6 +266,8 @@ type StoreMock struct {
 		ListSubscriptions []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// EndpointID is the endpointID argument value.
@@ -314,6 +330,10 @@ type StoreMock struct {
 		SaveEndpoint []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Tx is the tx argument value.
+			Tx database.Tx
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
 			// Endpoint is the endpoint argument value.
 			Endpoint *webhooks.Endpoint
 		}
@@ -339,17 +359,19 @@ type StoreMock struct {
 }
 
 // AddSubscription calls AddSubscriptionFunc.
-func (mock *StoreMock) AddSubscription(ctx context.Context, scope tenancy.Scope, endpointID string, eventType webhooks.EventType) (*webhooks.Subscription, error) {
+func (mock *StoreMock) AddSubscription(ctx context.Context, tx database.Tx, scope tenancy.Scope, endpointID string, eventType webhooks.EventType) (*webhooks.Subscription, error) {
 	if mock.AddSubscriptionFunc == nil {
 		panic("StoreMock.AddSubscriptionFunc: method is nil but Store.AddSubscription was just called")
 	}
 	callInfo := struct {
 		Ctx        context.Context
+		Tx         database.Tx
 		Scope      tenancy.Scope
 		EndpointID string
 		EventType  webhooks.EventType
 	}{
 		Ctx:        ctx,
+		Tx:         tx,
 		Scope:      scope,
 		EndpointID: endpointID,
 		EventType:  eventType,
@@ -357,7 +379,7 @@ func (mock *StoreMock) AddSubscription(ctx context.Context, scope tenancy.Scope,
 	mock.lockAddSubscription.Lock()
 	mock.calls.AddSubscription = append(mock.calls.AddSubscription, callInfo)
 	mock.lockAddSubscription.Unlock()
-	return mock.AddSubscriptionFunc(ctx, scope, endpointID, eventType)
+	return mock.AddSubscriptionFunc(ctx, tx, scope, endpointID, eventType)
 }
 
 // AddSubscriptionCalls gets all the calls that were made to AddSubscription.
@@ -366,12 +388,14 @@ func (mock *StoreMock) AddSubscription(ctx context.Context, scope tenancy.Scope,
 //	len(mockedStore.AddSubscriptionCalls())
 func (mock *StoreMock) AddSubscriptionCalls() []struct {
 	Ctx        context.Context
+	Tx         database.Tx
 	Scope      tenancy.Scope
 	EndpointID string
 	EventType  webhooks.EventType
 } {
 	var calls []struct {
 		Ctx        context.Context
+		Tx         database.Tx
 		Scope      tenancy.Scope
 		EndpointID string
 		EventType  webhooks.EventType
@@ -383,23 +407,25 @@ func (mock *StoreMock) AddSubscriptionCalls() []struct {
 }
 
 // ArchiveEndpoint calls ArchiveEndpointFunc.
-func (mock *StoreMock) ArchiveEndpoint(ctx context.Context, scope tenancy.Scope, endpointID string) error {
+func (mock *StoreMock) ArchiveEndpoint(ctx context.Context, tx database.Tx, scope tenancy.Scope, endpointID string) error {
 	if mock.ArchiveEndpointFunc == nil {
 		panic("StoreMock.ArchiveEndpointFunc: method is nil but Store.ArchiveEndpoint was just called")
 	}
 	callInfo := struct {
 		Ctx        context.Context
+		Tx         database.Tx
 		Scope      tenancy.Scope
 		EndpointID string
 	}{
 		Ctx:        ctx,
+		Tx:         tx,
 		Scope:      scope,
 		EndpointID: endpointID,
 	}
 	mock.lockArchiveEndpoint.Lock()
 	mock.calls.ArchiveEndpoint = append(mock.calls.ArchiveEndpoint, callInfo)
 	mock.lockArchiveEndpoint.Unlock()
-	return mock.ArchiveEndpointFunc(ctx, scope, endpointID)
+	return mock.ArchiveEndpointFunc(ctx, tx, scope, endpointID)
 }
 
 // ArchiveEndpointCalls gets all the calls that were made to ArchiveEndpoint.
@@ -408,11 +434,13 @@ func (mock *StoreMock) ArchiveEndpoint(ctx context.Context, scope tenancy.Scope,
 //	len(mockedStore.ArchiveEndpointCalls())
 func (mock *StoreMock) ArchiveEndpointCalls() []struct {
 	Ctx        context.Context
+	Tx         database.Tx
 	Scope      tenancy.Scope
 	EndpointID string
 } {
 	var calls []struct {
 		Ctx        context.Context
+		Tx         database.Tx
 		Scope      tenancy.Scope
 		EndpointID string
 	}
@@ -423,23 +451,25 @@ func (mock *StoreMock) ArchiveEndpointCalls() []struct {
 }
 
 // ArchiveSubscription calls ArchiveSubscriptionFunc.
-func (mock *StoreMock) ArchiveSubscription(ctx context.Context, scope tenancy.Scope, subscriptionID string) error {
+func (mock *StoreMock) ArchiveSubscription(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscriptionID string) error {
 	if mock.ArchiveSubscriptionFunc == nil {
 		panic("StoreMock.ArchiveSubscriptionFunc: method is nil but Store.ArchiveSubscription was just called")
 	}
 	callInfo := struct {
 		Ctx            context.Context
+		Tx             database.Tx
 		Scope          tenancy.Scope
 		SubscriptionID string
 	}{
 		Ctx:            ctx,
+		Tx:             tx,
 		Scope:          scope,
 		SubscriptionID: subscriptionID,
 	}
 	mock.lockArchiveSubscription.Lock()
 	mock.calls.ArchiveSubscription = append(mock.calls.ArchiveSubscription, callInfo)
 	mock.lockArchiveSubscription.Unlock()
-	return mock.ArchiveSubscriptionFunc(ctx, scope, subscriptionID)
+	return mock.ArchiveSubscriptionFunc(ctx, tx, scope, subscriptionID)
 }
 
 // ArchiveSubscriptionCalls gets all the calls that were made to ArchiveSubscription.
@@ -448,11 +478,13 @@ func (mock *StoreMock) ArchiveSubscription(ctx context.Context, scope tenancy.Sc
 //	len(mockedStore.ArchiveSubscriptionCalls())
 func (mock *StoreMock) ArchiveSubscriptionCalls() []struct {
 	Ctx            context.Context
+	Tx             database.Tx
 	Scope          tenancy.Scope
 	SubscriptionID string
 } {
 	var calls []struct {
 		Ctx            context.Context
+		Tx             database.Tx
 		Scope          tenancy.Scope
 		SubscriptionID string
 	}
@@ -583,19 +615,19 @@ func (mock *StoreMock) EndpointsForEventCalls() []struct {
 }
 
 // Enqueue calls EnqueueFunc.
-func (mock *StoreMock) Enqueue(ctx context.Context, q database.Tx, delivery *webhooks.Delivery, endpointIDs []string, now time.Time) error {
+func (mock *StoreMock) Enqueue(ctx context.Context, tx database.Tx, delivery *webhooks.Delivery, endpointIDs []string, now time.Time) error {
 	if mock.EnqueueFunc == nil {
 		panic("StoreMock.EnqueueFunc: method is nil but Store.Enqueue was just called")
 	}
 	callInfo := struct {
 		Ctx         context.Context
-		Q           database.Tx
+		Tx          database.Tx
 		Delivery    *webhooks.Delivery
 		EndpointIDs []string
 		Now         time.Time
 	}{
 		Ctx:         ctx,
-		Q:           q,
+		Tx:          tx,
 		Delivery:    delivery,
 		EndpointIDs: endpointIDs,
 		Now:         now,
@@ -603,7 +635,7 @@ func (mock *StoreMock) Enqueue(ctx context.Context, q database.Tx, delivery *web
 	mock.lockEnqueue.Lock()
 	mock.calls.Enqueue = append(mock.calls.Enqueue, callInfo)
 	mock.lockEnqueue.Unlock()
-	return mock.EnqueueFunc(ctx, q, delivery, endpointIDs, now)
+	return mock.EnqueueFunc(ctx, tx, delivery, endpointIDs, now)
 }
 
 // EnqueueCalls gets all the calls that were made to Enqueue.
@@ -612,14 +644,14 @@ func (mock *StoreMock) Enqueue(ctx context.Context, q database.Tx, delivery *web
 //	len(mockedStore.EnqueueCalls())
 func (mock *StoreMock) EnqueueCalls() []struct {
 	Ctx         context.Context
-	Q           database.Tx
+	Tx          database.Tx
 	Delivery    *webhooks.Delivery
 	EndpointIDs []string
 	Now         time.Time
 } {
 	var calls []struct {
 		Ctx         context.Context
-		Q           database.Tx
+		Tx          database.Tx
 		Delivery    *webhooks.Delivery
 		EndpointIDs []string
 		Now         time.Time
@@ -631,23 +663,25 @@ func (mock *StoreMock) EnqueueCalls() []struct {
 }
 
 // GetEndpoint calls GetEndpointFunc.
-func (mock *StoreMock) GetEndpoint(ctx context.Context, scope tenancy.Scope, endpointID string) (*webhooks.Endpoint, error) {
+func (mock *StoreMock) GetEndpoint(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, endpointID string) (*webhooks.Endpoint, error) {
 	if mock.GetEndpointFunc == nil {
 		panic("StoreMock.GetEndpointFunc: method is nil but Store.GetEndpoint was just called")
 	}
 	callInfo := struct {
 		Ctx        context.Context
+		Q          database.SQLQueryExecutor
 		Scope      tenancy.Scope
 		EndpointID string
 	}{
 		Ctx:        ctx,
+		Q:          q,
 		Scope:      scope,
 		EndpointID: endpointID,
 	}
 	mock.lockGetEndpoint.Lock()
 	mock.calls.GetEndpoint = append(mock.calls.GetEndpoint, callInfo)
 	mock.lockGetEndpoint.Unlock()
-	return mock.GetEndpointFunc(ctx, scope, endpointID)
+	return mock.GetEndpointFunc(ctx, q, scope, endpointID)
 }
 
 // GetEndpointCalls gets all the calls that were made to GetEndpoint.
@@ -656,11 +690,13 @@ func (mock *StoreMock) GetEndpoint(ctx context.Context, scope tenancy.Scope, end
 //	len(mockedStore.GetEndpointCalls())
 func (mock *StoreMock) GetEndpointCalls() []struct {
 	Ctx        context.Context
+	Q          database.SQLQueryExecutor
 	Scope      tenancy.Scope
 	EndpointID string
 } {
 	var calls []struct {
 		Ctx        context.Context
+		Q          database.SQLQueryExecutor
 		Scope      tenancy.Scope
 		EndpointID string
 	}
@@ -671,23 +707,25 @@ func (mock *StoreMock) GetEndpointCalls() []struct {
 }
 
 // GetSubscription calls GetSubscriptionFunc.
-func (mock *StoreMock) GetSubscription(ctx context.Context, scope tenancy.Scope, subscriptionID string) (*webhooks.Subscription, error) {
+func (mock *StoreMock) GetSubscription(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subscriptionID string) (*webhooks.Subscription, error) {
 	if mock.GetSubscriptionFunc == nil {
 		panic("StoreMock.GetSubscriptionFunc: method is nil but Store.GetSubscription was just called")
 	}
 	callInfo := struct {
 		Ctx            context.Context
+		Q              database.SQLQueryExecutor
 		Scope          tenancy.Scope
 		SubscriptionID string
 	}{
 		Ctx:            ctx,
+		Q:              q,
 		Scope:          scope,
 		SubscriptionID: subscriptionID,
 	}
 	mock.lockGetSubscription.Lock()
 	mock.calls.GetSubscription = append(mock.calls.GetSubscription, callInfo)
 	mock.lockGetSubscription.Unlock()
-	return mock.GetSubscriptionFunc(ctx, scope, subscriptionID)
+	return mock.GetSubscriptionFunc(ctx, q, scope, subscriptionID)
 }
 
 // GetSubscriptionCalls gets all the calls that were made to GetSubscription.
@@ -696,11 +734,13 @@ func (mock *StoreMock) GetSubscription(ctx context.Context, scope tenancy.Scope,
 //	len(mockedStore.GetSubscriptionCalls())
 func (mock *StoreMock) GetSubscriptionCalls() []struct {
 	Ctx            context.Context
+	Q              database.SQLQueryExecutor
 	Scope          tenancy.Scope
 	SubscriptionID string
 } {
 	var calls []struct {
 		Ctx            context.Context
+		Q              database.SQLQueryExecutor
 		Scope          tenancy.Scope
 		SubscriptionID string
 	}
@@ -711,17 +751,19 @@ func (mock *StoreMock) GetSubscriptionCalls() []struct {
 }
 
 // ListAttempts calls ListAttemptsFunc.
-func (mock *StoreMock) ListAttempts(ctx context.Context, scope tenancy.Scope, deliveryID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[webhooks.Attempt], error) {
+func (mock *StoreMock) ListAttempts(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, deliveryID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[webhooks.Attempt], error) {
 	if mock.ListAttemptsFunc == nil {
 		panic("StoreMock.ListAttemptsFunc: method is nil but Store.ListAttempts was just called")
 	}
 	callInfo := struct {
 		Ctx        context.Context
+		Q          database.SQLQueryExecutor
 		Scope      tenancy.Scope
 		DeliveryID string
 		Filter     *filtering.QueryFilter
 	}{
 		Ctx:        ctx,
+		Q:          q,
 		Scope:      scope,
 		DeliveryID: deliveryID,
 		Filter:     filter,
@@ -729,7 +771,7 @@ func (mock *StoreMock) ListAttempts(ctx context.Context, scope tenancy.Scope, de
 	mock.lockListAttempts.Lock()
 	mock.calls.ListAttempts = append(mock.calls.ListAttempts, callInfo)
 	mock.lockListAttempts.Unlock()
-	return mock.ListAttemptsFunc(ctx, scope, deliveryID, filter)
+	return mock.ListAttemptsFunc(ctx, q, scope, deliveryID, filter)
 }
 
 // ListAttemptsCalls gets all the calls that were made to ListAttempts.
@@ -738,12 +780,14 @@ func (mock *StoreMock) ListAttempts(ctx context.Context, scope tenancy.Scope, de
 //	len(mockedStore.ListAttemptsCalls())
 func (mock *StoreMock) ListAttemptsCalls() []struct {
 	Ctx        context.Context
+	Q          database.SQLQueryExecutor
 	Scope      tenancy.Scope
 	DeliveryID string
 	Filter     *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx        context.Context
+		Q          database.SQLQueryExecutor
 		Scope      tenancy.Scope
 		DeliveryID string
 		Filter     *filtering.QueryFilter
@@ -755,23 +799,25 @@ func (mock *StoreMock) ListAttemptsCalls() []struct {
 }
 
 // ListEndpoints calls ListEndpointsFunc.
-func (mock *StoreMock) ListEndpoints(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[webhooks.Endpoint], error) {
+func (mock *StoreMock) ListEndpoints(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[webhooks.Endpoint], error) {
 	if mock.ListEndpointsFunc == nil {
 		panic("StoreMock.ListEndpointsFunc: method is nil but Store.ListEndpoints was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}{
 		Ctx:    ctx,
+		Q:      q,
 		Scope:  scope,
 		Filter: filter,
 	}
 	mock.lockListEndpoints.Lock()
 	mock.calls.ListEndpoints = append(mock.calls.ListEndpoints, callInfo)
 	mock.lockListEndpoints.Unlock()
-	return mock.ListEndpointsFunc(ctx, scope, filter)
+	return mock.ListEndpointsFunc(ctx, q, scope, filter)
 }
 
 // ListEndpointsCalls gets all the calls that were made to ListEndpoints.
@@ -780,11 +826,13 @@ func (mock *StoreMock) ListEndpoints(ctx context.Context, scope tenancy.Scope, f
 //	len(mockedStore.ListEndpointsCalls())
 func (mock *StoreMock) ListEndpointsCalls() []struct {
 	Ctx    context.Context
+	Q      database.SQLQueryExecutor
 	Scope  tenancy.Scope
 	Filter *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}
@@ -795,17 +843,19 @@ func (mock *StoreMock) ListEndpointsCalls() []struct {
 }
 
 // ListSubscriptions calls ListSubscriptionsFunc.
-func (mock *StoreMock) ListSubscriptions(ctx context.Context, scope tenancy.Scope, endpointID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[webhooks.Subscription], error) {
+func (mock *StoreMock) ListSubscriptions(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, endpointID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[webhooks.Subscription], error) {
 	if mock.ListSubscriptionsFunc == nil {
 		panic("StoreMock.ListSubscriptionsFunc: method is nil but Store.ListSubscriptions was just called")
 	}
 	callInfo := struct {
 		Ctx        context.Context
+		Q          database.SQLQueryExecutor
 		Scope      tenancy.Scope
 		EndpointID string
 		Filter     *filtering.QueryFilter
 	}{
 		Ctx:        ctx,
+		Q:          q,
 		Scope:      scope,
 		EndpointID: endpointID,
 		Filter:     filter,
@@ -813,7 +863,7 @@ func (mock *StoreMock) ListSubscriptions(ctx context.Context, scope tenancy.Scop
 	mock.lockListSubscriptions.Lock()
 	mock.calls.ListSubscriptions = append(mock.calls.ListSubscriptions, callInfo)
 	mock.lockListSubscriptions.Unlock()
-	return mock.ListSubscriptionsFunc(ctx, scope, endpointID, filter)
+	return mock.ListSubscriptionsFunc(ctx, q, scope, endpointID, filter)
 }
 
 // ListSubscriptionsCalls gets all the calls that were made to ListSubscriptions.
@@ -822,12 +872,14 @@ func (mock *StoreMock) ListSubscriptions(ctx context.Context, scope tenancy.Scop
 //	len(mockedStore.ListSubscriptionsCalls())
 func (mock *StoreMock) ListSubscriptionsCalls() []struct {
 	Ctx        context.Context
+	Q          database.SQLQueryExecutor
 	Scope      tenancy.Scope
 	EndpointID string
 	Filter     *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx        context.Context
+		Q          database.SQLQueryExecutor
 		Scope      tenancy.Scope
 		EndpointID string
 		Filter     *filtering.QueryFilter
@@ -1051,21 +1103,25 @@ func (mock *StoreMock) RequeueCalls() []struct {
 }
 
 // SaveEndpoint calls SaveEndpointFunc.
-func (mock *StoreMock) SaveEndpoint(ctx context.Context, endpoint *webhooks.Endpoint) error {
+func (mock *StoreMock) SaveEndpoint(ctx context.Context, tx database.Tx, scope tenancy.Scope, endpoint *webhooks.Endpoint) error {
 	if mock.SaveEndpointFunc == nil {
 		panic("StoreMock.SaveEndpointFunc: method is nil but Store.SaveEndpoint was just called")
 	}
 	callInfo := struct {
 		Ctx      context.Context
+		Tx       database.Tx
+		Scope    tenancy.Scope
 		Endpoint *webhooks.Endpoint
 	}{
 		Ctx:      ctx,
+		Tx:       tx,
+		Scope:    scope,
 		Endpoint: endpoint,
 	}
 	mock.lockSaveEndpoint.Lock()
 	mock.calls.SaveEndpoint = append(mock.calls.SaveEndpoint, callInfo)
 	mock.lockSaveEndpoint.Unlock()
-	return mock.SaveEndpointFunc(ctx, endpoint)
+	return mock.SaveEndpointFunc(ctx, tx, scope, endpoint)
 }
 
 // SaveEndpointCalls gets all the calls that were made to SaveEndpoint.
@@ -1074,10 +1130,14 @@ func (mock *StoreMock) SaveEndpoint(ctx context.Context, endpoint *webhooks.Endp
 //	len(mockedStore.SaveEndpointCalls())
 func (mock *StoreMock) SaveEndpointCalls() []struct {
 	Ctx      context.Context
+	Tx       database.Tx
+	Scope    tenancy.Scope
 	Endpoint *webhooks.Endpoint
 } {
 	var calls []struct {
 		Ctx      context.Context
+		Tx       database.Tx
+		Scope    tenancy.Scope
 		Endpoint *webhooks.Endpoint
 	}
 	mock.lockSaveEndpoint.RLock()
@@ -1096,19 +1156,19 @@ var _ webhooks.Dispatcher = &DispatcherMock{}
 //
 //		// make and configure a mocked webhooks.Dispatcher
 //		mockedDispatcher := &DispatcherMock{
-//			DispatchFunc: func(ctx context.Context, q database.Tx, delivery *webhooks.Delivery) error {
+//			DispatchFunc: func(ctx context.Context, tx database.Tx, delivery *webhooks.Delivery) error {
 //				panic("mock out the Dispatch method")
 //			},
-//			RegisterFunc: func(ctx context.Context, endpoint *webhooks.Endpoint) error {
+//			RegisterFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, endpoint *webhooks.Endpoint) error {
 //				panic("mock out the Register method")
 //			},
 //			ReplayFunc: func(ctx context.Context, scope tenancy.Scope, deliveryID string, endpointID string) error {
 //				panic("mock out the Replay method")
 //			},
-//			SubscribeFunc: func(ctx context.Context, scope tenancy.Scope, endpointID string, eventType webhooks.EventType) (*webhooks.Subscription, error) {
+//			SubscribeFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, endpointID string, eventType webhooks.EventType) (*webhooks.Subscription, error) {
 //				panic("mock out the Subscribe method")
 //			},
-//			UnsubscribeFunc: func(ctx context.Context, scope tenancy.Scope, subscriptionID string) error {
+//			UnsubscribeFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscriptionID string) error {
 //				panic("mock out the Unsubscribe method")
 //			},
 //		}
@@ -1119,19 +1179,19 @@ var _ webhooks.Dispatcher = &DispatcherMock{}
 //	}
 type DispatcherMock struct {
 	// DispatchFunc mocks the Dispatch method.
-	DispatchFunc func(ctx context.Context, q database.Tx, delivery *webhooks.Delivery) error
+	DispatchFunc func(ctx context.Context, tx database.Tx, delivery *webhooks.Delivery) error
 
 	// RegisterFunc mocks the Register method.
-	RegisterFunc func(ctx context.Context, endpoint *webhooks.Endpoint) error
+	RegisterFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, endpoint *webhooks.Endpoint) error
 
 	// ReplayFunc mocks the Replay method.
 	ReplayFunc func(ctx context.Context, scope tenancy.Scope, deliveryID string, endpointID string) error
 
 	// SubscribeFunc mocks the Subscribe method.
-	SubscribeFunc func(ctx context.Context, scope tenancy.Scope, endpointID string, eventType webhooks.EventType) (*webhooks.Subscription, error)
+	SubscribeFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, endpointID string, eventType webhooks.EventType) (*webhooks.Subscription, error)
 
 	// UnsubscribeFunc mocks the Unsubscribe method.
-	UnsubscribeFunc func(ctx context.Context, scope tenancy.Scope, subscriptionID string) error
+	UnsubscribeFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscriptionID string) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -1139,8 +1199,8 @@ type DispatcherMock struct {
 		Dispatch []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Delivery is the delivery argument value.
 			Delivery *webhooks.Delivery
 		}
@@ -1148,6 +1208,10 @@ type DispatcherMock struct {
 		Register []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Tx is the tx argument value.
+			Tx database.Tx
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
 			// Endpoint is the endpoint argument value.
 			Endpoint *webhooks.Endpoint
 		}
@@ -1166,6 +1230,8 @@ type DispatcherMock struct {
 		Subscribe []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// EndpointID is the endpointID argument value.
@@ -1177,6 +1243,8 @@ type DispatcherMock struct {
 		Unsubscribe []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// SubscriptionID is the subscriptionID argument value.
@@ -1191,23 +1259,23 @@ type DispatcherMock struct {
 }
 
 // Dispatch calls DispatchFunc.
-func (mock *DispatcherMock) Dispatch(ctx context.Context, q database.Tx, delivery *webhooks.Delivery) error {
+func (mock *DispatcherMock) Dispatch(ctx context.Context, tx database.Tx, delivery *webhooks.Delivery) error {
 	if mock.DispatchFunc == nil {
 		panic("DispatcherMock.DispatchFunc: method is nil but Dispatcher.Dispatch was just called")
 	}
 	callInfo := struct {
 		Ctx      context.Context
-		Q        database.Tx
+		Tx       database.Tx
 		Delivery *webhooks.Delivery
 	}{
 		Ctx:      ctx,
-		Q:        q,
+		Tx:       tx,
 		Delivery: delivery,
 	}
 	mock.lockDispatch.Lock()
 	mock.calls.Dispatch = append(mock.calls.Dispatch, callInfo)
 	mock.lockDispatch.Unlock()
-	return mock.DispatchFunc(ctx, q, delivery)
+	return mock.DispatchFunc(ctx, tx, delivery)
 }
 
 // DispatchCalls gets all the calls that were made to Dispatch.
@@ -1216,12 +1284,12 @@ func (mock *DispatcherMock) Dispatch(ctx context.Context, q database.Tx, deliver
 //	len(mockedDispatcher.DispatchCalls())
 func (mock *DispatcherMock) DispatchCalls() []struct {
 	Ctx      context.Context
-	Q        database.Tx
+	Tx       database.Tx
 	Delivery *webhooks.Delivery
 } {
 	var calls []struct {
 		Ctx      context.Context
-		Q        database.Tx
+		Tx       database.Tx
 		Delivery *webhooks.Delivery
 	}
 	mock.lockDispatch.RLock()
@@ -1231,21 +1299,25 @@ func (mock *DispatcherMock) DispatchCalls() []struct {
 }
 
 // Register calls RegisterFunc.
-func (mock *DispatcherMock) Register(ctx context.Context, endpoint *webhooks.Endpoint) error {
+func (mock *DispatcherMock) Register(ctx context.Context, tx database.Tx, scope tenancy.Scope, endpoint *webhooks.Endpoint) error {
 	if mock.RegisterFunc == nil {
 		panic("DispatcherMock.RegisterFunc: method is nil but Dispatcher.Register was just called")
 	}
 	callInfo := struct {
 		Ctx      context.Context
+		Tx       database.Tx
+		Scope    tenancy.Scope
 		Endpoint *webhooks.Endpoint
 	}{
 		Ctx:      ctx,
+		Tx:       tx,
+		Scope:    scope,
 		Endpoint: endpoint,
 	}
 	mock.lockRegister.Lock()
 	mock.calls.Register = append(mock.calls.Register, callInfo)
 	mock.lockRegister.Unlock()
-	return mock.RegisterFunc(ctx, endpoint)
+	return mock.RegisterFunc(ctx, tx, scope, endpoint)
 }
 
 // RegisterCalls gets all the calls that were made to Register.
@@ -1254,10 +1326,14 @@ func (mock *DispatcherMock) Register(ctx context.Context, endpoint *webhooks.End
 //	len(mockedDispatcher.RegisterCalls())
 func (mock *DispatcherMock) RegisterCalls() []struct {
 	Ctx      context.Context
+	Tx       database.Tx
+	Scope    tenancy.Scope
 	Endpoint *webhooks.Endpoint
 } {
 	var calls []struct {
 		Ctx      context.Context
+		Tx       database.Tx
+		Scope    tenancy.Scope
 		Endpoint *webhooks.Endpoint
 	}
 	mock.lockRegister.RLock()
@@ -1311,17 +1387,19 @@ func (mock *DispatcherMock) ReplayCalls() []struct {
 }
 
 // Subscribe calls SubscribeFunc.
-func (mock *DispatcherMock) Subscribe(ctx context.Context, scope tenancy.Scope, endpointID string, eventType webhooks.EventType) (*webhooks.Subscription, error) {
+func (mock *DispatcherMock) Subscribe(ctx context.Context, tx database.Tx, scope tenancy.Scope, endpointID string, eventType webhooks.EventType) (*webhooks.Subscription, error) {
 	if mock.SubscribeFunc == nil {
 		panic("DispatcherMock.SubscribeFunc: method is nil but Dispatcher.Subscribe was just called")
 	}
 	callInfo := struct {
 		Ctx        context.Context
+		Tx         database.Tx
 		Scope      tenancy.Scope
 		EndpointID string
 		EventType  webhooks.EventType
 	}{
 		Ctx:        ctx,
+		Tx:         tx,
 		Scope:      scope,
 		EndpointID: endpointID,
 		EventType:  eventType,
@@ -1329,7 +1407,7 @@ func (mock *DispatcherMock) Subscribe(ctx context.Context, scope tenancy.Scope, 
 	mock.lockSubscribe.Lock()
 	mock.calls.Subscribe = append(mock.calls.Subscribe, callInfo)
 	mock.lockSubscribe.Unlock()
-	return mock.SubscribeFunc(ctx, scope, endpointID, eventType)
+	return mock.SubscribeFunc(ctx, tx, scope, endpointID, eventType)
 }
 
 // SubscribeCalls gets all the calls that were made to Subscribe.
@@ -1338,12 +1416,14 @@ func (mock *DispatcherMock) Subscribe(ctx context.Context, scope tenancy.Scope, 
 //	len(mockedDispatcher.SubscribeCalls())
 func (mock *DispatcherMock) SubscribeCalls() []struct {
 	Ctx        context.Context
+	Tx         database.Tx
 	Scope      tenancy.Scope
 	EndpointID string
 	EventType  webhooks.EventType
 } {
 	var calls []struct {
 		Ctx        context.Context
+		Tx         database.Tx
 		Scope      tenancy.Scope
 		EndpointID string
 		EventType  webhooks.EventType
@@ -1355,23 +1435,25 @@ func (mock *DispatcherMock) SubscribeCalls() []struct {
 }
 
 // Unsubscribe calls UnsubscribeFunc.
-func (mock *DispatcherMock) Unsubscribe(ctx context.Context, scope tenancy.Scope, subscriptionID string) error {
+func (mock *DispatcherMock) Unsubscribe(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscriptionID string) error {
 	if mock.UnsubscribeFunc == nil {
 		panic("DispatcherMock.UnsubscribeFunc: method is nil but Dispatcher.Unsubscribe was just called")
 	}
 	callInfo := struct {
 		Ctx            context.Context
+		Tx             database.Tx
 		Scope          tenancy.Scope
 		SubscriptionID string
 	}{
 		Ctx:            ctx,
+		Tx:             tx,
 		Scope:          scope,
 		SubscriptionID: subscriptionID,
 	}
 	mock.lockUnsubscribe.Lock()
 	mock.calls.Unsubscribe = append(mock.calls.Unsubscribe, callInfo)
 	mock.lockUnsubscribe.Unlock()
-	return mock.UnsubscribeFunc(ctx, scope, subscriptionID)
+	return mock.UnsubscribeFunc(ctx, tx, scope, subscriptionID)
 }
 
 // UnsubscribeCalls gets all the calls that were made to Unsubscribe.
@@ -1380,11 +1462,13 @@ func (mock *DispatcherMock) Unsubscribe(ctx context.Context, scope tenancy.Scope
 //	len(mockedDispatcher.UnsubscribeCalls())
 func (mock *DispatcherMock) UnsubscribeCalls() []struct {
 	Ctx            context.Context
+	Tx             database.Tx
 	Scope          tenancy.Scope
 	SubscriptionID string
 } {
 	var calls []struct {
 		Ctx            context.Context
+		Tx             database.Tx
 		Scope          tenancy.Scope
 		SubscriptionID string
 	}

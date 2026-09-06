@@ -94,9 +94,9 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 			Headers:       map[string]string{"X-Tenant": "acme"},
 			Subscriptions: SubscribeTo(orderCreated, orderUpdated),
 		}
-		must.NoError(t, store.SaveEndpoint(ctxFor(t), saved))
+		must.NoError(t, saveEndpoint(t, store, testScope, saved))
 
-		got, err := store.GetEndpoint(ctxFor(t), testScope, "endpoint-1")
+		got, err := store.GetEndpoint(ctxFor(t), readerOf(t, store), testScope, "endpoint-1")
 		must.NoError(t, err)
 
 		test.EqOp(t, saved.URL, got.URL)
@@ -116,7 +116,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 		registerEndpoint(t, store, "endpoint-1", "order.created")
 
-		got, err := store.GetEndpoint(ctxFor(t), testScope, "endpoint-1")
+		got, err := store.GetEndpoint(ctxFor(t), readerOf(t, store), testScope, "endpoint-1")
 		must.NoError(t, err)
 
 		test.SliceEmpty(t, got.Secret.Previous)
@@ -130,7 +130,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		registerEndpoint(t, store, "endpoint-1", "order.created", "order.updated")
 		registerEndpoint(t, store, "endpoint-1", "order.updated")
 
-		got, err := store.GetEndpoint(ctxFor(t), testScope, "endpoint-1")
+		got, err := store.GetEndpoint(ctxFor(t), readerOf(t, store), testScope, "endpoint-1")
 		must.NoError(t, err)
 
 		test.Eq(t, []EventType{orderUpdated}, got.EventTypes())
@@ -155,7 +155,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		registerEndpoint(t, store, "endpoint-1", "order.updated", "order.deleted")
 
-		got, err := store.GetEndpoint(ctxFor(t), testScope, "endpoint-1")
+		got, err := store.GetEndpoint(ctxFor(t), readerOf(t, store), testScope, "endpoint-1")
 		must.NoError(t, err)
 
 		test.EqOp(t, kept.ID, subscriptionFor(t, got, orderUpdated).ID)
@@ -175,7 +175,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		registerEndpoint(t, store, "endpoint-1", "order.updated")
 		registerEndpoint(t, store, "endpoint-1", "order.created")
 
-		got, err := store.GetEndpoint(ctxFor(t), testScope, "endpoint-1")
+		got, err := store.GetEndpoint(ctxFor(t), readerOf(t, store), testScope, "endpoint-1")
 		must.NoError(t, err)
 
 		revived := subscriptionFor(t, got, orderCreated)
@@ -209,9 +209,9 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		saved := registerEndpoint(t, store, "endpoint-1", "order.created", "order.updated")
 		retired := subscriptionFor(t, saved, orderCreated)
 
-		must.NoError(t, store.ArchiveSubscription(ctxFor(t), testScope, retired.ID))
+		must.NoError(t, archiveSubscription(t, store, testScope, retired.ID))
 
-		got, err := store.GetEndpoint(ctxFor(t), testScope, "endpoint-1")
+		got, err := store.GetEndpoint(ctxFor(t), readerOf(t, store), testScope, "endpoint-1")
 		must.NoError(t, err)
 
 		test.Eq(t, []EventType{orderUpdated}, got.EventTypes())
@@ -229,9 +229,9 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		saved := registerEndpoint(t, store, "endpoint-1", "order.created")
 		retired := subscriptionFor(t, saved, orderCreated)
 
-		must.NoError(t, store.ArchiveSubscription(ctxFor(t), testScope, retired.ID))
+		must.NoError(t, archiveSubscription(t, store, testScope, retired.ID))
 
-		got, err := store.GetSubscription(ctxFor(t), testScope, retired.ID)
+		got, err := store.GetSubscription(ctxFor(t), readerOf(t, store), testScope, retired.ID)
 		must.NoError(t, err)
 
 		test.EqOp(t, retired.ID, got.ID)
@@ -246,7 +246,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		registerEndpoint(t, store, "endpoint-1", "order.created")
 
-		added, err := store.AddSubscription(ctxFor(t), testScope, "endpoint-1", orderUpdated)
+		added, err := addSubscription(t, store, testScope, "endpoint-1", orderUpdated)
 		must.NoError(t, err)
 		test.NotEqOp(t, "", added.ID)
 		test.EqOp(t, orderUpdated, added.EventType)
@@ -262,12 +262,12 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		saved := registerEndpoint(t, store, "endpoint-1", "order.created")
 
-		again, err := store.AddSubscription(ctxFor(t), testScope, "endpoint-1", orderCreated)
+		again, err := addSubscription(t, store, testScope, "endpoint-1", orderCreated)
 		must.NoError(t, err)
 
 		test.EqOp(t, subscriptionFor(t, saved, orderCreated).ID, again.ID)
 
-		got, readErr := store.GetEndpoint(ctxFor(t), testScope, "endpoint-1")
+		got, readErr := store.GetEndpoint(ctxFor(t), readerOf(t, store), testScope, "endpoint-1")
 		must.NoError(t, readErr)
 		test.SliceLen(t, 1, got.Subscriptions)
 	})
@@ -280,9 +280,9 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		saved := registerEndpoint(t, store, "endpoint-1", "order.created", "order.updated")
 		retired := subscriptionFor(t, saved, orderCreated)
 
-		must.NoError(t, store.ArchiveSubscription(ctxFor(t), testScope, retired.ID))
+		must.NoError(t, archiveSubscription(t, store, testScope, retired.ID))
 
-		revived, err := store.AddSubscription(ctxFor(t), testScope, "endpoint-1", orderCreated)
+		revived, err := addSubscription(t, store, testScope, "endpoint-1", orderCreated)
 		must.NoError(t, err)
 
 		test.EqOp(t, retired.ID, revived.ID)
@@ -296,9 +296,9 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 
 		saved := registerEndpoint(t, store, "endpoint-1", "order.created", "order.updated")
-		must.NoError(t, store.ArchiveSubscription(ctxFor(t), testScope, subscriptionFor(t, saved, orderCreated).ID))
+		must.NoError(t, archiveSubscription(t, store, testScope, subscriptionFor(t, saved, orderCreated).ID))
 
-		listed, err := store.ListSubscriptions(ctxFor(t), testScope, "endpoint-1", filtering.DefaultQueryFilter())
+		listed, err := store.ListSubscriptions(ctxFor(t), readerOf(t, store), testScope, "endpoint-1", filtering.DefaultQueryFilter())
 		must.NoError(t, err)
 
 		must.SliceLen(t, 1, listed.Data)
@@ -316,20 +316,20 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		theirs := registerScopedEndpoint(t, store, otherScope, "endpoint-1", "order.created")
 		subscription := subscriptionFor(t, theirs, orderCreated)
 
-		_, err := store.GetSubscription(ctxFor(t), testScope, subscription.ID)
+		_, err := store.GetSubscription(ctxFor(t), readerOf(t, store), testScope, subscription.ID)
 		test.ErrorIs(t, err, sql.ErrNoRows)
 
-		listed, listErr := store.ListSubscriptions(ctxFor(t), testScope, "endpoint-1", nil)
+		listed, listErr := store.ListSubscriptions(ctxFor(t), readerOf(t, store), testScope, "endpoint-1", nil)
 		must.NoError(t, listErr)
 		test.SliceEmpty(t, listed.Data)
 
-		_, addErr := store.AddSubscription(ctxFor(t), testScope, "endpoint-1", orderUpdated)
+		_, addErr := addSubscription(t, store, testScope, "endpoint-1", orderUpdated)
 		test.ErrorIs(t, addErr, sql.ErrNoRows)
 
 		// The archive matches nothing, and the owner's row is untouched.
-		must.NoError(t, store.ArchiveSubscription(ctxFor(t), testScope, subscription.ID))
+		must.NoError(t, archiveSubscription(t, store, testScope, subscription.ID))
 
-		still, readErr := store.GetSubscription(ctxFor(t), otherScope, subscription.ID)
+		still, readErr := store.GetSubscription(ctxFor(t), readerOf(t, store), otherScope, subscription.ID)
 		must.NoError(t, readErr)
 		test.False(t, still.Archived())
 	})
@@ -340,16 +340,16 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		_, err := store.AddSubscription(ctxFor(t), tenancy.Scope{}, "endpoint-1", orderCreated)
+		_, err := addSubscription(t, store, tenancy.Scope{}, "endpoint-1", orderCreated)
 		test.ErrorIs(t, err, ErrNoScope)
 
-		_, err = store.GetSubscription(ctxFor(t), tenancy.Scope{}, "subscription-1")
+		_, err = store.GetSubscription(ctxFor(t), readerOf(t, store), tenancy.Scope{}, "subscription-1")
 		test.ErrorIs(t, err, ErrNoScope)
 
-		_, err = store.ListSubscriptions(ctxFor(t), tenancy.Scope{}, "endpoint-1", nil)
+		_, err = store.ListSubscriptions(ctxFor(t), readerOf(t, store), tenancy.Scope{}, "endpoint-1", nil)
 		test.ErrorIs(t, err, ErrNoScope)
 
-		test.ErrorIs(t, store.ArchiveSubscription(ctxFor(t), tenancy.Scope{}, "subscription-1"), ErrNoScope)
+		test.ErrorIs(t, archiveSubscription(t, store, tenancy.Scope{}, "subscription-1"), ErrNoScope)
 	})
 
 	t.Run("refuses to subscribe to an empty event type", func(t *testing.T) {
@@ -359,7 +359,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		registerEndpoint(t, store, "endpoint-1", "order.created")
 
-		_, err := store.AddSubscription(ctxFor(t), testScope, "endpoint-1", "")
+		_, err := addSubscription(t, store, testScope, "endpoint-1", "")
 		test.ErrorIs(t, err, ErrEmptyEventType)
 	})
 
@@ -380,9 +380,9 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 			Secret:        Secret{Current: []byte("current")},
 			Subscriptions: SubscribeTo(orderCreated),
 		}
-		must.NoError(t, store.SaveEndpoint(ctxFor(t), saved))
+		must.NoError(t, saveEndpoint(t, store, testScope, saved))
 
-		got, err := store.GetEndpoint(ctxFor(t), testScope, "endpoint-1")
+		got, err := store.GetEndpoint(ctxFor(t), readerOf(t, store), testScope, "endpoint-1")
 		must.NoError(t, err)
 
 		test.EqOp(t, "billing exports", got.Name)
@@ -393,9 +393,9 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		test.False(t, got.Archived())
 
 		// Archival is representable rather than merely happening in the column.
-		must.NoError(t, store.ArchiveEndpoint(ctxFor(t), testScope, "endpoint-1"))
+		must.NoError(t, archiveEndpoint(t, store, testScope, "endpoint-1"))
 
-		archived, readErr := store.GetEndpoint(ctxFor(t), testScope, "endpoint-1")
+		archived, readErr := store.GetEndpoint(ctxFor(t), readerOf(t, store), testScope, "endpoint-1")
 		must.NoError(t, readErr)
 		test.True(t, archived.Archived())
 	})
@@ -410,7 +410,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		registerEndpoint(t, store, "endpoint-1", "order.created")
 
-		got, err := store.GetEndpoint(ctxFor(t), testScope, "endpoint-1")
+		got, err := store.GetEndpoint(ctxFor(t), readerOf(t, store), testScope, "endpoint-1")
 		must.NoError(t, err)
 
 		test.ErrorIs(t, got.CreatedBy.Validate(), ErrNoScope)
@@ -431,9 +431,9 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 			Secret:        Secret{Current: []byte("current")},
 			Subscriptions: SubscribeTo(orderCreated),
 		}
-		must.NoError(t, store.SaveEndpoint(ctxFor(t), saved))
+		must.NoError(t, saveEndpoint(t, store, testScope, saved))
 
-		got, err := store.GetEndpoint(ctxFor(t), testScope, "endpoint-1")
+		got, err := store.GetEndpoint(ctxFor(t), readerOf(t, store), testScope, "endpoint-1")
 		must.NoError(t, err)
 
 		test.True(t, got.CreatedBy.IsGlobal())
@@ -456,7 +456,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 			Secret:        Secret{Current: []byte("current")},
 			Subscriptions: SubscribeTo(orderCreated),
 		}
-		must.NoError(t, store.SaveEndpoint(ctxFor(t), saved))
+		must.NoError(t, saveEndpoint(t, store, testScope, saved))
 
 		dispatchTo(t, store, &Delivery{EventType: orderCreated, Payload: testBody}, baseTime, "endpoint-1")
 
@@ -493,10 +493,10 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		disabled := registerEndpoint(t, store, "disabled", "order.created")
 		disabled.Disabled = true
-		must.NoError(t, store.SaveEndpoint(ctxFor(t), disabled))
+		must.NoError(t, saveEndpoint(t, store, testScope, disabled))
 
 		registerEndpoint(t, store, "archived", "order.created")
-		must.NoError(t, store.ArchiveEndpoint(ctxFor(t), testScope, "archived"))
+		must.NoError(t, archiveEndpoint(t, store, testScope, "archived"))
 
 		test.Eq(t, []string{"live"}, idsOf(endpointsFor(t, store, "order.created")))
 	})
@@ -509,9 +509,9 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		registerEndpoint(t, store, "endpoint-1", "order.created")
 		registerEndpoint(t, store, "endpoint-2", "order.created")
 		registerEndpoint(t, store, "endpoint-3", "order.created")
-		must.NoError(t, store.ArchiveEndpoint(ctxFor(t), testScope, "endpoint-2"))
+		must.NoError(t, archiveEndpoint(t, store, testScope, "endpoint-2"))
 
-		listed, err := store.ListEndpoints(ctxFor(t), testScope, filtering.DefaultQueryFilter())
+		listed, err := store.ListEndpoints(ctxFor(t), readerOf(t, store), testScope, filtering.DefaultQueryFilter())
 		must.NoError(t, err)
 
 		test.SliceLen(t, 2, listed.Data)
@@ -553,7 +553,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		// Absent rather than forbidden: it is not in this registry, and saying
 		// so keeps the read from being an oracle for another scope's IDs.
-		_, err := store.GetEndpoint(ctxFor(t), testScope, "endpoint-1")
+		_, err := store.GetEndpoint(ctxFor(t), readerOf(t, store), testScope, "endpoint-1")
 		test.ErrorIs(t, err, sql.ErrNoRows)
 	})
 
@@ -566,7 +566,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		registerScopedEndpoint(t, store, otherScope, "endpoint-2", "order.created")
 		registerScopedEndpoint(t, store, otherScope, "endpoint-3", "order.created")
 
-		listed, err := store.ListEndpoints(ctxFor(t), testScope, filtering.DefaultQueryFilter())
+		listed, err := store.ListEndpoints(ctxFor(t), readerOf(t, store), testScope, filtering.DefaultQueryFilter())
 		must.NoError(t, err)
 
 		must.SliceLen(t, 1, listed.Data)
@@ -583,7 +583,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 		registerScopedEndpoint(t, store, otherScope, "endpoint-1", "order.created")
 
-		got, err := store.GetEndpoint(ctxFor(t), otherScope, "endpoint-1")
+		got, err := store.GetEndpoint(ctxFor(t), readerOf(t, store), otherScope, "endpoint-1")
 		must.NoError(t, err)
 		test.EqOp(t, otherScope, got.Scope)
 	})
@@ -594,7 +594,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 		registerScopedEndpoint(t, store, otherScope, "endpoint-1", "order.created")
 
-		must.NoError(t, store.ArchiveEndpoint(ctxFor(t), testScope, "endpoint-1"))
+		must.NoError(t, archiveEndpoint(t, store, testScope, "endpoint-1"))
 
 		// Still live, and still delivering, for the scope that owns it.
 		test.SliceLen(t, 1, scopedEndpointsFor(t, store, otherScope, "order.created"))
@@ -608,9 +608,8 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 		registerScopedEndpoint(t, store, otherScope, "endpoint-1", "order.created")
 
-		err := store.SaveEndpoint(ctxFor(t), &Endpoint{
+		err := saveEndpoint(t, store, testScope, &Endpoint{
 			ID:            "endpoint-1",
-			Scope:         testScope,
 			URL:           "https://93.184.216.34/attacker",
 			ContentType:   DefaultContentType,
 			Secret:        Secret{Current: []byte("attacker")},
@@ -619,7 +618,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		test.ErrorIs(t, err, ErrEndpointOutOfScope)
 
 		// And the owner's row is untouched.
-		got, readErr := store.GetEndpoint(ctxFor(t), otherScope, "endpoint-1")
+		got, readErr := store.GetEndpoint(ctxFor(t), readerOf(t, store), otherScope, "endpoint-1")
 		must.NoError(t, readErr)
 		test.EqOp(t, "https://93.184.216.34/hooks/endpoint-1", got.URL)
 		test.Eq(t, []byte("secret-endpoint-1"), got.Secret.Current)
@@ -640,13 +639,13 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 			AttemptCount: 1, StatusCode: 200, CreatedAt: baseTime,
 		}))
 
-		listed, err := store.ListAttempts(ctxFor(t), testScope, delivery.ID, filtering.DefaultQueryFilter())
+		listed, err := store.ListAttempts(ctxFor(t), readerOf(t, store), testScope, delivery.ID, filtering.DefaultQueryFilter())
 		must.NoError(t, err)
 		test.SliceEmpty(t, listed.Data)
 		test.EqOp(t, uint64(0), listed.TotalCount)
 
 		// The scope that owns it sees the whole log.
-		owned, err := store.ListAttempts(ctxFor(t), otherScope, delivery.ID, filtering.DefaultQueryFilter())
+		owned, err := store.ListAttempts(ctxFor(t), readerOf(t, store), otherScope, delivery.ID, filtering.DefaultQueryFilter())
 		must.NoError(t, err)
 		test.SliceLen(t, 1, owned.Data)
 	})
@@ -692,17 +691,17 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		var unset tenancy.Scope
 
-		_, err := store.GetEndpoint(ctxFor(t), unset, "endpoint-1")
+		_, err := store.GetEndpoint(ctxFor(t), readerOf(t, store), unset, "endpoint-1")
 		test.ErrorIs(t, err, ErrNoScope)
 
-		_, err = store.ListEndpoints(ctxFor(t), unset, filtering.DefaultQueryFilter())
+		_, err = store.ListEndpoints(ctxFor(t), readerOf(t, store), unset, filtering.DefaultQueryFilter())
 		test.ErrorIs(t, err, ErrNoScope)
 
-		_, err = store.ListAttempts(ctxFor(t), unset, "delivery-1", filtering.DefaultQueryFilter())
+		_, err = store.ListAttempts(ctxFor(t), readerOf(t, store), unset, "delivery-1", filtering.DefaultQueryFilter())
 		test.ErrorIs(t, err, ErrNoScope)
 
-		test.ErrorIs(t, store.ArchiveEndpoint(ctxFor(t), unset, "endpoint-1"), ErrNoScope)
-		test.ErrorIs(t, store.SaveEndpoint(ctxFor(t), &Endpoint{ID: "endpoint-2"}), ErrNoScope)
+		test.ErrorIs(t, archiveEndpoint(t, store, unset, "endpoint-1"), ErrNoScope)
+		test.ErrorIs(t, saveEndpoint(t, store, unset, &Endpoint{ID: "endpoint-2"}), ErrNoScope)
 
 		must.NoError(t, env.client.WithTransaction(ctxFor(t), func(q database.Tx) error {
 			_, forEventErr := store.EndpointsForEvent(ctxFor(t), q, unset, "order.created")
@@ -985,7 +984,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 			Duration: 120 * time.Millisecond, CreatedAt: baseTime.Add(time.Minute),
 		}))
 
-		listed, err := store.ListAttempts(ctxFor(t), testScope, delivery.ID, filtering.DefaultQueryFilter())
+		listed, err := store.ListAttempts(ctxFor(t), readerOf(t, store), testScope, delivery.ID, filtering.DefaultQueryFilter())
 		must.NoError(t, err)
 		must.SliceLen(t, 2, listed.Data)
 		test.EqOp(t, uint64(2), listed.TotalCount)
@@ -1126,7 +1125,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		test.EqOp(t, int64(1), reaped)
 
 		// The log goes with it, so a reaped delivery leaves nothing behind.
-		listed, err := store.ListAttempts(ctxFor(t), testScope, delivery.ID, filtering.DefaultQueryFilter())
+		listed, err := store.ListAttempts(ctxFor(t), readerOf(t, store), testScope, delivery.ID, filtering.DefaultQueryFilter())
 		must.NoError(t, err)
 		test.SliceEmpty(t, listed.Data)
 	})
@@ -1159,7 +1158,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 			&Delivery{EventType: "order.created", Payload: testBody}, baseTime, "endpoint-1")
 
 		endpoint.Secret = Secret{Current: []byte("rotated"), Previous: []byte("secret-endpoint-1")}
-		must.NoError(t, store.SaveEndpoint(ctxFor(t), endpoint))
+		must.NoError(t, saveEndpoint(t, store, testScope, endpoint))
 
 		claimed := claimAll(t, store, baseTime)
 		must.SliceLen(t, 1, claimed)
@@ -1178,7 +1177,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 			&Delivery{EventType: "order.created", Payload: testBody}, baseTime, "endpoint-1")
 
 		endpoint.Disabled = true
-		must.NoError(t, store.SaveEndpoint(ctxFor(t), endpoint))
+		must.NoError(t, saveEndpoint(t, store, testScope, endpoint))
 
 		test.SliceEmpty(t, claimAll(t, store, baseTime))
 	})
@@ -1201,14 +1200,14 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		filter := filtering.DefaultQueryFilter()
 		filter.MaxResponseSize = new(uint16(2))
 
-		first, err := store.ListEndpoints(ctxFor(t), testScope, filter)
+		first, err := store.ListEndpoints(ctxFor(t), readerOf(t, store), testScope, filter)
 		must.NoError(t, err)
 		must.SliceLen(t, 2, first.Data)
 		test.EqOp(t, "endpoint-2", first.Cursor)
 
 		filter.Cursor = &first.Cursor
 
-		second, err := store.ListEndpoints(ctxFor(t), testScope, filter)
+		second, err := store.ListEndpoints(ctxFor(t), readerOf(t, store), testScope, filter)
 		must.NoError(t, err)
 		must.SliceLen(t, 1, second.Data)
 		test.EqOp(t, "endpoint-3", second.Data[0].ID)
@@ -1237,13 +1236,13 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		filter := filtering.DefaultQueryFilter()
 		filter.MaxResponseSize = new(uint16(2))
 
-		first, err := store.ListAttempts(ctxFor(t), testScope, delivery.ID, filter)
+		first, err := store.ListAttempts(ctxFor(t), readerOf(t, store), testScope, delivery.ID, filter)
 		must.NoError(t, err)
 		must.SliceLen(t, 2, first.Data)
 
 		filter.Cursor = &first.Cursor
 
-		second, err := store.ListAttempts(ctxFor(t), testScope, delivery.ID, filter)
+		second, err := store.ListAttempts(ctxFor(t), readerOf(t, store), testScope, delivery.ID, filter)
 		must.NoError(t, err)
 		test.SliceLen(t, 1, second.Data)
 		test.EqOp(t, uint64(3), second.TotalCount)
@@ -1256,15 +1255,20 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 		registerEndpoint(t, store, "endpoint-1", "order.created")
 
-		listed, err := store.ListEndpoints(ctxFor(t), testScope, nil)
+		listed, err := store.ListEndpoints(ctxFor(t), readerOf(t, store), testScope, nil)
 		must.NoError(t, err)
 		test.SliceLen(t, 1, listed.Data)
 	})
 
+	// Every consumer method runs on an executor its caller supplies, so there is
+	// none of them that can fall back to a handle of the store's own. The
+	// machinery is deliberately absent from this list: it takes no executor to be
+	// nil.
 	t.Run("guards against a nil executor", func(t *testing.T) {
 		t.Parallel()
 
 		store := env.newStore(t)
+		filter := filtering.DefaultQueryFilter()
 
 		_, err := store.EndpointsForEvent(ctxFor(t), nil, testScope, "order.created")
 		test.ErrorIs(t, err, ErrNilExecutor)
@@ -1273,6 +1277,178 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 			store.Enqueue(ctxFor(t), nil, &Delivery{ID: "d", Scope: testScope}, []string{"e"}, baseTime),
 			ErrNilExecutor,
 		)
+
+		test.ErrorIs(t, store.SaveEndpoint(ctxFor(t), nil, testScope, &Endpoint{ID: "e"}), ErrNilExecutor)
+		test.ErrorIs(t, store.ArchiveEndpoint(ctxFor(t), nil, testScope, "e"), ErrNilExecutor)
+		test.ErrorIs(t, store.ArchiveSubscription(ctxFor(t), nil, testScope, "s"), ErrNilExecutor)
+
+		_, err = store.AddSubscription(ctxFor(t), nil, testScope, "e", orderCreated)
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.GetEndpoint(ctxFor(t), nil, testScope, "e")
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.ListEndpoints(ctxFor(t), nil, testScope, filter)
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.GetSubscription(ctxFor(t), nil, testScope, "s")
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.ListSubscriptions(ctxFor(t), nil, testScope, "e", filter)
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.ListAttempts(ctxFor(t), nil, testScope, "d", filter)
+		test.ErrorIs(t, err, ErrNilExecutor)
+	})
+
+	// The property the read shape exists for, and the reason a read takes the
+	// wider database.SQLQueryExecutor rather than a reader: a caller inside a
+	// transaction reads that transaction. Pinned on all four reads at once,
+	// because a read narrowed back to Reader() would pass every other case in
+	// this suite.
+	t.Run("a read on the caller's transaction sees that transaction's writes", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		must.NoError(t, inTx(t, store, func(tx database.Tx) error {
+			endpoint := &Endpoint{
+				ID:            "endpoint-1",
+				URL:           "https://93.184.216.34/hooks",
+				ContentType:   DefaultContentType,
+				Secret:        Secret{Current: []byte("secret")},
+				Subscriptions: SubscribeTo(orderCreated),
+			}
+			if err := store.SaveEndpoint(ctxFor(t), tx, testScope, endpoint); err != nil {
+				return err
+			}
+
+			got, err := store.GetEndpoint(ctxFor(t), tx, testScope, "endpoint-1")
+			if err != nil {
+				return err
+			}
+
+			test.EqOp(t, "endpoint-1", got.ID)
+
+			listed, err := store.ListEndpoints(ctxFor(t), tx, testScope, filtering.DefaultQueryFilter())
+			if err != nil {
+				return err
+			}
+
+			test.SliceLen(t, 1, listed.Data)
+
+			subscription := subscriptionFor(t, endpoint, orderCreated)
+
+			read, err := store.GetSubscription(ctxFor(t), tx, testScope, subscription.ID)
+			if err != nil {
+				return err
+			}
+
+			test.EqOp(t, subscription.ID, read.ID)
+
+			subscriptions, err := store.ListSubscriptions(ctxFor(t), tx, testScope, "endpoint-1",
+				filtering.DefaultQueryFilter())
+			if err != nil {
+				return err
+			}
+
+			test.SliceLen(t, 1, subscriptions.Data)
+
+			return nil
+		}))
+
+		// And it is still there once the transaction committed, which is what
+		// distinguishes the read above from a read of nothing.
+		_, err := store.GetEndpoint(ctxFor(t), readerOf(t, store), testScope, "endpoint-1")
+		test.NoError(t, err)
+	})
+
+	// The other half, and the whole case for the port: a write handed the
+	// caller's transaction unwinds with it. A store that opened its own would
+	// have committed the endpoint while the audit entry beside it was refused.
+	t.Run("a write the caller unwinds leaves nothing behind", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+		registerEndpoint(t, store, "endpoint-1", "order.created")
+
+		refused := platformerrors.New("the caller changed its mind")
+
+		err := inTx(t, store, func(tx database.Tx) error {
+			if saveErr := store.SaveEndpoint(ctxFor(t), tx, testScope, &Endpoint{
+				ID:            "endpoint-2",
+				URL:           "https://93.184.216.34/hooks/2",
+				ContentType:   DefaultContentType,
+				Secret:        Secret{Current: []byte("secret")},
+				Subscriptions: SubscribeTo(orderCreated),
+			}); saveErr != nil {
+				return saveErr
+			}
+
+			if _, addErr := store.AddSubscription(ctxFor(t), tx, testScope, "endpoint-1", orderUpdated); addErr != nil {
+				return addErr
+			}
+
+			if archiveErr := store.ArchiveEndpoint(ctxFor(t), tx, testScope, "endpoint-1"); archiveErr != nil {
+				return archiveErr
+			}
+
+			return refused
+		})
+		test.ErrorIs(t, err, refused)
+
+		_, readErr := store.GetEndpoint(ctxFor(t), readerOf(t, store), testScope, "endpoint-2")
+		test.Error(t, readErr)
+
+		survivor, readErr := store.GetEndpoint(ctxFor(t), readerOf(t, store), testScope, "endpoint-1")
+		must.NoError(t, readErr)
+		test.False(t, survivor.Archived())
+		test.Eq(t, []EventType{orderCreated}, survivor.EventTypes())
+	})
+
+	// The scope is the argument, and an endpoint carrying one that disagrees is a
+	// caller holding somebody else's row. Refused rather than corrected, and
+	// before any statement runs.
+	t.Run("refuses an endpoint naming a different scope than the write", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		err := saveEndpoint(t, store, testScope, &Endpoint{
+			ID:            "endpoint-1",
+			Scope:         otherScope,
+			URL:           "https://93.184.216.34/hooks",
+			ContentType:   DefaultContentType,
+			Secret:        Secret{Current: []byte("secret")},
+			Subscriptions: SubscribeTo(orderCreated),
+		})
+		test.ErrorIs(t, err, ErrScopeMismatch)
+
+		_, readErr := store.GetEndpoint(ctxFor(t), readerOf(t, store), testScope, "endpoint-1")
+		test.Error(t, readErr)
+	})
+
+	// The ordinary case: the caller names the scope and the endpoint takes it,
+	// so what the row holds is what the statement bound.
+	t.Run("an endpoint naming no scope adopts the write's", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		endpoint := &Endpoint{
+			ID:            "endpoint-1",
+			URL:           "https://93.184.216.34/hooks",
+			ContentType:   DefaultContentType,
+			Secret:        Secret{Current: []byte("secret")},
+			Subscriptions: SubscribeTo(orderCreated),
+		}
+		must.NoError(t, saveEndpoint(t, store, otherScope, endpoint))
+
+		test.EqOp(t, otherScope, endpoint.Scope)
+
+		got, err := store.GetEndpoint(ctxFor(t), readerOf(t, store), otherScope, "endpoint-1")
+		must.NoError(t, err)
+		test.EqOp(t, otherScope, got.Scope)
 	})
 
 	t.Run("guards against nil inputs", func(t *testing.T) {
@@ -1280,7 +1456,7 @@ func runStoreSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		test.ErrorIs(t, store.SaveEndpoint(ctxFor(t), nil), ErrNilEndpoint)
+		test.ErrorIs(t, saveEndpoint(t, store, testScope, nil), ErrNilEndpoint)
 		test.ErrorIs(t, store.RecordAttempt(ctxFor(t), nil), platformerrors.ErrNilInputParameter)
 
 		must.NoError(t, env.client.WithTransaction(ctxFor(t), func(q database.Tx) error {
@@ -1324,15 +1500,14 @@ func TestSQLStore_StampsFromTheDatabaseClock(T *testing.T) {
 
 		before := time.Now().UTC().Add(-time.Minute)
 
-		must.NoError(t, store.SaveEndpoint(t.Context(), &Endpoint{
+		must.NoError(t, saveEndpoint(t, store, testScope, &Endpoint{
 			ID:            "endpoint",
-			Scope:         testScope,
 			URL:           "https://example.com/hook",
 			Secret:        Secret{Current: []byte("s3cr3t")},
 			Subscriptions: SubscribeTo("user.created"),
 		}))
 
-		saved, err := store.GetEndpoint(t.Context(), testScope, "endpoint")
+		saved, err := store.GetEndpoint(t.Context(), readerOf(t, store), testScope, "endpoint")
 		must.NoError(t, err)
 
 		test.True(t, saved.CreatedAt.After(before),
@@ -1341,9 +1516,9 @@ func TestSQLStore_StampsFromTheDatabaseClock(T *testing.T) {
 		must.SliceLen(t, 1, saved.Subscriptions)
 		test.True(t, saved.Subscriptions[0].CreatedAt.After(before))
 
-		must.NoError(t, store.ArchiveEndpoint(t.Context(), testScope, "endpoint"))
+		must.NoError(t, archiveEndpoint(t, store, testScope, "endpoint"))
 
-		archived, err := store.GetEndpoint(t.Context(), testScope, "endpoint")
+		archived, err := store.GetEndpoint(t.Context(), readerOf(t, store), testScope, "endpoint")
 		must.NoError(t, err)
 		must.NotNil(t, archived.ArchivedAt)
 		test.True(t, archived.ArchivedAt.After(before),

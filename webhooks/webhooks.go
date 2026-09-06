@@ -98,6 +98,19 @@ var (
 	// a write must not be told its endpoint was saved when it was not.
 	ErrEndpointOutOfScope = platformerrors.New("webhook endpoint ID is registered in another scope")
 
+	// ErrScopeMismatch indicates a save whose Endpoint.Scope names a different
+	// tenant than the scope the call named.
+	//
+	// The argument is what the statement binds, so the two disagreeing is a
+	// caller holding one tenant's endpoint and writing it into another — either a
+	// stale value or a mix-up, and neither is a thing to guess at. An endpoint
+	// that names no scope adopts the argument instead.
+	//
+	// It is distinct from ErrEndpointOutOfScope, which is about a row already in
+	// the database: this one is caught before any statement runs, by comparing
+	// two things the caller handed over in the same call.
+	ErrScopeMismatch = platformerrors.New("webhook endpoint names a different scope than the write")
+
 	// ErrEndpointDisabled indicates a Replay targeting an endpoint that is
 	// disabled. Dispatch skips disabled endpoints silently — that is what
 	// disabling means — but an operator naming one explicitly is told why
@@ -112,8 +125,11 @@ var (
 	// so a caller may check either.
 	ErrNilStore = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil webhook store")
 
-	// ErrNilExecutor indicates Dispatch was called without a query executor. It
-	// wraps errors.ErrNilInputParameter, so a caller may check either.
+	// ErrNilExecutor indicates a call that was handed no executor. Every consumer
+	// method on a Store runs on one the caller supplies — a database.Tx for a
+	// write, a database.SQLQueryExecutor for a read — so there is no such method
+	// that can fall back to a handle of the store's own. It wraps
+	// errors.ErrNilInputParameter, so a caller may check either.
 	ErrNilExecutor = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil query executor")
 
 	// ErrNilDelivery indicates Dispatch was called with no Delivery.
