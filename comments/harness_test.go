@@ -141,6 +141,59 @@ func (e *storeEnv) newStoreWithPrefix(tb testing.TB, opts ...SQLStoreOption) (st
 	return store, prefix
 }
 
+// inTx runs fn inside a transaction on the environment's database and reports
+// what fn returned.
+//
+// Every write in this store takes the caller's transaction, so a test that wants
+// a comment written opens one — which is what a consumer does. It hands back
+// fn's error rather than asserting on it, because a refused write is what half of
+// these cases are about and RunInTransaction returns the callback's error
+// unwrapped.
+func (e *storeEnv) inTx(tb testing.TB, fn func(tx database.Tx) error) error {
+	tb.Helper()
+
+	return e.client.WithTransaction(tb.Context(), fn)
+}
+
+// reader is the executor an ordinary read runs on: the client's, outside any
+// transaction. The cases about a read that joins a transaction pass the Tx
+// instead, and they are in the transactions suite.
+func (e *storeEnv) reader() database.SQLQueryExecutor { return e.client.Reader() }
+
+// create writes one comment in a transaction of its own and reports what the
+// write returned.
+//
+// The transaction is a detail here rather than the subject: these cases are about
+// what the write checks, and a consumer that has nothing to commit alongside
+// opens exactly this. What a comment commits *with* is the transactions suite.
+func (e *storeEnv) create(tb testing.TB, store *SQLStore, scope tenancy.Scope, comment *Comment) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.CreateComment(tb.Context(), tx, scope, comment)
+	})
+}
+
+// update revises one comment in a transaction of its own and reports what the
+// write returned.
+func (e *storeEnv) update(tb testing.TB, store *SQLStore, scope tenancy.Scope, comment *Comment) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.UpdateComment(tb.Context(), tx, scope, comment)
+	})
+}
+
+// archive removes one comment from the discussion in a transaction of its own
+// and reports what the write returned.
+func (e *storeEnv) archive(tb testing.TB, store *SQLStore, scope tenancy.Scope, commentID string) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.ArchiveComment(tb.Context(), tx, scope, commentID)
+	})
+}
+
 // newComment is one row's worth of input, with everything the store requires
 // filled in.
 func newComment(author, body string) *Comment {
@@ -153,11 +206,12 @@ func newComment(author, body string) *Comment {
 }
 
 // written creates a comment and returns it, for the tests whose subject is what
-// happens next rather than the write.
-func written(tb testing.TB, store *SQLStore, comment *Comment) *Comment {
+// happens next rather than the write. It writes under the scope the comment
+// carries, which is what a fixture means by naming one.
+func written(tb testing.TB, e *storeEnv, store *SQLStore, comment *Comment) *Comment {
 	tb.Helper()
 
-	must.NoError(tb, store.CreateComment(tb.Context(), comment))
+	must.NoError(tb, e.create(tb, store, comment.Scope, comment))
 
 	return comment
 }

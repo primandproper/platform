@@ -51,9 +51,9 @@ What that means in practice:
 
   - The fix is the consumer's, and it has one shape:
     [Store.DeleteCommentsForTarget], called from the transaction that removes the
-    target. It takes a database.Tx rather than reaching for the store's own
-    writer precisely so that it can be — a sweep outside that transaction is a
-    window in which the target is gone and its comments are not.
+    target. It takes a database.Tx precisely so that it can be — a sweep outside
+    that transaction is a window in which the target is gone and its comments are
+    not.
 
   - Where the deletion is a person rather than a thing, the same job belongs to
     an eraser: comments/privacy ships one, and registering it puts a subject's
@@ -88,14 +88,17 @@ reply, [Store.ListReplies] still finds it by parent id, and "in reply to a
 removed comment" is what every discussion UI already renders. A consumer that
 wants the subtree gone enumerates the replies and archives them too.
 
-# Joining a caller's transaction
+# The transaction is the caller's
 
-Every write here has a form that runs inside a transaction the caller owns:
-[Store.CreateCommentTx], [Store.UpdateCommentTx] and [Store.ArchiveCommentTx],
-plus the two deletes, which have no other form. Each takes a database.Tx rather
-than reaching for the store's own writer, and the type is what says so — only
-database.RunInTransaction produces one, so the obligation is the compiler's
-rather than a doc comment's.
+Every write runs inside a transaction the caller owns, and none of them opens
+one. Each takes a database.Tx rather than reaching for a writer of the store's
+own, and the type is what says so — only database.RunInTransaction produces one,
+so the obligation is the compiler's rather than a doc comment's. A consumer with
+nothing to join writes:
+
+	err := client.WithTransaction(ctx, func(tx database.Tx) error {
+		return store.CreateComment(ctx, tx, scope, comment)
+	})
 
 The reason is that a comment is rarely the only row a consumer writes. An audit
 entry naming who said it and a data change event on an outbox somebody fans out
@@ -103,18 +106,28 @@ are the ordinary companions, and a companion written after the comment's own
 write has committed is a companion that can go missing while the comment stays.
 The gap is narrow and it is one-directional — a comment with no event, never an
 event naming a comment that was not written — and nothing outside this package
-can close it, which is why these are here rather than left to a consumer to work
-around.
+can close it. A write that could still be called without a transaction is a write
+that will be, so there is no such call.
+
+The reads take the wider database.SQLQueryExecutor, which is the asymmetry doing
+the work: a caller listing a discussion for a page passes Client.Reader() and a
+caller that has just written a comment passes the same Tx it wrote through, and
+sees it. Neither needs a second method.
 
 What does not move into that transaction is the target existence hook, which
 takes no executor and reads on whatever connection the consumer built it over.
-[Store.CreateCommentTx] says what that costs.
+[Store.CreateComment] says what that costs.
 
 # Tenancy
 
 Every read and write takes a tenancy.Scope, and there is no variant of anything
 that omits one. A deployment with a single tenant passes tenancy.Global()
 everywhere and behaves exactly as it would have without the column.
+
+That includes the two writes that take a whole [Comment]: the scope is the
+argument's, not the value's. A Comment whose Scope names a different tenant is
+[ErrScopeMismatch] and one that names none adopts the argument — see [Store] for
+why the entity's field is not what the statement binds.
 
 There is deliberately no cross-scope listing — see [Store] for what that costs
 and why the alternative is worse.

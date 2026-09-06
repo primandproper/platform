@@ -4,14 +4,18 @@ import (
 	"context"
 
 	"github.com/primandproper/platform-go/v14/comments/internal/commentsdb"
+	"github.com/primandproper/platform-go/v14/database"
 	"github.com/primandproper/platform-go/v14/filtering"
 	"github.com/primandproper/platform-go/v14/observability"
 	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
-// GetComment reads one of the scope's live comments.
+// GetComment reads one of the scope's live comments, on the caller's executor —
+// so a caller inside a transaction reads the comment that transaction has
+// written and not yet committed.
 func (s *SQLStore) GetComment(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	commentID string,
 ) (*Comment, error) {
@@ -21,11 +25,15 @@ func (s *SQLStore) GetComment(
 	)
 	defer op.End()
 
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "reading comment %q", commentID)
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "reading comment %q", commentID)
 	}
 
-	row, err := s.q.GetComment(ctx, s.client.Reader(),
+	row, err := s.q.GetComment(ctx, q,
 		commentsdb.GetCommentParams{ID: commentID, Scope: scope})
 	if err != nil {
 		return nil, op.Error(notFound(err, ErrCommentNotFound), "reading comment %q", commentID)
@@ -37,6 +45,7 @@ func (s *SQLStore) GetComment(
 // ListRootComments pages the top level of one target's discussion.
 func (s *SQLStore) ListRootComments(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	target Target,
 	filter *filtering.QueryFilter,
@@ -48,7 +57,11 @@ func (s *SQLStore) ListRootComments(
 	)
 	defer op.End()
 
-	page, err := s.listLevel(ctx, op, scope, target, RootParentID, filter)
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "listing a target's root comments")
+	}
+
+	page, err := s.listLevel(ctx, op, q, scope, target, RootParentID, filter)
 	if err != nil {
 		return nil, op.Error(err, "listing a target's root comments")
 	}
@@ -59,6 +72,7 @@ func (s *SQLStore) ListRootComments(
 // ListReplies pages one root comment's replies.
 func (s *SQLStore) ListReplies(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	target Target,
 	parentID string,
@@ -72,6 +86,10 @@ func (s *SQLStore) ListReplies(
 	)
 	defer op.End()
 
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "listing a comment's replies")
+	}
+
 	// Refused rather than answered with the roots, which is what the empty
 	// parent selects in the column. A client that lost the parent id would
 	// otherwise be handed the top of the discussion as though it were one
@@ -80,7 +98,7 @@ func (s *SQLStore) ListReplies(
 		return nil, op.Error(ErrEmptyParent, "listing a comment's replies")
 	}
 
-	page, err := s.listLevel(ctx, op, scope, target, parentID, filter)
+	page, err := s.listLevel(ctx, op, q, scope, target, parentID, filter)
 	if err != nil {
 		return nil, op.Error(err, "listing a comment's replies")
 	}
@@ -100,6 +118,7 @@ func (s *SQLStore) ListReplies(
 func (s *SQLStore) listLevel(
 	ctx context.Context,
 	op observability.Operation,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	target Target,
 	parentID string,
@@ -117,11 +136,11 @@ func (s *SQLStore) listLevel(
 
 	rows, err := sortedRows(filter,
 		func() ([]commentsdb.ListCommentsRow, error) {
-			return s.q.ListComments(ctx, s.client.Reader(),
+			return s.q.ListComments(ctx, q,
 				listCommentsParams(scope, target, parentID, filter))
 		},
 		func() ([]commentsdb.ListCommentsDescendingRow, error) {
-			return s.q.ListCommentsDescending(ctx, s.client.Reader(),
+			return s.q.ListCommentsDescending(ctx, q,
 				commentsdb.ListCommentsDescendingParams(listCommentsParams(scope, target, parentID, filter)))
 		},
 		func(r commentsdb.ListCommentsDescendingRow) commentsdb.ListCommentsRow {
@@ -137,6 +156,7 @@ func (s *SQLStore) listLevel(
 // ListCommentsByTargetType pages every comment about one kind of thing.
 func (s *SQLStore) ListCommentsByTargetType(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	targetType TargetType,
 	filter *filtering.QueryFilter,
@@ -146,6 +166,10 @@ func (s *SQLStore) ListCommentsByTargetType(
 		observability.WithValue(targetTypeKey, targetType.String()),
 	)
 	defer op.End()
+
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "listing comments by target type")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "listing comments by target type")
@@ -162,11 +186,11 @@ func (s *SQLStore) ListCommentsByTargetType(
 
 	rows, err := sortedRows(filter,
 		func() ([]commentsdb.ListCommentsByTargetTypeRow, error) {
-			return s.q.ListCommentsByTargetType(ctx, s.client.Reader(),
+			return s.q.ListCommentsByTargetType(ctx, q,
 				listByTargetTypeParams(scope, targetType, filter))
 		},
 		func() ([]commentsdb.ListCommentsByTargetTypeDescendingRow, error) {
-			return s.q.ListCommentsByTargetTypeDescending(ctx, s.client.Reader(),
+			return s.q.ListCommentsByTargetTypeDescending(ctx, q,
 				commentsdb.ListCommentsByTargetTypeDescendingParams(
 					listByTargetTypeParams(scope, targetType, filter)))
 		},
@@ -185,6 +209,7 @@ func (s *SQLStore) ListCommentsByTargetType(
 // ListCommentsByAuthor pages what one person wrote within the scope.
 func (s *SQLStore) ListCommentsByAuthor(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	author string,
 	filter *filtering.QueryFilter,
@@ -194,6 +219,10 @@ func (s *SQLStore) ListCommentsByAuthor(
 		observability.WithValue(authorKey, author),
 	)
 	defer op.End()
+
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "listing comments by author")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "listing comments by author")
@@ -207,11 +236,11 @@ func (s *SQLStore) ListCommentsByAuthor(
 
 	rows, err := sortedRows(filter,
 		func() ([]commentsdb.ListCommentsByAuthorRow, error) {
-			return s.q.ListCommentsByAuthor(ctx, s.client.Reader(),
+			return s.q.ListCommentsByAuthor(ctx, q,
 				listByAuthorParams(scope, author, filter))
 		},
 		func() ([]commentsdb.ListCommentsByAuthorDescendingRow, error) {
-			return s.q.ListCommentsByAuthorDescending(ctx, s.client.Reader(),
+			return s.q.ListCommentsByAuthorDescending(ctx, q,
 				commentsdb.ListCommentsByAuthorDescendingParams(
 					listByAuthorParams(scope, author, filter)))
 		},

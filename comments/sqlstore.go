@@ -42,7 +42,6 @@ var _ Store = (*SQLStore)(nil)
 // storage can depend on that choice rather than on the seam every backing
 // shares.
 type SQLStore struct {
-	client  database.Client
 	q       commentsdb.Querier
 	o11y    observability.Observer
 	targets Targets
@@ -75,6 +74,14 @@ type SQLStore struct {
 // that, and a mismatch surfaces as a missing table on the first query rather
 // than at construction.
 //
+// The client is taken for its dialect and for nothing else, and the store keeps
+// no reference to it. Every write is handed a database.Tx and every read an
+// executor, so there is no statement this store runs on a connection of its own:
+// no Writer() for the writes, no Reader() for the reads, and no CurrentTime(),
+// because every timestamp in this table is the database server's. A consumer
+// with nothing to join opens a transaction with Client.WithTransaction and
+// passes the Tx it is handed.
+//
 // The target catalog is an option and it defaults to empty, which is a store
 // that refuses every write and answers every read. That is the same reading
 // webhooks takes of its event catalog, and it is the safe one: a store built
@@ -94,7 +101,6 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	}
 
 	s := &SQLStore{
-		client:  client,
 		prefix:  DefaultTablePrefix,
 		targets: Targets{},
 	}

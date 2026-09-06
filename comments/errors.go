@@ -15,9 +15,21 @@ var (
 	// ErrNilComment indicates a nil *Comment where one was required.
 	ErrNilComment = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil comment")
 
-	// ErrNilExecutor indicates a nil database.Tx handed to a write that runs
-	// inside somebody else's transaction.
+	// ErrNilExecutor indicates a nil executor. Every method here runs on one the
+	// caller supplies — a database.Tx for a write, an executor for a read — so
+	// there is no method that can fall back to a connection of the store's own.
 	ErrNilExecutor = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil query executor")
+
+	// ErrScopeMismatch indicates a write whose Comment.Scope names a different
+	// tenant than the scope the call named.
+	//
+	// The argument is what the statement binds, so the two disagreeing is a
+	// caller holding a comment from one tenant and writing it into another —
+	// either a stale value or a mix-up, and neither is a thing to guess at. It is
+	// the same reading ErrTargetMismatch takes of a reply that names a target its
+	// parent is not on: an unset field adopts, and a set one that disagrees is
+	// refused rather than corrected.
+	ErrScopeMismatch = platformerrors.New("comment names a different scope than the write")
 
 	// ErrCommentNotFound indicates a comment that does not exist in the scope
 	// that asked. One belonging to another scope reads as absent — which is what
