@@ -120,7 +120,7 @@ func TestQuotaEnforcer_InstrumentFailures(T *testing.T) {
 
 			env := newSQLiteEnv(t)
 
-			_, err := NewQuotaEnforcer(t.Context(), &EnforcerConfig{},
+			_, err := env.newEnforcer(t, &EnforcerConfig{},
 				env.newStore(t), newTestRegistry(t, BehaviorBlock, 10),
 				WithEnforcerMetricsProvider(failingInstrumentProvider(instrument)))
 

@@ -128,29 +128,17 @@ func (r *DurableRecorder) initInstruments() error {
 }
 
 // Record implements Recorder.
-func (r *DurableRecorder) Record(ctx context.Context, u ...Usage) error {
-	return r.record(ctx, nil, u)
-}
-
-// RecordTx is Record inside the caller's transaction, so usage commits with
-// whatever produced it.
-//
-// It is not on the Recorder interface because most call sites have no
-// transaction to offer and would be forced to invent one. The ones that do — a
-// row inserted and the storage it consumes, a message sent and the credit it
-// spends — reach for this, and get the guarantee that a crash between the work
-// and its usage record cannot leave the two disagreeing.
-func (r *DurableRecorder) RecordTx(ctx context.Context, q database.Tx, u ...Usage) error {
-	if q == nil {
+func (r *DurableRecorder) Record(ctx context.Context, tx database.Tx, u ...Usage) error {
+	if tx == nil {
 		return ErrNilExecutor
 	}
 
-	return r.record(ctx, q, u)
+	return r.record(ctx, tx, u)
 }
 
-// record is the shared body: prepare every record, then hand the survivors to
-// the store in configured chunks.
-func (r *DurableRecorder) record(ctx context.Context, q database.Tx, usages []Usage) error {
+// record prepares every usage record, then hands the survivors to the store in
+// configured chunks.
+func (r *DurableRecorder) record(ctx context.Context, tx database.Tx, usages []Usage) error {
 	ctx, op := r.o11y.Begin(ctx, observability.WithValue(batchSizeKey, len(usages)))
 	defer op.End()
 
@@ -171,20 +159,14 @@ func (r *DurableRecorder) record(ctx context.Context, q database.Tx, usages []Us
 		return nil
 	}
 
-	// Chunked so one Record call cannot exceed a driver's bind-parameter ceiling
-	// or hold one transaction open across an unbounded batch. Each chunk is its
-	// own transaction on the Record path; on the RecordTx path they share the
-	// caller's, which is the point of that path.
+	// Chunked so one store call cannot exceed a driver's bind-parameter ceiling.
+	// Every chunk runs in the caller's transaction, which is the point: a batch
+	// that fails partway leaves the caller holding a transaction they can unwind,
+	// rather than some chunks committed and the rest not.
 	for chunk := range chunks(entries, r.cfg.BatchSize) {
 		var result RecordResult
 
-		if q == nil {
-			result, err = r.store.Record(ctx, chunk, now)
-		} else {
-			result, err = r.store.RecordTx(ctx, q, chunk, now)
-		}
-
-		if err != nil {
+		if result, err = r.store.Record(ctx, tx, chunk, now); err != nil {
 			return op.Error(err, "recording metering usage")
 		}
 

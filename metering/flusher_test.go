@@ -20,6 +20,7 @@ import (
 // flusherEnv is one flusher with the pieces a test needs to reach around it.
 type flusherEnv struct {
 	flusher  *Flusher
+	db       *storeEnv
 	store    Store
 	reporter *recordingReporter
 	clock    *stubClock
@@ -32,12 +33,18 @@ func newTestFlusher(t *testing.T, mapper ProviderMapper, opts ...FlusherOption) 
 	env := newSQLiteEnv(t)
 	store := env.newStore(t)
 
-	return newTestFlusherOver(t, store, mapper, opts...)
+	return newTestFlusherOver(t, env, store, mapper, opts...)
 }
 
 // newTestFlusherOver is newTestFlusher over a store the caller supplies, for the
 // tests that need a partially broken one.
-func newTestFlusherOver(t *testing.T, store Store, mapper ProviderMapper, opts ...FlusherOption) *flusherEnv {
+func newTestFlusherOver(
+	t *testing.T,
+	db *storeEnv,
+	store Store,
+	mapper ProviderMapper,
+	opts ...FlusherOption,
+) *flusherEnv {
 	t.Helper()
 
 	c := newStubClock()
@@ -47,13 +54,14 @@ func newTestFlusherOver(t *testing.T, store Store, mapper ProviderMapper, opts .
 		append([]FlusherOption{WithFlusherClock(c)}, opts...)...)
 	must.NoError(t, err)
 
-	return &flusherEnv{flusher: flusher, store: store, reporter: reporter, clock: c}
+	return &flusherEnv{flusher: flusher, db: db, store: store, reporter: reporter, clock: c}
 }
 
 func TestNewFlusher(T *testing.T) {
 	T.Parallel()
 
-	store := newSQLiteEnv(T).newStore(T)
+	db := newSQLiteEnv(T)
+	store := db.newStore(T)
 	mapper := staticMapper("cus_123")
 
 	T.Run("refuses a nil config, store, mapper, or reporter", func(t *testing.T) {
@@ -124,7 +132,7 @@ func TestFlusher_Flush(T *testing.T) {
 
 		env := newTestFlusher(t, staticMapper("cus_123"))
 
-		must.NoError(t, mustRecord(t, env.store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env.db, env.store, newEntry("req-1", 42, AggregationSum)))
 
 		result, err := env.flusher.Flush(t.Context())
 		must.NoError(t, err)
@@ -150,11 +158,11 @@ func TestFlusher_Flush(T *testing.T) {
 
 		env := newTestFlusher(t, staticMapper("cus_123"))
 
-		must.NoError(t, mustRecord(t, env.store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env.db, env.store, newEntry("req-1", 42, AggregationSum)))
 		_, err := env.flusher.Flush(t.Context())
 		must.NoError(t, err)
 
-		must.NoError(t, mustRecord(t, env.store, newEntry("req-2", 8, AggregationSum)))
+		must.NoError(t, mustRecord(t, env.db, env.store, newEntry("req-2", 8, AggregationSum)))
 		_, err = env.flusher.Flush(t.Context())
 		must.NoError(t, err)
 
@@ -194,7 +202,7 @@ func TestFlusher_Flush(T *testing.T) {
 
 		env := newTestFlusher(t, staticMapper("cus_123"))
 
-		must.NoError(t, mustRecord(t, env.store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env.db, env.store, newEntry("req-1", 42, AggregationSum)))
 
 		_, err := env.flusher.Flush(t.Context())
 		must.NoError(t, err)
@@ -216,7 +224,7 @@ func TestFlusher_Flush(T *testing.T) {
 				return ProviderRef{}, platformerrors.Wrap(ErrNoProviderRef, "free plan")
 			}))
 
-		must.NoError(t, mustRecord(t, env.store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env.db, env.store, newEntry("req-1", 42, AggregationSum)))
 
 		result, err := env.flusher.Flush(t.Context())
 		must.NoError(t, err)
@@ -236,7 +244,7 @@ func TestFlusher_Flush(T *testing.T) {
 
 		env := newTestFlusher(t, zeroMapper())
 
-		must.NoError(t, mustRecord(t, env.store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env.db, env.store, newEntry("req-1", 42, AggregationSum)))
 
 		result, err := env.flusher.Flush(t.Context())
 		must.NoError(t, err)
@@ -255,7 +263,7 @@ func TestFlusher_Flush(T *testing.T) {
 			return ProviderRef{CustomerID: "cus_123"}, nil
 		}))
 
-		must.NoError(t, mustRecord(t, env.store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env.db, env.store, newEntry("req-1", 42, AggregationSum)))
 
 		result, err := env.flusher.Flush(t.Context())
 		must.NoError(t, err)
@@ -276,7 +284,7 @@ func TestFlusher_Flush(T *testing.T) {
 				return ProviderRef{}, errArbitrary
 			}))
 
-		must.NoError(t, mustRecord(t, env.store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env.db, env.store, newEntry("req-1", 42, AggregationSum)))
 
 		result, err := env.flusher.Flush(t.Context())
 		must.NoError(t, err)
@@ -299,7 +307,7 @@ func TestFlusher_Flush(T *testing.T) {
 		env := newTestFlusher(t, staticMapper("cus_123"))
 		env.reporter.err = errArbitrary
 
-		must.NoError(t, mustRecord(t, env.store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env.db, env.store, newEntry("req-1", 42, AggregationSum)))
 
 		result, err := env.flusher.Flush(t.Context())
 		must.NoError(t, err)
@@ -327,7 +335,7 @@ func TestFlusher_Flush(T *testing.T) {
 		env := newTestFlusher(t, staticMapper("cus_123"))
 		env.reporter.panicNow = true
 
-		must.NoError(t, mustRecord(t, env.store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env.db, env.store, newEntry("req-1", 42, AggregationSum)))
 
 		// A provider SDK is third-party code on the money path. A panic there
 		// would otherwise take the goroutine and every other total in the batch
@@ -341,12 +349,13 @@ func TestFlusher_Flush(T *testing.T) {
 	T.Run("gives up after exhausting attempts, without discarding the usage", func(t *testing.T) {
 		t.Parallel()
 
-		store := newSQLiteEnv(t).newStore(t)
-		env := newTestFlusherOver(t, store, staticMapper("cus_123"))
+		db := newSQLiteEnv(t)
+		store := db.newStore(t)
+		env := newTestFlusherOver(t, db, store, staticMapper("cus_123"))
 		env.flusher.cfg.MaxAttempts = 2
 		env.reporter.err = errArbitrary
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, db, store, newEntry("req-1", 42, AggregationSum)))
 
 		for range 3 {
 			_, err := env.flusher.Flush(t.Context())
@@ -358,7 +367,7 @@ func TestFlusher_Flush(T *testing.T) {
 		// Left where it is rather than marked flushed. Marking it would discard
 		// usage nobody has been billed for; leaving it keeps the row visible and
 		// the money recoverable by hand.
-		total, err := store.Total(t.Context(), testSubject, testMeter, monthBounds)
+		total, err := db.total(t, store, testSubject, testMeter, monthBounds)
 		must.NoError(t, err)
 
 		test.True(t, total.Pending())
@@ -393,7 +402,7 @@ func TestFlusher_Flush(T *testing.T) {
 		free := newEntry("req-2", 7, AggregationSum)
 		free.Subject = otherSubject
 
-		must.NoError(t, mustRecord(t, env.store, billed, free))
+		must.NoError(t, mustRecord(t, env.db, env.store, billed, free))
 
 		result, err := env.flusher.Flush(t.Context())
 		must.NoError(t, err)
@@ -415,7 +424,7 @@ func TestFlusher_Flush(T *testing.T) {
 			WithFlusherMetricsProvider(instruments.provider()))
 		env.reporter.err = errArbitrary
 
-		must.NoError(t, mustRecord(t, env.store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env.db, env.store, newEntry("req-1", 42, AggregationSum)))
 
 		result, err := env.flusher.Flush(t.Context())
 		must.NoError(t, err)
@@ -427,8 +436,9 @@ func TestFlusher_Flush(T *testing.T) {
 	T.Run("reports a claim failure", func(t *testing.T) {
 		t.Parallel()
 
-		store := newSQLiteEnv(t).newStore(t)
-		env := newTestFlusherOver(t, &failingClaimStore{Store: store}, staticMapper("cus_123"))
+		db := newSQLiteEnv(t)
+		store := db.newStore(t)
+		env := newTestFlusherOver(t, db, &failingClaimStore{Store: store}, staticMapper("cus_123"))
 
 		_, err := env.flusher.Flush(t.Context())
 
@@ -438,10 +448,11 @@ func TestFlusher_Flush(T *testing.T) {
 	T.Run("reaps even when the posts failed", func(t *testing.T) {
 		t.Parallel()
 
-		store, prefix := newSQLiteEnv(t).newStoreWithPrefix(t)
-		env := newTestFlusherOver(t, store, staticMapper("cus_123"))
+		db := newSQLiteEnv(t)
+		store, prefix := db.newStoreWithPrefix(t)
+		env := newTestFlusherOver(t, db, store, staticMapper("cus_123"))
 
-		must.NoError(t, mustRecord(t, store, newEntry("settled", 10, AggregationSum)))
+		must.NoError(t, mustRecord(t, db, store, newEntry("settled", 10, AggregationSum)))
 		_, err := env.flusher.Flush(t.Context())
 		must.NoError(t, err)
 
@@ -449,7 +460,7 @@ func TestFlusher_Flush(T *testing.T) {
 		// chore sharing a schedule, and a provider being unreachable is not a
 		// reason to let the event table grow unbounded.
 		env.reporter.err = errArbitrary
-		must.NoError(t, mustRecord(t, store, newEntry("unsettled", 10, AggregationSum)))
+		must.NoError(t, mustRecord(t, db, store, newEntry("unsettled", 10, AggregationSum)))
 
 		env.clock.advance(DefaultEventRetention + time.Hour)
 
@@ -461,7 +472,7 @@ func TestFlusher_Flush(T *testing.T) {
 		// the reap's own predicate refuses to touch anything a failed post still
 		// needs.
 		test.EqOp(t, int64(0), result.EventsReaped)
-		test.EqOp(t, 2, countRows(t, newSQLiteEnvFor(t, store), prefix+"_metering_events"))
+		test.EqOp(t, 2, countRows(t, db, prefix+"_metering_events"))
 	})
 
 	T.Run("reaps settled events", func(t *testing.T) {
@@ -470,10 +481,10 @@ func TestFlusher_Flush(T *testing.T) {
 		env := newSQLiteEnv(t)
 		store, prefix := env.newStoreWithPrefix(t)
 		instruments := newRecordingInstruments()
-		flushEnv := newTestFlusherOver(t, store, staticMapper("cus_123"),
+		flushEnv := newTestFlusherOver(t, env, store, staticMapper("cus_123"),
 			WithFlusherMetricsProvider(instruments.provider()))
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-1", 42, AggregationSum)))
 
 		_, err := flushEnv.flusher.Flush(t.Context())
 		must.NoError(t, err)
@@ -499,10 +510,10 @@ func TestFlusher_Flush(T *testing.T) {
 
 		env := newSQLiteEnv(t)
 		store, prefix := env.newStoreWithPrefix(t)
-		flushEnv := newTestFlusherOver(t, store, staticMapper("cus_123"))
+		flushEnv := newTestFlusherOver(t, env, store, staticMapper("cus_123"))
 		flushEnv.flusher.cfg.DisableReap = true
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-1", 42, AggregationSum)))
 
 		_, err := flushEnv.flusher.Flush(t.Context())
 		must.NoError(t, err)
@@ -519,10 +530,11 @@ func TestFlusher_Flush(T *testing.T) {
 	T.Run("reports a reap failure without losing the flush result", func(t *testing.T) {
 		t.Parallel()
 
-		store := newSQLiteEnv(t).newStore(t)
-		env := newTestFlusherOver(t, &failingReapStore{Store: store}, staticMapper("cus_123"))
+		db := newSQLiteEnv(t)
+		store := db.newStore(t)
+		env := newTestFlusherOver(t, db, &failingReapStore{Store: store}, staticMapper("cus_123"))
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, db, store, newEntry("req-1", 42, AggregationSum)))
 
 		result, err := env.flusher.Flush(t.Context())
 
@@ -536,10 +548,11 @@ func TestFlusher_Flush(T *testing.T) {
 	T.Run("survives a settle that fails after the provider has the usage", func(t *testing.T) {
 		t.Parallel()
 
-		store := newSQLiteEnv(t).newStore(t)
-		env := newTestFlusherOver(t, &failingSettleStore{Store: store}, staticMapper("cus_123"))
+		db := newSQLiteEnv(t)
+		store := db.newStore(t)
+		env := newTestFlusherOver(t, db, &failingSettleStore{Store: store}, staticMapper("cus_123"))
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, db, store, newEntry("req-1", 42, AggregationSum)))
 
 		result, err := env.flusher.Flush(t.Context())
 		must.NoError(t, err)
@@ -554,13 +567,14 @@ func TestFlusher_Flush(T *testing.T) {
 	T.Run("survives a release that fails", func(t *testing.T) {
 		t.Parallel()
 
-		store := newSQLiteEnv(t).newStore(t)
+		db := newSQLiteEnv(t)
+		store := db.newStore(t)
 		logger := newRecordingLogger()
-		env := newTestFlusherOver(t, &failingReleaseStore{Store: store}, staticMapper("cus_123"),
+		env := newTestFlusherOver(t, db, &failingReleaseStore{Store: store}, staticMapper("cus_123"),
 			WithFlusherLogger(logger))
 		env.reporter.err = errArbitrary
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, db, store, newEntry("req-1", 42, AggregationSum)))
 
 		// The lease simply expires instead. Slower than an explicit release, and
 		// the total is picked up again either way.
@@ -584,15 +598,16 @@ func TestFlusher_Flush(T *testing.T) {
 
 		const abandoned = "abandoning metering flush after exhausting attempts; usage is recorded but unbilled"
 
-		store := newSQLiteEnv(t).newStore(t)
+		db := newSQLiteEnv(t)
+		store := db.newStore(t)
 		logger := newRecordingLogger()
 		instruments := newRecordingInstruments()
-		env := newTestFlusherOver(t, store, staticMapper("cus_123"),
+		env := newTestFlusherOver(t, db, store, staticMapper("cus_123"),
 			WithFlusherLogger(logger), WithFlusherMetricsProvider(instruments.provider()))
 		env.flusher.cfg.MaxAttempts = 2
 		env.reporter.err = errArbitrary
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, db, store, newEntry("req-1", 42, AggregationSum)))
 
 		_, err := env.flusher.Flush(t.Context())
 		must.NoError(t, err)
@@ -620,7 +635,7 @@ func TestFlusher_Flush(T *testing.T) {
 			entry := newEntry("req-"+subject, 1, AggregationSum)
 			entry.Subject = subject
 
-			must.NoError(t, mustRecord(t, env.store, entry))
+			must.NoError(t, mustRecord(t, env.db, env.store, entry))
 		}
 
 		result, err := env.flusher.Flush(t.Context())
@@ -736,7 +751,7 @@ func TestFlusher_Job(T *testing.T) {
 	test.EqOp(T, 10*time.Minute, job.LeaseTTL)
 	must.NotNil(T, job.Run)
 
-	must.NoError(T, mustRecord(T, env.store, newEntry("req-1", 5, AggregationSum)))
+	must.NoError(T, mustRecord(T, env.db, env.store, newEntry("req-1", 5, AggregationSum)))
 	must.NoError(T, job.Run(T.Context()))
 
 	test.SliceLen(T, 1, env.reporter.recorded())
@@ -828,17 +843,6 @@ func TestTruncateError(T *testing.T) {
 
 		test.EqOp(t, "", rendered)
 	})
-}
-
-// newSQLiteEnvFor rebuilds a storeEnv around an existing store's client, for the
-// tests that need to count rows in tables a helper created.
-func newSQLiteEnvFor(t *testing.T, store Store) *storeEnv {
-	t.Helper()
-
-	s, ok := store.(*SQLStore)
-	must.True(t, ok)
-
-	return &storeEnv{client: s.client, dialect: s.client.Dialect()}
 }
 
 // usageReporterIsSatisfied keeps the noop's interface conformance checked at

@@ -52,6 +52,49 @@ An Enforcer answers quota questions, on the request path.
 A Flusher posts accumulated usage to the billing provider, on a jobs.Scheduler
 tick in a worker.
 
+# The transaction is the caller's
+
+Every write a consumer calls takes a
+[github.com/primandproper/platform-go/v14/database.Tx], and that is the point of
+the package rather than a tax it charges:
+
+	err := client.WithTransaction(ctx, func(tx database.Tx) error {
+	    if err := saveTheThing(ctx, tx, thing); err != nil {
+	        return err
+	    }
+
+	    return recorder.Record(ctx, tx, metering.Usage{
+	        Subject:        accountID,
+	        Meter:          "stored_bytes",
+	        Quantity:       thing.Size,
+	        IdempotencyKey: thing.ID,
+	    })
+	})
+
+The work and the usage it incurred commit together or not at all. Recorded in a
+transaction of the store's own, they do not: a crash between the two leaves usage
+counted for work that rolled back, or work committed that nobody was billed for,
+and no ordering of two commits avoids both. A caller with genuinely nothing to
+join — an ingest endpoint whose only job is to record usage — writes the same
+[github.com/primandproper/platform-go/v14/database.Client.WithTransaction] call
+with one statement inside it.
+
+[Enforcer.Consume] takes one for the stronger version of the same reason: a nil
+error from it is permission to do the work, and permission that commits
+separately from the work is permission to do work nobody was charged for. The
+lock it holds lives as long as that transaction, which is what makes the decision
+a reservation.
+
+[Enforcer.Check] takes none. It writes nothing, so there is nothing for a
+transaction to hold; the executor its durable fallback reads on is settled once,
+at [NewQuotaEnforcer].
+
+The store's own machinery — the flush claim, its two settlements, and the event
+reaper — takes no transaction either, and [Store] says why on each. In short:
+they run from a scheduler tick rather than a request, and the flush protocol
+depends on the claim being committed before the provider is posted to, which a
+caller holding the transaction open across that round trip would break.
+
 # Idempotent ingest
 
 Usage.IdempotencyKey is required, not optional. Every ingest path this package has
@@ -96,15 +139,27 @@ Losing the cache costs latency until it repopulates and nothing else.
 
 # Check is fast and slightly stale; Consume is exact
 
-	// on a cheap path — a cached read, no write
+	// on a cheap path — a cached read, no write, no transaction
 	decision, err := enforcer.Check(ctx, accountID, "api_requests", 1)
 
-	// on an expensive one — locks the total, decides, records, in one transaction
-	decision, err := enforcer.ConsumeUsage(ctx, metering.Usage{
-	    Subject:        accountID,
-	    Meter:          "llm_tokens",
-	    Quantity:       tokens,
-	    IdempotencyKey: completionID,
+	// on an expensive one — locks the total, decides, and records the usage in
+	// the same transaction the work it authorizes is written in
+	err := client.WithTransaction(ctx, func(tx database.Tx) error {
+	    decision, err := enforcer.ConsumeUsage(ctx, tx, metering.Usage{
+	        Subject:        accountID,
+	        Meter:          "llm_tokens",
+	        Quantity:       tokens,
+	        IdempotencyKey: completionID,
+	    })
+	    if err != nil {
+	        return err
+	    }
+
+	    if !decision.Allowed {
+	        return errOverQuota
+	    }
+
+	    return doTheWork(ctx, tx)
 	})
 
 Two methods rather than one, because gating a cheap read on a durable write is how
@@ -238,7 +293,10 @@ the dedupe is a primary key, the concurrent fold is an UPDATE expression, and th
 atomicity of Consume is a row lock. A repository interface over those would be an
 interface over three SQL features, implemented once. Store is still an interface,
 for an application whose schema conventions differ enough to be worth
-reimplementing it against.
+reimplementing it against — which is why its methods name SQL types even though
+nothing forces a backing store to be SQL. An implementation with no transaction
+of its own ignores the executor it is handed; the alternative is one signature
+per backend, which costs every caller the guarantee the type is there to give.
 
 None of that SQL is written here. The statements are described as data in
 metering/internal/queries, rendered from there into one canonical .sql per

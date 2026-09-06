@@ -25,7 +25,7 @@ var _ metering.Store = &StoreMock{}
 //			ClaimFlushableFunc: func(ctx context.Context, now time.Time, limit int, maxAttempts int, leaseUntil time.Time) ([]*metering.Total, error) {
 //				panic("mock out the ClaimFlushable method")
 //			},
-//			ConsumeFunc: func(ctx context.Context, entry metering.Entry, limit int64, behavior metering.QuotaBehavior, at time.Time) (*metering.Decision, error) {
+//			ConsumeFunc: func(ctx context.Context, tx database.Tx, entry metering.Entry, limit int64, behavior metering.QuotaBehavior, at time.Time) (*metering.Decision, error) {
 //				panic("mock out the Consume method")
 //			},
 //			MarkFlushedFunc: func(ctx context.Context, total *metering.Total, flushed int64, at time.Time) error {
@@ -34,20 +34,14 @@ var _ metering.Store = &StoreMock{}
 //			ReapEventsFunc: func(ctx context.Context, horizon time.Time, limit int) (int64, error) {
 //				panic("mock out the ReapEvents method")
 //			},
-//			RecordFunc: func(ctx context.Context, entries []metering.Entry, at time.Time) (metering.RecordResult, error) {
+//			RecordFunc: func(ctx context.Context, tx database.Tx, entries []metering.Entry, at time.Time) (metering.RecordResult, error) {
 //				panic("mock out the Record method")
-//			},
-//			RecordTxFunc: func(ctx context.Context, q database.Tx, entries []metering.Entry, at time.Time) (metering.RecordResult, error) {
-//				panic("mock out the RecordTx method")
 //			},
 //			ReleaseFlushFunc: func(ctx context.Context, total *metering.Total, lastErr string, nextFlush time.Time) error {
 //				panic("mock out the ReleaseFlush method")
 //			},
-//			TotalFunc: func(ctx context.Context, subject string, meter string, bounds metering.Bounds) (*metering.Total, error) {
+//			TotalFunc: func(ctx context.Context, q database.SQLQueryExecutor, subject string, meter string, bounds metering.Bounds) (*metering.Total, error) {
 //				panic("mock out the Total method")
-//			},
-//			WithTransactionFunc: func(ctx context.Context, fn func(q database.Tx) error) error {
-//				panic("mock out the WithTransaction method")
 //			},
 //		}
 //
@@ -60,7 +54,7 @@ type StoreMock struct {
 	ClaimFlushableFunc func(ctx context.Context, now time.Time, limit int, maxAttempts int, leaseUntil time.Time) ([]*metering.Total, error)
 
 	// ConsumeFunc mocks the Consume method.
-	ConsumeFunc func(ctx context.Context, entry metering.Entry, limit int64, behavior metering.QuotaBehavior, at time.Time) (*metering.Decision, error)
+	ConsumeFunc func(ctx context.Context, tx database.Tx, entry metering.Entry, limit int64, behavior metering.QuotaBehavior, at time.Time) (*metering.Decision, error)
 
 	// MarkFlushedFunc mocks the MarkFlushed method.
 	MarkFlushedFunc func(ctx context.Context, total *metering.Total, flushed int64, at time.Time) error
@@ -69,19 +63,13 @@ type StoreMock struct {
 	ReapEventsFunc func(ctx context.Context, horizon time.Time, limit int) (int64, error)
 
 	// RecordFunc mocks the Record method.
-	RecordFunc func(ctx context.Context, entries []metering.Entry, at time.Time) (metering.RecordResult, error)
-
-	// RecordTxFunc mocks the RecordTx method.
-	RecordTxFunc func(ctx context.Context, q database.Tx, entries []metering.Entry, at time.Time) (metering.RecordResult, error)
+	RecordFunc func(ctx context.Context, tx database.Tx, entries []metering.Entry, at time.Time) (metering.RecordResult, error)
 
 	// ReleaseFlushFunc mocks the ReleaseFlush method.
 	ReleaseFlushFunc func(ctx context.Context, total *metering.Total, lastErr string, nextFlush time.Time) error
 
 	// TotalFunc mocks the Total method.
-	TotalFunc func(ctx context.Context, subject string, meter string, bounds metering.Bounds) (*metering.Total, error)
-
-	// WithTransactionFunc mocks the WithTransaction method.
-	WithTransactionFunc func(ctx context.Context, fn func(q database.Tx) error) error
+	TotalFunc func(ctx context.Context, q database.SQLQueryExecutor, subject string, meter string, bounds metering.Bounds) (*metering.Total, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -102,6 +90,8 @@ type StoreMock struct {
 		Consume []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Entry is the entry argument value.
 			Entry metering.Entry
 			// Limit is the limit argument value.
@@ -135,17 +125,8 @@ type StoreMock struct {
 		Record []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Entries is the entries argument value.
-			Entries []metering.Entry
-			// At is the at argument value.
-			At time.Time
-		}
-		// RecordTx holds details about calls to the RecordTx method.
-		RecordTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Entries is the entries argument value.
 			Entries []metering.Entry
 			// At is the at argument value.
@@ -166,6 +147,8 @@ type StoreMock struct {
 		Total []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Subject is the subject argument value.
 			Subject string
 			// Meter is the meter argument value.
@@ -173,23 +156,14 @@ type StoreMock struct {
 			// Bounds is the bounds argument value.
 			Bounds metering.Bounds
 		}
-		// WithTransaction holds details about calls to the WithTransaction method.
-		WithTransaction []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Fn is the fn argument value.
-			Fn func(q database.Tx) error
-		}
 	}
-	lockClaimFlushable  sync.RWMutex
-	lockConsume         sync.RWMutex
-	lockMarkFlushed     sync.RWMutex
-	lockReapEvents      sync.RWMutex
-	lockRecord          sync.RWMutex
-	lockRecordTx        sync.RWMutex
-	lockReleaseFlush    sync.RWMutex
-	lockTotal           sync.RWMutex
-	lockWithTransaction sync.RWMutex
+	lockClaimFlushable sync.RWMutex
+	lockConsume        sync.RWMutex
+	lockMarkFlushed    sync.RWMutex
+	lockReapEvents     sync.RWMutex
+	lockRecord         sync.RWMutex
+	lockReleaseFlush   sync.RWMutex
+	lockTotal          sync.RWMutex
 }
 
 // ClaimFlushable calls ClaimFlushableFunc.
@@ -241,18 +215,20 @@ func (mock *StoreMock) ClaimFlushableCalls() []struct {
 }
 
 // Consume calls ConsumeFunc.
-func (mock *StoreMock) Consume(ctx context.Context, entry metering.Entry, limit int64, behavior metering.QuotaBehavior, at time.Time) (*metering.Decision, error) {
+func (mock *StoreMock) Consume(ctx context.Context, tx database.Tx, entry metering.Entry, limit int64, behavior metering.QuotaBehavior, at time.Time) (*metering.Decision, error) {
 	if mock.ConsumeFunc == nil {
 		panic("StoreMock.ConsumeFunc: method is nil but Store.Consume was just called")
 	}
 	callInfo := struct {
 		Ctx      context.Context
+		Tx       database.Tx
 		Entry    metering.Entry
 		Limit    int64
 		Behavior metering.QuotaBehavior
 		At       time.Time
 	}{
 		Ctx:      ctx,
+		Tx:       tx,
 		Entry:    entry,
 		Limit:    limit,
 		Behavior: behavior,
@@ -261,7 +237,7 @@ func (mock *StoreMock) Consume(ctx context.Context, entry metering.Entry, limit 
 	mock.lockConsume.Lock()
 	mock.calls.Consume = append(mock.calls.Consume, callInfo)
 	mock.lockConsume.Unlock()
-	return mock.ConsumeFunc(ctx, entry, limit, behavior, at)
+	return mock.ConsumeFunc(ctx, tx, entry, limit, behavior, at)
 }
 
 // ConsumeCalls gets all the calls that were made to Consume.
@@ -270,6 +246,7 @@ func (mock *StoreMock) Consume(ctx context.Context, entry metering.Entry, limit 
 //	len(mockedStore.ConsumeCalls())
 func (mock *StoreMock) ConsumeCalls() []struct {
 	Ctx      context.Context
+	Tx       database.Tx
 	Entry    metering.Entry
 	Limit    int64
 	Behavior metering.QuotaBehavior
@@ -277,6 +254,7 @@ func (mock *StoreMock) ConsumeCalls() []struct {
 } {
 	var calls []struct {
 		Ctx      context.Context
+		Tx       database.Tx
 		Entry    metering.Entry
 		Limit    int64
 		Behavior metering.QuotaBehavior
@@ -373,23 +351,25 @@ func (mock *StoreMock) ReapEventsCalls() []struct {
 }
 
 // Record calls RecordFunc.
-func (mock *StoreMock) Record(ctx context.Context, entries []metering.Entry, at time.Time) (metering.RecordResult, error) {
+func (mock *StoreMock) Record(ctx context.Context, tx database.Tx, entries []metering.Entry, at time.Time) (metering.RecordResult, error) {
 	if mock.RecordFunc == nil {
 		panic("StoreMock.RecordFunc: method is nil but Store.Record was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
+		Tx      database.Tx
 		Entries []metering.Entry
 		At      time.Time
 	}{
 		Ctx:     ctx,
+		Tx:      tx,
 		Entries: entries,
 		At:      at,
 	}
 	mock.lockRecord.Lock()
 	mock.calls.Record = append(mock.calls.Record, callInfo)
 	mock.lockRecord.Unlock()
-	return mock.RecordFunc(ctx, entries, at)
+	return mock.RecordFunc(ctx, tx, entries, at)
 }
 
 // RecordCalls gets all the calls that were made to Record.
@@ -398,61 +378,19 @@ func (mock *StoreMock) Record(ctx context.Context, entries []metering.Entry, at 
 //	len(mockedStore.RecordCalls())
 func (mock *StoreMock) RecordCalls() []struct {
 	Ctx     context.Context
+	Tx      database.Tx
 	Entries []metering.Entry
 	At      time.Time
 } {
 	var calls []struct {
 		Ctx     context.Context
+		Tx      database.Tx
 		Entries []metering.Entry
 		At      time.Time
 	}
 	mock.lockRecord.RLock()
 	calls = mock.calls.Record
 	mock.lockRecord.RUnlock()
-	return calls
-}
-
-// RecordTx calls RecordTxFunc.
-func (mock *StoreMock) RecordTx(ctx context.Context, q database.Tx, entries []metering.Entry, at time.Time) (metering.RecordResult, error) {
-	if mock.RecordTxFunc == nil {
-		panic("StoreMock.RecordTxFunc: method is nil but Store.RecordTx was just called")
-	}
-	callInfo := struct {
-		Ctx     context.Context
-		Q       database.Tx
-		Entries []metering.Entry
-		At      time.Time
-	}{
-		Ctx:     ctx,
-		Q:       q,
-		Entries: entries,
-		At:      at,
-	}
-	mock.lockRecordTx.Lock()
-	mock.calls.RecordTx = append(mock.calls.RecordTx, callInfo)
-	mock.lockRecordTx.Unlock()
-	return mock.RecordTxFunc(ctx, q, entries, at)
-}
-
-// RecordTxCalls gets all the calls that were made to RecordTx.
-// Check the length with:
-//
-//	len(mockedStore.RecordTxCalls())
-func (mock *StoreMock) RecordTxCalls() []struct {
-	Ctx     context.Context
-	Q       database.Tx
-	Entries []metering.Entry
-	At      time.Time
-} {
-	var calls []struct {
-		Ctx     context.Context
-		Q       database.Tx
-		Entries []metering.Entry
-		At      time.Time
-	}
-	mock.lockRecordTx.RLock()
-	calls = mock.calls.RecordTx
-	mock.lockRecordTx.RUnlock()
 	return calls
 }
 
@@ -501,17 +439,19 @@ func (mock *StoreMock) ReleaseFlushCalls() []struct {
 }
 
 // Total calls TotalFunc.
-func (mock *StoreMock) Total(ctx context.Context, subject string, meter string, bounds metering.Bounds) (*metering.Total, error) {
+func (mock *StoreMock) Total(ctx context.Context, q database.SQLQueryExecutor, subject string, meter string, bounds metering.Bounds) (*metering.Total, error) {
 	if mock.TotalFunc == nil {
 		panic("StoreMock.TotalFunc: method is nil but Store.Total was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
+		Q       database.SQLQueryExecutor
 		Subject string
 		Meter   string
 		Bounds  metering.Bounds
 	}{
 		Ctx:     ctx,
+		Q:       q,
 		Subject: subject,
 		Meter:   meter,
 		Bounds:  bounds,
@@ -519,7 +459,7 @@ func (mock *StoreMock) Total(ctx context.Context, subject string, meter string, 
 	mock.lockTotal.Lock()
 	mock.calls.Total = append(mock.calls.Total, callInfo)
 	mock.lockTotal.Unlock()
-	return mock.TotalFunc(ctx, subject, meter, bounds)
+	return mock.TotalFunc(ctx, q, subject, meter, bounds)
 }
 
 // TotalCalls gets all the calls that were made to Total.
@@ -528,12 +468,14 @@ func (mock *StoreMock) Total(ctx context.Context, subject string, meter string, 
 //	len(mockedStore.TotalCalls())
 func (mock *StoreMock) TotalCalls() []struct {
 	Ctx     context.Context
+	Q       database.SQLQueryExecutor
 	Subject string
 	Meter   string
 	Bounds  metering.Bounds
 } {
 	var calls []struct {
 		Ctx     context.Context
+		Q       database.SQLQueryExecutor
 		Subject string
 		Meter   string
 		Bounds  metering.Bounds
@@ -541,42 +483,6 @@ func (mock *StoreMock) TotalCalls() []struct {
 	mock.lockTotal.RLock()
 	calls = mock.calls.Total
 	mock.lockTotal.RUnlock()
-	return calls
-}
-
-// WithTransaction calls WithTransactionFunc.
-func (mock *StoreMock) WithTransaction(ctx context.Context, fn func(q database.Tx) error) error {
-	if mock.WithTransactionFunc == nil {
-		panic("StoreMock.WithTransactionFunc: method is nil but Store.WithTransaction was just called")
-	}
-	callInfo := struct {
-		Ctx context.Context
-		Fn  func(q database.Tx) error
-	}{
-		Ctx: ctx,
-		Fn:  fn,
-	}
-	mock.lockWithTransaction.Lock()
-	mock.calls.WithTransaction = append(mock.calls.WithTransaction, callInfo)
-	mock.lockWithTransaction.Unlock()
-	return mock.WithTransactionFunc(ctx, fn)
-}
-
-// WithTransactionCalls gets all the calls that were made to WithTransaction.
-// Check the length with:
-//
-//	len(mockedStore.WithTransactionCalls())
-func (mock *StoreMock) WithTransactionCalls() []struct {
-	Ctx context.Context
-	Fn  func(q database.Tx) error
-} {
-	var calls []struct {
-		Ctx context.Context
-		Fn  func(q database.Tx) error
-	}
-	mock.lockWithTransaction.RLock()
-	calls = mock.calls.WithTransaction
-	mock.lockWithTransaction.RUnlock()
 	return calls
 }
 
@@ -590,7 +496,7 @@ var _ metering.Recorder = &RecorderMock{}
 //
 //		// make and configure a mocked metering.Recorder
 //		mockedRecorder := &RecorderMock{
-//			RecordFunc: func(ctx context.Context, u ...metering.Usage) error {
+//			RecordFunc: func(ctx context.Context, tx database.Tx, u ...metering.Usage) error {
 //				panic("mock out the Record method")
 //			},
 //		}
@@ -601,7 +507,7 @@ var _ metering.Recorder = &RecorderMock{}
 //	}
 type RecorderMock struct {
 	// RecordFunc mocks the Record method.
-	RecordFunc func(ctx context.Context, u ...metering.Usage) error
+	RecordFunc func(ctx context.Context, tx database.Tx, u ...metering.Usage) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -609,6 +515,8 @@ type RecorderMock struct {
 		Record []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// U is the u argument value.
 			U []metering.Usage
 		}
@@ -617,21 +525,23 @@ type RecorderMock struct {
 }
 
 // Record calls RecordFunc.
-func (mock *RecorderMock) Record(ctx context.Context, u ...metering.Usage) error {
+func (mock *RecorderMock) Record(ctx context.Context, tx database.Tx, u ...metering.Usage) error {
 	if mock.RecordFunc == nil {
 		panic("RecorderMock.RecordFunc: method is nil but Recorder.Record was just called")
 	}
 	callInfo := struct {
 		Ctx context.Context
+		Tx  database.Tx
 		U   []metering.Usage
 	}{
 		Ctx: ctx,
+		Tx:  tx,
 		U:   u,
 	}
 	mock.lockRecord.Lock()
 	mock.calls.Record = append(mock.calls.Record, callInfo)
 	mock.lockRecord.Unlock()
-	return mock.RecordFunc(ctx, u...)
+	return mock.RecordFunc(ctx, tx, u...)
 }
 
 // RecordCalls gets all the calls that were made to Record.
@@ -640,10 +550,12 @@ func (mock *RecorderMock) Record(ctx context.Context, u ...metering.Usage) error
 //	len(mockedRecorder.RecordCalls())
 func (mock *RecorderMock) RecordCalls() []struct {
 	Ctx context.Context
+	Tx  database.Tx
 	U   []metering.Usage
 } {
 	var calls []struct {
 		Ctx context.Context
+		Tx  database.Tx
 		U   []metering.Usage
 	}
 	mock.lockRecord.RLock()
@@ -665,10 +577,10 @@ var _ metering.Enforcer = &EnforcerMock{}
 //			CheckFunc: func(ctx context.Context, subject string, meter string, quantity int64) (*metering.Decision, error) {
 //				panic("mock out the Check method")
 //			},
-//			ConsumeFunc: func(ctx context.Context, subject string, meter string, quantity int64) (*metering.Decision, error) {
+//			ConsumeFunc: func(ctx context.Context, tx database.Tx, subject string, meter string, quantity int64) (*metering.Decision, error) {
 //				panic("mock out the Consume method")
 //			},
-//			ConsumeUsageFunc: func(ctx context.Context, u metering.Usage) (*metering.Decision, error) {
+//			ConsumeUsageFunc: func(ctx context.Context, tx database.Tx, u metering.Usage) (*metering.Decision, error) {
 //				panic("mock out the ConsumeUsage method")
 //			},
 //		}
@@ -682,10 +594,10 @@ type EnforcerMock struct {
 	CheckFunc func(ctx context.Context, subject string, meter string, quantity int64) (*metering.Decision, error)
 
 	// ConsumeFunc mocks the Consume method.
-	ConsumeFunc func(ctx context.Context, subject string, meter string, quantity int64) (*metering.Decision, error)
+	ConsumeFunc func(ctx context.Context, tx database.Tx, subject string, meter string, quantity int64) (*metering.Decision, error)
 
 	// ConsumeUsageFunc mocks the ConsumeUsage method.
-	ConsumeUsageFunc func(ctx context.Context, u metering.Usage) (*metering.Decision, error)
+	ConsumeUsageFunc func(ctx context.Context, tx database.Tx, u metering.Usage) (*metering.Decision, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -704,6 +616,8 @@ type EnforcerMock struct {
 		Consume []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Subject is the subject argument value.
 			Subject string
 			// Meter is the meter argument value.
@@ -715,6 +629,8 @@ type EnforcerMock struct {
 		ConsumeUsage []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// U is the u argument value.
 			U metering.Usage
 		}
@@ -769,17 +685,19 @@ func (mock *EnforcerMock) CheckCalls() []struct {
 }
 
 // Consume calls ConsumeFunc.
-func (mock *EnforcerMock) Consume(ctx context.Context, subject string, meter string, quantity int64) (*metering.Decision, error) {
+func (mock *EnforcerMock) Consume(ctx context.Context, tx database.Tx, subject string, meter string, quantity int64) (*metering.Decision, error) {
 	if mock.ConsumeFunc == nil {
 		panic("EnforcerMock.ConsumeFunc: method is nil but Enforcer.Consume was just called")
 	}
 	callInfo := struct {
 		Ctx      context.Context
+		Tx       database.Tx
 		Subject  string
 		Meter    string
 		Quantity int64
 	}{
 		Ctx:      ctx,
+		Tx:       tx,
 		Subject:  subject,
 		Meter:    meter,
 		Quantity: quantity,
@@ -787,7 +705,7 @@ func (mock *EnforcerMock) Consume(ctx context.Context, subject string, meter str
 	mock.lockConsume.Lock()
 	mock.calls.Consume = append(mock.calls.Consume, callInfo)
 	mock.lockConsume.Unlock()
-	return mock.ConsumeFunc(ctx, subject, meter, quantity)
+	return mock.ConsumeFunc(ctx, tx, subject, meter, quantity)
 }
 
 // ConsumeCalls gets all the calls that were made to Consume.
@@ -796,12 +714,14 @@ func (mock *EnforcerMock) Consume(ctx context.Context, subject string, meter str
 //	len(mockedEnforcer.ConsumeCalls())
 func (mock *EnforcerMock) ConsumeCalls() []struct {
 	Ctx      context.Context
+	Tx       database.Tx
 	Subject  string
 	Meter    string
 	Quantity int64
 } {
 	var calls []struct {
 		Ctx      context.Context
+		Tx       database.Tx
 		Subject  string
 		Meter    string
 		Quantity int64
@@ -813,21 +733,23 @@ func (mock *EnforcerMock) ConsumeCalls() []struct {
 }
 
 // ConsumeUsage calls ConsumeUsageFunc.
-func (mock *EnforcerMock) ConsumeUsage(ctx context.Context, u metering.Usage) (*metering.Decision, error) {
+func (mock *EnforcerMock) ConsumeUsage(ctx context.Context, tx database.Tx, u metering.Usage) (*metering.Decision, error) {
 	if mock.ConsumeUsageFunc == nil {
 		panic("EnforcerMock.ConsumeUsageFunc: method is nil but Enforcer.ConsumeUsage was just called")
 	}
 	callInfo := struct {
 		Ctx context.Context
+		Tx  database.Tx
 		U   metering.Usage
 	}{
 		Ctx: ctx,
+		Tx:  tx,
 		U:   u,
 	}
 	mock.lockConsumeUsage.Lock()
 	mock.calls.ConsumeUsage = append(mock.calls.ConsumeUsage, callInfo)
 	mock.lockConsumeUsage.Unlock()
-	return mock.ConsumeUsageFunc(ctx, u)
+	return mock.ConsumeUsageFunc(ctx, tx, u)
 }
 
 // ConsumeUsageCalls gets all the calls that were made to ConsumeUsage.
@@ -836,10 +758,12 @@ func (mock *EnforcerMock) ConsumeUsage(ctx context.Context, u metering.Usage) (*
 //	len(mockedEnforcer.ConsumeUsageCalls())
 func (mock *EnforcerMock) ConsumeUsageCalls() []struct {
 	Ctx context.Context
+	Tx  database.Tx
 	U   metering.Usage
 } {
 	var calls []struct {
 		Ctx context.Context
+		Tx  database.Tx
 		U   metering.Usage
 	}
 	mock.lockConsumeUsage.RLock()

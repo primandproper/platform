@@ -22,9 +22,9 @@ import (
 // look identical on a span and reconcile to three different invoices.
 //
 // Batch-level operations are deliberately absent. DurableRecorder.record and the
-// store's Record, RecordTx, ClaimFlushable, and ReapEvents each span many
-// meters and many periods, and a single window on those spans would be a claim
-// none of them can make.
+// store's Record, ClaimFlushable, and ReapEvents each span many meters and many
+// periods, and a single window on those spans would be a claim none of them can
+// make.
 
 // observedTime reads a time an operation observed.
 //
@@ -97,7 +97,7 @@ func TestQuotaEnforcer_observesThePeriodAndAggregation(T *testing.T) {
 		obs := observability.NewRecordingObserver()
 		env.enforcer.o11y = obs
 
-		_, err := env.enforcer.ConsumeUsage(t.Context(), Usage{
+		_, err := env.consumeUsage(t, Usage{
 			Subject:        testSubject,
 			Meter:          testMeter,
 			Quantity:       1,
@@ -140,9 +140,9 @@ func TestSQLStore_observesThePeriodAndAggregation(T *testing.T) {
 	T.Run("on a total read", func(t *testing.T) {
 		t.Parallel()
 
-		store, obs := newRecordingStore(t)
+		env, store, obs := newRecordingStore(t)
 
-		_, err := store.Total(t.Context(), testSubject, testMeter, monthBounds)
+		_, err := env.total(t, store, testSubject, testMeter, monthBounds)
 		must.NoError(t, err)
 
 		// No aggregation: Total's signature does not carry one, and the store
@@ -155,9 +155,9 @@ func TestSQLStore_observesThePeriodAndAggregation(T *testing.T) {
 	T.Run("on a consume", func(t *testing.T) {
 		t.Parallel()
 
-		store, obs := newRecordingStore(t)
+		env, store, obs := newRecordingStore(t)
 
-		_, err := store.Consume(t.Context(), newEntry("req-1", 1, AggregationSum),
+		_, err := env.consume(t, store, newEntry("req-1", 1, AggregationSum),
 			100, BehaviorBlock, baseTime)
 		must.NoError(t, err)
 
@@ -172,12 +172,12 @@ func TestSQLStore_observesThePeriodAndAggregation(T *testing.T) {
 		// row, which is keyed by the period. When execExpectingRow reports that
 		// the guard matched nothing, the window is what identifies the row that
 		// got away.
-		store := newSQLiteEnv(t).newStore(t)
+		env := newSQLiteEnv(t)
+		store := env.newStore(t)
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-1", 42, AggregationSum)))
 
-		total, err := store.Total(t.Context(), testSubject, testMeter, monthBounds)
-		must.NoError(t, err)
+		total := env.mustTotal(t, store, testSubject, testMeter, monthBounds)
 
 		// A fresh observer per settle, so the operation each assertion matches
 		// is the one the call under test began and not the read that set it up.
@@ -202,7 +202,7 @@ func TestFlusher_observesThePeriodAndAggregation(T *testing.T) {
 
 	env := newTestFlusher(T, staticMapper("cus_123"))
 
-	must.NoError(T, mustRecord(T, env.store, newEntry("req-1", 42, AggregationSum)))
+	must.NoError(T, mustRecord(T, env.db, env.store, newEntry("req-1", 42, AggregationSum)))
 
 	obs := observability.NewRecordingObserver()
 	env.flusher.o11y = obs
@@ -218,12 +218,13 @@ func TestFlusher_observesThePeriodAndAggregation(T *testing.T) {
 }
 
 // newRecordingStore is a SQLite-backed store whose observations a test can read.
-func newRecordingStore(t *testing.T) (Store, *observability.RecordingObserver) {
+func newRecordingStore(t *testing.T) (*storeEnv, Store, *observability.RecordingObserver) {
 	t.Helper()
 
-	store := newSQLiteEnv(t).newStore(t)
+	env := newSQLiteEnv(t)
+	store := env.newStore(t)
 
-	return store, recordObservations(t, store)
+	return env, store, recordObservations(t, store)
 }
 
 // recordObservations points a store at a fresh recording observer and hands it

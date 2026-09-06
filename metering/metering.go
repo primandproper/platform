@@ -5,6 +5,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/primandproper/platform-go/v14/database"
 	platformerrors "github.com/primandproper/platform-go/v14/errors"
 	"github.com/primandproper/platform-go/v14/internal/plainname"
 )
@@ -557,7 +558,15 @@ type Recorder interface {
 	// and folded, so a batch containing one already-seen record still records the
 	// rest — which is the behavior a redelivered queue message needs, because the
 	// redelivery generally overlaps rather than repeats.
-	Record(ctx context.Context, u ...Usage) error
+	//
+	// It takes the caller's transaction, and that is the whole point of a
+	// durable recorder rather than a counter: usage that commits with the work
+	// that incurred it cannot be counted for work that rolled back, and cannot
+	// be lost by work that committed. A caller with genuinely nothing to join
+	// opens one with database.Client.WithTransaction and passes the Tx it is
+	// handed — an ingest endpoint whose only job is to record usage is exactly
+	// that caller, and it is one line.
+	Record(ctx context.Context, tx database.Tx, u ...Usage) error
 }
 
 // Enforcer answers whether a subject may consume, and optionally records that
@@ -572,9 +581,16 @@ type Recorder interface {
 // a synchronous durable read on every request.
 //
 // Consume takes the durable path: it locks the subject's total for the period,
-// decides against the true number, and records the usage in the same transaction.
-// It is exact, and it costs a write. It is what belongs in front of anything
-// whose overage is worth more than the write.
+// decides against the true number, and records the usage — in the caller's
+// transaction, so the work the decision authorizes commits with the decision. It
+// is exact, and it costs a write and a lock held for the life of that
+// transaction. It is what belongs in front of anything whose overage is worth
+// more than the write.
+//
+// That asymmetry is why only one of the two takes a transaction. Check writes
+// nothing and therefore has nothing for a caller's transaction to hold; Consume
+// writes the record that says the work was paid for, and a record that commits
+// separately from the work is the failure the method exists to prevent.
 //
 // Gating a cheap read on a durable write is how metering becomes the latency
 // bottleneck of the system it was added to measure, which is why this is two
@@ -591,10 +607,14 @@ type Enforcer interface {
 	// in this signature. That makes a retried Consume count twice: the caller
 	// that retries is the caller that knows the two attempts were one operation,
 	// so it is the caller that has to say so — with ConsumeUsage.
-	Consume(ctx context.Context, subject, meter string, quantity int64) (*Decision, error)
+	//
+	// Write the work this authorizes in tx. Returning the error rather than
+	// swallowing it is what lets a refusal unwind the transaction; a caller that
+	// commits anyway commits none of Consume's work, and all of their own.
+	Consume(ctx context.Context, tx database.Tx, subject, meter string, quantity int64) (*Decision, error)
 
 	// ConsumeUsage is Consume over a full Usage record, so a caller can supply
 	// its own idempotency key, an event time, and dimensions. It is the method to
 	// reach for on any path that can be retried.
-	ConsumeUsage(ctx context.Context, u Usage) (*Decision, error)
+	ConsumeUsage(ctx context.Context, tx database.Tx, u Usage) (*Decision, error)
 }

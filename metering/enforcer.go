@@ -8,6 +8,7 @@ import (
 
 	"github.com/primandproper/platform-go/v14/cache"
 	"github.com/primandproper/platform-go/v14/clock"
+	"github.com/primandproper/platform-go/v14/database"
 	platformerrors "github.com/primandproper/platform-go/v14/errors"
 	"github.com/primandproper/platform-go/v14/identifiers"
 	"github.com/primandproper/platform-go/v14/observability"
@@ -49,6 +50,15 @@ type QuotaEnforcer struct {
 	clock    clock.Clock
 	o11y     observability.Observer
 
+	// reader is the executor Check falls back to when the cache cannot answer.
+	//
+	// Consume takes its transaction per call, because the write it makes belongs
+	// in the caller's. Check makes no write and its callers hold no transaction
+	// — an entitlement check in front of a cheap operation is the shape it is
+	// written for — so its executor is settled once, here, rather than added to
+	// a signature every caller would have to thread an argument through.
+	reader database.SQLQueryExecutor
+
 	checkCounter    metrics.Int64Counter
 	consumeCounter  metrics.Int64Counter
 	deniedCounter   metrics.Int64Counter
@@ -71,12 +81,25 @@ type QuotaEnforcer struct {
 
 // NewQuotaEnforcer builds the read path over a Store and a Registry.
 //
+// reader is the executor Check reads the durable total on when the cache misses
+// or is absent, and it is required: an enforcer that could not read the total
+// would answer every cache miss by failing open or refusing, neither of which is
+// a quota decision. database.Client.Reader() is the usual argument and is what
+// this package did internally before the executor became the caller's to choose;
+// a deployment whose replica lag would let a subject spend the same quota twice
+// passes Writer() instead, which is now a decision visible at the wiring site.
+//
+// Consume takes no executor here. It is handed the caller's transaction per
+// call, because the usage it records belongs in the transaction that did the
+// work — see Enforcer.
+//
 // ctx is used to validate the config and is not retained.
 func NewQuotaEnforcer(
 	ctx context.Context,
 	cfg *EnforcerConfig,
 	store Store,
 	registry *Registry,
+	reader database.SQLQueryExecutor,
 	opts ...EnforcerOption,
 ) (*QuotaEnforcer, error) {
 	if cfg == nil {
@@ -91,12 +114,17 @@ func NewQuotaEnforcer(
 		return nil, ErrNilRegistry
 	}
 
+	if reader == nil {
+		return nil, ErrNilExecutor
+	}
+
 	cfg.EnsureDefaults()
 
 	e := &QuotaEnforcer{
 		cfg:      *cfg,
 		store:    store,
 		registry: registry,
+		reader:   reader,
 		quotas:   NewRegistryQuotaSource(registry),
 		resolver: NewCalendarPeriodResolver(nil),
 		clock:    clock.NewClock(),
@@ -213,12 +241,17 @@ func (e *QuotaEnforcer) Check(ctx context.Context, subject, meter string, quanti
 }
 
 // Consume implements Enforcer.
-func (e *QuotaEnforcer) Consume(ctx context.Context, subject, meter string, quantity int64) (*Decision, error) {
+func (e *QuotaEnforcer) Consume(
+	ctx context.Context,
+	tx database.Tx,
+	subject, meter string,
+	quantity int64,
+) (*Decision, error) {
 	// A generated key, because this signature has none to offer. It makes each
 	// call distinct, which is right for a call that is not being retried and
 	// wrong for one that is — see the Enforcer interface, and reach for
 	// ConsumeUsage on any path that can retry.
-	return e.ConsumeUsage(ctx, Usage{
+	return e.ConsumeUsage(ctx, tx, Usage{
 		Subject:        subject,
 		Meter:          meter,
 		Quantity:       quantity,
@@ -229,13 +262,17 @@ func (e *QuotaEnforcer) Consume(ctx context.Context, subject, meter string, quan
 // ConsumeUsage implements Enforcer.
 //
 //nolint:gocritic // hugeParam: Usage is taken by value to match Recorder.Record's variadic
-func (e *QuotaEnforcer) ConsumeUsage(ctx context.Context, u Usage) (*Decision, error) {
+func (e *QuotaEnforcer) ConsumeUsage(ctx context.Context, tx database.Tx, u Usage) (*Decision, error) {
 	ctx, op := e.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		subjectKey:  u.Subject,
 		meterKey:    u.Meter,
 		quantityKey: u.Quantity,
 	}))
 	defer op.End()
+
+	if tx == nil {
+		return nil, op.Error(ErrNilExecutor, "consuming metering quota")
+	}
 
 	defer op.Time(ctx, e.clock, e.consumeHist, meterAttr(u.Meter))()
 
@@ -259,7 +296,7 @@ func (e *QuotaEnforcer) ConsumeUsage(ctx context.Context, u Usage) (*Decision, e
 	// No fail-open path. Consume's whole promise is that the answer is exact, and
 	// an exact answer has nowhere to fail open to: allowing usage the store could
 	// not record is allowing usage nobody will ever be billed for.
-	decision, err := e.store.Consume(ctx, Entry{
+	decision, err := e.store.Consume(ctx, tx, Entry{
 		Usage:       u,
 		Bounds:      bounds,
 		Aggregation: m.Aggregation,
@@ -268,12 +305,17 @@ func (e *QuotaEnforcer) ConsumeUsage(ctx context.Context, u Usage) (*Decision, e
 		return nil, op.Error(err, "consuming metering quota")
 	}
 
-	// Written through rather than invalidated. The durable total is in hand and
-	// is exactly what the next Check would read, so writing it costs one cache
-	// round trip and saves the next reader a database one — and, more usefully,
-	// closes the window in which a Check right after a Consume reports the total
-	// from before it.
-	e.writeThrough(ctx, op, u.Subject, u.Meter, bounds, decision.Used)
+	// Evicted rather than written through, because the total this decision was
+	// made against is uncommitted: it lands when the caller's transaction does,
+	// and this enforcer never learns whether that happened. Writing it through
+	// would publish a total for a consume that rolled back, and refuse requests
+	// for the rest of the staleness budget against usage nobody incurred.
+	//
+	// An eviction is right whichever way the transaction goes. If it commits,
+	// the next Check reads the durable total, which is the number this call
+	// produced; if it rolls back, the next Check reads the durable total, which
+	// is the number from before it. Either way the cost is one cache miss.
+	e.evict(ctx, op, u.Subject, u.Meter, bounds)
 
 	e.observeDecision(ctx, decision)
 	e.annotate(op, decision)
@@ -349,7 +391,7 @@ func (e *QuotaEnforcer) usage(
 
 	op.Set(cacheHitKey, false)
 
-	total, err := e.store.Total(ctx, subject, m.Name, bounds)
+	total, err := e.store.Total(ctx, e.reader, subject, m.Name, bounds)
 	if err != nil {
 		return 0, false, err
 	}
@@ -359,6 +401,29 @@ func (e *QuotaEnforcer) usage(
 	// Not stale: this came from the durable store this instant. The staleness
 	// budget starts now, for whoever reads the cache entry next.
 	return total.Quantity, false, nil
+}
+
+// evict drops a subject's cached total for the period, so the next Check reads
+// the durable one.
+//
+// A cache error is counted and swallowed, as it is on every other path here: a
+// cache that cannot be reached leaves a stale entry that expires on its own
+// within the staleness budget, and turning that into a failed Consume would make
+// a degraded cache into a billing outage.
+func (e *QuotaEnforcer) evict(
+	ctx context.Context,
+	op observability.Operation,
+	subject, meter string,
+	bounds Bounds,
+) {
+	if e.totals == nil {
+		return
+	}
+
+	if err := e.totals.Delete(ctx, e.cacheKey(subject, meter, bounds)); err != nil {
+		e.cacheErrCounter.Add(ctx, 1, meterAttr(meter))
+		op.Acknowledge(err, "evicting metering total from cache")
+	}
 }
 
 // writeThrough stores a total in the cache under the meter's staleness budget.

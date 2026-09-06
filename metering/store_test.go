@@ -80,7 +80,7 @@ func TestSQLStore_ClaimFlushable_FullBatch(T *testing.T) {
 			entry := newEntry("req-"+subject, 1, AggregationSum)
 			entry.Subject = subject
 
-			must.NoError(t, mustRecord(t, store, entry))
+			must.NoError(t, mustRecord(t, env, store, entry))
 		}
 
 		claimed, err := store.ClaimFlushable(t.Context(), baseTime, 2, 5, baseTime.Add(time.Minute))
@@ -96,7 +96,7 @@ func TestSQLStore_ClaimFlushable_FullBatch(T *testing.T) {
 		logger := newRecordingLogger()
 		store := env.newStoreWithLogger(t, logger)
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 1, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-1", 1, AggregationSum)))
 
 		claimed, err := store.ClaimFlushable(t.Context(), baseTime, 2, 5, baseTime.Add(time.Minute))
 		must.NoError(t, err)
@@ -167,7 +167,7 @@ func suiteRecord(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		result, err := store.Record(t.Context(), []Entry{
+		result, err := env.record(t, store, []Entry{
 			newEntry("req-1", 3, AggregationSum),
 			newEntry("req-2", 4, AggregationSum),
 		}, baseTime)
@@ -176,7 +176,7 @@ func suiteRecord(t *testing.T, env *storeEnv) {
 		test.EqOp(t, 2, result.Accepted)
 		test.EqOp(t, 0, result.Duplicates)
 
-		total, err := store.Total(t.Context(), testSubject, testMeter, monthBounds)
+		total, err := env.total(t, store, testSubject, testMeter, monthBounds)
 		must.NoError(t, err)
 
 		test.EqOp(t, int64(7), total.Quantity)
@@ -192,11 +192,11 @@ func suiteRecord(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 5, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-1", 5, AggregationSum)))
 
 		// The retry a client makes on a timeout, presenting the same key. It must
 		// be counted once or the invoice is wrong.
-		result, err := store.Record(t.Context(), []Entry{
+		result, err := env.record(t, store, []Entry{
 			newEntry("req-1", 5, AggregationSum),
 			newEntry("req-2", 2, AggregationSum),
 		}, baseTime)
@@ -205,7 +205,7 @@ func suiteRecord(t *testing.T, env *storeEnv) {
 		test.EqOp(t, 1, result.Accepted)
 		test.EqOp(t, 1, result.Duplicates)
 
-		total, err := store.Total(t.Context(), testSubject, testMeter, monthBounds)
+		total, err := env.total(t, store, testSubject, testMeter, monthBounds)
 		must.NoError(t, err)
 		test.EqOp(t, int64(7), total.Quantity)
 	})
@@ -217,7 +217,7 @@ func suiteRecord(t *testing.T, env *storeEnv) {
 
 		// A redelivered batch generally overlaps rather than repeats, so the
 		// duplicate must not poison the records beside it.
-		result, err := store.Record(t.Context(), []Entry{
+		result, err := env.record(t, store, []Entry{
 			newEntry("req-1", 5, AggregationSum),
 			newEntry("req-1", 5, AggregationSum),
 			newEntry("req-2", 1, AggregationSum),
@@ -227,7 +227,7 @@ func suiteRecord(t *testing.T, env *storeEnv) {
 		test.EqOp(t, 2, result.Accepted)
 		test.EqOp(t, 1, result.Duplicates)
 
-		total, err := store.Total(t.Context(), testSubject, testMeter, monthBounds)
+		total, err := env.total(t, store, testSubject, testMeter, monthBounds)
 		must.NoError(t, err)
 		test.EqOp(t, int64(6), total.Quantity)
 	})
@@ -243,14 +243,14 @@ func suiteRecord(t *testing.T, env *storeEnv) {
 		nextMonth := newEntry("req-3", 1000, AggregationSum)
 		nextMonth.Bounds = Bounds{Start: monthBounds.End, End: monthBounds.End.AddDate(0, 1, 0)}
 
-		must.NoError(t, mustRecord(t, store,
+		must.NoError(t, mustRecord(t, env, store,
 			newEntry("req-1", 5, AggregationSum), other, nextMonth))
 
-		total, err := store.Total(t.Context(), testSubject, testMeter, monthBounds)
+		total, err := env.total(t, store, testSubject, testMeter, monthBounds)
 		must.NoError(t, err)
 		test.EqOp(t, int64(5), total.Quantity)
 
-		otherTotal, err := store.Total(t.Context(), "account-2", testMeter, monthBounds)
+		otherTotal, err := env.total(t, store, "account-2", testMeter, monthBounds)
 		must.NoError(t, err)
 		test.EqOp(t, int64(100), otherTotal.Quantity)
 	})
@@ -263,7 +263,7 @@ func suiteRecord(t *testing.T, env *storeEnv) {
 		// An absent row is a number, not a missing value. Returning an error here
 		// would make every read path branch on the ordinary case of a period that
 		// has just begun.
-		total, err := store.Total(t.Context(), testSubject, testMeter, monthBounds)
+		total, err := env.total(t, store, testSubject, testMeter, monthBounds)
 		must.NoError(t, err)
 
 		test.EqOp(t, int64(0), total.Quantity)
@@ -282,12 +282,12 @@ func suiteRecord(t *testing.T, env *storeEnv) {
 		second := newEntry("req-2", 4, AggregationSum)
 		second.Dimensions = map[string]string{"model": "opus"}
 
-		must.NoError(t, mustRecord(t, store, first, second))
+		must.NoError(t, mustRecord(t, env, store, first, second))
 
 		// Two dimensioned events, one total. Dimensions describe; they do not
 		// enforce — a dimensioned quota's row count is the product of every
 		// dimension's cardinality, and user input has no bound.
-		total, err := store.Total(t.Context(), testSubject, testMeter, monthBounds)
+		total, err := env.total(t, store, testSubject, testMeter, monthBounds)
 		must.NoError(t, err)
 		test.EqOp(t, int64(7), total.Quantity)
 		test.EqOp(t, 2, countRows(t, env, prefix+"_metering_events"))
@@ -299,16 +299,9 @@ func suiteRecord(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		result, err := store.Record(t.Context(), nil, baseTime)
+		result, err := env.record(t, store, nil, baseTime)
 		must.NoError(t, err)
 		test.EqOp(t, 0, result.Accepted)
-
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
-			txResult, txErr := store.RecordTx(t.Context(), q, nil, baseTime)
-			test.EqOp(t, 0, txResult.Accepted)
-
-			return txErr
-		}))
 	})
 
 	t.Run("records in the caller's transaction", func(t *testing.T) {
@@ -319,16 +312,57 @@ func suiteRecord(t *testing.T, env *storeEnv) {
 		// The usage and the work it describes are one fact. A crash between them
 		// leaves usage counted for work that rolled back, or work committed that
 		// nobody was billed for.
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
-			result, err := store.RecordTx(t.Context(), q, []Entry{newEntry("req-1", 9, AggregationSum)}, baseTime)
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+			// The consumer's own statement, in the transaction the usage lands
+			// in. There is no longer any other way to reach this write.
+			if _, err := tx.ExecContext(t.Context(), "SELECT 1"); err != nil {
+				return err
+			}
+
+			result, err := store.Record(t.Context(), tx, []Entry{newEntry("req-1", 9, AggregationSum)}, baseTime)
 			test.EqOp(t, 1, result.Accepted)
 
 			return err
 		}))
 
-		total, err := store.Total(t.Context(), testSubject, testMeter, monthBounds)
-		must.NoError(t, err)
-		test.EqOp(t, int64(9), total.Quantity)
+		test.EqOp(t, int64(9), env.mustTotal(t, store, testSubject, testMeter, monthBounds).Quantity)
+	})
+
+	t.Run("totals what the caller's own transaction has not committed", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		// Total takes the wider executor precisely so it can be handed the Tx a
+		// write was just given. A read narrowed to Reader() would be reading a
+		// database that does not yet hold the row its caller just wrote.
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+			if _, err := store.Record(t.Context(), tx,
+				[]Entry{newEntry("req-1", 9, AggregationSum)}, baseTime); err != nil {
+				return err
+			}
+
+			inside, err := store.Total(t.Context(), tx, testSubject, testMeter, monthBounds)
+			must.NoError(t, err)
+			test.EqOp(t, int64(9), inside.Quantity)
+
+			return nil
+		}))
+	})
+
+	t.Run("refuses a nil transaction", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		_, err := store.Record(t.Context(), nil, []Entry{newEntry("req-1", 1, AggregationSum)}, baseTime)
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.Total(t.Context(), nil, testSubject, testMeter, monthBounds)
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.Consume(t.Context(), nil, newEntry("req-1", 1, AggregationSum), 100, BehaviorBlock, baseTime)
+		test.ErrorIs(t, err, ErrNilExecutor)
 	})
 
 	t.Run("rolls the whole batch back with the caller's transaction", func(t *testing.T) {
@@ -336,8 +370,8 @@ func suiteRecord(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		test.ErrorIs(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
-			_, err := store.RecordTx(t.Context(), q, []Entry{newEntry("req-1", 9, AggregationSum)}, baseTime)
+		test.ErrorIs(t, env.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+			_, err := store.Record(t.Context(), tx, []Entry{newEntry("req-1", 9, AggregationSum)}, baseTime)
 			must.NoError(t, err)
 
 			return errArbitrary
@@ -345,23 +379,13 @@ func suiteRecord(t *testing.T, env *storeEnv) {
 
 		// Including the ledger row — so the key is free for the retry, which is
 		// what makes rolling back safe rather than a permanently lost record.
-		total, err := store.Total(t.Context(), testSubject, testMeter, monthBounds)
+		total, err := env.total(t, store, testSubject, testMeter, monthBounds)
 		must.NoError(t, err)
 		test.EqOp(t, int64(0), total.Quantity)
 
-		result, err := store.Record(t.Context(), []Entry{newEntry("req-1", 9, AggregationSum)}, baseTime)
+		result, err := env.record(t, store, []Entry{newEntry("req-1", 9, AggregationSum)}, baseTime)
 		must.NoError(t, err)
 		test.EqOp(t, 1, result.Accepted)
-	})
-
-	t.Run("refuses RecordTx with no executor", func(t *testing.T) {
-		t.Parallel()
-
-		store := env.newStore(t)
-
-		_, err := store.RecordTx(t.Context(), nil, []Entry{newEntry("req-1", 1, AggregationSum)}, baseTime)
-
-		test.ErrorIs(t, err, ErrNilExecutor)
 	})
 
 	t.Run("survives concurrent folds into one period", func(t *testing.T) {
@@ -377,14 +401,14 @@ func suiteRecord(t *testing.T, env *storeEnv) {
 			wg.Go(func() {
 				// The fold is arithmetic in the UPDATE, not a read-modify-write,
 				// so concurrent recorders cannot lose one of the two.
-				_, _ = store.Record(t.Context(),
+				_, _ = env.record(t, store,
 					[]Entry{newEntry("req-"+string(rune('a'+i)), 1, AggregationSum)}, baseTime)
 			})
 		}
 
 		wg.Wait()
 
-		total, err := store.Total(t.Context(), testSubject, testMeter, monthBounds)
+		total, err := env.total(t, store, testSubject, testMeter, monthBounds)
 		must.NoError(t, err)
 		test.EqOp(t, int64(writers), total.Quantity)
 	})
@@ -398,10 +422,10 @@ func suiteAggregations(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		must.NoError(t, mustRecord(t, store, newEntry("a", 3, AggregationSum)))
-		must.NoError(t, mustRecord(t, store, newEntry("b", 4, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("a", 3, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("b", 4, AggregationSum)))
 
-		test.EqOp(t, int64(7), totalOf(t, store))
+		test.EqOp(t, int64(7), totalOf(t, env, store))
 	})
 
 	t.Run("refuses an aggregation with no fold", func(t *testing.T) {
@@ -416,7 +440,7 @@ func suiteAggregations(t *testing.T, env *storeEnv) {
 		// found it, which reads on a dashboard as a meter that stopped
 		// counting. Registration refuses unique_count above this layer; the
 		// store refuses it here, so a caller bypassing the registry is told.
-		err := mustRecord(t, store, newEntry("a", 3, AggregationUniqueCount))
+		err := mustRecord(t, env, store, newEntry("a", 3, AggregationUniqueCount))
 
 		test.ErrorIs(t, err, ErrUnsupportedAggregation)
 	})
@@ -428,12 +452,12 @@ func suiteAggregations(t *testing.T, env *storeEnv) {
 
 		// A gigabyte held all month is one gigabyte, not thirty — which is why
 		// storage cannot simply be summed.
-		must.NoError(t, mustRecord(t, store, newEntryAt("a", 100, AggregationMax, baseTime)))
-		must.NoError(t, mustRecord(t, store, newEntryAt("b", 40, AggregationMax, baseTime.Add(time.Hour))))
-		test.EqOp(t, int64(100), totalOf(t, store))
+		must.NoError(t, mustRecord(t, env, store, newEntryAt("a", 100, AggregationMax, baseTime)))
+		must.NoError(t, mustRecord(t, env, store, newEntryAt("b", 40, AggregationMax, baseTime.Add(time.Hour))))
+		test.EqOp(t, int64(100), totalOf(t, env, store))
 
-		must.NoError(t, mustRecord(t, store, newEntryAt("c", 250, AggregationMax, baseTime.Add(2*time.Hour))))
-		test.EqOp(t, int64(250), totalOf(t, store))
+		must.NoError(t, mustRecord(t, env, store, newEntryAt("c", 250, AggregationMax, baseTime.Add(2*time.Hour))))
+		test.EqOp(t, int64(250), totalOf(t, env, store))
 	})
 
 	t.Run("last takes the newest reading", func(t *testing.T) {
@@ -441,10 +465,10 @@ func suiteAggregations(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		must.NoError(t, mustRecord(t, store, newEntryAt("a", 10, AggregationLast, baseTime)))
-		must.NoError(t, mustRecord(t, store, newEntryAt("b", 4, AggregationLast, baseTime.Add(time.Hour))))
+		must.NoError(t, mustRecord(t, env, store, newEntryAt("a", 10, AggregationLast, baseTime)))
+		must.NoError(t, mustRecord(t, env, store, newEntryAt("b", 4, AggregationLast, baseTime.Add(time.Hour))))
 
-		test.EqOp(t, int64(4), totalOf(t, store))
+		test.EqOp(t, int64(4), totalOf(t, env, store))
 	})
 
 	t.Run("last ignores a record that arrives out of order", func(t *testing.T) {
@@ -452,14 +476,14 @@ func suiteAggregations(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		must.NoError(t, mustRecord(t, store, newEntryAt("a", 10, AggregationLast, baseTime.Add(time.Hour))))
+		must.NoError(t, mustRecord(t, env, store, newEntryAt("a", 10, AggregationLast, baseTime.Add(time.Hour))))
 
 		// A queue redelivering an hour behind must not reset a gauge to an hour
 		// ago, which is the whole difference between "last" and "most recently
 		// ingested".
-		must.NoError(t, mustRecord(t, store, newEntryAt("b", 4, AggregationLast, baseTime)))
+		must.NoError(t, mustRecord(t, env, store, newEntryAt("b", 4, AggregationLast, baseTime)))
 
-		test.EqOp(t, int64(10), totalOf(t, store))
+		test.EqOp(t, int64(10), totalOf(t, env, store))
 	})
 
 	t.Run("last ignores a redelivery stamped inside a second already recorded", func(t *testing.T) {
@@ -474,11 +498,11 @@ func suiteAggregations(t *testing.T, env *storeEnv) {
 		// newer reading lands first and the older one is redelivered behind it,
 		// which is what the at-least-once delivery this package documents looks
 		// like when a queue replays.
-		must.NoError(t, mustRecord(t, store, newEntryAt("a", 10, AggregationLast, baseTime.Add(900*time.Millisecond))))
-		must.NoError(t, mustRecord(t, store, newEntryAt("b", 4, AggregationLast, baseTime.Add(100*time.Millisecond))))
+		must.NoError(t, mustRecord(t, env, store, newEntryAt("a", 10, AggregationLast, baseTime.Add(900*time.Millisecond))))
+		must.NoError(t, mustRecord(t, env, store, newEntryAt("b", 4, AggregationLast, baseTime.Add(100*time.Millisecond))))
 
 		// A gauge that goes backwards under redelivery is not "last".
-		test.EqOp(t, int64(10), totalOf(t, store))
+		test.EqOp(t, int64(10), totalOf(t, env, store))
 	})
 
 	t.Run("last takes a reading stamped at the window's start", func(t *testing.T) {
@@ -491,9 +515,9 @@ func suiteAggregations(t *testing.T, env *storeEnv) {
 		// record in the window's first second is stored at the window's start
 		// exactly. A seed at the start would refuse all of those and leave the
 		// period reading zero until the second one.
-		must.NoError(t, mustRecord(t, store, newEntryAt("a", 10, AggregationLast, monthBounds.Start)))
+		must.NoError(t, mustRecord(t, env, store, newEntryAt("a", 10, AggregationLast, monthBounds.Start)))
 
-		test.EqOp(t, int64(10), totalOf(t, store))
+		test.EqOp(t, int64(10), totalOf(t, env, store))
 	})
 
 	t.Run("folds a batch in one statement identically to one at a time", func(t *testing.T) {
@@ -508,16 +532,16 @@ func suiteAggregations(t *testing.T, env *storeEnv) {
 			newEntryAt("c", 7, AggregationLast, baseTime.Add(time.Hour)),
 		}
 
-		must.NoError(t, mustRecord(t, batched, entries...))
+		must.NoError(t, mustRecord(t, env, batched, entries...))
 
 		for i := range entries {
-			must.NoError(t, mustRecord(t, serial, entries[i]))
+			must.NoError(t, mustRecord(t, env, serial, entries[i]))
 		}
 
 		// The in-process fold and the SQL fold are the same function, so grouping
 		// a batch cannot change the answer.
-		test.EqOp(t, totalOf(t, serial), totalOf(t, batched))
-		test.EqOp(t, int64(4), totalOf(t, batched))
+		test.EqOp(t, totalOf(t, env, serial), totalOf(t, env, batched))
+		test.EqOp(t, int64(4), totalOf(t, env, batched))
 	})
 
 	t.Run("folds same-second records identically batched and one at a time", func(t *testing.T) {
@@ -536,13 +560,13 @@ func suiteAggregations(t *testing.T, env *storeEnv) {
 			newEntryAt("c", 7, AggregationLast, baseTime.Add(500*time.Millisecond)),
 		}
 
-		must.NoError(t, mustRecord(t, batched, entries...))
+		must.NoError(t, mustRecord(t, env, batched, entries...))
 
 		for i := range entries {
-			must.NoError(t, mustRecord(t, serial, entries[i]))
+			must.NoError(t, mustRecord(t, env, serial, entries[i]))
 		}
 
-		test.EqOp(t, totalOf(t, serial), totalOf(t, batched))
+		test.EqOp(t, totalOf(t, env, serial), totalOf(t, env, batched))
 	})
 
 	t.Run("keeps last_occurred_at monotone", func(t *testing.T) {
@@ -550,10 +574,10 @@ func suiteAggregations(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		must.NoError(t, mustRecord(t, store, newEntryAt("a", 1, AggregationSum, baseTime.Add(time.Hour))))
-		must.NoError(t, mustRecord(t, store, newEntryAt("b", 1, AggregationSum, baseTime)))
+		must.NoError(t, mustRecord(t, env, store, newEntryAt("a", 1, AggregationSum, baseTime.Add(time.Hour))))
+		must.NoError(t, mustRecord(t, env, store, newEntryAt("b", 1, AggregationSum, baseTime)))
 
-		total, err := store.Total(t.Context(), testSubject, testMeter, monthBounds)
+		total, err := env.total(t, store, testSubject, testMeter, monthBounds)
 		must.NoError(t, err)
 
 		test.EqOp(t, baseTime.Add(time.Hour), total.LastOccurredAt)
@@ -563,12 +587,66 @@ func suiteAggregations(t *testing.T, env *storeEnv) {
 func suiteConsume(t *testing.T, env *storeEnv) {
 	t.Helper()
 
+	t.Run("commits the decision with the work it authorized", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		// A nil error from Consume is permission to do the work. The work is the
+		// caller's own statement, and it goes in the same transaction — which is
+		// the whole reason this method takes one.
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+			decision, err := store.Consume(t.Context(), tx,
+				newEntry("req-1", 30, AggregationSum), 100, BehaviorBlock, baseTime)
+			if err != nil {
+				return err
+			}
+
+			test.True(t, decision.Allowed)
+
+			_, err = tx.ExecContext(t.Context(), "SELECT 1")
+
+			return err
+		}))
+
+		test.EqOp(t, int64(30), totalOf(t, env, store))
+	})
+
+	t.Run("takes back the quota when the caller's transaction unwinds", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		// The failure the old shape could not avoid: the quota was spent in one
+		// transaction and the work failed in another, leaving a customer billed
+		// for something that never happened.
+		test.ErrorIs(t, env.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+			decision, err := store.Consume(t.Context(), tx,
+				newEntry("req-1", 30, AggregationSum), 100, BehaviorBlock, baseTime)
+			must.NoError(t, err)
+			must.True(t, decision.Allowed)
+
+			return errArbitrary
+		}), errArbitrary)
+
+		test.EqOp(t, int64(0), totalOf(t, env, store))
+
+		// And the idempotency key went back with it, so the retry that follows
+		// is a consume rather than a reported duplicate over no usage.
+		decision, err := env.consume(t, store, newEntry("req-1", 30, AggregationSum), 100, BehaviorBlock, baseTime)
+		must.NoError(t, err)
+
+		test.True(t, decision.Allowed)
+		test.False(t, decision.Duplicate)
+		test.EqOp(t, int64(30), totalOf(t, env, store))
+	})
+
 	t.Run("allows under the limit and records", func(t *testing.T) {
 		t.Parallel()
 
 		store := env.newStore(t)
 
-		decision, err := store.Consume(t.Context(), newEntry("req-1", 30, AggregationSum), 100, BehaviorBlock, baseTime)
+		decision, err := env.consume(t, store, newEntry("req-1", 30, AggregationSum), 100, BehaviorBlock, baseTime)
 		must.NoError(t, err)
 
 		test.True(t, decision.Allowed)
@@ -577,7 +655,7 @@ func suiteConsume(t *testing.T, env *storeEnv) {
 		test.EqOp(t, int64(0), decision.Overage)
 		test.EqOp(t, monthBounds.End, decision.ResetsAt)
 		test.False(t, decision.Duplicate)
-		test.EqOp(t, int64(30), totalOf(t, store))
+		test.EqOp(t, int64(30), totalOf(t, env, store))
 	})
 
 	t.Run("blocks past the limit and records nothing", func(t *testing.T) {
@@ -585,16 +663,16 @@ func suiteConsume(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		must.NoError(t, mustRecord(t, store, newEntry("seed", 95, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("seed", 95, AggregationSum)))
 
-		decision, err := store.Consume(t.Context(), newEntry("req-1", 10, AggregationSum), 100, BehaviorBlock, baseTime)
+		decision, err := env.consume(t, store, newEntry("req-1", 10, AggregationSum), 100, BehaviorBlock, baseTime)
 		must.NoError(t, err)
 
 		test.False(t, decision.Allowed)
 		// The reported total is what is actually recorded, not what the refused
 		// call would have taken it to.
 		test.EqOp(t, int64(95), decision.Used)
-		test.EqOp(t, int64(95), totalOf(t, store))
+		test.EqOp(t, int64(95), totalOf(t, env, store))
 	})
 
 	t.Run("leaves the key free after a block", func(t *testing.T) {
@@ -602,21 +680,21 @@ func suiteConsume(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		must.NoError(t, mustRecord(t, store, newEntry("seed", 95, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("seed", 95, AggregationSum)))
 
-		blocked, err := store.Consume(t.Context(), newEntry("req-1", 10, AggregationSum), 100, BehaviorBlock, baseTime)
+		blocked, err := env.consume(t, store, newEntry("req-1", 10, AggregationSum), 100, BehaviorBlock, baseTime)
 		must.NoError(t, err)
 		must.False(t, blocked.Allowed)
 
 		// Burning the key on a consume that recorded nothing would make the
 		// caller's retry — after they upgraded, say — look like a duplicate and be
 		// answered with a total that never included their usage.
-		allowed, err := store.Consume(t.Context(), newEntry("req-1", 10, AggregationSum), 1000, BehaviorBlock, baseTime)
+		allowed, err := env.consume(t, store, newEntry("req-1", 10, AggregationSum), 1000, BehaviorBlock, baseTime)
 		must.NoError(t, err)
 
 		test.True(t, allowed.Allowed)
 		test.False(t, allowed.Duplicate)
-		test.EqOp(t, int64(105), totalOf(t, store))
+		test.EqOp(t, int64(105), totalOf(t, env, store))
 	})
 
 	t.Run("allows and records past the limit for warn and allow_overage", func(t *testing.T) {
@@ -625,16 +703,16 @@ func suiteConsume(t *testing.T, env *storeEnv) {
 		for _, behavior := range []QuotaBehavior{BehaviorWarn, BehaviorAllowOverage} {
 			store := env.newStore(t)
 
-			must.NoError(t, mustRecord(t, store, newEntry("seed", 95, AggregationSum)))
+			must.NoError(t, mustRecord(t, env, store, newEntry("seed", 95, AggregationSum)))
 
-			decision, err := store.Consume(t.Context(),
+			decision, err := env.consume(t, store,
 				newEntry("req-1", 10, AggregationSum), 100, behavior, baseTime)
 			must.NoError(t, err)
 
 			test.True(t, decision.Allowed, test.Sprintf("behavior %q", behavior))
 			test.EqOp(t, int64(105), decision.Used, test.Sprintf("behavior %q", behavior))
 			test.EqOp(t, int64(5), decision.Overage, test.Sprintf("behavior %q", behavior))
-			test.EqOp(t, int64(105), totalOf(t, store), test.Sprintf("behavior %q", behavior))
+			test.EqOp(t, int64(105), totalOf(t, env, store), test.Sprintf("behavior %q", behavior))
 		}
 	})
 
@@ -643,11 +721,11 @@ func suiteConsume(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		first, err := store.Consume(t.Context(), newEntry("req-1", 30, AggregationSum), 100, BehaviorBlock, baseTime)
+		first, err := env.consume(t, store, newEntry("req-1", 30, AggregationSum), 100, BehaviorBlock, baseTime)
 		must.NoError(t, err)
 		must.False(t, first.Duplicate)
 
-		second, err := store.Consume(t.Context(), newEntry("req-1", 30, AggregationSum), 100, BehaviorBlock, baseTime)
+		second, err := env.consume(t, store, newEntry("req-1", 30, AggregationSum), 100, BehaviorBlock, baseTime)
 		must.NoError(t, err)
 
 		test.True(t, second.Duplicate)
@@ -655,7 +733,7 @@ func suiteConsume(t *testing.T, env *storeEnv) {
 		// The retried request should see its own usage already in there, not a
 		// projection that counts it twice.
 		test.EqOp(t, int64(30), second.Used)
-		test.EqOp(t, int64(30), totalOf(t, store))
+		test.EqOp(t, int64(30), totalOf(t, env, store))
 	})
 
 	t.Run("serializes concurrent consumes against one limit", func(t *testing.T) {
@@ -677,7 +755,7 @@ func suiteConsume(t *testing.T, env *storeEnv) {
 
 		for i := range consumers {
 			wg.Go(func() {
-				decision, err := store.Consume(t.Context(),
+				decision, err := env.consume(t, store,
 					newEntry("req-"+string(rune('a'+i)), 1, AggregationSum), limit, BehaviorBlock, baseTime)
 				if err != nil || decision == nil || !decision.Allowed {
 					return
@@ -695,7 +773,7 @@ func suiteConsume(t *testing.T, env *storeEnv) {
 		// Exactly the limit gets through. Without the lock, two consumers both
 		// see room and both take the last unit.
 		test.EqOp(t, limit, allowed)
-		test.EqOp(t, int64(limit), totalOf(t, store))
+		test.EqOp(t, int64(limit), totalOf(t, env, store))
 	})
 
 	t.Run("opens a period it is the first to touch", func(t *testing.T) {
@@ -706,7 +784,7 @@ func suiteConsume(t *testing.T, env *storeEnv) {
 		// A subject's first consume in a period has no row to lock, and two
 		// concurrent first consumes would both find nothing and both take the last
 		// unit. The zero row is what they serialize on.
-		_, err := store.Consume(t.Context(), newEntry("req-1", 1, AggregationSum), 100, BehaviorBlock, baseTime)
+		_, err := env.consume(t, store, newEntry("req-1", 1, AggregationSum), 100, BehaviorBlock, baseTime)
 		must.NoError(t, err)
 
 		test.EqOp(t, 1, countRows(t, env, prefix+"_metering_totals"))
@@ -717,17 +795,17 @@ func suiteConsume(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		must.NoError(t, mustRecord(t, store, newEntryAt("seed", 90, AggregationMax, baseTime)))
+		must.NoError(t, mustRecord(t, env, store, newEntryAt("seed", 90, AggregationMax, baseTime)))
 
 		// 40 is under the limit on its own and does not raise the mark, so it is
 		// allowed and the total stands. A sum meter would have refused it.
-		decision, err := store.Consume(t.Context(),
+		decision, err := env.consume(t, store,
 			newEntryAt("req-1", 40, AggregationMax, baseTime.Add(time.Hour)), 100, BehaviorBlock, baseTime)
 		must.NoError(t, err)
 
 		test.True(t, decision.Allowed)
 		test.EqOp(t, int64(90), decision.Used)
-		test.EqOp(t, int64(90), totalOf(t, store))
+		test.EqOp(t, int64(90), totalOf(t, env, store))
 	})
 
 	t.Run("consumes against a last meter without going backwards inside a second", func(t *testing.T) {
@@ -735,7 +813,7 @@ func suiteConsume(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		must.NoError(t, mustRecord(t, store,
+		must.NoError(t, mustRecord(t, env, store,
 			newEntryAt("seed", 90, AggregationLast, baseTime.Add(900*time.Millisecond))))
 
 		// Consume decides in Go against the row it holds the lock on, and
@@ -744,14 +822,14 @@ func suiteConsume(t *testing.T, env *storeEnv) {
 		// comparison here therefore has to hand a tie to the row for the same
 		// reason the fold statement does, or a redelivery arriving behind the
 		// reading already recorded resets the gauge through this path instead.
-		decision, err := store.Consume(t.Context(),
+		decision, err := env.consume(t, store,
 			newEntryAt("req-1", 4, AggregationLast, baseTime.Add(100*time.Millisecond)),
 			100, BehaviorBlock, baseTime)
 		must.NoError(t, err)
 
 		test.True(t, decision.Allowed)
 		test.EqOp(t, int64(90), decision.Used)
-		test.EqOp(t, int64(90), totalOf(t, store))
+		test.EqOp(t, int64(90), totalOf(t, env, store))
 	})
 }
 
@@ -763,7 +841,7 @@ func suiteFlushLifecycle(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-1", 42, AggregationSum)))
 
 		claimed, err := store.ClaimFlushable(t.Context(), baseTime, 10, 5, baseTime.Add(time.Minute))
 		must.NoError(t, err)
@@ -792,7 +870,7 @@ func suiteFlushLifecycle(t *testing.T, env *storeEnv) {
 			entry := newEntry("req-"+subject, 7, AggregationSum)
 			entry.Subject = subject
 
-			must.NoError(t, mustRecord(t, store, entry))
+			must.NoError(t, mustRecord(t, env, store, entry))
 		}
 
 		claimed, err := store.ClaimFlushable(t.Context(), baseTime, 10, 5, baseTime.Add(time.Minute))
@@ -815,7 +893,7 @@ func suiteFlushLifecycle(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-1", 42, AggregationSum)))
 
 		claimed, err := store.ClaimFlushable(t.Context(), baseTime, 10, 5, baseTime.Add(time.Minute))
 		must.NoError(t, err)
@@ -833,7 +911,7 @@ func suiteFlushLifecycle(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-1", 42, AggregationSum)))
 
 		first, err := store.ClaimFlushable(t.Context(), baseTime, 10, 5, baseTime.Add(time.Minute))
 		must.NoError(t, err)
@@ -855,7 +933,7 @@ func suiteFlushLifecycle(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-1", 42, AggregationSum)))
 
 		claimed, err := store.ClaimFlushable(t.Context(), baseTime, 10, 1, baseTime.Add(time.Minute))
 		must.NoError(t, err)
@@ -879,7 +957,7 @@ func suiteFlushLifecycle(t *testing.T, env *storeEnv) {
 			entry := newEntry("req-"+subject, 1, AggregationSum)
 			entry.Subject = subject
 
-			must.NoError(t, mustRecord(t, store, entry))
+			must.NoError(t, mustRecord(t, env, store, entry))
 		}
 
 		claimed, err := store.ClaimFlushable(t.Context(), baseTime, 2, 5, baseTime.Add(time.Minute))
@@ -896,13 +974,13 @@ func suiteFlushLifecycle(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-1", 42, AggregationSum)))
 
 		claimed, err := store.ClaimFlushable(t.Context(), baseTime, 10, 5, baseTime.Add(time.Minute))
 		must.NoError(t, err)
 		must.NoError(t, store.MarkFlushed(t.Context(), claimed[0], 42, baseTime))
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-2", 8, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-2", 8, AggregationSum)))
 
 		next, err := store.ClaimFlushable(t.Context(), baseTime, 10, 5, baseTime.Add(time.Minute))
 		must.NoError(t, err)
@@ -923,7 +1001,7 @@ func suiteFlushLifecycle(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-1", 42, AggregationSum)))
 
 		claimed, err := store.ClaimFlushable(t.Context(), baseTime, 10, 5, baseTime.Add(time.Minute))
 		must.NoError(t, err)
@@ -941,7 +1019,7 @@ func suiteFlushLifecycle(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-1", 42, AggregationSum)))
 
 		claimed, err := store.ClaimFlushable(t.Context(), baseTime, 10, 5, baseTime.Add(time.Minute))
 		must.NoError(t, err)
@@ -955,7 +1033,7 @@ func suiteFlushLifecycle(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-1", 42, AggregationSum)))
 
 		claimed, err := store.ClaimFlushable(t.Context(), baseTime, 10, 5, baseTime.Add(time.Minute))
 		must.NoError(t, err)
@@ -997,7 +1075,7 @@ func suiteReap(t *testing.T, env *storeEnv) {
 
 		store, prefix := env.newStoreWithPrefix(t)
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-1", 42, AggregationSum)))
 
 		claimed, err := store.ClaimFlushable(t.Context(), baseTime, 10, 5, baseTime.Add(time.Minute))
 		must.NoError(t, err)
@@ -1017,7 +1095,7 @@ func suiteReap(t *testing.T, env *storeEnv) {
 
 		store, prefix := env.newStoreWithPrefix(t)
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-1", 42, AggregationSum)))
 
 		// Deleting it would take the evidence for an unposted invoice line, and —
 		// worse — re-open the idempotency key, so a redelivery would be counted a
@@ -1034,7 +1112,7 @@ func suiteReap(t *testing.T, env *storeEnv) {
 
 		store, prefix := env.newStoreWithPrefix(t)
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-1", 42, AggregationSum)))
 
 		claimed, err := store.ClaimFlushable(t.Context(), baseTime, 10, 5, baseTime.Add(time.Minute))
 		must.NoError(t, err)
@@ -1052,7 +1130,7 @@ func suiteReap(t *testing.T, env *storeEnv) {
 
 		store, prefix := env.newStoreWithPrefix(t)
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-1", 42, AggregationSum)))
 
 		claimed, err := store.ClaimFlushable(t.Context(), baseTime, 10, 5, baseTime.Add(time.Minute))
 		must.NoError(t, err)
@@ -1074,7 +1152,7 @@ func suiteReap(t *testing.T, env *storeEnv) {
 
 		store, prefix := env.newStoreWithPrefix(t)
 
-		must.NoError(t, mustRecord(t, store,
+		must.NoError(t, mustRecord(t, env, store,
 			newEntry("req-1", 1, AggregationSum),
 			newEntry("req-2", 1, AggregationSum),
 			newEntry("req-3", 1, AggregationSum)))
@@ -1098,22 +1176,19 @@ func suiteReap(t *testing.T, env *storeEnv) {
 }
 
 // mustRecord records entries and asserts the store accepted the call.
-func mustRecord(t *testing.T, store Store, entries ...Entry) error {
+func mustRecord(t *testing.T, env *storeEnv, store Store, entries ...Entry) error {
 	t.Helper()
 
-	_, err := store.Record(t.Context(), entries, baseTime)
+	_, err := env.record(t, store, entries, baseTime)
 
 	return err
 }
 
 // totalOf reads the suite's usual subject and meter for the month.
-func totalOf(t *testing.T, store Store) int64 {
+func totalOf(t *testing.T, env *storeEnv, store Store) int64 {
 	t.Helper()
 
-	total, err := store.Total(t.Context(), testSubject, testMeter, monthBounds)
-	must.NoError(t, err)
-
-	return total.Quantity
+	return env.mustTotal(t, store, testSubject, testMeter, monthBounds).Quantity
 }
 
 // TestStoredResolution pins the one dialect fact this package holds outside its
