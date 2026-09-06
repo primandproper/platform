@@ -2,6 +2,7 @@ package identitycfg
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -139,6 +140,30 @@ func TestRegisterService(T *testing.T) {
 		svc, err := do.Invoke[*identity.Service](i)
 		must.NoError(t, err)
 		test.NotNil(t, svc)
+	})
+
+	T.Run("a hooks provider that fails to build fails the service", func(t *testing.T) {
+		t.Parallel()
+
+		// The other half of resolving Hooks softly. Absent is a configuration;
+		// registered-and-broken is not, and a Service that ran the noop in its
+		// place would commit every identity write with none of the audit and
+		// outbox companions the consumer registered hooks to get — silently,
+		// which is the failure InvokePillars draws the same line against.
+		boom := errors.New("audit sink unreachable")
+
+		i := do.New()
+		do.ProvideValue[context.Context](i, t.Context())
+		do.ProvideValue[database.Client](i, testDBClient(t))
+		do.ProvideValue(i, &Config{})
+		do.Provide(i, func(do.Injector) (identity.Hooks, error) { return nil, boom })
+
+		RegisterStore(i)
+		RegisterService(i)
+
+		svc, err := do.Invoke[*identity.Service](i)
+		test.Nil(t, svc)
+		test.ErrorIs(t, err, boom)
 	})
 }
 

@@ -216,7 +216,11 @@ func (s *Server) RegisterOn(srv *grpc.Server) {
 // got wrong separately: an RPC that forgot the principal reads with the zero
 // scope, one that forgot to count an attempt leaves a latency histogram with no
 // denominator, one that forgot to end the span leaks it. The returned func is
-// deferred by the caller and closes all of it.
+// deferred by the caller and closes all of it, and it is called with the error
+// the RPC is returning — which is why every early return below assigns err
+// before returning it, rather than returning a fresh value the deferred call
+// never sees. When this helper itself fails it has already closed everything,
+// and the func it hands back does nothing.
 func (s *Server) caller(ctx context.Context, method string) (
 	context.Context, observability.Operation, Principal, func(err error), error,
 ) {
@@ -238,8 +242,15 @@ func (s *Server) caller(ctx context.Context, method string) (
 
 	principal, ok := s.principals(ctx)
 	if !ok || principal == nil {
-		return ctx, op, nil, done, fail(
-			op, ErrNoPrincipal, codes.Unauthenticated, "resolving the caller of %s", method)
+		err := fail(op, ErrNoPrincipal, codes.Unauthenticated, "resolving the caller of %s", method)
+
+		// The RPC returns before it has deferred done, so this failure has to
+		// close what it opened itself: otherwise every unauthenticated call is
+		// a span never ended, a latency with no sample and a failure nobody
+		// counted, on the one path the helper exists to keep honest.
+		done(err)
+
+		return ctx, op, nil, func(error) {}, err
 	}
 
 	op.Set(scopeKey, principal.Scope().String()).Set(userIDKey, principal.UserID())

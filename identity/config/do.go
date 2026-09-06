@@ -2,8 +2,10 @@ package identitycfg
 
 import (
 	"context"
+	stderrors "errors"
 
 	"github.com/primandproper/platform-go/v14/database"
+	platformerrors "github.com/primandproper/platform-go/v14/errors"
 	"github.com/primandproper/platform-go/v14/identity"
 	identitygrpc "github.com/primandproper/platform-go/v14/identity/grpc"
 	"github.com/primandproper/platform-go/v14/observability"
@@ -39,8 +41,12 @@ func RegisterStore(i do.Injector) {
 // identity.Hooks is resolved if something registered one and defaulted to
 // identity.NoopHooks otherwise, which is the same reading the constructor takes:
 // an application with nothing to commit beside an identity write registers
-// nothing. It is do.InvokeAs rather than MustInvoke for exactly that reason — a
-// missing Hooks is a configuration, not a failure.
+// nothing. That is the only error the lookup absorbs. A Hooks that is
+// registered but fails to build is returned, on the same distinction
+// observability.InvokePillars draws: "nobody registered one" is a
+// configuration, "the one registered could not be built" is a failure, and a
+// Service that quietly ran the noop in its place would commit every identity
+// write with none of the companions the consumer registered hooks to get.
 func RegisterService(i do.Injector) {
 	do.Provide(i, func(i do.Injector) (*identity.Service, error) {
 		pillars, err := observability.InvokePillars(i)
@@ -50,8 +56,12 @@ func RegisterService(i do.Injector) {
 
 		opts := []Option{WithPillars(pillars)}
 
-		if hooks, hooksErr := do.Invoke[identity.Hooks](i); hooksErr == nil {
+		hooks, hooksErr := do.Invoke[identity.Hooks](i)
+		switch {
+		case hooksErr == nil:
 			opts = append(opts, WithHooks(hooks))
+		case !stderrors.Is(hooksErr, do.ErrServiceNotFound):
+			return nil, platformerrors.Wrap(hooksErr, "invoking identity hooks")
 		}
 
 		return NewService(

@@ -36,12 +36,16 @@ func (s *Server) Register(
 
 	user := userFromRegistrationInput(request.GetUser())
 	if user == nil {
-		return nil, fail(op, identity.ErrNilUser, codes.InvalidArgument, "registering a user")
+		err = fail(op, identity.ErrNilUser, codes.InvalidArgument, "registering a user")
+
+		return nil, err
 	}
 
 	account := accountFromCreationInput(request.GetAccount())
 	if account == nil {
-		return nil, fail(op, identity.ErrNilAccount, codes.InvalidArgument, "registering a user")
+		err = fail(op, identity.ErrNilAccount, codes.InvalidArgument, "registering a user")
+
+		return nil, err
 	}
 
 	registration, err := s.svc.Register(ctx, scopeOf(principal), user, account, request.GetOwnerRoles())
@@ -74,7 +78,9 @@ func (s *Server) UpdateProfile(
 
 	update := profileUpdateFromProto(request.GetInput())
 	if update == nil {
-		return nil, fail(op, identity.ErrNilUser, codes.InvalidArgument, "updating a profile")
+		err = fail(op, identity.ErrNilUser, codes.InvalidArgument, "updating a profile")
+
+		return nil, err
 	}
 
 	user, err := s.svc.UpdateProfile(ctx, scopeOf(principal), principal.UserID(), update)

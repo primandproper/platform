@@ -360,24 +360,38 @@ message AccountCreationInput {
 // ProfileUpdateInput is what a user may change about themselves. Verifying an
 // address is not among them: moving email_address clears whatever verification
 // the old one had, and proving the new one is a fresh link afterwards.
+//
+// Every field is optional, and the distinction is presence rather than value: a
+// field left off the request leaves that column as it was, and a field sent
+// empty clears it. That is what lets a client rename somebody without resending
+// their email address, and what lets a person remove a last name they no longer
+// want shown. A proto3 string with no presence cannot say both, and an update
+// that read absent as "make it empty" would have wiped every field a client
+// did not think to repeat.
 message ProfileUpdateInput {
-  string username = 1;
+  optional string username = 1;
 
-  string email_address = 2;
+  optional string email_address = 2;
 
-  string first_name = 3;
+  optional string first_name = 3;
 
-  string last_name = 4;
+  optional string last_name = 4;
 }
 
 // AccountUpdateInput is what an account holder may change. Neither the billing
 // state nor the owner is here: both are moved by flows that do not hold the
 // rest of the account, and a read-modify-write over them would lose whatever a
 // processor webhook or an ownership transfer did in between.
+//
+// Every field is optional, on the same reading as ProfileUpdateInput: absent is
+// "leave it", present is "make it this", and an empty present value clears the
+// field. A rename that carried only a name would otherwise have reset the time
+// zone to UTC and blanked the billing address, and reported all three as
+// changed.
 message AccountUpdateInput {
-  string name = 1;
+  optional string name = 1;
 
-  string time_zone = 2;
+  optional string time_zone = 2;
 
   BillingAddress billing_address = 3;
 }

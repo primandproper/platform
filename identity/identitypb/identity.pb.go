@@ -1383,12 +1383,20 @@ func (x *AccountCreationInput) GetBillingAddress() *BillingAddress {
 // ProfileUpdateInput is what a user may change about themselves. Verifying an
 // address is not among them: moving email_address clears whatever verification
 // the old one had, and proving the new one is a fresh link afterwards.
+//
+// Every field is optional, and the distinction is presence rather than value: a
+// field left off the request leaves that column as it was, and a field sent
+// empty clears it. That is what lets a client rename somebody without resending
+// their email address, and what lets a person remove a last name they no longer
+// want shown. A proto3 string with no presence cannot say both, and an update
+// that read absent as "make it empty" would have wiped every field a client
+// did not think to repeat.
 type ProfileUpdateInput struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
-	EmailAddress  string                 `protobuf:"bytes,2,opt,name=email_address,json=emailAddress,proto3" json:"email_address,omitempty"`
-	FirstName     string                 `protobuf:"bytes,3,opt,name=first_name,json=firstName,proto3" json:"first_name,omitempty"`
-	LastName      string                 `protobuf:"bytes,4,opt,name=last_name,json=lastName,proto3" json:"last_name,omitempty"`
+	Username      *string                `protobuf:"bytes,1,opt,name=username,proto3,oneof" json:"username,omitempty"`
+	EmailAddress  *string                `protobuf:"bytes,2,opt,name=email_address,json=emailAddress,proto3,oneof" json:"email_address,omitempty"`
+	FirstName     *string                `protobuf:"bytes,3,opt,name=first_name,json=firstName,proto3,oneof" json:"first_name,omitempty"`
+	LastName      *string                `protobuf:"bytes,4,opt,name=last_name,json=lastName,proto3,oneof" json:"last_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1424,29 +1432,29 @@ func (*ProfileUpdateInput) Descriptor() ([]byte, []int) {
 }
 
 func (x *ProfileUpdateInput) GetUsername() string {
-	if x != nil {
-		return x.Username
+	if x != nil && x.Username != nil {
+		return *x.Username
 	}
 	return ""
 }
 
 func (x *ProfileUpdateInput) GetEmailAddress() string {
-	if x != nil {
-		return x.EmailAddress
+	if x != nil && x.EmailAddress != nil {
+		return *x.EmailAddress
 	}
 	return ""
 }
 
 func (x *ProfileUpdateInput) GetFirstName() string {
-	if x != nil {
-		return x.FirstName
+	if x != nil && x.FirstName != nil {
+		return *x.FirstName
 	}
 	return ""
 }
 
 func (x *ProfileUpdateInput) GetLastName() string {
-	if x != nil {
-		return x.LastName
+	if x != nil && x.LastName != nil {
+		return *x.LastName
 	}
 	return ""
 }
@@ -1455,10 +1463,16 @@ func (x *ProfileUpdateInput) GetLastName() string {
 // state nor the owner is here: both are moved by flows that do not hold the
 // rest of the account, and a read-modify-write over them would lose whatever a
 // processor webhook or an ownership transfer did in between.
+//
+// Every field is optional, on the same reading as ProfileUpdateInput: absent is
+// "leave it", present is "make it this", and an empty present value clears the
+// field. A rename that carried only a name would otherwise have reset the time
+// zone to UTC and blanked the billing address, and reported all three as
+// changed.
 type AccountUpdateInput struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	Name           string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	TimeZone       string                 `protobuf:"bytes,2,opt,name=time_zone,json=timeZone,proto3" json:"time_zone,omitempty"`
+	Name           *string                `protobuf:"bytes,1,opt,name=name,proto3,oneof" json:"name,omitempty"`
+	TimeZone       *string                `protobuf:"bytes,2,opt,name=time_zone,json=timeZone,proto3,oneof" json:"time_zone,omitempty"`
 	BillingAddress *BillingAddress        `protobuf:"bytes,3,opt,name=billing_address,json=billingAddress,proto3" json:"billing_address,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -1495,15 +1509,15 @@ func (*AccountUpdateInput) Descriptor() ([]byte, []int) {
 }
 
 func (x *AccountUpdateInput) GetName() string {
-	if x != nil {
-		return x.Name
+	if x != nil && x.Name != nil {
+		return *x.Name
 	}
 	return ""
 }
 
 func (x *AccountUpdateInput) GetTimeZone() string {
-	if x != nil {
-		return x.TimeZone
+	if x != nil && x.TimeZone != nil {
+		return *x.TimeZone
 	}
 	return ""
 }
@@ -4386,17 +4400,25 @@ const file_primandproper_platform_identity_v1_identity_proto_rawDesc = "" +
 	"\x14AccountCreationInput\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
 	"\ttime_zone\x18\x02 \x01(\tR\btimeZone\x12[\n" +
-	"\x0fbilling_address\x18\x03 \x01(\v22.primandproper.platform.identity.v1.BillingAddressR\x0ebillingAddress\"\x91\x01\n" +
-	"\x12ProfileUpdateInput\x12\x1a\n" +
-	"\busername\x18\x01 \x01(\tR\busername\x12#\n" +
-	"\remail_address\x18\x02 \x01(\tR\femailAddress\x12\x1d\n" +
+	"\x0fbilling_address\x18\x03 \x01(\v22.primandproper.platform.identity.v1.BillingAddressR\x0ebillingAddress\"\xe1\x01\n" +
+	"\x12ProfileUpdateInput\x12\x1f\n" +
+	"\busername\x18\x01 \x01(\tH\x00R\busername\x88\x01\x01\x12(\n" +
+	"\remail_address\x18\x02 \x01(\tH\x01R\femailAddress\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"first_name\x18\x03 \x01(\tR\tfirstName\x12\x1b\n" +
-	"\tlast_name\x18\x04 \x01(\tR\blastName\"\xa2\x01\n" +
-	"\x12AccountUpdateInput\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
-	"\ttime_zone\x18\x02 \x01(\tR\btimeZone\x12[\n" +
-	"\x0fbilling_address\x18\x03 \x01(\v22.primandproper.platform.identity.v1.BillingAddressR\x0ebillingAddress\"\xd5\x01\n" +
+	"first_name\x18\x03 \x01(\tH\x02R\tfirstName\x88\x01\x01\x12 \n" +
+	"\tlast_name\x18\x04 \x01(\tH\x03R\blastName\x88\x01\x01B\v\n" +
+	"\t_usernameB\x10\n" +
+	"\x0e_email_addressB\r\n" +
+	"\v_first_nameB\f\n" +
+	"\n" +
+	"_last_name\"\xc3\x01\n" +
+	"\x12AccountUpdateInput\x12\x17\n" +
+	"\x04name\x18\x01 \x01(\tH\x00R\x04name\x88\x01\x01\x12 \n" +
+	"\ttime_zone\x18\x02 \x01(\tH\x01R\btimeZone\x88\x01\x01\x12[\n" +
+	"\x0fbilling_address\x18\x03 \x01(\v22.primandproper.platform.identity.v1.BillingAddressR\x0ebillingAddressB\a\n" +
+	"\x05_nameB\f\n" +
+	"\n" +
+	"_time_zone\"\xd5\x01\n" +
 	"\x0fRegisterRequest\x12M\n" +
 	"\x04user\x18\x01 \x01(\v29.primandproper.platform.identity.v1.UserRegistrationInputR\x04user\x12R\n" +
 	"\aaccount\x18\x02 \x01(\v28.primandproper.platform.identity.v1.AccountCreationInputR\aaccount\x12\x1f\n" +
@@ -4888,6 +4910,8 @@ func file_primandproper_platform_identity_v1_identity_proto_init() {
 	}
 	file_primandproper_platform_identity_v1_identity_proto_msgTypes[2].OneofWrappers = []any{}
 	file_primandproper_platform_identity_v1_identity_proto_msgTypes[5].OneofWrappers = []any{}
+	file_primandproper_platform_identity_v1_identity_proto_msgTypes[11].OneofWrappers = []any{}
+	file_primandproper_platform_identity_v1_identity_proto_msgTypes[12].OneofWrappers = []any{}
 	file_primandproper_platform_identity_v1_identity_proto_msgTypes[43].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

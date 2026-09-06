@@ -30,7 +30,9 @@ func (s *Server) UpdateAccount(
 
 	update := accountUpdateFromProto(request.GetInput())
 	if update == nil {
-		return nil, fail(op, identity.ErrNilAccount, codes.InvalidArgument, "updating an account")
+		err = fail(op, identity.ErrNilAccount, codes.InvalidArgument, "updating an account")
+
+		return nil, err
 	}
 
 	account, err := s.svc.UpdateAccount(ctx, scopeOf(principal), request.GetAccountId(), update)

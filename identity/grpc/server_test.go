@@ -1,16 +1,24 @@
 package grpc_test
 
 import (
+	"context"
 	"errors"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/primandproper/platform-go/v14/database"
 	"github.com/primandproper/platform-go/v14/identity"
 	identitygrpc "github.com/primandproper/platform-go/v14/identity/grpc"
 	"github.com/primandproper/platform-go/v14/identity/identitypb"
+	"github.com/primandproper/platform-go/v14/observability/metrics"
+	metricsmock "github.com/primandproper/platform-go/v14/observability/metrics/mock"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
+	"go.opentelemetry.io/otel/metric"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -277,17 +285,130 @@ func TestUpdateProfileSavesTheCallersOwnRow(T *testing.T) {
 	ctx := h.as(&testPrincipal{userID: registration.User.ID, scope: testScope})
 
 	response, err := h.client.UpdateProfile(ctx, &identitypb.UpdateProfileRequest{
-		Input: &identitypb.ProfileUpdateInput{
-			Username:     "somebody",
-			EmailAddress: "somebody@example.com",
-			FirstName:    "Renamed",
-		},
+		Input: &identitypb.ProfileUpdateInput{FirstName: new("Renamed")},
 	})
 	must.NoError(T, err)
 
 	test.EqOp(T, "Renamed", response.GetUser().GetFirstName())
 	test.EqOp(T, registration.User.ID, response.GetUser().GetId())
+
+	// The fields the request did not name are the fields it did not change.
+	// This is what optional buys on the wire: a rename that had to resend the
+	// username and the email address to avoid blanking them is a client that
+	// re-sends stale ones, and a changed email address clears its verification.
+	test.EqOp(T, "somebody", response.GetUser().GetUsername())
+	test.EqOp(T, "somebody@example.com", response.GetUser().GetEmailAddress())
 }
+
+func TestUpdateAccountLeavesWhatTheRequestDidNotName(T *testing.T) {
+	T.Parallel()
+
+	h := newHarness(T)
+
+	registration := h.seedAccount(T, testScope, "somebody")
+	ctx := h.as(&testPrincipal{userID: registration.User.ID, scope: testScope})
+
+	// Give the account something to lose.
+	seeded, err := h.client.UpdateAccount(ctx, &identitypb.UpdateAccountRequest{
+		AccountId: registration.Account.ID,
+		Input: &identitypb.AccountUpdateInput{
+			TimeZone:       new("Europe/Amsterdam"),
+			BillingAddress: &identitypb.BillingAddress{Line1: "1 Main St", City: "Springfield", Country: "US"},
+		},
+	})
+	must.NoError(T, err)
+	test.EqOp(T, "Europe/Amsterdam", seeded.GetAccount().GetTimeZone())
+
+	// A rename, and nothing else on the request. Before presence was on the
+	// wire this reset the time zone and blanked the address, and told the hook
+	// all three had changed.
+	renamed, err := h.client.UpdateAccount(ctx, &identitypb.UpdateAccountRequest{
+		AccountId: registration.Account.ID,
+		Input:     &identitypb.AccountUpdateInput{Name: new("Renamed")},
+	})
+	must.NoError(T, err)
+
+	test.EqOp(T, "Renamed", renamed.GetAccount().GetName())
+	test.EqOp(T, "Europe/Amsterdam", renamed.GetAccount().GetTimeZone())
+	test.EqOp(T, "1 Main St", renamed.GetAccount().GetBillingAddress().GetLine1())
+	test.EqOp(T, "Springfield", renamed.GetAccount().GetBillingAddress().GetCity())
+
+	// Present and empty is the other half of the reading: it clears.
+	cleared, err := h.client.UpdateAccount(ctx, &identitypb.UpdateAccountRequest{
+		AccountId: registration.Account.ID,
+		Input: &identitypb.AccountUpdateInput{
+			TimeZone:       new(""),
+			BillingAddress: &identitypb.BillingAddress{},
+		},
+	})
+	must.NoError(T, err)
+
+	test.EqOp(T, "Renamed", cleared.GetAccount().GetName())
+	test.EqOp(T, "", cleared.GetAccount().GetTimeZone())
+	test.EqOp(T, "", cleared.GetAccount().GetBillingAddress().GetLine1())
+}
+
+// TestAnAnonymousCallClosesWhatItOpened pins the one path that returns before
+// the RPC has deferred its own cleanup. The helper every RPC starts with opens
+// a span, counts an attempt and starts a latency timer before it looks for a
+// principal; if it finds none it has to close all three itself, or every
+// unauthenticated request is a span never ended, a histogram with no sample
+// and a failure nobody counted.
+func TestAnAnonymousCallClosesWhatItOpened(T *testing.T) {
+	T.Parallel()
+
+	recorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	T.Cleanup(func() { must.NoError(T, tracerProvider.Shutdown(context.Background())) })
+
+	instruments := &recordingInstruments{}
+
+	h := newHarness(T,
+		identitygrpc.WithTracerProvider(tracerProvider),
+		identitygrpc.WithMetricsProvider(instruments.provider()),
+	)
+
+	_, err := h.client.GetUser(T.Context(), &identitypb.GetUserRequest{UserId: "x"})
+	must.Error(T, err)
+	test.EqOp(T, codes.Unauthenticated, status.Code(err))
+
+	test.SliceLen(T, 1, recorder.Ended(), test.Sprint("the span was opened and never ended"))
+	test.EqOp(T, int64(1), instruments.requests.Load())
+	test.EqOp(T, int64(1), instruments.errors.Load(), test.Sprint("the failure was not counted"))
+	test.EqOp(T, int64(1), instruments.latencies.Load(), test.Sprint("the timer was started and never stopped"))
+}
+
+// recordingInstruments is the request/error/latency trio as three counters, so
+// a test can ask whether each was touched. The OperationSet names them by
+// suffix, which is how the provider below tells them apart.
+type recordingInstruments struct {
+	requests  atomic.Int64
+	errors    atomic.Int64
+	latencies atomic.Int64
+}
+
+func (r *recordingInstruments) provider() metrics.Provider {
+	return &metricsmock.ProviderMock{
+		NewInt64CounterFunc: func(name string, _ ...metric.Int64CounterOption) (metrics.Int64Counter, error) {
+			if strings.HasSuffix(name, "_errors") {
+				return countingCounter{&r.errors}, nil
+			}
+
+			return countingCounter{&r.requests}, nil
+		},
+		NewFloat64HistogramFunc: func(string, ...metric.Float64HistogramOption) (metrics.Float64Histogram, error) {
+			return countingHistogram{&r.latencies}, nil
+		},
+	}
+}
+
+type countingCounter struct{ n *atomic.Int64 }
+
+func (c countingCounter) Add(_ context.Context, incr int64, _ ...metric.AddOption) { c.n.Add(incr) }
+
+type countingHistogram struct{ n *atomic.Int64 }
+
+func (h countingHistogram) Record(context.Context, float64, ...metric.RecordOption) { h.n.Add(1) }
 
 func TestGetPrincipalAnswersForTheCaller(T *testing.T) {
 	T.Parallel()

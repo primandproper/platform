@@ -652,40 +652,60 @@ func accountFromCreationInput(in *identitypb.AccountCreationInput) *identity.Acc
 
 // profileUpdateFromProto reads a profile save.
 //
-// Every field is a pointer on both sides, and the proto fields are plain
-// strings rather than optional ones on purpose: this input is a whole form, so
-// an absent field and an empty one are the same request — "make it empty" —
-// which is what lets somebody clear a name they no longer want shown. The
-// pointers exist because identity.ProfileUpdate serves callers who do send one
-// field at a time.
+// Presence is the whole reading. Every field is optional on the wire and a
+// pointer on the Go side, and the converter carries the one across to the
+// other: a field the client left off arrives as nil and the Service leaves
+// that column alone, a field the client sent arrives set and is written, and a
+// field sent empty clears. The generated pointer fields are what say which,
+// and they are read rather than the getters, which return the empty string for
+// both absent and empty and so cannot tell a rename from a wipe.
+//
+// optionalString is the one place that reading is written down, so an input
+// message added later cannot take the other one by accident.
 func profileUpdateFromProto(in *identitypb.ProfileUpdateInput) *identity.ProfileUpdate {
 	if in == nil {
 		return nil
 	}
 
-	username, emailAddress := in.GetUsername(), in.GetEmailAddress()
-	firstName, lastName := in.GetFirstName(), in.GetLastName()
-
 	return &identity.ProfileUpdate{
-		Username:     &username,
-		EmailAddress: &emailAddress,
-		FirstName:    &firstName,
-		LastName:     &lastName,
+		Username:     optionalString(in.Username),
+		EmailAddress: optionalString(in.EmailAddress),
+		FirstName:    optionalString(in.FirstName),
+		LastName:     optionalString(in.LastName),
 	}
 }
 
-// accountUpdateFromProto reads an account save, on the same whole-form reading.
+// accountUpdateFromProto reads an account save, on the same presence reading.
+// The billing address is a message and so has presence of its own: absent is
+// nil, and a present-but-empty one clears the address.
 func accountUpdateFromProto(in *identitypb.AccountUpdateInput) *identity.AccountUpdate {
 	if in == nil {
 		return nil
 	}
 
-	name, timeZone := in.GetName(), in.GetTimeZone()
-	address := billingAddressFromProto(in.GetBillingAddress())
+	var address *identity.BillingAddress
+	if in.GetBillingAddress() != nil {
+		a := billingAddressFromProto(in.GetBillingAddress())
+		address = &a
+	}
 
 	return &identity.AccountUpdate{
-		Name:           &name,
-		TimeZone:       &timeZone,
-		BillingAddress: &address,
+		Name:           optionalString(in.Name),
+		TimeZone:       optionalString(in.TimeZone),
+		BillingAddress: address,
 	}
+}
+
+// optionalString is a proto3 optional string as the pointer the Service's
+// update types use: nil when the field was not on the wire, set — to whatever
+// arrived, the empty string included — when it was. It is a copy rather than
+// the message's own pointer, so the update does not alias the request.
+func optionalString(field *string) *string {
+	if field == nil {
+		return nil
+	}
+
+	value := *field
+
+	return &value
 }
