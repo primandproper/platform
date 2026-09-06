@@ -72,3 +72,5 @@ passes its own encoder to WithErrorEncoder â€” the same one it gave the Router â
 so a 429 arrives in the shape its clients already parse.
 */
 package http
+
+//platform:transport middleware: a token per request, 429 when there is none

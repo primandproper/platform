@@ -38,7 +38,7 @@ Selecting an implementation is deliberate: an unrecognized provider name returns
 
 **OpenTelemetry throughout.** HTTP, gRPC, database, and messaging layers emit traces and metrics. Observability primitives (logging, tracing, metrics, profiling) live under `observability/`.
 
-**Error handling.** Uses [`cockroachdb/errors`](https://github.com/cockroachdb/errors) for rich, wrapped error context. Platform-level sentinel errors live in `errors/`, conventionally imported as `platformerrors`. Transport mappings live in `errors/http` and `errors/grpc`, which import the packages whose sentinels they map — so nothing in those packages may import them back.
+**Error handling.** Uses [`cockroachdb/errors`](https://github.com/cockroachdb/errors) for rich, wrapped error context. Platform-level sentinel errors live in `errors/`, conventionally imported as `platformerrors`. Transport mappings live in `errors/http` and `errors/grpc`, which map the primitives — `database`, `circuitbreaking`, `ratelimiting`, `idempotency`, `requestsigning`, the search indexes — and import those packages, so nothing in them may import back. Everything built on top maps itself: `dataprivacy`, `links`, `operations` and `sessions` each export an `HTTPMapper` and a `GRPCMapper`, and the composition root registers the four in one call — `errormappers.Register()`, which `service.Register` makes for a service built from a `service.Config` and a service assembled by hand makes itself. `operations/http.New` is the single exception, registering its own HTTP mapper because it is the only surface here that both answers through `errors/http` and belongs to a package on that list. `internal/sentinelmatrix` checks that every exported sentinel in those four has a decision recorded and that it still holds on both transports.
 
 ## Package Catalog
 
@@ -138,7 +138,57 @@ Implementations are listed in parentheses; most concerns also provide a `noop`. 
 ### Utilities
 `errors`, `pointer`, `numbers`, `bitmask`, `charset`, `reflection`, `panicking`, `testutils`, `fake`.
 
-## Stores and Transports
+## Primitives and Domains
+
+There are two kinds of package here, and they are separating: the primitives
+leave for `primitives-go`, and what stays is the domain tier. The rule that
+sorts them is the one to check a new package against before writing it, and it
+is one property — does the package own a table, or drive one.
+
+> **primitives-go ships what every service is built from and no service is.**
+> Four kinds of thing qualify: a provider behind an interface (`cache`, `email`,
+> `messagequeue`, ...); a transport whose shape is decided by something other
+> than the consumer's domain (a probe, a protocol, a middleware contract, a
+> third party's payload); the database and schema tooling stores are built with
+> (`database` and its subpackages, `filtering`); and the cross-cutting values
+> both tiers have to agree on (`tenancy.Scope`, the `errors` sentinels,
+> `clock`). Nothing in it owns a table.
+>
+> **platform-go ships what a product has**: a noun with a table, its lifecycle,
+> its transport, its permissions and its privacy obligations. The test for a new
+> package is whether an application with no users would still need it. If yes, it
+> is a primitive.
+
+Both tiers are still in this module — the move has not landed — so the tier
+column below is where a package is going rather than where it can be imported
+from today. The rule is what a new package is measured against either way.
+
+| Tier            | What it is                                                | Packages |
+|-----------------|-----------------------------------------------------------|----------|
+| `primitives-go` | a provider behind an interface                            | `analytics`, `authentication`, `authorization`, `cache`, `capitalism`, `cryptography`, `distributedlock`, `email`, `embeddings`, `eventcapture`, `eventstream`, `featureflags`, `llm`, `messagequeue`, `notifications/mobile`, `ratelimiting`, `search`, `secrets`, `uploads` |
+| `primitives-go` | a transport whose shape is not the consumer's             | `compression`, `cookies`, `encoding`, `healthcheck`, `httpclient`, `idempotency`, `routing`, `server`, `webhooks/inbound` |
+| `primitives-go` | the database and schema tooling stores are built with     | `database`, `filtering` |
+| `primitives-go` | the cross-cutting values and utilities both tiers build on | `batching`, `bitmask`, `charset`, `circuitbreaking`, `clock`, `config`, `errors`, `fake`, `files`, `identifiers`, `jobs`, `numbers`, `observability`, `panicking`, `pointer`, `qrcodes`, `random`, `reflection`, `retry`, `tenancy`, `testutils`, `version` |
+| `platform-go`   | a noun with a table, and what it owes                     | `audit`, `authentication/oauth2server/database`, `authentication/passwordreset`, `authentication/webauthn/database`, `authorization/database`, `billing`, `comments`, `cryptography/shredding`, `dataprivacy`, `entitlements`, `identity`, `issuereports`, `links`, `metering`, `notifications`, `operations`, `outbox`, `retention`, `saga`, `search/sync`, `sessions`, `settings`, `timers`, `uploads/registry`, `waitlists`, `webhooks`, `workqueue` |
+| `platform-go`   | the composition root that registers both tiers            | `errormappers`, `service` |
+
+A package with a path of its own on the other side is a package straddling the
+line, and today six do. Four are a primitive with a store nested inside it — `authentication` hashes
+passwords and issues tokens, and `authentication/passwordreset` owns a table of
+them; `authorization`, `cryptography` and `uploads` split the same way. Two are
+the mirror: `notifications` owns the inbox and `notifications/mobile` is a push
+provider behind an interface, and `search` is text and vector search while
+`search/sync` is a reindexing worker driven by the outbox. Each nested store is
+what has to get a home of its own before its parent can leave whole.
+
+`service` is neither tier and is why the split does not split it: it is one walk
+of one config that registers both, and a consumer of both sees the wiring it
+sees today. `errormappers` is the small half of the same job that does sit on
+this side — the one call that tells the two transport registries what the domain
+tier's sentinels mean — kept out of `service` so that a consumer wiring three
+packages by hand does not import the config tree of seventy to make it.
+
+### Transports
 
 A component here that owns data ships a `Store` interface, a SQL implementation
 of it, the DDL for whichever dialects the matrix below grants it, and a mock —
@@ -147,6 +197,12 @@ The routes, the request and response types, the authorization on each one and
 the error envelope a client sees are the application's, and a library that
 shipped them would be versioning your `/api/v1/users` on its own release
 cadence, in types your proto does not have, under a scoping rule it guessed.
+
+All three of those are properties of a module that also holds the primitives —
+the cadence they set, a proto this module does not ship, and a scope that was
+guessed before `tenancy.Scope` existed — so where this line falls for the domain
+tier is a question the split reopens, one domain at a time. What follows is
+where it falls today.
 
 So `identity`, `webhooks` endpoint management, `billing`, `settings`,
 `notifications`, `metering`, `audit`, `dataprivacy`, `saga`, `timers` and
@@ -163,22 +219,24 @@ The line is not "no transports". It is this:
 
 Everything below is on the far side of that line, and it is the whole list.
 
-| Transport                         | Kind             | Whose shape it is                                     |
-|-----------------------------------|------------------|-------------------------------------------------------|
-| `server/http`                     | server           | the process: bind, serve, drain, and its own probes    |
-| `server/grpc`                     | server           | the same, for gRPC                                     |
-| `errors/http`                     | mapping          | a sentinel to a status code, and back                  |
-| `errors/grpc`                     | mapping          | a sentinel to a gRPC code, and back                    |
-| `filtering/grpc`                  | wire conversion  | `QueryFilter` and `Pagination` to their generated messages |
-| `authorization/http`              | middleware       | a route's declared requirement, checked before it runs |
-| `authorization/grpc`              | middleware       | the same, as interceptors                              |
-| `idempotency/http`                | middleware       | the `Idempotency-Key` header, both sides of the wire   |
-| `idempotency/grpc`                | middleware       | the same, over metadata                                |
-| `ratelimiting/http`               | middleware       | a token per request, 429 when there is none            |
-| `ratelimiting/grpc`               | middleware       | the same, as interceptors                              |
-| `cryptography/requestsigning/http`| middleware       | a signature verified before the handler runs           |
-| `sessions/http`                   | binding          | a signed cookie, whose security properties are ours    |
-| `operations/http`                 | resource surface | poll, list, cancel, subscribe — over `Operation`       |
+<!-- readmegen:transports -->
+| Transport                          | Kind             | Whose shape it is                                          |
+|------------------------------------|------------------|------------------------------------------------------------|
+| `server/http`                      | server           | the process: bind, serve, drain, and its own probes        |
+| `server/grpc`                      | server           | the same, for gRPC                                         |
+| `errors/http`                      | mapping          | a sentinel to a status code, and back                      |
+| `errors/grpc`                      | mapping          | a sentinel to a gRPC code, and back                        |
+| `filtering/grpc`                   | wire conversion  | `QueryFilter` and `Pagination` to their generated messages |
+| `authorization/http`               | middleware       | a route's declared requirement, checked before it runs     |
+| `authorization/grpc`               | middleware       | the same, as interceptors                                  |
+| `cryptography/requestsigning/http` | middleware       | a signature verified before the handler runs               |
+| `idempotency/http`                 | middleware       | the `Idempotency-Key` header, both sides of the wire       |
+| `idempotency/grpc`                 | middleware       | the same, over metadata                                    |
+| `ratelimiting/http`                | middleware       | a token per request, 429 when there is none                |
+| `ratelimiting/grpc`                | middleware       | the same, as interceptors                                  |
+| `sessions/http`                    | binding          | a signed cookie, whose security properties are ours        |
+| `operations/http`                  | resource surface | poll, list, cancel, subscribe — over `Operation`           |
+<!-- /readmegen:transports -->
 
 The middleware rows carry nothing domain-shaped: they read a header or a claim
 and let the request through or refuse it, and the handler behind them is still
@@ -197,6 +255,13 @@ One transport sits outside the table because it is not an `http` subpackage:
 reason — a Stripe or GitHub callback's shape is decided by Stripe or GitHub, and
 you have no say in it either.
 
+The table is not written by hand either. `internal/cmd/readmegen` emits it on
+`make generate` from the `http` and `grpc` directories the tree ships, and
+refuses to emit a row for one whose own `doc.go` does not name its kind and
+whose shape it is standing in for. A package that grows handlers therefore
+cannot reach `main` without somebody having said which side of the line they
+fall on.
+
 ## SQL Dialect Support
 
 `database` speaks Postgres, MySQL and SQLite, and so does almost every package
@@ -210,6 +275,7 @@ statements have been ported onto the generated tier — executes a querier emitt
 against it. Everything unticked returns `dialect.ErrUnsupported` at
 construction, never a partial store or a migration that creates nothing.
 
+<!-- readmegen:dialects -->
 | Package                                | Postgres | MySQL | SQLite |
 |----------------------------------------|----------|-------|--------|
 | `audit`                                | ✓        | ✓     | ✓      |
@@ -236,19 +302,28 @@ construction, never a partial store or a migration that creates nothing.
 | `waitlists`                            | ✓        | ✓     | ✓      |
 | `webhooks`                             | ✓        | ✓     | ✓      |
 | `workqueue`                            | ✓        | —     | —      |
+<!-- /readmegen:dialects -->
 
 ### Why the three narrow
 
-One reason, arrived at from three directions. `workqueue`'s claim is a single
-statement that selects due rows, locks them with `SKIP LOCKED`, increments
-attempts, extends the lease and hands the keys back with `RETURNING`. MySQL 8.0
-has `SKIP LOCKED` and CTEs but no `RETURNING`, so the same claim there is a
-`SELECT … FOR UPDATE SKIP LOCKED` plus a separate `UPDATE` inside a transaction
-held across both round trips — a different concurrency shape with a different
-failure model, which is a second implementation rather than a dialect switch.
-SQLite is a harder no: single-writer, with no row-level locking to skip.
-`timers` claims the same way. `operations` runs on `workqueue`, so its roster is
-`workqueue`'s.
+One reason, arrived at from three directions, and it is a claim rather than a
+translation. The claim is a single statement that selects due rows, locks them
+with `SKIP LOCKED`, increments attempts, extends the lease and hands the keys
+back with `RETURNING`. MySQL 8.0 has `SKIP LOCKED` and CTEs but no `RETURNING`,
+so the same claim there is a `SELECT … FOR UPDATE SKIP LOCKED` plus a separate
+`UPDATE` inside a transaction held across both round trips — a different
+concurrency shape with a different failure model, which is a second
+implementation rather than a dialect switch. SQLite is a harder no:
+single-writer, with no row-level locking to skip.
+
+Each narrowed package states where it stands in that, in its own `doc.go`, and
+these lines are that statement:
+
+<!-- readmegen:narrowings -->
+- `operations` — runs on `workqueue`, so its roster is `workqueue`'s.
+- `timers` — claims a due timer in the one statement, and would owe the same split anywhere else.
+- `workqueue` — the claim is the package: `SKIP LOCKED` to take due rows and `RETURNING` to hand the keys back, in one round trip.
+<!-- /readmegen:narrowings -->
 
 Widening any of them is a decision about that claim, not about a missing
 translation — the package docs carry the long form. Nothing forecloses it: the
@@ -272,10 +347,12 @@ and a row would misreport it either way:
   `cache/redis` is. Picking one is picking Postgres, which is what its name
   says.
 
-The matrix above is not maintained by hand against the tree.
-`internal/dialectmatrix` parses this table and fails if a row disagrees with the
-DDL a package ships, with the dialects its generated querier was emitted for, or
-if a DDL-shipping package has no row at all.
+The matrix above is not written by hand. `internal/cmd/readmegen` emits it on
+`make generate` from the DDL each package ships, checks that against the
+dialects its generated querier was emitted for, and refuses to emit a short row
+for a package whose `doc.go` does not say why it is short. A package that gains
+or loses a dialect therefore changes this file on the next generate, and the
+generated-files workflow reds until that change is committed.
 
 ## Development
 

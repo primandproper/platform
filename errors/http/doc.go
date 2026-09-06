@@ -13,16 +13,26 @@ branch on that nobody promised.
 
 # Which direction the imports run
 
-This package imports the packages whose sentinels it maps — circuitbreaking,
-database, idempotency, links, ratelimiting, sessions, and the rest. That is what
-lets the mapping live in one place instead of being restated at every handler.
-It also fixes the dependency direction: nothing in those packages may import
-errors/http back. A package that finds itself wanting an ErrorCode wants a
-sentinel of its own, mapped here.
+This package imports the packages whose sentinels PlatformMapper maps —
+circuitbreaking, database, idempotency, ratelimiting, requestsigning, and the two
+search indexes. Every one of them is a primitive, and that is the whole of the
+list on purpose: this package is a primitive too, so nothing built on those may
+appear in it.
 
-Domains outside this module register their own mappers with
-RegisterHTTPErrorMapper, usually from an init function. The platform mapper is
-consulted first, registered mappers after, in registration order.
+The tier above maps itself. dataprivacy, links, operations and sessions each
+export an HTTPMapper holding the cases for their own sentinels, and the import
+runs from them to here — they need ErrorCode, this package needs nothing of
+theirs. Anything else with a sentinel a client should act on does the same:
+declare a mapper beside the sentinel, and register it.
+
+Registration is what makes a mapper reachable. RegisterHTTPErrorMapper appends
+one; ToAPIError consults PlatformMapper first, then registered mappers in
+registration order. This module's four are one call — errormappers.Register,
+which service.Register makes for a service built from a service.Config and a
+service assembled by hand makes itself, alongside the mappers it declares for its
+own sentinels. There is deliberately no init doing it: a mapper that installs
+itself into a process-wide registry by being linked in is a side effect a
+consumer cannot opt out of.
 
 # Messages are deliberately uninformative
 
@@ -38,3 +48,5 @@ Unmapped codes resolve to 500. That is the direction to fail in: a code nobody
 gave a status keeps its server-side failure looking like one.
 */
 package http
+
+//platform:transport mapping: a sentinel to a status code, and back

@@ -204,9 +204,13 @@ This is not the only place that answer is kept. The module README's
 "SQL Dialect Support" section carries the matrix for every package in this
 module that stores anything through database, so a consumer choosing between
 Postgres and MySQL reads one table rather than discovering this package's answer
-here after having already chosen it. internal/dialectmatrix checks that table
-against the DDL and the queriers each package actually ships.
+here after having already chosen it. That table is generated rather than typed:
+internal/cmd/readmegen emits it from the DDL and the queriers each package
+actually ships, and reads the narrowing directive below for the reason this one
+is short.
 */
 package workqueue
+
+//platform:narrowing the claim is the package: `SKIP LOCKED` to take due rows and `RETURNING` to hand the keys back, in one round trip
 
 //go:generate go run ./internal/queriesgen

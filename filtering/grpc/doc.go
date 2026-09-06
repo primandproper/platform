@@ -25,3 +25,5 @@ mistyped filter has an error wrapping errors.ErrUnrecognizedInputValue, which
 errors/http and errors/grpc already render as a 400 and InvalidArgument.
 */
 package grpc
+
+//platform:transport wire conversion: `QueryFilter` and `Pagination` to their generated messages

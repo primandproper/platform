@@ -78,3 +78,5 @@ store and stop there, is stated once in the module README under "Stores and
 Transports".
 */
 package http
+
+//platform:transport server: the process: bind, serve, drain, and its own probes

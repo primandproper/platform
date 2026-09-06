@@ -6,6 +6,11 @@ on:
       - '**/*.go'
       - '**/*.sql'
       - '**/*.proto'
+      # README.md carries generated sections — the store/transport roster and
+      # the dialect matrix, both emitted by internal/cmd/readmegen. A package
+      # move is a .go change and trips this job anyway; a hand edit to one of
+      # those sections would not, and this is what catches it.
+      - README.md
       - .protoc-version
       - go.mod
       - go.sum

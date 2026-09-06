@@ -19,6 +19,7 @@ import (
 	emailcfg "github.com/primandproper/platform-go/v14/email/config"
 	embeddingscfg "github.com/primandproper/platform-go/v14/embeddings/config"
 	"github.com/primandproper/platform-go/v14/encoding"
+	"github.com/primandproper/platform-go/v14/errormappers"
 	eventstreamcfg "github.com/primandproper/platform-go/v14/eventstream/config"
 	featureflagscfg "github.com/primandproper/platform-go/v14/featureflags/config"
 	"github.com/primandproper/platform-go/v14/httpclient"
@@ -90,6 +91,36 @@ func Register(i do.Injector, cfg *Config) {
 	registerDurableWorkflows(i, cfg)
 	registerHealth(i)
 	registerServers(i, cfg)
+	registerErrorMappers()
+}
+
+// registerErrorMappers installs the transport mappings for this module's domain
+// tier, which are not do registrations and take no injector.
+//
+// errors/http and errors/grpc are primitives and map only primitives, so a
+// domain's sentinels reach a client as a considered status because somebody
+// registered that domain's mapper. errormappers.Register is that somebody for a
+// service built from a Config, and the same one call a service assembled by hand
+// makes: the list of which packages declare mappers lives there, in a package
+// importing the four domains and the two registries, so it is not written out a
+// second time here where it could drift.
+//
+// Unconditional, including for a service whose Config names no DataPrivacy and
+// no Operations. That is the resolution of a split this function used to be on
+// both sides of — links and sessions registered for every service, dataprivacy
+// and operations only inside their config blocks — and the argument that decided
+// it is the one the unconditional half already made: an unused mapper costs one
+// comparison against a sentinel the service cannot produce, and the expensive
+// direction to be wrong in is an operation answering 500 because a config field
+// was nil at the moment the mappers were installed.
+//
+// It takes no injector because the two registries are process-global — an error
+// is mapped by whatever is linked into the binary, not by whichever container
+// resolved the handler — so a second Register call adds a second copy of each
+// mapper, which answers identically and is never reached, since the first match
+// wins.
+func registerErrorMappers() {
+	errormappers.Register()
 }
 
 // registerObservability registers all four pillars unconditionally, matching

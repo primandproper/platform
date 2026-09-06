@@ -291,4 +291,6 @@ created by your normal migration run at a version you choose.
 */
 package operations
 
+//platform:narrowing runs on `workqueue`, so its roster is `workqueue`'s
+
 //go:generate go run ./internal/queriesgen

@@ -270,8 +270,8 @@ happens to sort right — see identity/migrations.
 The bargain above — you keep your service layer, your HTTP handlers and your
 proto — is not this package's alone. It is where the module draws the line
 between what it stores and what it serves, and the module README states it once,
-under "Stores and Transports", along with the few components on the other side
-of it and the reason each is there.
+under "Transports", along with the few components on the other side of it and
+the reason each is there.
 */
 package identity
 

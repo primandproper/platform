@@ -3,10 +3,10 @@ package grpc
 import (
 	"context"
 	stderrors "errors"
+	"sync"
 
 	"github.com/primandproper/platform-go/v14/cryptography/requestsigning"
 	platformerrors "github.com/primandproper/platform-go/v14/errors"
-	"github.com/primandproper/platform-go/v14/links"
 	"github.com/primandproper/platform-go/v14/ratelimiting"
 
 	"github.com/cockroachdb/errors/errorspb"
@@ -85,11 +85,27 @@ func clientMessage(code codes.Code, err error) string {
 		}
 	}
 
+	registeredClientSafeMu.RLock()
+	registered := registeredClientSafe
+	registeredClientSafeMu.RUnlock()
+
+	for _, sentinel := range registered {
+		if stderrors.Is(err, sentinel) {
+			return sentinel.Error()
+		}
+	}
+
 	return code.String()
 }
 
 // clientSafeSentinels are the platform errors whose messages are documented as
 // safe to return verbatim.
+//
+// It is the platform tier only, for the same reason PlatformMapper is: this
+// package is a primitive and cannot import what is built on it. A domain whose
+// sentinels are written to be read by a caller — links is the worked example,
+// where four separate redemption outcomes exist precisely so that a person is
+// told which one happened — hands them to RegisterClientSafeSentinels.
 var clientSafeSentinels = []error{
 	platformerrors.ErrPermissionDenied,
 	ratelimiting.ErrRateLimited,
@@ -104,21 +120,39 @@ var clientSafeSentinels = []error{
 	// can fix itself and one that files a ticket.
 	requestsigning.ErrStaleSignature,
 	requestsigning.ErrInvalidSignature,
-	// The four redemption outcomes. The links package separates them on purpose
-	// — a 256-bit token is never guessed, so naming the outcome is not an oracle
-	// — and that reasoning does not stop at the transport. Without these a gRPC
-	// client is told "FailedPrecondition" for all four, which is the one thing
-	// the separation exists to avoid, while an HTTP client is told which.
-	links.ErrLinkNotFound,
-	links.ErrLinkAlreadyRedeemed,
-	links.ErrLinkExpired,
-	links.ErrLinkRevoked,
-	links.ErrInvalidToken,
 	platformerrors.ErrNilInputParameter,
 	platformerrors.ErrEmptyInputParameter,
 	platformerrors.ErrInvalidIDProvided,
 	platformerrors.ErrEmptyInputProvided,
 	platformerrors.ErrUnrecognizedInputValue,
+}
+
+var (
+	registeredClientSafe   []error
+	registeredClientSafeMu sync.RWMutex
+)
+
+// RegisterClientSafeSentinels records errors whose own message the interceptors
+// may put on the wire verbatim, rather than the generic string a gRPC code
+// renders as.
+//
+// It is the companion to RegisterGRPCErrorMapper and answers the other half of
+// the same question: the mapper decides the status, this decides whether the
+// status carries the sentinel's own words. Registering a mapper without these
+// is the usual case — most sentinels describe the system rather than the caller
+// — and a sentinel whose text names a table, a key, or a policy must not be
+// registered here at all.
+//
+// This module's own set is links.ClientSafeSentinels, and errormappers.Register
+// hands it over alongside the four mappers, so a consumer registering the domain
+// tier gets both halves in one call.
+//
+// It is additive and safe to call from more than one goroutine, and a sentinel
+// registered twice costs a second comparison and nothing else.
+func RegisterClientSafeSentinels(sentinels ...error) {
+	registeredClientSafeMu.Lock()
+	defer registeredClientSafeMu.Unlock()
+	registeredClientSafe = append(registeredClientSafe, sentinels...)
 }
 
 // UnaryErrorEncodingInterceptor returns a unary interceptor that encodes handler

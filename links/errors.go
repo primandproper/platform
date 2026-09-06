@@ -4,9 +4,10 @@ import (
 	platformerrors "github.com/primandproper/platform-go/v14/errors"
 )
 
-// Sentinels. errors/http and errors/grpc map these onto status codes, so those
-// packages import this one. That direction is load-bearing: nothing here may
-// import errors/http or errors/grpc, or the cycle closes.
+// Sentinels. HTTPMapper and GRPCMapper, in this package, map them onto status
+// codes; errors/http and errors/grpc are primitives and know nothing of this
+// package, which is why the mapping lives here and this package imports them
+// rather than the other way around.
 //
 // The four redemption failures are separate sentinels rather than one, which is
 // the opposite of what sessions does with its own. The reason is entropy. An
