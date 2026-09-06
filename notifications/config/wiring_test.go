@@ -110,21 +110,22 @@ func TestBothHalvesCloseTheFeedbackLoop(t *testing.T) {
 	// names is gone afterwards.
 	scope := tenancy.Of("acct_1")
 	device := &notifications.Device{
-		Scope:     scope,
 		Principal: "user_1",
 		Platform:  notifications.PlatformIOS,
 		Token:     "token-from-a-handset-since-wiped",
 	}
-	must.NoError(t, registry.RegisterDevice(t.Context(), device))
+	must.NoError(t, client.WithTransaction(t.Context(), func(tx database.Tx) error {
+		return registry.RegisterDevice(t.Context(), tx, scope, device)
+	}))
 
-	before, err := registry.ListDevicesByPrincipals(t.Context(), scope, []string{"user_1"})
+	before, err := registry.ListDevicesByPrincipals(t.Context(), client.Reader(), scope, []string{"user_1"})
 	must.NoError(t, err)
 	must.SliceLen(t, 1, before)
 
 	must.NoError(t, multi.TokenInvalidator().InvalidateDeviceToken(
 		t.Context(), device.Platform.String(), device.Token))
 
-	after, err := registry.ListDevicesByPrincipals(t.Context(), scope, []string{"user_1"})
+	after, err := registry.ListDevicesByPrincipals(t.Context(), client.Reader(), scope, []string{"user_1"})
 	must.NoError(t, err)
 	test.SliceEmpty(t, after)
 }

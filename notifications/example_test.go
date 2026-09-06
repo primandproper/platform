@@ -19,10 +19,17 @@ import (
 // Telling somebody something is two writes: the inbox row they will see next
 // time they open the app, and the push to whatever handsets they have
 // registered.
+//
+// Both take the caller's transaction. A real service opens that transaction to
+// write the order, and the notification about the order goes in beside it — so
+// an order that rolls back never told anybody it shipped. Here there is nothing
+// else to commit with, which is what Client.WithTransaction is for.
 func Example() {
 	ctx := context.Background()
 
-	store, err := notifications.NewSQLStore(exampleClient(ctx))
+	client := exampleClient(ctx)
+
+	store, err := notifications.NewSQLStore(client)
 	if err != nil {
 		panic(err)
 	}
@@ -32,37 +39,41 @@ func Example() {
 	// The inbox row. Topic is the application's own category; the store stores
 	// it and never interprets it.
 	notification := &notifications.Notification{
-		Scope:     scope,
 		Principal: "user_1",
 		Topic:     "order.shipped",
 		Title:     "Your order shipped",
 		Body:      "Arriving Thursday.",
 		Link:      "/orders/1",
 	}
-	if err = store.CreateNotification(ctx, notification); err != nil {
-		panic(err)
-	}
 
-	// The handsets. A device registers itself on every app launch, and the write
-	// converges on the token, so this is the same call whether it is the first
-	// registration or the thousandth.
-	if err = store.RegisterDevice(ctx, &notifications.Device{
-		Scope:     scope,
-		Principal: "user_1",
-		Platform:  notifications.PlatformIOS,
-		Token:     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		if createErr := store.CreateNotification(ctx, tx, scope, notification); createErr != nil {
+			return createErr
+		}
+
+		// The handsets. A device registers itself on every app launch, and the
+		// write converges on the token, so this is the same call whether it is
+		// the first registration or the thousandth.
+		return store.RegisterDevice(ctx, tx, scope, &notifications.Device{
+			Principal: "user_1",
+			Platform:  notifications.PlatformIOS,
+			Token:     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		})
 	}); err != nil {
 		panic(err)
 	}
 
-	devices, err := store.ListDevicesByPrincipals(ctx, scope, []string{"user_1"})
+	// The reads take the wider executor, so this one runs on the client now that
+	// the transaction has committed. Passed the tx above, it would have seen the
+	// same rows before the commit.
+	devices, err := store.ListDevicesByPrincipals(ctx, client.Reader(), scope, []string{"user_1"})
 	if err != nil {
 		panic(err)
 	}
 
 	fmt.Println("devices to push to:", len(devices))
 
-	unread, err := store.ListUnreadNotifications(ctx, scope, "user_1", nil)
+	unread, err := store.ListUnreadNotifications(ctx, client.Reader(), scope, "user_1", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -81,18 +92,21 @@ func Example() {
 func ExampleRegistry_InvalidateDeviceToken() {
 	ctx := context.Background()
 
-	store, err := notifications.NewSQLStore(exampleClient(ctx))
+	client := exampleClient(ctx)
+
+	store, err := notifications.NewSQLStore(client)
 	if err != nil {
 		panic(err)
 	}
 
 	scope := tenancy.Of("acct_1")
 
-	if err = store.RegisterDevice(ctx, &notifications.Device{
-		Scope:     scope,
-		Principal: "user_1",
-		Platform:  notifications.PlatformAndroid,
-		Token:     "a-token-the-app-was-uninstalled-from",
+	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		return store.RegisterDevice(ctx, tx, scope, &notifications.Device{
+			Principal: "user_1",
+			Platform:  notifications.PlatformAndroid,
+			Token:     "a-token-the-app-was-uninstalled-from",
+		})
 	}); err != nil {
 		panic(err)
 	}
@@ -102,12 +116,13 @@ func ExampleRegistry_InvalidateDeviceToken() {
 	_ = mobile.NewMultiPlatformPushSender(nil, nil, mobile.WithTokenInvalidator(store))
 
 	// Standing in for that send here, because reaching FCM would need
-	// credentials: this is the call the sender makes.
+	// credentials: this is the call the sender makes. It takes no transaction,
+	// because the sender is mid round trip to a provider and has none.
 	if err = store.InvalidateDeviceToken(ctx, "android", "a-token-the-app-was-uninstalled-from"); err != nil {
 		panic(err)
 	}
 
-	devices, err := store.ListDevicesByPrincipals(ctx, scope, []string{"user_1"})
+	devices, err := store.ListDevicesByPrincipals(ctx, client.Reader(), scope, []string{"user_1"})
 	if err != nil {
 		panic(err)
 	}

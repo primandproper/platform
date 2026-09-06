@@ -43,6 +43,12 @@ const (
 // instrument.
 var errCounterUnavailable = platformerrors.New("the instrument is unavailable")
 
+// errCompanionWrite stands in for the write a consumer makes beside a
+// notification — the audit entry, the outbox row, the order itself — failing
+// after this store has already written. It is the reason every write here takes
+// the caller's transaction, so it is what the rollback cases fail with.
+var errCompanionWrite = platformerrors.New("the companion write was refused")
+
 // testClientConfig is the minimum database.ClientConfig a SQLite client needs.
 type testClientConfig struct {
 	connectionString string
@@ -154,6 +160,97 @@ func (e *storeEnv) newStoreWithPrefix(tb testing.TB, opts ...SQLStoreOption) (st
 	must.NoError(tb, err)
 
 	return store, prefix
+}
+
+// inTx runs fn inside a transaction on the environment's database and reports
+// what fn returned.
+//
+// Every write a consumer calls takes the caller's transaction, so a test that
+// wants a notification filed opens one — which is what a consumer does. It hands
+// back fn's error rather than asserting on it, because a refused write is what
+// half of these cases are about and WithTransaction returns the callback's error
+// unwrapped.
+func (e *storeEnv) inTx(tb testing.TB, fn func(tx database.Tx) error) error {
+	tb.Helper()
+
+	return e.client.WithTransaction(tb.Context(), fn)
+}
+
+// reader is the executor an ordinary read runs on: the client's, outside any
+// transaction. The cases about a read that joins a transaction pass the Tx
+// instead, and they are in the transactions suite.
+func (e *storeEnv) reader() database.SQLQueryExecutor { return e.client.Reader() }
+
+// create files one notification in a transaction of its own and reports what the
+// write returned.
+//
+// The transaction is a detail here rather than the subject: these cases are about
+// what the write checks, and a consumer that has nothing to commit alongside
+// opens exactly this. What a notification commits *with* is the transactions
+// suite.
+func (e *storeEnv) create(tb testing.TB, store *SQLStore, scope tenancy.Scope, n *Notification) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.CreateNotification(tb.Context(), tx, scope, n)
+	})
+}
+
+// markRead stamps one notification read in a transaction of its own.
+func (e *storeEnv) markRead(tb testing.TB, store *SQLStore, scope tenancy.Scope, principal, id string) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.MarkNotificationRead(tb.Context(), tx, scope, principal, id)
+	})
+}
+
+// markAllRead stamps everything unread in a transaction of its own, handing back
+// the count the write reported alongside its error.
+func (e *storeEnv) markAllRead(
+	tb testing.TB,
+	store *SQLStore,
+	scope tenancy.Scope,
+	principal string,
+) (count int64, err error) {
+	tb.Helper()
+
+	err = e.inTx(tb, func(tx database.Tx) error {
+		var markErr error
+
+		count, markErr = store.MarkAllNotificationsRead(tb.Context(), tx, scope, principal)
+
+		return markErr
+	})
+
+	return count, err
+}
+
+// archive dismisses one notification in a transaction of its own.
+func (e *storeEnv) archive(tb testing.TB, store *SQLStore, scope tenancy.Scope, principal, id string) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.ArchiveNotification(tb.Context(), tx, scope, principal, id)
+	})
+}
+
+// register records one device in a transaction of its own.
+func (e *storeEnv) register(tb testing.TB, store *SQLStore, scope tenancy.Scope, d *Device) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.RegisterDevice(tb.Context(), tx, scope, d)
+	})
+}
+
+// revoke removes one registration in a transaction of its own.
+func (e *storeEnv) revoke(tb testing.TB, store *SQLStore, scope tenancy.Scope, principal, deviceID string) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.RevokeDevice(tb.Context(), tx, scope, principal, deviceID)
+	})
 }
 
 // newNotification is one inbox row's worth of input, with everything the store

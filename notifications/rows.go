@@ -193,10 +193,10 @@ func unreadPageRow(r *notificationsdb.ListUnreadNotificationsRow) pageRow[Notifi
 	return notificationPageRow(&converted)
 }
 
-func createNotificationParams(n *Notification) notificationsdb.CreateNotificationParams {
+func createNotificationParams(scope tenancy.Scope, n *Notification) notificationsdb.CreateNotificationParams {
 	return notificationsdb.CreateNotificationParams{
 		ID:        n.ID,
-		Scope:     n.Scope,
+		Scope:     scope,
 		Principal: n.Principal,
 		Topic:     n.Topic,
 		Title:     n.Title,
@@ -268,10 +268,10 @@ func deviceFromSetRow(r *notificationsdb.ListDevicesByPrincipalsRow) *Device {
 	}
 }
 
-func registerDeviceParams(d *Device) notificationsdb.RegisterDeviceParams {
+func registerDeviceParams(scope tenancy.Scope, d *Device) notificationsdb.RegisterDeviceParams {
 	return notificationsdb.RegisterDeviceParams{
 		ID:         d.ID,
-		Scope:      d.Scope,
+		Scope:      scope,
 		Principal:  d.Principal,
 		Platform:   d.Platform.String(),
 		Token:      d.Token,
