@@ -24,10 +24,16 @@ const (
 
 // A discussion is one write per comment and two reads: the target's roots, then
 // one root's replies.
+//
+// The writes take the caller's transaction and the reads take an executor, so a
+// caller with nothing to commit alongside opens one with Client.WithTransaction
+// and reads afterwards on the client.
 func Example() {
 	ctx := context.Background()
 
-	store, err := comments.NewSQLStore(exampleClient(ctx),
+	client := exampleClient(ctx)
+
+	store, err := comments.NewSQLStore(client,
 		comments.WithTargets(comments.Targets{
 			recipeTarget: {Description: "a recipe"},
 			mealTarget:   {Description: "a meal"},
@@ -40,24 +46,29 @@ func Example() {
 	recipe := comments.Target{Type: recipeTarget, ID: "recipe_1"}
 
 	root := &comments.Comment{
-		Scope:  scope,
 		Target: recipe,
 		Author: "user_1",
 		Body:   "halved the sugar and it was still too sweet",
 	}
-	if err = store.CreateComment(ctx, root); err != nil {
-		panic(err)
-	}
 
 	// A reply names its parent and nothing else about where it goes: its target
-	// is its parent's, and the store fills it in.
+	// is its parent's, and the store fills it in. Written in the same transaction
+	// as its parent, it resolves it — the parent read runs on the executor the
+	// write was handed.
 	answer := &comments.Comment{
-		Scope:    scope,
-		ParentID: root.ID,
-		Author:   "user_2",
-		Body:     "try two thirds of the syrup as well",
+		Author: "user_2",
+		Body:   "try two thirds of the syrup as well",
 	}
-	if err = store.CreateComment(ctx, answer); err != nil {
+
+	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		if txErr := store.CreateComment(ctx, tx, scope, root); txErr != nil {
+			return txErr
+		}
+
+		answer.ParentID = root.ID
+
+		return store.CreateComment(ctx, tx, scope, answer)
+	}); err != nil {
 		panic(err)
 	}
 
@@ -66,14 +77,14 @@ func Example() {
 	// The top of the discussion. The count beside the page is of every root on
 	// the target rather than of the page, so a client asking for ten still knows
 	// how many there are.
-	roots, err := store.ListRootComments(ctx, scope, recipe, nil)
+	roots, err := store.ListRootComments(ctx, client.Reader(), scope, recipe, nil)
 	if err != nil {
 		panic(err)
 	}
 
 	fmt.Println("roots:", roots.FilteredCount)
 
-	replies, err := store.ListReplies(ctx, scope, recipe, root.ID, nil)
+	replies, err := store.ListReplies(ctx, client.Reader(), scope, recipe, root.ID, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -92,7 +103,9 @@ func Example() {
 func ExampleWithTargets() {
 	ctx := context.Background()
 
-	store, err := comments.NewSQLStore(exampleClient(ctx),
+	client := exampleClient(ctx)
+
+	store, err := comments.NewSQLStore(client,
 		comments.WithTargets(comments.Targets{
 			recipeTarget: {Description: "a recipe"},
 		}))
@@ -101,13 +114,16 @@ func ExampleWithTargets() {
 	}
 
 	misspelled := &comments.Comment{
-		Scope:  tenancy.Of("acct_1"),
 		Target: comments.Target{Type: "recipies", ID: "recipe_1"},
 		Author: "user_1",
 		Body:   "this would have been stored under a type nothing lists",
 	}
 
-	fmt.Println("refused:", store.CreateComment(ctx, misspelled) != nil)
+	refused := client.WithTransaction(ctx, func(tx database.Tx) error {
+		return store.CreateComment(ctx, tx, tenancy.Of("acct_1"), misspelled)
+	})
+
+	fmt.Println("refused:", refused != nil)
 	fmt.Println("what can be commented on:", store.TargetTypes())
 
 	// Output:
@@ -132,15 +148,16 @@ func ExampleStore_DeleteCommentsForTarget() {
 	scope := tenancy.Of("acct_1")
 	recipe := comments.Target{Type: recipeTarget, ID: "recipe_1"}
 
-	root := &comments.Comment{
-		Scope: scope, Target: recipe, Author: "user_1", Body: "lovely",
-	}
-	if err = store.CreateComment(ctx, root); err != nil {
-		panic(err)
-	}
+	root := &comments.Comment{Target: recipe, Author: "user_1", Body: "lovely"}
 
-	if err = store.CreateComment(ctx, &comments.Comment{
-		Scope: scope, ParentID: root.ID, Author: "user_2", Body: "agreed",
+	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		if txErr := store.CreateComment(ctx, tx, scope, root); txErr != nil {
+			return txErr
+		}
+
+		return store.CreateComment(ctx, tx, scope, &comments.Comment{
+			ParentID: root.ID, Author: "user_2", Body: "agreed",
+		})
 	}); err != nil {
 		panic(err)
 	}
@@ -162,10 +179,11 @@ func ExampleStore_DeleteCommentsForTarget() {
 	// swept: 2
 }
 
-// A comment is rarely the only row a write produces. CreateCommentTx puts it in
-// the transaction that carries its companions — here an audit entry naming who
-// said it — so neither can land without the other.
-func ExampleStore_CreateCommentTx() {
+// A comment is rarely the only row a write produces, which is why the write takes
+// the caller's transaction rather than opening one. Here that transaction also
+// carries an audit entry naming who said it, so neither can land without the
+// other.
+func ExampleStore_CreateComment() {
 	ctx := context.Background()
 
 	client := exampleClient(ctx)
@@ -184,14 +202,13 @@ func ExampleStore_CreateCommentTx() {
 	}
 
 	comment := &comments.Comment{
-		Scope:  tenancy.Of("acct_1"),
 		Target: comments.Target{Type: recipeTarget, ID: "recipe_1"},
 		Author: "user_1",
 		Body:   "this wants more salt",
 	}
 
 	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
-		if txErr := store.CreateCommentTx(ctx, tx, comment); txErr != nil {
+		if txErr := store.CreateComment(ctx, tx, tenancy.Of("acct_1"), comment); txErr != nil {
 			return txErr
 		}
 

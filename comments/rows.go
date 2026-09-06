@@ -198,10 +198,10 @@ func commentPageRow(r *commentsdb.ListCommentsRow) pageRow {
 	}
 }
 
-func createCommentParams(c *Comment) commentsdb.CreateCommentParams {
+func createCommentParams(scope tenancy.Scope, c *Comment) commentsdb.CreateCommentParams {
 	return commentsdb.CreateCommentParams{
 		ID:         c.ID,
-		Scope:      c.Scope,
+		Scope:      scope,
 		TargetType: c.Target.Type.String(),
 		TargetID:   c.Target.ID,
 		ParentID:   c.ParentID,
@@ -210,11 +210,11 @@ func createCommentParams(c *Comment) commentsdb.CreateCommentParams {
 	}
 }
 
-func updateCommentParams(c *Comment) commentsdb.UpdateCommentParams {
+func updateCommentParams(scope tenancy.Scope, c *Comment) commentsdb.UpdateCommentParams {
 	return commentsdb.UpdateCommentParams{
 		Body:  c.Body,
 		ID:    c.ID,
-		Scope: c.Scope,
+		Scope: scope,
 	}
 }
 

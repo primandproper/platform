@@ -12,8 +12,8 @@ import (
 	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
-// CreateComment writes one comment and reads back the creation time the database
-// assigned.
+// CreateComment writes one comment through the caller's transaction and reads
+// back the creation time the database assigned.
 //
 // The read-back is a second round trip on a write path, and it is worth it:
 // created_at is database-owned — see comments/internal/queries — so the insert
@@ -21,55 +21,37 @@ import (
 // 0001-01-01 for a row written a moment ago. A service that serializes what it
 // just created straight into a response would render that as a date rather than
 // as an absence.
-func (s *SQLStore) CreateComment(ctx context.Context, comment *Comment) error {
-	ctx, op := s.o11y.Begin(ctx)
+//
+// Every check runs on tx, so a reply whose parent was written earlier in the
+// same transaction resolves its parent instead of reporting it absent. The
+// catalog's existence hook is the one that does not, because it takes no
+// executor and has none of this to run on. See [Store.CreateComment].
+func (s *SQLStore) CreateComment(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	comment *Comment,
+) error {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
-	return s.createComment(ctx, op, s.client.Writer(), comment)
-}
-
-// CreateCommentTx is CreateComment inside the caller's transaction.
-//
-// Every check CreateComment makes is made here, and the reads behind them go
-// through q rather than through the store's own writer — so a reply whose parent
-// was written earlier in the same transaction resolves its parent instead of
-// reporting it absent, and the creation time read back is the one this
-// transaction just wrote.
-//
-// The catalog's existence hook is the one check that does not move, because it
-// takes no executor and has none of this to run on. See [Store.CreateCommentTx].
-func (s *SQLStore) CreateCommentTx(ctx context.Context, q database.Tx, comment *Comment) error {
-	ctx, op := s.o11y.Begin(ctx)
-	defer op.End()
-
-	if q == nil {
+	if tx == nil {
 		return op.Error(ErrNilExecutor, "writing comment")
 	}
 
-	return s.createComment(ctx, op, q, comment)
-}
-
-// createComment is the shared body of CreateComment and CreateCommentTx.
-//
-// It takes the executor rather than reaching for one, which is the whole of the
-// difference between the two: every check, every statement, and the order they
-// run in are the same on both paths, so neither can drift into accepting a
-// comment the other refuses.
-func (s *SQLStore) createComment(
-	ctx context.Context,
-	op observability.Operation,
-	q commentsdb.DBTX,
-	comment *Comment,
-) error {
 	if comment == nil {
 		return op.Error(ErrNilComment, "writing comment")
 	}
 
-	op.Set(scopeKey, comment.Scope.String()).Set(authorKey, comment.Author)
-
-	if err := comment.Scope.Validate(); err != nil {
+	if err := scope.Validate(); err != nil {
 		return op.Error(err, "writing comment")
 	}
+
+	if err := adoptScope(scope, comment); err != nil {
+		return op.Error(err, "writing comment")
+	}
+
+	op.Set(authorKey, comment.Author)
 
 	if err := validAuthorAndBody(comment); err != nil {
 		return op.Error(err, "writing comment")
@@ -77,7 +59,7 @@ func (s *SQLStore) createComment(
 
 	// The parent first, because a reply's target is its parent's and the catalog
 	// check below is made against whatever this settles on.
-	if err := s.adoptParent(ctx, q, comment); err != nil {
+	if err := s.adoptParent(ctx, tx, scope, comment); err != nil {
 		return op.Error(err, "writing comment")
 	}
 
@@ -85,7 +67,7 @@ func (s *SQLStore) createComment(
 		Set(targetIDKey, comment.Target.ID).
 		Set(parentIDKey, comment.ParentID)
 
-	if err := s.checkTarget(ctx, comment.Scope, comment.Target); err != nil {
+	if err := s.checkTarget(ctx, scope, comment.Target); err != nil {
 		return op.Error(err, "writing comment")
 	}
 
@@ -95,12 +77,12 @@ func (s *SQLStore) createComment(
 
 	op.Set(commentIDKey, comment.ID)
 
-	if err := s.q.CreateComment(ctx, q, createCommentParams(comment)); err != nil {
+	if err := s.q.CreateComment(ctx, tx, createCommentParams(scope, comment)); err != nil {
 		return op.Error(err, "writing comment")
 	}
 
-	created, err := s.q.GetCommentCreatedAt(ctx, q,
-		commentsdb.GetCommentCreatedAtParams{ID: comment.ID, Scope: comment.Scope})
+	created, err := s.q.GetCommentCreatedAt(ctx, tx,
+		commentsdb.GetCommentCreatedAtParams{ID: comment.ID, Scope: scope})
 	if err != nil {
 		return op.Error(err, "reading back the comment's creation time")
 	}
@@ -112,6 +94,27 @@ func (s *SQLStore) createComment(
 	// not exist yet.
 	comment.LastUpdatedAt = nil
 	comment.ArchivedAt = nil
+
+	return nil
+}
+
+// adoptScope settles which tenant a write is for, and writes the answer back
+// onto the comment.
+//
+// The scope the call named is the one the statement binds, so a comment that
+// names a different one is refused rather than corrected: the two disagreeing is
+// a caller holding one tenant's comment and writing it into another, which is a
+// stale value or a mix-up and is not a thing to guess at. A comment that names
+// none adopts the argument — the same reading adoptParent takes of a reply that
+// named no target. tenancy.Scope tells the zero value apart from Global(), so
+// "unset" here is genuinely unset rather than the global scope spelled shortly.
+func adoptScope(scope tenancy.Scope, comment *Comment) error {
+	if comment.Scope != (tenancy.Scope{}) && comment.Scope != scope {
+		return platformerrors.Wrapf(ErrScopeMismatch,
+			"comment names %q, the write names %q", comment.Scope, scope)
+	}
+
+	comment.Scope = scope
 
 	return nil
 }
@@ -131,7 +134,12 @@ func (s *SQLStore) createComment(
 // before would report the parent absent — as would the writer, on the
 // transactional path, for a parent this caller has written and not yet
 // committed.
-func (s *SQLStore) adoptParent(ctx context.Context, q commentsdb.DBTX, comment *Comment) error {
+func (s *SQLStore) adoptParent(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	comment *Comment,
+) error {
 	// A root is about whatever it says it is about, and checkTarget is where
 	// that is vetted. There is nothing to settle here.
 	if comment.Root() {
@@ -139,7 +147,7 @@ func (s *SQLStore) adoptParent(ctx context.Context, q commentsdb.DBTX, comment *
 	}
 
 	row, err := s.q.GetComment(ctx, q,
-		commentsdb.GetCommentParams{ID: comment.ParentID, Scope: comment.Scope})
+		commentsdb.GetCommentParams{ID: comment.ParentID, Scope: scope})
 	if err != nil {
 		return notFound(err, platformerrors.Wrapf(ErrParentNotFound, "comment %q", comment.ParentID))
 	}
@@ -215,43 +223,33 @@ func (s *SQLStore) checkTarget(ctx context.Context, scope tenancy.Scope, target 
 	return nil
 }
 
-// UpdateComment revises what the author said.
-func (s *SQLStore) UpdateComment(ctx context.Context, comment *Comment) error {
-	ctx, op := s.o11y.Begin(ctx)
+// UpdateComment revises what the author said, through the caller's transaction,
+// so the revision and whatever the caller records about it commit together or
+// not at all. See [Store.UpdateComment].
+func (s *SQLStore) UpdateComment(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	comment *Comment,
+) error {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
-	return s.updateComment(ctx, op, s.client.Writer(), comment)
-}
-
-// UpdateCommentTx is UpdateComment inside the caller's transaction, so the
-// revision and whatever the caller records about it commit together or not at
-// all. See [Store.UpdateCommentTx].
-func (s *SQLStore) UpdateCommentTx(ctx context.Context, q database.Tx, comment *Comment) error {
-	ctx, op := s.o11y.Begin(ctx)
-	defer op.End()
-
-	if q == nil {
+	if tx == nil {
 		return op.Error(ErrNilExecutor, "editing comment")
 	}
 
-	return s.updateComment(ctx, op, q, comment)
-}
-
-// updateComment is the shared body of UpdateComment and UpdateCommentTx, which
-// differ in the executor they run on and in nothing else.
-func (s *SQLStore) updateComment(
-	ctx context.Context,
-	op observability.Operation,
-	q commentsdb.DBTX,
-	comment *Comment,
-) error {
 	if comment == nil {
 		return op.Error(ErrNilComment, "editing comment")
 	}
 
-	op.Set(scopeKey, comment.Scope.String()).Set(commentIDKey, comment.ID)
+	op.Set(commentIDKey, comment.ID)
 
-	if err := comment.Scope.Validate(); err != nil {
+	if err := scope.Validate(); err != nil {
+		return op.Error(err, "editing comment %q", comment.ID)
+	}
+
+	if err := adoptScope(scope, comment); err != nil {
 		return op.Error(err, "editing comment %q", comment.ID)
 	}
 
@@ -263,20 +261,23 @@ func (s *SQLStore) updateComment(
 		return op.Error(ErrEmptyBody, "editing comment %q", comment.ID)
 	}
 
-	count, err := s.q.UpdateComment(ctx, q, updateCommentParams(comment))
+	count, err := s.q.UpdateComment(ctx, tx, updateCommentParams(scope, comment))
 
 	return op.Error(
 		guardCount(count, err, ErrCommentNotFound, "editing the comment"),
 		"editing comment %q", comment.ID)
 }
 
-// ArchiveComment removes one comment from the discussion.
+// ArchiveComment removes one comment from the discussion, through the caller's
+// transaction, so the removal and whatever the caller records about it commit
+// together or not at all. See [Store.ArchiveComment].
 //
 // Zero rows is ErrCommentNotFound rather than a quiet success, and the reading is
 // exact: the statement excludes archived rows, so a comment that has already
 // been archived is not in the discussion, which is what this method addresses.
 func (s *SQLStore) ArchiveComment(
 	ctx context.Context,
+	tx database.Tx,
 	scope tenancy.Scope,
 	commentID string,
 ) error {
@@ -286,45 +287,15 @@ func (s *SQLStore) ArchiveComment(
 	)
 	defer op.End()
 
-	return s.archiveComment(ctx, op, s.client.Writer(), scope, commentID)
-}
-
-// ArchiveCommentTx is ArchiveComment inside the caller's transaction, so the
-// removal and whatever the caller records about it commit together or not at
-// all. See [Store.ArchiveCommentTx].
-func (s *SQLStore) ArchiveCommentTx(
-	ctx context.Context,
-	q database.Tx,
-	scope tenancy.Scope,
-	commentID string,
-) error {
-	ctx, op := s.o11y.Begin(ctx,
-		observability.WithValue(scopeKey, scope.String()),
-		observability.WithValue(commentIDKey, commentID),
-	)
-	defer op.End()
-
-	if q == nil {
+	if tx == nil {
 		return op.Error(ErrNilExecutor, "archiving comment %q", commentID)
 	}
 
-	return s.archiveComment(ctx, op, q, scope, commentID)
-}
-
-// archiveComment is the shared body of ArchiveComment and ArchiveCommentTx,
-// which differ in the executor they run on and in nothing else.
-func (s *SQLStore) archiveComment(
-	ctx context.Context,
-	op observability.Operation,
-	q commentsdb.DBTX,
-	scope tenancy.Scope,
-	commentID string,
-) error {
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "archiving comment %q", commentID)
 	}
 
-	count, err := s.q.ArchiveComment(ctx, q,
+	count, err := s.q.ArchiveComment(ctx, tx,
 		commentsdb.ArchiveCommentParams{ID: commentID, Scope: scope})
 
 	return op.Error(
@@ -340,7 +311,7 @@ func (s *SQLStore) archiveComment(
 // remove — reporting that as a failure would fail a delete that succeeded.
 func (s *SQLStore) DeleteCommentsForTarget(
 	ctx context.Context,
-	q database.Tx,
+	tx database.Tx,
 	scope tenancy.Scope,
 	target Target,
 ) (int64, error) {
@@ -351,7 +322,7 @@ func (s *SQLStore) DeleteCommentsForTarget(
 	)
 	defer op.End()
 
-	if q == nil {
+	if tx == nil {
 		return 0, op.Error(ErrNilExecutor, "sweeping a target's comments")
 	}
 
@@ -366,7 +337,7 @@ func (s *SQLStore) DeleteCommentsForTarget(
 		return 0, op.Error(err, "sweeping a target's comments")
 	}
 
-	deleted, err := s.q.DeleteCommentsForTarget(ctx, q, commentsdb.DeleteCommentsForTargetParams{
+	deleted, err := s.q.DeleteCommentsForTarget(ctx, tx, commentsdb.DeleteCommentsForTargetParams{
 		Scope:      scope,
 		TargetType: target.Type.String(),
 		TargetID:   target.ID,
@@ -388,7 +359,7 @@ func (s *SQLStore) DeleteCommentsForTarget(
 // erase — reporting that as a failure would fail an erasure that succeeded.
 func (s *SQLStore) DeleteCommentsByAuthor(
 	ctx context.Context,
-	q database.Tx,
+	tx database.Tx,
 	scope tenancy.Scope,
 	author string,
 ) (int64, error) {
@@ -398,7 +369,7 @@ func (s *SQLStore) DeleteCommentsByAuthor(
 	)
 	defer op.End()
 
-	if q == nil {
+	if tx == nil {
 		return 0, op.Error(ErrNilExecutor, "erasing comments")
 	}
 
@@ -410,7 +381,7 @@ func (s *SQLStore) DeleteCommentsByAuthor(
 		return 0, op.Error(ErrEmptyAuthor, "erasing comments")
 	}
 
-	deleted, err := s.q.DeleteCommentsByAuthor(ctx, q,
+	deleted, err := s.q.DeleteCommentsByAuthor(ctx, tx,
 		commentsdb.DeleteCommentsByAuthorParams{Scope: scope, Author: author})
 	if err != nil {
 		return 0, op.Error(err, "erasing comments")
