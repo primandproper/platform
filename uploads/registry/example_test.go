@@ -24,14 +24,15 @@ import (
 // bucket.
 func Example() {
 	ctx := context.Background()
-	manager, store := exampleWiring()
+	client, manager, store := exampleWiring()
 
 	// One tenant, so the scope is global — the shape a single-tenant
 	// application has, behaving exactly as it would without the column.
 	scope := tenancy.Global()
 
+	// No Scope on the value: the write's argument is what the row is filed
+	// under, and it is written back onto the object on the way through.
 	object := &registry.Object{
-		Scope:       scope,
 		Key:         "avatars/ada/original.png",
 		ContentType: "image/png",
 		OwnerID:     "user_ada",
@@ -39,17 +40,22 @@ func Example() {
 	}
 
 	// StoreAndRecord writes the bytes, then the row, and fills in the size from
-	// what actually went past.
-	if err := registry.StoreAndRecord(ctx, manager, store, object,
-		strings.NewReader("\x89PNG not really")); err != nil {
+	// what actually went past. The row goes in on the caller's transaction, so a
+	// consumer with a profile row to update writes it in this same function and
+	// the two commit together. Here there is nothing to join.
+	if err := client.WithTransaction(ctx, func(tx database.Tx) error {
+		return registry.StoreAndRecord(ctx, tx, scope, manager, store, object,
+			strings.NewReader("\x89PNG not really"))
+	}); err != nil {
 		panic(err)
 	}
 
 	fmt.Println("size:", object.Size)
 
 	// Later, a request arrives holding the key rather than the row id. The row
-	// is what says whether this caller may have the bytes.
-	found, err := store.GetObjectByKey(ctx, scope, "avatars/ada/original.png")
+	// is what says whether this caller may have the bytes. This read is outside
+	// any transaction, so it runs on the client's reader.
+	found, err := store.GetObjectByKey(ctx, client.Reader(), scope, "avatars/ada/original.png")
 	switch {
 	case errors.Is(err, registry.ErrObjectNotFound):
 		fmt.Println("no such object in this tenant")
@@ -62,11 +68,13 @@ func Example() {
 
 	// Archiving is metadata-only: the row is hidden and the object stays in the
 	// bucket until the consumer's retention policy removes it.
-	if err = store.ArchiveObject(ctx, scope, object.ID); err != nil {
+	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		return store.ArchiveObject(ctx, tx, scope, object.ID)
+	}); err != nil {
 		panic(err)
 	}
 
-	_, err = store.GetObjectByKey(ctx, scope, "avatars/ada/original.png")
+	_, err = store.GetObjectByKey(ctx, client.Reader(), scope, "avatars/ada/original.png")
 	fmt.Println("archived reads as absent:", errors.Is(err, registry.ErrObjectNotFound))
 
 	// The object is still there.
@@ -89,26 +97,27 @@ func Example() {
 // asked what is attached to one of its own rows.
 func ExampleStore_listObjectsBySubject() {
 	ctx := context.Background()
-	manager, store := exampleWiring()
+	client, manager, store := exampleWiring()
 
 	scope := tenancy.Global()
 	invoice := registry.Subject{Type: "invoice", ID: "invoice_2026_01"}
 
 	for _, name := range []string{"january-receipt.pdf", "january-statement.pdf"} {
 		object := &registry.Object{
-			Scope:       scope,
 			Key:         "invoices/" + name,
 			ContentType: "application/pdf",
 			OwnerID:     "user_ada",
 			BelongsTo:   invoice,
 		}
 
-		if err := registry.StoreAndRecord(ctx, manager, store, object, strings.NewReader(name)); err != nil {
+		if err := client.WithTransaction(ctx, func(tx database.Tx) error {
+			return registry.StoreAndRecord(ctx, tx, scope, manager, store, object, strings.NewReader(name))
+		}); err != nil {
 			panic(err)
 		}
 	}
 
-	page, err := store.ListObjectsBySubject(ctx, scope, invoice, nil)
+	page, err := store.ListObjectsBySubject(ctx, client.Reader(), scope, invoice, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -125,7 +134,11 @@ func ExampleStore_listObjectsBySubject() {
 // exampleWiring stands up an in-memory bucket and a SQLite-backed registry over
 // a temporary file. A real deployment migrates the table through its own
 // migration run — see uploads/registry/migrations.
-func exampleWiring() (uploads.UploadManager, registry.Store) {
+//
+// The client comes back beside the two seams because the caller needs it: it is
+// what opens the transaction the writes take and what supplies the executor the
+// reads run on.
+func exampleWiring() (database.Client, uploads.UploadManager, registry.Store) {
 	ctx := context.Background()
 
 	dir, err := os.MkdirTemp("", "uploads-registry-example")
@@ -162,7 +175,7 @@ func exampleWiring() (uploads.UploadManager, registry.Store) {
 		panic(err)
 	}
 
-	return manager, store
+	return client, manager, store
 }
 
 type exampleClientConfig struct {

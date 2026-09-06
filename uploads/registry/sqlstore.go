@@ -42,7 +42,6 @@ var _ Store = (*SQLStore)(nil)
 // storage can depend on that choice rather than on the Store seam every backing
 // shares.
 type SQLStore struct {
-	client      database.Client
 	q           registrydb.Querier
 	o11y        observability.Observer
 	instruments *metrics.OperationSet
@@ -59,10 +58,13 @@ type SQLStore struct {
 
 // NewSQLStore builds a Store over the given database.
 //
-// The dialect comes from the client, so the two cannot disagree. The prefix must
-// still match the one the migrations were rendered with — nothing here can check
-// that, and a mismatch surfaces as a missing table on the first query rather
-// than at construction.
+// The client is read at construction and not kept. It supplies the dialect, so
+// the store and the database cannot disagree about which SQL to emit, and that
+// is the whole of what it is for: every statement this store runs goes on the
+// executor its caller hands over, so there is no connection of its own to hold.
+// The prefix must still match the one the migrations were rendered with —
+// nothing here can check that, and a mismatch surfaces as a missing table on
+// the first query rather than at construction.
 //
 // Observability is optional and defaults to nothing: an unconfigured store logs
 // to a noop logger, traces to a noop provider, and records to noop instruments.
@@ -76,7 +78,7 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 		return nil, platformerrors.Wrapf(dialect.ErrUnsupported, "uploads registry dialect %q", d)
 	}
 
-	s := &SQLStore{client: client, prefix: DefaultTablePrefix}
+	s := &SQLStore{prefix: DefaultTablePrefix}
 
 	for _, opt := range opts {
 		if opt != nil {
@@ -146,13 +148,32 @@ func (s *SQLStore) failed(ctx context.Context, err error) error {
 	return err
 }
 
-// RecordObject writes the row for an object in storage.
-func (s *SQLStore) RecordObject(ctx context.Context, object *Object) error {
-	ctx, op := s.o11y.Begin(ctx)
+// RecordObject writes the row for an object in storage, through the caller's
+// transaction.
+//
+// The three statements are one unit and always were — a collision check that
+// cleared a key somebody else then took, an insert, and the read-back of the
+// stamp the database assigned — but the transaction they are one unit in is now
+// the caller's rather than one this store opened and closed behind their back.
+// That is what lets the row commit with whatever references it: the profile row
+// naming the avatar, the audit entry naming who uploaded it. It also means the
+// creation time handed back is the one this transaction wrote, visible here
+// before anybody else can see it.
+func (s *SQLStore) RecordObject(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	object *Object,
+) error {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 	defer op.Time(ctx, nil, s.instruments.Latency)()
 
 	s.instruments.Attempt(ctx)
+
+	if tx == nil {
+		return s.failed(ctx, op.Error(ErrNilExecutor, "recording uploaded object"))
+	}
 
 	if object == nil {
 		return s.failed(ctx, op.Error(ErrNilObject, "recording uploaded object"))
@@ -162,37 +183,53 @@ func (s *SQLStore) RecordObject(ctx context.Context, object *Object) error {
 		return s.failed(ctx, op.Error(err, "recording uploaded object"))
 	}
 
-	if err := object.Scope.Validate(); err != nil {
+	if err := scope.Validate(); err != nil {
+		return s.failed(ctx, op.Error(err, "recording uploaded object"))
+	}
+
+	if err := adoptScope(scope, object); err != nil {
 		return s.failed(ctx, op.Error(err, "recording uploaded object"))
 	}
 
 	object.ID = newID(object.ID)
 
 	op.Set(objectIDKey, object.ID).
-		Set(scopeKey, object.Scope.String()).
 		Set(objectKeyKey, object.Key)
 
-	// The three statements are one unit: a collision check that cleared a key
-	// somebody else then took, an insert, and the read-back of the stamp the
-	// database assigned. Outside a transaction the check would be advice rather
-	// than a check, and the read-back could see a row a concurrent writer had
-	// already replaced.
-	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		if err := s.ensureKeyFree(ctx, q, object.Scope, object.Key); err != nil {
-			return err
-		}
-
-		if err := s.q.CreateObject(ctx, q, createObjectParams(object)); err != nil {
-			return platformerrors.Wrap(err, "writing the uploads registry row")
-		}
-
-		created, readErr := s.q.GetObjectCreatedAt(ctx, q,
-			registrydb.GetObjectCreatedAtParams{ID: object.ID, Scope: object.Scope})
-
-		return stampCreatedAt(&object.CreatedAt, created.CreatedAt, readErr)
-	}); err != nil {
+	if err := s.ensureKeyFree(ctx, tx, scope, object.Key); err != nil {
 		return s.failed(ctx, op.Error(err, "recording uploaded object"))
 	}
+
+	if err := s.q.CreateObject(ctx, tx, createObjectParams(scope, object)); err != nil {
+		return s.failed(ctx, op.Error(err, "writing the uploads registry row"))
+	}
+
+	created, readErr := s.q.GetObjectCreatedAt(ctx, tx,
+		registrydb.GetObjectCreatedAtParams{ID: object.ID, Scope: scope})
+	if err := stampCreatedAt(&object.CreatedAt, created.CreatedAt, readErr); err != nil {
+		return s.failed(ctx, op.Error(err, "recording uploaded object"))
+	}
+
+	return nil
+}
+
+// adoptScope settles which tenant a write is for, and writes the answer back
+// onto the object.
+//
+// The scope the call named is the one the statement binds, so an object that
+// names a different one is refused rather than corrected: the two disagreeing is
+// a caller holding one tenant's object and registering it into another, which is
+// a stale value or a mix-up and is not a thing to guess at. An object that names
+// none adopts the argument. tenancy.Scope tells the zero value apart from
+// Global(), so "unset" here is genuinely unset rather than the global scope
+// spelled shortly.
+func adoptScope(scope tenancy.Scope, object *Object) error {
+	if object.Scope != (tenancy.Scope{}) && object.Scope != scope {
+		return platformerrors.Wrapf(ErrScopeMismatch,
+			"object names %q, the write names %q", object.Scope, scope)
+	}
+
+	object.Scope = scope
 
 	return nil
 }
@@ -223,8 +260,15 @@ func (s *SQLStore) ensureKeyFree(ctx context.Context, q database.SQLQueryExecuto
 	}
 }
 
-// GetObject reads one of the scope's objects by row id.
-func (s *SQLStore) GetObject(ctx context.Context, scope tenancy.Scope, objectID string) (*Object, error) {
+// GetObject reads one of the scope's objects by row id, on the caller's
+// executor — so a caller inside a transaction reads the row that transaction has
+// written and not yet committed.
+func (s *SQLStore) GetObject(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	objectID string,
+) (*Object, error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(objectIDKey, objectID),
@@ -234,11 +278,15 @@ func (s *SQLStore) GetObject(ctx context.Context, scope tenancy.Scope, objectID 
 
 	s.instruments.Attempt(ctx)
 
+	if q == nil {
+		return nil, s.failed(ctx, op.Error(ErrNilExecutor, "reading uploaded object %q", objectID))
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, s.failed(ctx, op.Error(err, "reading uploaded object %q", objectID))
 	}
 
-	row, err := s.q.GetObject(ctx, s.client.Reader(), registrydb.GetObjectParams{ID: objectID, Scope: scope})
+	row, err := s.q.GetObject(ctx, q, registrydb.GetObjectParams{ID: objectID, Scope: scope})
 	if err != nil {
 		return nil, s.failed(ctx, op.Error(notFound(err, ErrObjectNotFound), "reading uploaded object %q", objectID))
 	}
@@ -246,8 +294,14 @@ func (s *SQLStore) GetObject(ctx context.Context, scope tenancy.Scope, objectID 
 	return objectFromRow(&row), nil
 }
 
-// GetObjectByKey reads one of the scope's objects by the key its bytes live at.
-func (s *SQLStore) GetObjectByKey(ctx context.Context, scope tenancy.Scope, key string) (*Object, error) {
+// GetObjectByKey reads one of the scope's objects by the key its bytes live at,
+// on the caller's executor.
+func (s *SQLStore) GetObjectByKey(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	key string,
+) (*Object, error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(objectKeyKey, key),
@@ -257,11 +311,15 @@ func (s *SQLStore) GetObjectByKey(ctx context.Context, scope tenancy.Scope, key 
 
 	s.instruments.Attempt(ctx)
 
+	if q == nil {
+		return nil, s.failed(ctx, op.Error(ErrNilExecutor, "reading uploaded object at key %q", key))
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, s.failed(ctx, op.Error(err, "reading uploaded object at key %q", key))
 	}
 
-	row, err := s.q.GetObjectByKey(ctx, s.client.Reader(), registrydb.GetObjectByKeyParams{ObjectKey: key, Scope: scope})
+	row, err := s.q.GetObjectByKey(ctx, q, registrydb.GetObjectByKeyParams{ObjectKey: key, Scope: scope})
 	if err != nil {
 		return nil, s.failed(ctx, op.Error(notFound(err, ErrObjectNotFound), "reading uploaded object at key %q", key))
 	}
@@ -269,9 +327,11 @@ func (s *SQLStore) GetObjectByKey(ctx context.Context, scope tenancy.Scope, key 
 	return objectFromKeyRow(&row), nil
 }
 
-// ListObjects pages the scope's objects, in the direction the filter names.
+// ListObjects pages the scope's objects, in the direction the filter names, on
+// the caller's executor.
 func (s *SQLStore) ListObjects(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	filter *filtering.QueryFilter,
 ) (*filtering.QueryFilteredResult[Object], error) {
@@ -281,6 +341,10 @@ func (s *SQLStore) ListObjects(
 
 	s.instruments.Attempt(ctx)
 
+	if q == nil {
+		return nil, s.failed(ctx, op.Error(ErrNilExecutor, "listing uploaded objects"))
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, s.failed(ctx, op.Error(err, "listing uploaded objects"))
 	}
@@ -289,10 +353,10 @@ func (s *SQLStore) ListObjects(
 
 	listRows, err := sortedRows(filter,
 		func() ([]registrydb.ListObjectsRow, error) {
-			return s.q.ListObjects(ctx, s.client.Reader(), listObjectsParams(scope, filter))
+			return s.q.ListObjects(ctx, q, listObjectsParams(scope, filter))
 		},
 		func() ([]registrydb.ListObjectsDescendingRow, error) {
-			return s.q.ListObjectsDescending(ctx, s.client.Reader(),
+			return s.q.ListObjectsDescending(ctx, q,
 				registrydb.ListObjectsDescendingParams(listObjectsParams(scope, filter)))
 		},
 		func(r registrydb.ListObjectsDescendingRow) registrydb.ListObjectsRow {
@@ -312,9 +376,11 @@ func (s *SQLStore) ListObjects(
 	return filtering.Drain(rows, pageValue, pageCounts, objectID, filter), nil
 }
 
-// ListObjectsByOwner pages one owner's objects within the scope.
+// ListObjectsByOwner pages one owner's objects within the scope, on the caller's
+// executor.
 func (s *SQLStore) ListObjectsByOwner(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	ownerID string,
 	filter *filtering.QueryFilter,
@@ -328,6 +394,10 @@ func (s *SQLStore) ListObjectsByOwner(
 
 	s.instruments.Attempt(ctx)
 
+	if q == nil {
+		return nil, s.failed(ctx, op.Error(ErrNilExecutor, "listing uploaded objects by owner"))
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, s.failed(ctx, op.Error(err, "listing uploaded objects by owner"))
 	}
@@ -336,10 +406,10 @@ func (s *SQLStore) ListObjectsByOwner(
 
 	listRows, err := sortedRows(filter,
 		func() ([]registrydb.ListObjectsByOwnerRow, error) {
-			return s.q.ListObjectsByOwner(ctx, s.client.Reader(), listByOwnerParams(scope, ownerID, filter))
+			return s.q.ListObjectsByOwner(ctx, q, listByOwnerParams(scope, ownerID, filter))
 		},
 		func() ([]registrydb.ListObjectsByOwnerDescendingRow, error) {
-			return s.q.ListObjectsByOwnerDescending(ctx, s.client.Reader(),
+			return s.q.ListObjectsByOwnerDescending(ctx, q,
 				registrydb.ListObjectsByOwnerDescendingParams(listByOwnerParams(scope, ownerID, filter)))
 		},
 		func(r registrydb.ListObjectsByOwnerDescendingRow) registrydb.ListObjectsByOwnerRow {
@@ -359,9 +429,11 @@ func (s *SQLStore) ListObjectsByOwner(
 	return filtering.Drain(rows, pageValue, pageCounts, objectID, filter), nil
 }
 
-// ListObjectsBySubject pages the objects attached to one thing within the scope.
+// ListObjectsBySubject pages the objects attached to one thing within the scope,
+// on the caller's executor.
 func (s *SQLStore) ListObjectsBySubject(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	subject Subject,
 	filter *filtering.QueryFilter,
@@ -374,6 +446,10 @@ func (s *SQLStore) ListObjectsBySubject(
 	defer op.Time(ctx, nil, s.instruments.Latency)()
 
 	s.instruments.Attempt(ctx)
+
+	if q == nil {
+		return nil, s.failed(ctx, op.Error(ErrNilExecutor, "listing uploaded objects by subject"))
+	}
 
 	if err := scope.Validate(); err != nil {
 		return nil, s.failed(ctx, op.Error(err, "listing uploaded objects by subject"))
@@ -391,10 +467,10 @@ func (s *SQLStore) ListObjectsBySubject(
 
 	listRows, err := sortedRows(filter,
 		func() ([]registrydb.ListObjectsBySubjectRow, error) {
-			return s.q.ListObjectsBySubject(ctx, s.client.Reader(), listBySubjectParams(scope, subject, filter))
+			return s.q.ListObjectsBySubject(ctx, q, listBySubjectParams(scope, subject, filter))
 		},
 		func() ([]registrydb.ListObjectsBySubjectDescendingRow, error) {
-			return s.q.ListObjectsBySubjectDescending(ctx, s.client.Reader(),
+			return s.q.ListObjectsBySubjectDescending(ctx, q,
 				registrydb.ListObjectsBySubjectDescendingParams(listBySubjectParams(scope, subject, filter)))
 		},
 		func(r registrydb.ListObjectsBySubjectDescendingRow) registrydb.ListObjectsBySubjectRow {
@@ -414,8 +490,14 @@ func (s *SQLStore) ListObjectsBySubject(
 	return filtering.Drain(rows, pageValue, pageCounts, objectID, filter), nil
 }
 
-// ArchiveObject soft-deletes the row. The object stays in the bucket.
-func (s *SQLStore) ArchiveObject(ctx context.Context, scope tenancy.Scope, objectID string) error {
+// ArchiveObject soft-deletes the row through the caller's transaction. The
+// object stays in the bucket.
+func (s *SQLStore) ArchiveObject(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	objectID string,
+) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(objectIDKey, objectID),
@@ -425,11 +507,15 @@ func (s *SQLStore) ArchiveObject(ctx context.Context, scope tenancy.Scope, objec
 
 	s.instruments.Attempt(ctx)
 
+	if tx == nil {
+		return s.failed(ctx, op.Error(ErrNilExecutor, "archiving uploaded object %q", objectID))
+	}
+
 	if err := scope.Validate(); err != nil {
 		return s.failed(ctx, op.Error(err, "archiving uploaded object %q", objectID))
 	}
 
-	count, err := s.q.ArchiveObject(ctx, s.client.Writer(), registrydb.ArchiveObjectParams{ID: objectID, Scope: scope})
+	count, err := s.q.ArchiveObject(ctx, tx, registrydb.ArchiveObjectParams{ID: objectID, Scope: scope})
 	if err = guardCount(count, err, ErrObjectNotFound); err != nil {
 		return s.failed(ctx, op.Error(err, "archiving uploaded object %q", objectID))
 	}

@@ -139,6 +139,11 @@ type Object struct {
 	// Scope is whose object this is. tenancy.Global() for a single-tenant
 	// application, which is then exactly what it would have been without the
 	// column.
+	//
+	// A write takes the scope as an argument and writes it here, so leaving it
+	// unset is ordinary — this field is what a read fills in. Setting it to
+	// something the write does not name is ErrScopeMismatch rather than either
+	// value quietly winning; see Store.
 	Scope tenancy.Scope `json:"scope"`
 
 	// Size is how many bytes were stored, counted while they went past rather
