@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v14/authorization/cached"
-	authzdb "github.com/primandproper/platform-go/v14/authorization/database"
 	"github.com/primandproper/platform-go/v14/authorization/static"
 	"github.com/primandproper/platform-go/v14/observability"
 	"github.com/primandproper/platform-go/v14/observability/logging"
@@ -27,7 +26,6 @@ func TestNewOptions(T *testing.T) {
 
 		must.NotNil(t, o)
 		test.SliceLen(t, 0, o.static)
-		test.SliceLen(t, 0, o.database)
 		test.SliceLen(t, 0, o.cached)
 	})
 
@@ -49,13 +47,11 @@ func TestNewOptions(T *testing.T) {
 
 		o := newOptions([]Option{
 			WithStaticOptions(static.WithLogger(loggingnoop.NewLogger())),
-			WithDatabaseOptions(authzdb.WithLogger(loggingnoop.NewLogger())),
 			WithCachedOptions(cached.WithTTL(time.Minute)),
 		})
 
 		must.NotNil(t, o)
 		test.SliceLen(t, 1, o.static)
-		test.SliceLen(t, 1, o.database)
 		test.SliceLen(t, 1, o.cached)
 	})
 }
@@ -80,7 +76,6 @@ func TestWithStaticOptions(T *testing.T) {
 
 		must.NotNil(t, o)
 		test.SliceLen(t, 3, o.static)
-		test.SliceLen(t, 0, o.database)
 		test.SliceLen(t, 0, o.cached)
 	})
 
@@ -91,36 +86,6 @@ func TestWithStaticOptions(T *testing.T) {
 
 		must.NotNil(t, o)
 		test.SliceLen(t, 0, o.static)
-	})
-}
-
-func TestWithDatabaseOptions(T *testing.T) {
-	T.Parallel()
-
-	T.Run("accumulates across calls", func(t *testing.T) {
-		t.Parallel()
-
-		o := newOptions([]Option{
-			WithDatabaseOptions(authzdb.WithLogger(loggingnoop.NewLogger())),
-			WithDatabaseOptions(
-				authzdb.WithTracerProvider(tracingnoop.NewTracerProvider()),
-				authzdb.WithMetricsProvider(metricsnoop.NewMetricsProvider()),
-			),
-		})
-
-		must.NotNil(t, o)
-		test.SliceLen(t, 3, o.database)
-		test.SliceLen(t, 0, o.static)
-		test.SliceLen(t, 0, o.cached)
-	})
-
-	T.Run("no arguments adds nothing", func(t *testing.T) {
-		t.Parallel()
-
-		o := newOptions([]Option{WithDatabaseOptions()})
-
-		must.NotNil(t, o)
-		test.SliceLen(t, 0, o.database)
 	})
 }
 
@@ -141,7 +106,6 @@ func TestWithCachedOptions(T *testing.T) {
 		must.NotNil(t, o)
 		test.SliceLen(t, 3, o.cached)
 		test.SliceLen(t, 0, o.static)
-		test.SliceLen(t, 0, o.database)
 	})
 
 	T.Run("no arguments adds nothing", func(t *testing.T) {

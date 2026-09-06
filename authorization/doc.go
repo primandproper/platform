@@ -66,7 +66,15 @@ anywhere, which is the point: it is the case most likely to be forgotten.
 # Choosing a backend
 
 Start with authorization/static. It needs no database, no migrations, and no
-configuration, and it is what an empty Provider selects.
+configuration, and it is what an empty Provider selects. authorization/config
+builds it, and applies the caching decorator, without naming a table at all.
+
+The Provider itself lives in authorization/database/config, beside the store it
+selects, along with the block that store reads. A deployment resolving policy
+from declarations therefore configures it through authorization/config and one
+resolving it from SQL through authorization/database/config; the second embeds
+the first, so an operator's environment variables are the same either way. Both
+packages' doc.go carry the reason.
 
 Move to authorization/database when roles must become editable data — when an
 operator has to define a new role, or change what one grants, without shipping a

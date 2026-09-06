@@ -5,8 +5,6 @@ import (
 
 	"github.com/primandproper/platform-go/v14/authorization"
 	"github.com/primandproper/platform-go/v14/cache"
-	"github.com/primandproper/platform-go/v14/database"
-	"github.com/primandproper/platform-go/v14/internal/cfgnorm"
 	"github.com/primandproper/platform-go/v14/internal/injection"
 	"github.com/primandproper/platform-go/v14/observability"
 
@@ -14,33 +12,23 @@ import (
 )
 
 // RegisterPolicyResolver registers an authorization.PolicyResolver with the
-// injector. The cache is optional: a registered
+// injector, resolving policy from cfg.Roles. The cache is optional: a registered
 // cache.Cache[authorization.PermissionSet] wraps the resolver in the cached
 // decorator, and its absence means every resolution hits the underlying
 // resolver, which is NewPolicyResolver's documented uncached behavior.
 //
-// Prerequisites: *Config must be registered in the injector before the
-// resolver is invoked. A database.Client is only required when the config's
-// provider is "database", so a statically-authorized service can build
-// without one.
+// This registration builds no store and resolves no database.Client, so a
+// container running static policy needs neither. A container resolving policy
+// from SQL registers authzdbcfg.RegisterPolicyResolver instead — the two provide
+// the same key, so exactly one of them belongs in any given injector.
+//
+// Prerequisites: context.Context and *Config must be registered in the injector
+// before the resolver is invoked.
 func RegisterPolicyResolver(i do.Injector) {
 	do.Provide(i, func(i do.Injector) (authorization.PolicyResolver, error) {
 		pillars, err := observability.InvokePillars(i)
 		if err != nil {
 			return nil, err
-		}
-
-		cfg := do.MustInvoke[*Config](i)
-
-		// The database resolver both reads and archives roles, so it gets the
-		// writer rather than a read replica that would reject its mutations.
-		var db database.SQLQueryExecutor
-		if cfgnorm.Provider(cfg.Provider) == ProviderDatabase {
-			client, clientErr := do.Invoke[database.Client](i)
-			if clientErr != nil {
-				return nil, clientErr
-			}
-			db = client.Writer()
 		}
 
 		permissionSets, err := injection.InvokeOptional[cache.Cache[authorization.PermissionSet]](i)
@@ -50,8 +38,7 @@ func RegisterPolicyResolver(i do.Injector) {
 
 		return NewPolicyResolver(
 			do.MustInvoke[context.Context](i),
-			cfg,
-			db,
+			do.MustInvoke[*Config](i),
 			permissionSets,
 			WithPillars(pillars),
 		)

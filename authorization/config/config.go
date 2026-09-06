@@ -1,33 +1,14 @@
-// Package authorizationcfg selects and builds an
-// authorization.PolicyResolver from configuration.
-//
-// The zero value works: an empty Provider selects the static resolver, which
-// needs no database, no migrations, and no configuration. Set Provider to
-// "database" to opt into SQL-backed policy — deliberately opt-in, so that a
-// newcomer does not inherit the operational cost of the heavier backend just
-// because some consumer runs it.
-//
-// Supplying a cache wraps whichever resolver is chosen in authorization/cached,
-// which is what turns the database provider from a query per session build into
-// a query per policy change. Because that wrapping is decided here rather than
-// by the caller, a process that edits policy reaches invalidation by asserting
-// authorization.PolicyInvalidator on the returned resolver rather than by
-// naming a concrete type.
 package authorizationcfg
 
 import (
 	"context"
-	"slices"
 	"time"
 
 	"github.com/primandproper/platform-go/v14/authorization"
 	"github.com/primandproper/platform-go/v14/authorization/cached"
-	authzdb "github.com/primandproper/platform-go/v14/authorization/database"
 	"github.com/primandproper/platform-go/v14/authorization/static"
 	"github.com/primandproper/platform-go/v14/cache"
-	"github.com/primandproper/platform-go/v14/database"
 	"github.com/primandproper/platform-go/v14/errors"
-	"github.com/primandproper/platform-go/v14/internal/cfgnorm"
 	"github.com/primandproper/platform-go/v14/observability"
 	"github.com/primandproper/platform-go/v14/observability/logging"
 	"github.com/primandproper/platform-go/v14/observability/metrics"
@@ -36,28 +17,12 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
-const (
-	// ProviderStatic resolves policy declared at build time or loaded from
-	// config. It is the default, and an empty Provider selects it.
-	ProviderStatic = "static"
-	// ProviderDatabase resolves policy from SQL tables, for deployments where
-	// roles must be editable without a release.
-	ProviderDatabase = "database"
-)
-
 // Config configures a policy resolver.
 //
 // The zero value is valid and yields a working static resolver that grants
-// nothing. That is deliberate on both counts: the most accessible
-// implementation is the default so the package runs with no infrastructure,
-// and an unconfigured authorization layer denies rather than admits.
+// nothing.
 type Config struct {
-	// Database configures the database provider. Required when Provider is
-	// "database", and must be absent otherwise.
-	Database *authzdb.Config `env:",init" envPrefix:"DATABASE_" json:"database,omitempty" yaml:"database,omitempty"`
-	// Provider selects the implementation. Empty means ProviderStatic.
-	Provider string `env:"PROVIDER" json:"provider,omitempty" yaml:"provider,omitempty"`
-	// Roles is the policy for the static provider. It is loadable from JSON or
+	// Roles is the policy for the static resolver. It is loadable from JSON or
 	// YAML, so a static deployment can change policy by shipping config rather
 	// than code.
 	Roles []authorization.Role `json:"roles,omitempty" yaml:"roles,omitempty"`
@@ -66,45 +31,26 @@ type Config struct {
 	CacheTTL time.Duration `env:"CACHE_TTL" json:"cacheTTL,omitempty" yaml:"cacheTTL,omitempty"`
 }
 
-// providers are every provider this package implements, plus the empty string,
-// which selects the static resolver. Validation and dispatch both read it.
-var providers = []string{"", ProviderStatic, ProviderDatabase}
-
 var _ validation.ValidatableWithContext = (*Config)(nil)
 
 // ValidateWithContext validates a Config.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
-	provider := cfgnorm.Provider(cfg.Provider)
-
-	// Release the sub-configs env parsing's ",init" allocated and nothing filled
-	// in, so the Nil rules below read "the operator configured this" rather than
-	// "env parsing ran".
-	cfgnorm.ZeroToNil(&cfg.Database)
-
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Provider, validation.By(func(any) error {
-			// Checked normalized, matching dispatch: validating the raw string
-			// rejected "Static" and " static " while the factory accepted both.
-			if !slices.Contains(providers, provider) {
-				return errors.Wrapf(errors.ErrUnknownProvider, "authorization provider %q", cfg.Provider)
-			}
-
-			return nil
-		})),
-		validation.Field(&cfg.Database,
-			validation.When(provider == ProviderDatabase, validation.Required),
-			validation.When(provider != ProviderDatabase, validation.Nil),
-		),
+		// cached.WithTTL folds anything that is not positive into "leave the
+		// default", so without this rule a negative TTL is a deployment asking
+		// for something it silently does not get. Zero still means the default,
+		// which is what an unset field is.
+		validation.Field(&cfg.CacheTTL, validation.Min(time.Duration(0))),
 	)
 }
 
 // Option configures how NewPolicyResolver assembles its resolver.
 //
-// The backend options are passthroughs, each applying only when configuration
-// selects its backend, so one wiring site can carry options for whichever
-// provider a given deployment turns out to run. They are appended after the
-// options this package derives from its arguments, so a caller can override
-// what it would otherwise be given.
+// The backend options are passthroughs, each applying only when the backend it
+// names is built, so one wiring site can carry options for whichever shape a
+// given deployment turns out to run. They are appended after the options this
+// package derives from its arguments, so a caller can override what it would
+// otherwise be given.
 type Option func(*options)
 
 // options collects the passthrough options for each backend, plus the
@@ -114,9 +60,8 @@ type options struct {
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
-	static   []static.Option
-	database []authzdb.Option
-	cached   []cached.Option
+	static []static.Option
+	cached []cached.Option
 }
 
 // newOptions applies opts, ignoring nil entries.
@@ -131,16 +76,9 @@ func newOptions(opts []Option) *options {
 	return o
 }
 
-// WithStaticOptions passes opts to the static resolver, when the static
-// provider is selected.
+// WithStaticOptions passes opts to the static resolver.
 func WithStaticOptions(opts ...static.Option) Option {
 	return func(o *options) { o.static = append(o.static, opts...) }
-}
-
-// WithDatabaseOptions passes opts to the database resolver, when the database
-// provider is selected.
-func WithDatabaseOptions(opts ...authzdb.Option) Option {
-	return func(o *options) { o.database = append(o.database, opts...) }
 }
 
 // WithCachedOptions passes opts to the caching decorator, which is applied only
@@ -176,83 +114,83 @@ func WithPillars(p *observability.Pillars) Option {
 	return func(o *options) { o.logger, o.tracerProvider, o.metricsProvider = p.Deps() }
 }
 
-// NewPolicyResolver builds the configured resolver.
+// NewPolicyResolver builds the static resolver from cfg, wrapped in
+// authorization/cached when c is non-nil.
 //
-// db is used only by the database provider and may be nil otherwise. c is
-// optional: when non-nil the resolver is wrapped in authorization/cached, which
-// is what turns the database provider from a query per session build into a
-// query per policy change.
+// c is optional. When it is nil the resolver answers from its own declarations
+// every time, which for the static resolver is a map lookup.
 //
 // The result is an interface, so a caller that needs to drop cached policy
 // after an edit type-asserts authorization.PolicyInvalidator rather than a
 // concrete type — whether a cache is in the chain is this function's decision,
 // not the caller's.
+//
+// A deployment resolving policy from SQL calls authzdbcfg.NewPolicyResolver
+// instead; it selects between that store and this resolver, and delegates here
+// for the half it does not own.
 func NewPolicyResolver(
 	ctx context.Context,
 	cfg *Config,
-	db database.SQLQueryExecutor,
 	c cache.Cache[authorization.PermissionSet],
 	opts ...Option,
 ) (authorization.PolicyResolver, error) {
-	// A nil config is the zero config, which this package documents as valid and
-	// as selecting the static resolver. It is still put through validation
-	// below, so the two spellings of "unconfigured" cannot diverge.
+	// A nil config is the zero config, which this package documents as valid.
+	// It is still put through validation below, so the two spellings of
+	// "unconfigured" cannot diverge.
 	if cfg == nil {
 		cfg = &Config{}
 	}
 
-	o := newOptions(opts)
-	logger, tracerProvider, metricsProvider := o.logger, o.tracerProvider, o.metricsProvider
-
-	provider, err := cfgnorm.SelectProvider(cfg.Provider, providers, "authorization provider")
-	if err != nil {
-		return nil, err
-	}
-
-	// The config's own ErrUnknownProvider rule was unreachable while nothing
-	// called this, and so was the rule that a database provider must carry a
-	// database block — which is why the check for it below had to be written
-	// out here a second time.
-	if err = cfg.ValidateWithContext(ctx); err != nil {
+	if err := cfg.ValidateWithContext(ctx); err != nil {
 		return nil, errors.Wrap(err, "validating authorization config")
 	}
 
-	var resolver authorization.PolicyResolver
+	o := newOptions(opts)
 
-	switch provider {
-	case ProviderDatabase:
-		if cfg.Database == nil {
-			return nil, errors.New("database authorization provider selected with no database config")
-		}
-		resolver, err = authzdb.NewResolver(cfg.Database, db, append([]authzdb.Option{
-			authzdb.WithLogger(logger),
-			authzdb.WithTracerProvider(tracerProvider),
-			authzdb.WithMetricsProvider(metricsProvider),
-		}, o.database...)...)
-	case ProviderStatic, "":
-		resolver, err = static.NewResolver(cfg.Roles, append([]static.Option{
-			static.WithLogger(logger),
-		}, o.static...)...)
-	default:
-		return nil, errors.Wrapf(errors.ErrUnknownProvider, "authorization provider %q", cfg.Provider)
-	}
-
+	// Built into a variable and returned only once err is known to be nil:
+	// static.NewResolver returns a *static.Resolver, and returning it straight
+	// through would hand back a non-nil PolicyResolver wrapping a nil pointer
+	// whenever it failed.
+	resolver, err := static.NewResolver(cfg.Roles, append([]static.Option{
+		static.WithLogger(o.logger),
+	}, o.static...)...)
 	if err != nil {
 		return nil, err
+	}
+
+	return NewCachedResolver(cfg, resolver, c, opts...)
+}
+
+// NewCachedResolver wraps resolver in authorization/cached when c is non-nil,
+// and hands it back untouched when c is nil.
+//
+// It is exported for authzdbcfg, which builds the SQL-backed resolver this
+// package cannot and then needs the same wrapping applied to it. Keeping the
+// CacheTTL read and the cached.NewResolver call in one place is the point: a
+// second copy on the database branch could drift from this one, and nothing
+// would say so.
+func NewCachedResolver(
+	cfg *Config,
+	resolver authorization.PolicyResolver,
+	c cache.Cache[authorization.PermissionSet],
+	opts ...Option,
+) (authorization.PolicyResolver, error) {
+	if cfg == nil {
+		cfg = &Config{}
 	}
 
 	if c == nil {
 		return resolver, nil
 	}
 
-	// Built into a variable and returned only once err is known to be nil, as
-	// the switch above does: cached.NewResolver returns a *cached.Resolver, and
-	// returning it straight through would hand back a non-nil PolicyResolver
-	// wrapping a nil pointer whenever it failed.
+	o := newOptions(opts)
+
+	// Built into a variable and returned only once err is known to be nil, for
+	// the reason NewPolicyResolver gives above.
 	cachedResolver, err := cached.NewResolver(resolver, c, append([]cached.Option{
-		cached.WithLogger(logger),
-		cached.WithTracerProvider(tracerProvider),
-		cached.WithMetricsProvider(metricsProvider),
+		cached.WithLogger(o.logger),
+		cached.WithTracerProvider(o.tracerProvider),
+		cached.WithMetricsProvider(o.metricsProvider),
 		cached.WithTTL(cfg.CacheTTL),
 	}, o.cached...)...)
 	if err != nil {

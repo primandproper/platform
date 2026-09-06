@@ -102,8 +102,14 @@ func TestBothHalvesCloseTheFeedbackLoop(t *testing.T) {
 	must.True(t, ok)
 
 	// The handoff: the sender is pruning the registry this container registered,
-	// and nothing in either wiring site named the other.
-	test.True(t, multi.TokenInvalidator() == mobile.TokenInvalidator(registry))
+	// and nothing in either wiring site named the other. The key the sender
+	// resolved is mobile.TokenInvalidator, which RegisterStore registers as a
+	// fourth narrowing of the same store — so the three resolutions below are
+	// one value, and the sender never named the package that owns the table.
+	invalidator, err := do.Invoke[mobile.TokenInvalidator](i)
+	must.NoError(t, err)
+	test.True(t, invalidator == mobile.TokenInvalidator(registry))
+	test.True(t, multi.TokenInvalidator() == invalidator)
 
 	// And the loop runs. What a provider hands a sender is a platform and a
 	// token, which is exactly what reaches the registry here, and the row it

@@ -2,7 +2,6 @@ package oauth2servercfg
 
 import (
 	"github.com/primandproper/platform-go/v14/authentication/oauth2server"
-	oauth2database "github.com/primandproper/platform-go/v14/authentication/oauth2server/database"
 	oauth2memory "github.com/primandproper/platform-go/v14/authentication/oauth2server/memory"
 	"github.com/primandproper/platform-go/v14/observability"
 	"github.com/primandproper/platform-go/v14/observability/logging"
@@ -19,7 +18,7 @@ import (
 // the three name all three anyway, usually as noops.
 type Option func(*options)
 
-// options collects what the options set. The three pass-through slices exist
+// options collects what the options set. The pass-through slices exist
 // because Go allows one variadic per function and that slot belongs to this
 // package's own Option; anything bound for a component this constructor builds
 // arrives through a WithXOptions instead.
@@ -28,9 +27,8 @@ type options struct {
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
-	server        []oauth2server.Option
-	memoryStore   []oauth2memory.Option
-	databaseStore []oauth2database.Option
+	server      []oauth2server.Option
+	memoryStore []oauth2memory.Option
 }
 
 // newOptions applies opts, ignoring nil entries.
@@ -70,7 +68,7 @@ func WithMetricsProvider(metricsProvider metrics.Provider) Option {
 // It is applied in order with the individual options, so a caller can hand over
 // its pillars and then override one of them:
 //
-//	oauth2servercfg.NewServer(ctx, cfg, db, authenticator,
+//	oauth2servercfg.NewServer(ctx, cfg, store, authenticator,
 //		oauth2servercfg.WithPillars(pillars),
 //		oauth2servercfg.WithMetricsProvider(nil), // this server stays unmetered
 //	)
@@ -90,14 +88,8 @@ func WithServerOptions(opts ...oauth2server.Option) Option {
 	return func(o *options) { o.server = append(o.server, opts...) }
 }
 
-// WithMemoryStoreOptions passes options through to the memory store. They are
-// ignored under any other provider.
+// WithMemoryStoreOptions passes options through to the memory store.
+// NewServer ignores them, having been handed a store already.
 func WithMemoryStoreOptions(opts ...oauth2memory.Option) Option {
 	return func(o *options) { o.memoryStore = append(o.memoryStore, opts...) }
-}
-
-// WithDatabaseStoreOptions passes options through to the database store —
-// WithClock, most usefully. They are ignored under any other provider.
-func WithDatabaseStoreOptions(opts ...oauth2database.Option) Option {
-	return func(o *options) { o.databaseStore = append(o.databaseStore, opts...) }
 }

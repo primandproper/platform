@@ -1,45 +1,16 @@
-// Package oauth2servercfg assembles an OAuth 2.1 authorization server, and the
-// Store behind it, from environment configuration.
-//
-// The store lives either in memory — for tests and single-process development
-// — or in a SQL table, which is what a deployment wants. The choice is not a
-// performance one: with the memory provider an authorization code issued by one
-// replica cannot be redeemed at another, so a fleet fails logins in proportion
-// to how well its load balancer works.
-//
-// NewStore builds the store alone. NewServer builds the store and the server on
-// top of it, and needs the things this package cannot configure: a
-// SubjectAuthenticator that knows who the human is, and — optionally — a
-// LoginRenderer that draws the form and a SubjectResolver that recognizes a
-// resource owner who is already signed in. The optional two arrive through
-// WithServerOptions.
 package oauth2servercfg
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"github.com/primandproper/platform-go/v14/authentication/oauth2server"
-	oauth2database "github.com/primandproper/platform-go/v14/authentication/oauth2server/database"
 	oauth2memory "github.com/primandproper/platform-go/v14/authentication/oauth2server/memory"
-	"github.com/primandproper/platform-go/v14/database"
 	"github.com/primandproper/platform-go/v14/errors"
 	"github.com/primandproper/platform-go/v14/internal/cfgnorm"
 	"github.com/primandproper/platform-go/v14/pointer"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
-)
-
-const (
-	// ProviderMemory keeps every record in maps. For tests and single-process
-	// development; see the memory package for what it cannot do.
-	ProviderMemory = "memory"
-
-	// ProviderDatabase keeps every record in SQL tables. The answer for any
-	// deployment with more than one replica, which under this protocol is any
-	// deployment where logins have to work.
-	ProviderDatabase = "database"
 )
 
 // Config assembles an authorization server from environment configuration.
@@ -79,9 +50,6 @@ type Config struct {
 	// rather than read as zero.
 	ClientRegistrationTTL *time.Duration `env:"CLIENT_REGISTRATION_TTL" json:"clientRegistrationTTL,omitempty" yaml:"clientRegistrationTTL,omitempty"`
 
-	// Provider selects where the records live: memory or database.
-	Provider string `env:"PROVIDER" envDefault:"database" json:"provider,omitempty" yaml:"provider,omitempty"`
-
 	// Issuer is this server's identity: an https URL with no query or
 	// fragment, no trailing slash. Every endpoint in the discovery document is
 	// derived from it, and a client compares it against the "iss" in an
@@ -94,10 +62,6 @@ type Config struct {
 	// ServiceDocumentation is an optional URL advertised in the discovery
 	// document.
 	ServiceDocumentation string `env:"SERVICE_DOCUMENTATION" json:"serviceDocumentation,omitempty" yaml:"serviceDocumentation,omitempty"`
-
-	// Database configures the store when Provider is database. The dialect
-	// comes from the database.Client rather than from here.
-	Database oauth2database.Config `env:",init" envPrefix:"DATABASE_" json:"database,omitzero" yaml:"database,omitempty"`
 
 	// Scopes are the scopes this server issues. An authorization request for
 	// anything outside the set is refused rather than narrowed; leaving it
@@ -160,9 +124,6 @@ var _ validation.ValidatableWithContext = (*Config)(nil)
 // unset, so a zero reaching this method is a deployment asking for no sweeper,
 // or for registrations that never lapse, and is left alone.
 func (cfg *Config) EnsureDefaults() {
-	if cfg.Provider == "" {
-		cfg.Provider = ProviderDatabase
-	}
 	if cfg.AuthorizationCodeTTL == 0 {
 		cfg.AuthorizationCodeTTL = oauth2server.DefaultAuthorizationCodeTTL
 	}
@@ -180,19 +141,11 @@ func (cfg *Config) EnsureDefaults() {
 
 // ValidateWithContext validates a Config struct.
 //
-// The database sub-config is skipped under the memory provider rather than
-// merely unguarded: ozzo validates any non-nil pointer to a Validatable once a
-// field's rules have run, and `env:",init"` leaves it populated either way.
-//
 // The issuer is not validated here beyond being present. Whether it is a legal
 // issuer is oauth2server.NewServer's answer, and duplicating the rule would
 // create a second place for it to be wrong — NewStore does not need one at all.
 func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	return validation.ValidateStructWithContext(ctx, cfg,
-		validation.Field(&cfg.Provider, validation.In(ProviderMemory, ProviderDatabase)),
-		validation.Field(&cfg.Database,
-			validation.Skip.When(cfg.provider() != ProviderDatabase),
-			validation.By(func(any) error { return cfg.Database.ValidateWithContext(ctx) })),
 		validation.Field(&cfg.AuthorizationCodeTTL, validation.Min(time.Duration(0))),
 		validation.Field(&cfg.AccessTokenTTL, validation.Min(time.Duration(0))),
 		validation.Field(&cfg.RefreshTokenTTL, validation.Min(time.Duration(0))),
@@ -204,16 +157,11 @@ func (cfg *Config) ValidateWithContext(ctx context.Context) error {
 	)
 }
 
-// provider normalizes the configured provider name, so that trailing whitespace
-// out of an environment file is not a different provider.
-func (cfg *Config) provider() string {
-	return strings.TrimSpace(strings.ToLower(cfg.Provider))
-}
-
-// NewStore builds the authorization server's Store from configuration.
+// NewStore builds the in-memory Store.
 //
-// db is required only when the provider is database; pass nil otherwise.
-func NewStore(ctx context.Context, cfg *Config, db database.Client, opts ...Option) (oauth2server.Store, error) {
+// A deployment keeping records in SQL calls oauth2dbcfg.NewStore instead, which
+// selects between that store and this one.
+func NewStore(ctx context.Context, cfg *Config, opts ...Option) (oauth2server.Store, error) {
 	if cfg == nil {
 		return nil, errors.ErrNilInputParameter
 	}
@@ -226,60 +174,31 @@ func NewStore(ctx context.Context, cfg *Config, db database.Client, opts ...Opti
 		return nil, errors.Wrap(err, "validating oauth2 server config")
 	}
 
-	// Every branch builds into store and returns it only once err is known to
-	// be nil. Returning a concrete-typed constructor's result straight through
-	// would convert a nil *database.Store into a non-nil oauth2server.Store on
-	// the error path — a value that passes a caller's nil check and panics on
-	// first use.
-	var (
-		store oauth2server.Store
-		err   error
-	)
-
-	switch cfg.provider() {
-	case ProviderMemory:
-		store = oauth2memory.NewStore(append([]oauth2memory.Option{
-			oauth2memory.WithLogger(o.logger),
-			oauth2memory.WithTracerProvider(o.tracerProvider),
-			oauth2memory.WithSweeper(ctx, pointer.Dereference(cfg.SweepInterval)),
-		}, o.memoryStore...)...)
-	case ProviderDatabase:
-		store, err = oauth2database.NewStore(&cfg.Database, db, append([]oauth2database.Option{
-			oauth2database.WithLogger(o.logger),
-			oauth2database.WithTracerProvider(o.tracerProvider),
-			oauth2database.WithMetricsProvider(o.metricsProvider),
-			// Bound to the caller's context: the sweep stops when whatever
-			// scope owns this store does.
-			oauth2database.WithSweeper(ctx, pointer.Dereference(cfg.SweepInterval)),
-		}, o.databaseStore...)...)
-	default:
-		// An unrecognized provider is an error rather than a working-looking
-		// default. Falling back to memory would produce an authorization server
-		// that signs users in, fails their next login on another replica, and
-		// looks configured the whole time.
-		return nil, errors.Wrapf(errors.ErrUnknownProvider, "oauth2 store provider %q", cfg.Provider)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	return store, nil
+	return oauth2memory.NewStore(append([]oauth2memory.Option{
+		oauth2memory.WithLogger(o.logger),
+		oauth2memory.WithTracerProvider(o.tracerProvider),
+		// Bound to the caller's context: the sweep stops when whatever scope
+		// owns this store does.
+		oauth2memory.WithSweeper(ctx, pointer.Dereference(cfg.SweepInterval)),
+	}, o.memoryStore...)...), nil
 }
 
-// NewServer builds an authorization server and the Store behind it.
+// NewServer builds an authorization server over store.
+//
+// The store is a parameter rather than something this function builds, and that
+// is the seam the tier split runs along — see the package documentation. A
+// caller that wants the store selected for it, from a provider string, calls
+// oauth2dbcfg.NewServer.
 //
 // authenticator is a parameter rather than an option because it is the one
 // thing no configuration can supply: it is how this deployment identifies a
 // human, and a default would be a server that issues authorization codes to
 // whoever asks. The login form does have a default, so it is an option —
 // WithLoginRenderer.
-//
-// db is required only when the provider is database; pass nil otherwise.
 func NewServer(
 	ctx context.Context,
 	cfg *Config,
-	db database.Client,
+	store oauth2server.Store,
 	authenticator oauth2server.SubjectAuthenticator,
 	opts ...Option,
 ) (*oauth2server.Server, error) {
@@ -289,9 +208,10 @@ func NewServer(
 
 	o := newOptions(opts)
 
-	store, err := NewStore(ctx, cfg, db, opts...)
-	if err != nil {
-		return nil, err
+	cfg.EnsureDefaults()
+
+	if err := cfg.ValidateWithContext(ctx); err != nil {
+		return nil, errors.Wrap(err, "validating oauth2 server config")
 	}
 
 	return oauth2server.NewServer(cfg.Issuer, store, authenticator, cfg.serverOptions(o)...)

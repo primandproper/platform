@@ -178,8 +178,39 @@ passwords and issues tokens, and `authentication/passwordreset` owns a table of
 them; `authorization`, `cryptography` and `uploads` split the same way. Two are
 the mirror: `notifications` owns the inbox and `notifications/mobile` is a push
 provider behind an interface, and `search` is text and vector search while
-`search/sync` is a reindexing worker driven by the outbox. Each nested store is
-what has to get a home of its own before its parent can leave whole.
+`search/sync` is a reindexing worker driven by the outbox.
+
+The nested stores themselves are self-contained, and Go is content with a parent
+directory holding no `.go` files — `cryptography/` is already exactly that. What
+was not self-contained was the *configuration*: a `config` subpackage that picked
+a store by dispatching on a provider string named every package it might build
+from, so three of them named a table. The rule that predicts it is worth stating
+once, because it is what any future straddle will be measured against:
+
+> **A config that takes a store as a parameter is clean; a config that builds one
+> by dispatching on a provider string is stuck.** The provider string exists
+> because a second implementation exists, so it belongs with the implementation
+> that created the choice.
+
+So `authorization/config`, `authentication/webauthn/config` and
+`authentication/oauth2server/config` keep everything that needs no table, and the
+provider string, the store's own config block and the dispatch moved to a
+`config` subpackage beside the store: `authorization/database/config`,
+`authentication/webauthn/database/config`,
+`authentication/oauth2server/database/config`. The domain half embeds the
+primitive half's `Config` with no `env` tag on the embed, so every environment
+variable an operator sets resolves at the name it always did, and each package's
+`doc.go` records the decision and the two alternatives that were refused.
+
+`notifications/mobile` was the mirror again and needed no split at all: it named
+`notifications` only to spell a DI key, for a one-method interface it already
+owned, so `notifications/config` registers that narrowing instead.
+
+None of this is enforced by prose. `internal/tiercheck` is the roster: every
+package in the tree is named with its tier, checked against this table in both
+directions, and a test walks every import — test files included, since a
+primitives-go test is compiled by primitives-go — and fails on a primitive that
+names a domain.
 
 `service` is neither tier and is why the split does not split it: it is one walk
 of one config that registers both, and a consumer of both sees the wiring it

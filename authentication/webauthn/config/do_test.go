@@ -5,9 +5,10 @@ import (
 	"testing"
 
 	"github.com/primandproper/platform-go/v14/authentication/webauthn"
-	"github.com/primandproper/platform-go/v14/database"
+	cachecfg "github.com/primandproper/platform-go/v14/cache/config"
 	"github.com/primandproper/platform-go/v14/errors"
-	"github.com/primandproper/platform-go/v14/observability/metrics"
+	"github.com/primandproper/platform-go/v14/observability/logging"
+	loggingnoop "github.com/primandproper/platform-go/v14/observability/logging/noop"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"
@@ -17,13 +18,14 @@ import (
 func TestRegisterSessionStore(T *testing.T) {
 	T.Parallel()
 
-	T.Run("uses a registered database client under the database provider", func(t *testing.T) {
+	// No database.Client is registered anywhere here, which is the whole reason
+	// this half can be wired on its own.
+	T.Run("builds the cache store with nothing else registered", func(t *testing.T) {
 		t.Parallel()
 
 		i := do.New()
 		do.ProvideValue[context.Context](i, t.Context())
-		do.ProvideValue[database.Client](i, newTestClient(t))
-		do.ProvideValue(i, databaseConfig())
+		do.ProvideValue(i, testConfig())
 
 		RegisterSessionStore(i)
 
@@ -32,58 +34,32 @@ func TestRegisterSessionStore(T *testing.T) {
 		test.NotNil(t, store)
 	})
 
-	// A container running the cache provider should not have to register a
-	// database client it will never use.
-	T.Run("resolves with no database client registered", func(t *testing.T) {
+	T.Run("a cache it cannot build fails the container", func(t *testing.T) {
 		t.Parallel()
+
+		cfg := testConfig()
+		cfg.Cache = cachecfg.Config{Provider: cachecfg.ProviderRedis}
 
 		i := do.New()
 		do.ProvideValue[context.Context](i, t.Context())
-		do.ProvideValue(i, cacheConfig())
+		do.ProvideValue(i, cfg)
 
 		RegisterSessionStore(i)
 
 		store, err := do.Invoke[webauthn.SessionStore](i)
-		must.NoError(t, err)
-		test.NotNil(t, store)
-	})
-
-	// A registered provider that fails to build has to reach the caller.
-	// Treating it as absent would leave a misconfigured exporter looking
-	// configured — see observability.InvokePillars.
-	T.Run("a failing observability provider is an error", func(t *testing.T) {
-		t.Parallel()
-
-		errBuild := errors.New("building the metrics provider")
-
-		i := do.New()
-		do.ProvideValue[context.Context](i, t.Context())
-		do.ProvideValue(i, cacheConfig())
-		do.Provide(i, func(do.Injector) (metrics.Provider, error) {
-			return nil, errBuild
-		})
-
-		RegisterSessionStore(i)
-
-		_, err := do.Invoke[webauthn.SessionStore](i)
 		must.Error(t, err)
-		test.ErrorIs(t, err, errBuild)
+		test.Nil(t, store)
 	})
 
-	// The other half of the same distinction: a database client that was
-	// registered and could not be built must not be reported as one that was
-	// never registered.
-	T.Run("a failing database client is an error", func(t *testing.T) {
+	T.Run("a failing observability pillar is an error rather than a noop", func(t *testing.T) {
 		t.Parallel()
 
-		errBuild := errors.New("building the database client")
+		errBuild := errors.New("building the logger")
 
 		i := do.New()
 		do.ProvideValue[context.Context](i, t.Context())
-		do.ProvideValue(i, cacheConfig())
-		do.Provide(i, func(do.Injector) (database.Client, error) {
-			return nil, errBuild
-		})
+		do.ProvideValue(i, testConfig())
+		do.Provide(i, func(do.Injector) (logging.Logger, error) { return nil, errBuild })
 
 		RegisterSessionStore(i)
 
@@ -96,14 +72,18 @@ func TestRegisterSessionStore(T *testing.T) {
 func TestRegisterRelyingParty(T *testing.T) {
 	T.Parallel()
 
-	T.Run("resolves a relying party and the store behind it", func(t *testing.T) {
+	// The relying party reads the store the container already holds rather than
+	// building a second one, so whichever half registered it is the one in the
+	// ceremonies.
+	T.Run("reads the registered store", func(t *testing.T) {
 		t.Parallel()
 
 		i := do.New()
 		do.ProvideValue[context.Context](i, t.Context())
-		do.ProvideValue[database.Client](i, newTestClient(t))
-		do.ProvideValue(i, databaseConfig())
+		do.ProvideValue(i, testConfig())
+		do.ProvideValue(i, loggingnoop.NewLogger())
 
+		RegisterSessionStore(i)
 		RegisterRelyingParty(i)
 
 		rp, err := do.Invoke[*webauthn.RelyingParty](i)
@@ -112,20 +92,28 @@ func TestRegisterRelyingParty(T *testing.T) {
 
 		creation, err := rp.BeginRegistration(t.Context(), &testUser{})
 		must.NoError(t, err)
-		test.NotNil(t, creation)
+
+		// The store in the ceremonies is the registered one: the challenge it
+		// just issued is consumable through the value the container hands out.
+		store, err := do.Invoke[webauthn.SessionStore](i)
+		must.NoError(t, err)
+
+		session, err := store.Consume(t.Context(), creation.Response.Challenge.String())
+		must.NoError(t, err)
+		test.EqOp(t, "example.com", session.RelyingPartyID)
 	})
 
-	T.Run("reports a config it cannot build a store from", func(t *testing.T) {
+	T.Run("a container with no registered store does not come up", func(t *testing.T) {
 		t.Parallel()
 
-		// No database client, under the provider that requires one.
 		i := do.New()
 		do.ProvideValue[context.Context](i, t.Context())
-		do.ProvideValue(i, databaseConfig())
+		do.ProvideValue(i, testConfig())
 
 		RegisterRelyingParty(i)
 
-		_, err := do.Invoke[*webauthn.RelyingParty](i)
+		rp, err := do.Invoke[*webauthn.RelyingParty](i)
 		must.Error(t, err)
+		test.Nil(t, rp)
 	})
 }
