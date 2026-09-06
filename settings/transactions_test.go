@@ -13,125 +13,205 @@ import (
 	"github.com/shoenig/test/must"
 )
 
-// runTransactionSuite is the five writes run inside a transaction the caller
-// owns, which is what the Tx variants exist for.
+// runTransactionSuite is the commit boundary, which is the whole of what this
+// store's signatures buy its caller.
 //
-// What is actually under test is the commit boundary: that a write made here
-// lands with the caller's own rows, and that a caller's failure takes it back.
-// Everything else is parity — the transactional path must refuse exactly what
-// its own twin refuses, or the two drift into being two stores — except the one
-// place the two paths are documented to differ, which is the stranded-value walk
-// reading the caller's uncommitted clearances.
+// Every write takes the caller's transaction and every read takes an executor, so
+// what is under test here is not that the statements work — the other three
+// suites cover that — but which side of a commit each of them lands on, and what
+// a read handed the transaction can see. Those are the questions a store that
+// opened its own transaction answered for its caller, and answered wrong.
 func runTransactionSuite(t *testing.T, env *storeEnv) {
 	t.Helper()
 
-	t.Run("the five writes commit with the caller's transaction", func(t *testing.T) {
+	t.Run("a resolution inside one transaction sees the value that transaction set", func(t *testing.T) {
 		t.Parallel()
 
+		// The property the reads were widened for, and the one the resolvers
+		// wanted most. A resolution is a definition's default read against a
+		// subject's override, so a service that saves somebody's preference and
+		// returns the new effective value in the same response is resolving a row
+		// it has written and not yet committed. Read on a connection of the
+		// store's own it would answer "weekly" — what the subject had before the
+		// request — with nothing reporting an error.
 		store := env.newStore(t)
+		mustCreate(t, env, store, testScope, stringDefinition("digest"))
 
-		renamed := mustCreate(t, store, testScope, boolDefinition("compact"))
-		retired := mustCreate(t, store, testScope, intDefinition("retention.days"))
-		answered := mustCreate(t, store, testScope, stringDefinition("digest"))
+		must.NoError(t, env.inTx(t, func(tx database.Tx) error {
+			written, err := store.SetValue(t.Context(), tx, testScope, testSubject, "digest", "daily")
+			if err != nil {
+				return err
+			}
 
-		_, err := store.SetValue(t.Context(), testScope, testSubject, answered.Name, "daily")
+			resolved, err := store.Resolve(t.Context(), tx, testScope, testSubject, "digest")
+			if err != nil {
+				return err
+			}
+
+			test.EqOp(t, SourceSubject, resolved.Source)
+			test.EqOp(t, "daily", resolved.Raw)
+			must.NotNil(t, resolved.Value)
+			test.EqOp(t, written.ID, resolved.Value.ID)
+
+			// ResolveAll walks the catalog and the subject's answers on the same
+			// executor, so it agrees.
+			all, err := store.ResolveAll(t.Context(), tx, testScope, testSubject)
+			if err != nil {
+				return err
+			}
+
+			must.SliceLen(t, 1, all)
+			test.EqOp(t, SourceSubject, all[0].Source)
+			test.EqOp(t, "daily", all[0].Raw)
+
+			// And the same resolution, on the client, cannot see it: the
+			// transaction has not committed, so this is the other half of the
+			// same fact rather than a second one. It is also exactly the stale
+			// answer the old shape had no way to avoid.
+			outside, err := store.Resolve(t.Context(), env.reader(), testScope, testSubject, "digest")
+			if err != nil {
+				return err
+			}
+
+			test.EqOp(t, SourceDefault, outside.Source)
+			test.EqOp(t, "weekly", outside.Raw)
+
+			return nil
+		}))
+
+		// After the commit both executors agree, which is what makes the reading
+		// above about visibility rather than about two different rows.
+		resolved, err := store.Resolve(t.Context(), env.reader(), testScope, testSubject, "digest")
 		must.NoError(t, err)
+		test.EqOp(t, SourceSubject, resolved.Source)
+		test.EqOp(t, "daily", resolved.Raw)
+	})
+
+	t.Run("a value is set against a definition the same transaction created", func(t *testing.T) {
+		t.Parallel()
+
+		// The definition read behind the value's write runs on the caller's
+		// executor, so a catalog seeded and answered in one transaction resolves
+		// instead of reporting the setting undefined.
+		store := env.newStore(t)
 
 		var (
 			created *Definition
 			value   *Value
 		)
 
-		must.NoError(t, store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+		must.NoError(t, env.inTx(t, func(tx database.Tx) error {
 			var txErr error
 
-			// A definition and a value against it, in one transaction: the
-			// definition read behind the value's write runs on tx, so it finds
-			// a row nothing else can see yet.
-			if created, txErr = store.CreateDefinitionTx(t.Context(), tx, testScope, stringDefinition("theme")); txErr != nil {
+			if created, txErr = store.CreateDefinition(t.Context(), tx, testScope, stringDefinition("theme")); txErr != nil {
 				return txErr
 			}
 
-			if value, txErr = store.SetValueTx(t.Context(), tx, testScope, testSubject, "theme", "never"); txErr != nil {
-				return txErr
-			}
+			value, txErr = store.SetValue(t.Context(), tx, testScope, testSubject, "theme", "never")
 
-			edit := *renamed
-			edit.Name = "layout.compact"
-			if txErr = store.UpdateDefinitionTx(t.Context(), tx, testScope, &edit); txErr != nil {
-				return txErr
-			}
-
-			if txErr = store.ArchiveDefinitionTx(t.Context(), tx, testScope, retired.ID); txErr != nil {
-				return txErr
-			}
-
-			return store.ClearValueTx(t.Context(), tx, testScope, testSubject, answered.Name)
+			return txErr
 		}))
 
-		// The create read its creation time back through the caller's
-		// executor, and the value's read-back is the row this transaction
-		// wrote rather than a zero time waiting on a commit.
+		// The create read its creation time back through the caller's executor,
+		// and the value's read-back is the row this transaction wrote rather than
+		// a zero time waiting on a commit.
 		test.NotEqOp(t, "", created.ID)
 		test.False(t, created.CreatedAt.IsZero())
 		test.EqOp(t, created.ID, value.DefinitionID)
 		test.False(t, value.CreatedAt.IsZero())
 
-		read, err := store.GetValue(t.Context(), testScope, testSubject, "theme")
+		read, err := store.GetValue(t.Context(), env.reader(), testScope, testSubject, "theme")
+		must.NoError(t, err)
+		test.EqOp(t, "never", read.Raw)
+	})
+
+	t.Run("the five writes commit with the caller's transaction", func(t *testing.T) {
+		t.Parallel()
+
+		store := env.newStore(t)
+
+		renamed := mustCreate(t, env, store, testScope, boolDefinition("compact"))
+		retired := mustCreate(t, env, store, testScope, intDefinition("retention.days"))
+		answered := mustCreate(t, env, store, testScope, stringDefinition("digest"))
+
+		mustSet(t, env, store, testScope, testSubject, answered.Name, "daily")
+
+		must.NoError(t, env.inTx(t, func(tx database.Tx) error {
+			if _, txErr := store.CreateDefinition(t.Context(), tx, testScope, stringDefinition("theme")); txErr != nil {
+				return txErr
+			}
+
+			if _, txErr := store.SetValue(t.Context(), tx, testScope, testSubject, "theme", "never"); txErr != nil {
+				return txErr
+			}
+
+			edit := *renamed
+			edit.Name = "layout.compact"
+			if txErr := store.UpdateDefinition(t.Context(), tx, testScope, &edit); txErr != nil {
+				return txErr
+			}
+
+			if txErr := store.ArchiveDefinition(t.Context(), tx, testScope, retired.ID); txErr != nil {
+				return txErr
+			}
+
+			return store.ClearValue(t.Context(), tx, testScope, testSubject, answered.Name)
+		}))
+
+		read, err := store.GetValue(t.Context(), env.reader(), testScope, testSubject, "theme")
 		must.NoError(t, err)
 		test.EqOp(t, "never", read.Raw)
 
-		definition, err := store.GetDefinition(t.Context(), testScope, renamed.ID)
+		definition, err := store.GetDefinition(t.Context(), env.reader(), testScope, renamed.ID)
 		must.NoError(t, err)
 		test.EqOp(t, "layout.compact", definition.Name)
 
-		_, err = store.GetDefinition(t.Context(), testScope, retired.ID)
+		_, err = store.GetDefinition(t.Context(), env.reader(), testScope, retired.ID)
 		test.ErrorIs(t, err, ErrDefinitionNotFound)
 
-		_, err = store.GetValue(t.Context(), testScope, testSubject, answered.Name)
+		_, err = store.GetValue(t.Context(), env.reader(), testScope, testSubject, answered.Name)
 		test.ErrorIs(t, err, ErrValueNotFound)
 	})
 
 	t.Run("a rolled back transaction takes all five writes with it", func(t *testing.T) {
 		t.Parallel()
 
-		// This is the whole point of the variants, seen from the side that
-		// matters: the consumer's companion write fails, and every setting
-		// write goes back with it rather than surviving in a transaction it was
-		// never part of.
+		// This is the whole point of the signature, seen from the side that
+		// matters: the consumer's companion write fails, and every setting write
+		// goes back with it rather than surviving in a transaction it was never
+		// part of.
 		store := env.newStore(t)
 
-		renamed := mustCreate(t, store, testScope, boolDefinition("compact"))
-		retired := mustCreate(t, store, testScope, intDefinition("retention.days"))
-		answered := mustCreate(t, store, testScope, stringDefinition("digest"))
+		renamed := mustCreate(t, env, store, testScope, boolDefinition("compact"))
+		retired := mustCreate(t, env, store, testScope, intDefinition("retention.days"))
+		answered := mustCreate(t, env, store, testScope, stringDefinition("digest"))
 
-		_, err := store.SetValue(t.Context(), testScope, testSubject, answered.Name, "daily")
-		must.NoError(t, err)
+		mustSet(t, env, store, testScope, testSubject, answered.Name, "daily")
 
 		var created *Definition
 
-		err = store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+		err := env.inTx(t, func(tx database.Tx) error {
 			var txErr error
 
-			if created, txErr = store.CreateDefinitionTx(t.Context(), tx, testScope, stringDefinition("theme")); txErr != nil {
+			if created, txErr = store.CreateDefinition(t.Context(), tx, testScope, stringDefinition("theme")); txErr != nil {
 				return txErr
 			}
 
-			if _, txErr = store.SetValueTx(t.Context(), tx, testScope, testSubject, "theme", "never"); txErr != nil {
+			if _, txErr = store.SetValue(t.Context(), tx, testScope, testSubject, "theme", "never"); txErr != nil {
 				return txErr
 			}
 
 			edit := *renamed
 			edit.Name = "layout.compact"
-			if txErr = store.UpdateDefinitionTx(t.Context(), tx, testScope, &edit); txErr != nil {
+			if txErr = store.UpdateDefinition(t.Context(), tx, testScope, &edit); txErr != nil {
 				return txErr
 			}
 
-			if txErr = store.ArchiveDefinitionTx(t.Context(), tx, testScope, retired.ID); txErr != nil {
+			if txErr = store.ArchiveDefinition(t.Context(), tx, testScope, retired.ID); txErr != nil {
 				return txErr
 			}
 
-			if txErr = store.ClearValueTx(t.Context(), tx, testScope, testSubject, answered.Name); txErr != nil {
+			if txErr = store.ClearValue(t.Context(), tx, testScope, testSubject, answered.Name); txErr != nil {
 				return txErr
 			}
 
@@ -143,22 +223,22 @@ func runTransactionSuite(t *testing.T, env *storeEnv) {
 		// undoes that, and nothing should: what rolled back is the row.
 		test.NotEqOp(t, "", created.ID)
 
-		_, err = store.GetDefinition(t.Context(), testScope, created.ID)
+		_, err = store.GetDefinition(t.Context(), env.reader(), testScope, created.ID)
 		test.ErrorIs(t, err, ErrDefinitionNotFound)
 
-		_, err = store.GetDefinitionByName(t.Context(), testScope, "theme")
+		_, err = store.GetDefinitionByName(t.Context(), env.reader(), testScope, "theme")
 		test.ErrorIs(t, err, ErrDefinitionNotFound)
 
-		definition, err := store.GetDefinition(t.Context(), testScope, renamed.ID)
+		definition, err := store.GetDefinition(t.Context(), env.reader(), testScope, renamed.ID)
 		must.NoError(t, err)
 		test.EqOp(t, "compact", definition.Name)
 		test.Nil(t, definition.LastUpdatedAt)
 
-		definition, err = store.GetDefinition(t.Context(), testScope, retired.ID)
+		definition, err = store.GetDefinition(t.Context(), env.reader(), testScope, retired.ID)
 		must.NoError(t, err)
 		test.Nil(t, definition.ArchivedAt)
 
-		read, err := store.GetValue(t.Context(), testScope, testSubject, answered.Name)
+		read, err := store.GetValue(t.Context(), env.reader(), testScope, testSubject, answered.Name)
 		must.NoError(t, err)
 		test.EqOp(t, "daily", read.Raw)
 		test.Nil(t, read.ArchivedAt)
@@ -167,86 +247,106 @@ func runTransactionSuite(t *testing.T, env *storeEnv) {
 	t.Run("an edit sees the values the transaction has already cleared", func(t *testing.T) {
 		t.Parallel()
 
-		// The documented difference between the two paths. The walk runs on the
-		// caller's executor, so an administrator can clear the offending
-		// values and narrow the enumeration in one transaction — and the two
-		// land together or not at all.
+		// The stranded-value walk runs on the caller's executor, so an
+		// administrator can clear the offending values and narrow the enumeration
+		// in one transaction — and the two land together or not at all.
 		store := env.newStore(t)
-		definition := mustCreate(t, store, testScope, stringDefinition("digest"))
+		definition := mustCreate(t, env, store, testScope, stringDefinition("digest"))
 
-		_, err := store.SetValue(t.Context(), testScope, testSubject, "digest", "daily")
-		must.NoError(t, err)
+		mustSet(t, env, store, testScope, testSubject, "digest", "daily")
 
 		narrowed := *definition
 		narrowed.Enumeration = []string{"weekly", "never"}
 
-		// Without the clearance, the transactional path refuses what the
-		// other path refuses, and the refusal names the value.
-		err = store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
-			return store.UpdateDefinitionTx(t.Context(), tx, testScope, &narrowed)
-		})
+		// Without the clearance the edit is refused, and the refusal names the
+		// value.
+		err := env.update(t, store, testScope, &narrowed)
 		must.ErrorIs(t, err, ErrStrandedValues)
 		test.StrContains(t, err.Error(), "daily")
 
 		// With it, the walk sees the cleared row as cleared, and the edit goes
 		// through.
-		must.NoError(t, store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
-			if txErr := store.ClearValueTx(t.Context(), tx, testScope, testSubject, "digest"); txErr != nil {
+		must.NoError(t, env.inTx(t, func(tx database.Tx) error {
+			if txErr := store.ClearValue(t.Context(), tx, testScope, testSubject, "digest"); txErr != nil {
 				return txErr
 			}
 
-			return store.UpdateDefinitionTx(t.Context(), tx, testScope, &narrowed)
+			return store.UpdateDefinition(t.Context(), tx, testScope, &narrowed)
 		}))
 
-		read, err := store.GetDefinition(t.Context(), testScope, definition.ID)
+		read, err := store.GetDefinition(t.Context(), env.reader(), testScope, definition.ID)
 		must.NoError(t, err)
 		test.Eq(t, []string{"never", "weekly"}, read.Enumeration)
 
-		_, err = store.GetValue(t.Context(), testScope, testSubject, "digest")
+		_, err = store.GetValue(t.Context(), env.reader(), testScope, testSubject, "digest")
 		test.ErrorIs(t, err, ErrValueNotFound)
 	})
 
-	t.Run("a transactional write refuses a nil executor", func(t *testing.T) {
+	t.Run("every method refuses a nil executor", func(t *testing.T) {
 		t.Parallel()
 
-		// Every one of the six, not a representative one: a variant that
-		// reached for the store's own writer when handed nothing would be a
-		// write outside the transaction its caller believes it is in.
+		// Every one of the fourteen, not a representative one. There is no
+		// connection of the store's own to fall back to, so a method that did
+		// anything but refuse would be reaching for something that is not there.
 		store := env.newStore(t)
 
-		_, err := store.CreateDefinitionTx(t.Context(), nil, testScope, stringDefinition("digest"))
+		_, err := store.CreateDefinition(t.Context(), nil, testScope, stringDefinition("digest"))
 		test.ErrorIs(t, err, ErrNilExecutor)
 
-		test.ErrorIs(t, store.UpdateDefinitionTx(t.Context(), nil, testScope, stringDefinition("digest")), ErrNilExecutor)
-		test.ErrorIs(t, store.ArchiveDefinitionTx(t.Context(), nil, testScope, "whatever"), ErrNilExecutor)
+		test.ErrorIs(t, store.UpdateDefinition(t.Context(), nil, testScope, stringDefinition("digest")), ErrNilExecutor)
+		test.ErrorIs(t, store.ArchiveDefinition(t.Context(), nil, testScope, "whatever"), ErrNilExecutor)
 
-		_, err = store.SetValueTx(t.Context(), nil, testScope, testSubject, "digest", "daily")
+		_, err = store.GetDefinition(t.Context(), nil, testScope, "whatever")
 		test.ErrorIs(t, err, ErrNilExecutor)
 
-		test.ErrorIs(t, store.ClearValueTx(t.Context(), nil, testScope, testSubject, "digest"), ErrNilExecutor)
+		_, err = store.GetDefinitionByName(t.Context(), nil, testScope, "digest")
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.ListDefinitions(t.Context(), nil, testScope, nil)
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.SetValue(t.Context(), nil, testScope, testSubject, "digest", "daily")
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		test.ErrorIs(t, store.ClearValue(t.Context(), nil, testScope, testSubject, "digest"), ErrNilExecutor)
 
 		_, err = store.DeleteValuesForSubject(t.Context(), nil, testScope, testSubject)
 		test.ErrorIs(t, err, ErrNilExecutor)
 
+		_, err = store.GetValue(t.Context(), nil, testScope, testSubject, "digest")
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.ListValuesForSubject(t.Context(), nil, testScope, testSubject, nil)
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.ListValuesForDefinition(t.Context(), nil, testScope, "digest", nil)
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.Resolve(t.Context(), nil, testScope, testSubject, "digest")
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.ResolveAll(t.Context(), nil, testScope, testSubject)
+		test.ErrorIs(t, err, ErrNilExecutor)
+
 		// And nothing was written on the way to refusing.
-		_, err = store.GetDefinitionByName(t.Context(), testScope, "digest")
+		_, err = store.GetDefinitionByName(t.Context(), env.reader(), testScope, "digest")
 		test.ErrorIs(t, err, ErrDefinitionNotFound)
 	})
 
-	t.Run("the transactional writes refuse what their own path refuses", func(t *testing.T) {
+	t.Run("a refused write inside a transaction leaves the transaction usable", func(t *testing.T) {
 		t.Parallel()
 
+		// Every check the writes make runs before any statement they would send,
+		// so a refusal is the store declining rather than the database aborting.
+		// A caller that inspects one and carries on has a transaction to carry on
+		// in, which is what lets these be collected here and asserted outside.
 		store := env.newStore(t)
 
-		taken := mustCreate(t, store, testScope, stringDefinition("digest"))
-		other := mustCreate(t, store, testScope, boolDefinition("compact"))
+		taken := mustCreate(t, env, store, testScope, stringDefinition("digest"))
+		other := mustCreate(t, env, store, testScope, boolDefinition("compact"))
 
 		var unset tenancy.Scope
 
-		// Collected inside one transaction and asserted outside it, so a failed
-		// check does not abort the transaction the next one needs. None of
-		// these reaches a statement the database refuses: each is a check this
-		// package makes, or a read that finds nothing.
 		var (
 			nilCreate, unscopedCreate, takenCreate, malformedCreate  error
 			nilUpdate, unidentifiedUpdate, absentUpdate, takenUpdate error
@@ -255,36 +355,36 @@ func runTransactionSuite(t *testing.T, env *storeEnv) {
 			unnamedClear, undefinedClear, unansweredClear            error
 		)
 
-		must.NoError(t, store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
-			_, nilCreate = store.CreateDefinitionTx(t.Context(), tx, testScope, nil)
-			_, unscopedCreate = store.CreateDefinitionTx(t.Context(), tx, unset, stringDefinition("theme"))
-			_, takenCreate = store.CreateDefinitionTx(t.Context(), tx, testScope, stringDefinition("digest"))
+		must.NoError(t, env.inTx(t, func(tx database.Tx) error {
+			_, nilCreate = store.CreateDefinition(t.Context(), tx, testScope, nil)
+			_, unscopedCreate = store.CreateDefinition(t.Context(), tx, unset, stringDefinition("theme"))
+			_, takenCreate = store.CreateDefinition(t.Context(), tx, testScope, stringDefinition("digest"))
 
 			malformed := stringDefinition("theme")
 			malformed.Default = pointer.To("hourly")
-			_, malformedCreate = store.CreateDefinitionTx(t.Context(), tx, testScope, malformed)
+			_, malformedCreate = store.CreateDefinition(t.Context(), tx, testScope, malformed)
 
-			nilUpdate = store.UpdateDefinitionTx(t.Context(), tx, testScope, nil)
-			unidentifiedUpdate = store.UpdateDefinitionTx(t.Context(), tx, testScope, stringDefinition("digest"))
+			nilUpdate = store.UpdateDefinition(t.Context(), tx, testScope, nil)
+			unidentifiedUpdate = store.UpdateDefinition(t.Context(), tx, testScope, stringDefinition("digest"))
 
 			absent := stringDefinition("digest")
 			absent.ID = "def_never_written"
-			absentUpdate = store.UpdateDefinitionTx(t.Context(), tx, testScope, absent)
+			absentUpdate = store.UpdateDefinition(t.Context(), tx, testScope, absent)
 
 			collision := *other
 			collision.Name = taken.Name
-			takenUpdate = store.UpdateDefinitionTx(t.Context(), tx, testScope, &collision)
+			takenUpdate = store.UpdateDefinition(t.Context(), tx, testScope, &collision)
 
-			absentArchive = store.ArchiveDefinitionTx(t.Context(), tx, testScope, "def_never_written")
-			foreignArchive = store.ArchiveDefinitionTx(t.Context(), tx, otherScope, taken.ID)
+			absentArchive = store.ArchiveDefinition(t.Context(), tx, testScope, "def_never_written")
+			foreignArchive = store.ArchiveDefinition(t.Context(), tx, otherScope, taken.ID)
 
-			_, unnamedSet = store.SetValueTx(t.Context(), tx, testScope, Subject{Type: SubjectUser}, "digest", "daily")
-			_, undefinedSet = store.SetValueTx(t.Context(), tx, testScope, testSubject, "never.defined", "daily")
-			_, unenumeratedSet = store.SetValueTx(t.Context(), tx, testScope, testSubject, "digest", "hourly")
+			_, unnamedSet = store.SetValue(t.Context(), tx, testScope, Subject{Type: SubjectUser}, "digest", "daily")
+			_, undefinedSet = store.SetValue(t.Context(), tx, testScope, testSubject, "never.defined", "daily")
+			_, unenumeratedSet = store.SetValue(t.Context(), tx, testScope, testSubject, "digest", "hourly")
 
-			unnamedClear = store.ClearValueTx(t.Context(), tx, testScope, Subject{ID: "user-1"}, "digest")
-			undefinedClear = store.ClearValueTx(t.Context(), tx, testScope, testSubject, "never.defined")
-			unansweredClear = store.ClearValueTx(t.Context(), tx, testScope, testSubject, "digest")
+			unnamedClear = store.ClearValue(t.Context(), tx, testScope, Subject{ID: "user-1"}, "digest")
+			undefinedClear = store.ClearValue(t.Context(), tx, testScope, testSubject, "never.defined")
+			unansweredClear = store.ClearValue(t.Context(), tx, testScope, testSubject, "digest")
 
 			return nil
 		}))
@@ -310,12 +410,12 @@ func runTransactionSuite(t *testing.T, env *storeEnv) {
 		test.ErrorIs(t, undefinedClear, ErrDefinitionNotFound)
 		test.ErrorIs(t, unansweredClear, ErrValueNotFound)
 
-		// The transaction committed with nothing in it: every refusal was
-		// refused before a row changed.
-		_, err := store.GetValue(t.Context(), testScope, testSubject, "digest")
+		// The transaction committed with nothing in it: every refusal was refused
+		// before a row changed.
+		_, err := store.GetValue(t.Context(), env.reader(), testScope, testSubject, "digest")
 		test.ErrorIs(t, err, ErrValueNotFound)
 
-		_, err = store.GetDefinitionByName(t.Context(), testScope, "theme")
+		_, err = store.GetDefinitionByName(t.Context(), env.reader(), testScope, "theme")
 		test.ErrorIs(t, err, ErrDefinitionNotFound)
 	})
 }
@@ -329,58 +429,53 @@ func runErasureSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		mustCreate(t, store, testScope, stringDefinition("digest"))
-		mustCreate(t, store, testScope, boolDefinition("compact"))
-		mustCreate(t, store, otherScope, stringDefinition("digest"))
+		mustCreate(t, env, store, testScope, stringDefinition("digest"))
+		mustCreate(t, env, store, testScope, boolDefinition("compact"))
+		mustCreate(t, env, store, otherScope, stringDefinition("digest"))
 
 		second := Subject{Type: SubjectUser, ID: "user-2"}
 
 		// Two answers for the subject, one of them cleared — an archived row
 		// that still says what they chose, which is what an erasure has to
 		// reach and a clearance does not.
-		_, err := store.SetValue(t.Context(), testScope, testSubject, "digest", "daily")
-		must.NoError(t, err)
-		_, err = store.SetValue(t.Context(), testScope, testSubject, "compact", "true")
-		must.NoError(t, err)
-		must.NoError(t, store.ClearValue(t.Context(), testScope, testSubject, "compact"))
+		mustSet(t, env, store, testScope, testSubject, "digest", "daily")
+		mustSet(t, env, store, testScope, testSubject, "compact", "true")
+		must.NoError(t, env.clear(t, store, testScope, testSubject, "compact"))
 
 		// And two rows the erasure must not touch: another subject's in this
 		// scope, and this subject's in another.
-		_, err = store.SetValue(t.Context(), testScope, second, "digest", "never")
-		must.NoError(t, err)
-		_, err = store.SetValue(t.Context(), otherScope, testSubject, "digest", "weekly")
-		must.NoError(t, err)
+		mustSet(t, env, store, testScope, second, "digest", "never")
+		mustSet(t, env, store, otherScope, testSubject, "digest", "weekly")
 
-		test.EqOp(t, int64(2), erase(t, store, testScope, testSubject))
+		test.EqOp(t, int64(2), env.erase(t, store, testScope, testSubject))
 
 		// Gone rather than archived: a page that asks for archived rows too
 		// finds nothing.
 		everything := filtering.DefaultQueryFilter()
 		everything.IncludeArchived = pointer.To(true)
 
-		mine, err := store.ListValuesForSubject(t.Context(), testScope, testSubject, everything)
+		mine, err := store.ListValuesForSubject(t.Context(), env.reader(), testScope, testSubject, everything)
 		must.NoError(t, err)
 		test.SliceEmpty(t, mine.Data)
 
-		_, err = store.GetValue(t.Context(), testScope, testSubject, "digest")
+		_, err = store.GetValue(t.Context(), env.reader(), testScope, testSubject, "digest")
 		test.ErrorIs(t, err, ErrValueNotFound)
 
-		theirs, err := store.GetValue(t.Context(), testScope, second, "digest")
+		theirs, err := store.GetValue(t.Context(), env.reader(), testScope, second, "digest")
 		must.NoError(t, err)
 		test.EqOp(t, "never", theirs.Raw)
 
-		elsewhere, err := store.GetValue(t.Context(), otherScope, testSubject, "digest")
+		elsewhere, err := store.GetValue(t.Context(), env.reader(), otherScope, testSubject, "digest")
 		must.NoError(t, err)
 		test.EqOp(t, "weekly", elsewhere.Raw)
 
 		// A second erasure has nothing to remove, and says so with a count
 		// rather than an error.
-		test.EqOp(t, int64(0), erase(t, store, testScope, testSubject))
+		test.EqOp(t, int64(0), env.erase(t, store, testScope, testSubject))
 
 		// The definitions are untouched: an erasure is about a person, not the
 		// catalog, and the subject can answer again.
-		revived, err := store.SetValue(t.Context(), testScope, testSubject, "digest", "weekly")
-		must.NoError(t, err)
+		revived := mustSet(t, env, store, testScope, testSubject, "digest", "weekly")
 		test.EqOp(t, "weekly", revived.Raw)
 	})
 
@@ -388,12 +483,11 @@ func runErasureSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		mustCreate(t, store, testScope, stringDefinition("digest"))
+		mustCreate(t, env, store, testScope, stringDefinition("digest"))
 
-		_, err := store.SetValue(t.Context(), testScope, testSubject, "digest", "daily")
-		must.NoError(t, err)
+		mustSet(t, env, store, testScope, testSubject, "digest", "daily")
 
-		err = store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+		err := env.inTx(t, func(tx database.Tx) error {
 			deleted, txErr := store.DeleteValuesForSubject(t.Context(), tx, testScope, testSubject)
 			if txErr != nil {
 				return txErr
@@ -405,7 +499,7 @@ func runErasureSuite(t *testing.T, env *storeEnv) {
 		})
 		must.ErrorIs(t, err, errCompanionWrite)
 
-		read, err := store.GetValue(t.Context(), testScope, testSubject, "digest")
+		read, err := store.GetValue(t.Context(), env.reader(), testScope, testSubject, "digest")
 		must.NoError(t, err)
 		test.EqOp(t, "daily", read.Raw)
 	})
@@ -420,7 +514,7 @@ func runErasureSuite(t *testing.T, env *storeEnv) {
 			unscoped, untyped, unnamed error
 		)
 
-		must.NoError(t, store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+		must.NoError(t, env.inTx(t, func(tx database.Tx) error {
 			_, unscoped = store.DeleteValuesForSubject(t.Context(), tx, unset, testSubject)
 			_, untyped = store.DeleteValuesForSubject(t.Context(), tx, testScope, Subject{ID: "user-1"})
 			_, unnamed = store.DeleteValuesForSubject(t.Context(), tx, testScope, Subject{Type: SubjectUser})
@@ -432,21 +526,4 @@ func runErasureSuite(t *testing.T, env *storeEnv) {
 		test.ErrorIs(t, untyped, ErrEmptySubjectType)
 		test.ErrorIs(t, unnamed, ErrEmptySubjectID)
 	})
-}
-
-// erase runs DeleteValuesForSubject in its own transaction and returns the
-// count, since every caller of it here wants exactly that.
-func erase(t *testing.T, store *SQLStore, scope tenancy.Scope, subject Subject) int64 {
-	t.Helper()
-
-	var deleted int64
-
-	must.NoError(t, store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
-		var err error
-		deleted, err = store.DeleteValuesForSubject(t.Context(), tx, scope, subject)
-
-		return err
-	}))
-
-	return deleted
 }
