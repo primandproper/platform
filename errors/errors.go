@@ -5,7 +5,10 @@ import (
 )
 
 // Re-exports from cockroachdb/errors for construction and wrapping.
-// Use std "errors" for Is, As, Unwrap - they work with these types.
+//
+// Use std "errors" for Is, As and Unwrap on an error that has stayed inside one
+// process — they work with these types. An error that has crossed a gRPC
+// connection is the exception, and [Is] below is why.
 var (
 	New    = crdberrors.New
 	Newf   = crdberrors.Newf
@@ -27,6 +30,26 @@ var (
 
 	EncodeError = crdberrors.EncodeError
 	DecodeError = crdberrors.DecodeError
+
+	// Is and As are cockroachdb's rather than the standard library's, and they
+	// exist here for exactly one case: an error that has come back across a
+	// gRPC connection.
+	//
+	// EncodeError and DecodeError do not round-trip an error's identity. What
+	// survives the wire is its *mark* — the type name and message cockroachdb
+	// records for it — and not the pointer the sentinel is. So a decoded
+	// ErrUserNotFound is a different value from the one the package declared,
+	// std errors.Is answers false, and a client branching on the sentinel takes
+	// the wrong branch on an error the server went to the trouble of naming.
+	// These two compare marks as well, so they answer true on both sides.
+	//
+	// They are a superset of the standard library's and are safe anywhere. They
+	// are not the default recommendation because most errors in this module
+	// never leave the process, and there std errors.Is is the same answer with
+	// one less import — but errors/grpc's decoding interceptor is where errors
+	// arrive that have, and its documentation points here.
+	Is = crdberrors.Is
+	As = crdberrors.As
 )
 
 // Common platform sentinels (wire-transmittable via cockroachdb/errors).

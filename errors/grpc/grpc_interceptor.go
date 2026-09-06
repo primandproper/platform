@@ -224,3 +224,82 @@ func StreamErrorEncodingInterceptor() grpc.StreamServerInterceptor {
 		return st.Err()
 	}
 }
+
+// decodedError is a decoded sentinel chain that still answers as the status it
+// arrived as.
+//
+// It exists because the two halves of "what went wrong" live in different places
+// on the wire and a caller wants both. DecodeErrorFromStatus answers the first —
+// it returns the sentinel chain out of the status details, so errors.Is matches
+// — and in doing so returns a plain error, which status.Code then reports as
+// codes.Unknown. A caller switching on the code and a caller comparing against a
+// sentinel would each break the other's approach.
+//
+// So this carries the decoded error for errors.Is and errors.As, and the
+// original status for status.FromError and status.Code. It is the same
+// three-property shape authorization/grpc's denial and ratelimiting/grpc's
+// refusal already use, applied to an error arriving rather than leaving.
+type decodedError struct {
+	decoded error
+	status  *status.Status
+}
+
+func (e *decodedError) Error() string { return e.decoded.Error() }
+
+func (e *decodedError) Unwrap() error { return e.decoded }
+
+func (e *decodedError) GRPCStatus() *status.Status { return e.status }
+
+// UnaryErrorDecodingInterceptor is DecodeErrorFromStatus as a client
+// interceptor, so a caller gets sentinels back without remembering to ask.
+//
+// DecodeErrorFromStatus on its own is a function every call site has to wrap its
+// result in, and the one that forgets gets a *status.Error that no errors.Is
+// matches — which reads exactly like a server that failed to encode, and is why
+// the encoding side has been an interceptor from the start and this side was
+// not. The two are now symmetric: the server encodes on the way out, the client
+// decodes on the way in, and the sentinel a store returned is the sentinel the
+// caller compares against.
+//
+// The error it returns answers to both idioms — see decodedError — because
+// making the decode automatic would otherwise silently break every caller that
+// reads status.Code, which is the more common of the two and the one nobody
+// would think to re-check after installing an interceptor.
+//
+// Compare the result with platformerrors.Is, not std errors.Is. What survives
+// the wire is the error's cockroachdb mark and not the sentinel's identity, so
+// the standard library's matcher answers false on an error this decoded
+// correctly. platformerrors.Is compares marks too and answers true on both
+// sides of the connection; its documentation carries the long form.
+//
+// Unary only, matching the encoding side's coverage of what this module's
+// services actually expose.
+func UnaryErrorDecodingInterceptor() grpc.UnaryClientInterceptor {
+	return func(
+		ctx context.Context,
+		method string,
+		req, reply any,
+		cc *grpc.ClientConn,
+		invoker grpc.UnaryInvoker,
+		opts ...grpc.CallOption,
+	) error {
+		err := invoker(ctx, method, req, reply, cc, opts...)
+		if err == nil {
+			return nil
+		}
+
+		st, ok := status.FromError(err)
+		if !ok {
+			return err
+		}
+
+		decoded := DecodeErrorFromStatus(ctx, err)
+		if decoded == nil || stderrors.Is(decoded, err) {
+			// Nothing was encoded in the details, so the status error is
+			// already the best answer and wrapping it would only hide it.
+			return err
+		}
+
+		return &decodedError{decoded: decoded, status: st}
+	}
+}

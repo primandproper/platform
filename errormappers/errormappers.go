@@ -4,6 +4,7 @@ import (
 	"github.com/primandproper/platform-go/v14/dataprivacy"
 	grpcerrors "github.com/primandproper/platform-go/v14/errors/grpc"
 	httperrors "github.com/primandproper/platform-go/v14/errors/http"
+	"github.com/primandproper/platform-go/v14/identity"
 	"github.com/primandproper/platform-go/v14/links"
 	"github.com/primandproper/platform-go/v14/operations"
 	"github.com/primandproper/platform-go/v14/sessions"
@@ -14,7 +15,7 @@ import (
 // verbatim. It is the one call a service assembled by hand makes;
 // service.Register makes it for a service built from a service.Config.
 //
-// It registers all four unconditionally, including for a service that has no
+// It registers all five unconditionally, including for a service that has no
 // privacy requests and runs no operations. An unused mapper costs one comparison
 // against a sentinel the process cannot produce, and that is the cheap direction
 // to be wrong in — the expensive one is an action link answering 500 because
@@ -34,6 +35,9 @@ func Register() {
 	// is meant for the person reading it, so gRPC is told it may send it rather
 	// than rendering "FailedPrecondition" four times.
 	grpcerrors.RegisterClientSafeSentinels(links.ClientSafeSentinels...)
+
+	httperrors.RegisterHTTPErrorMapper(identity.HTTPMapper)
+	grpcerrors.RegisterGRPCErrorMapper(identity.GRPCMapper)
 
 	httperrors.RegisterHTTPErrorMapper(operations.HTTPMapper)
 	grpcerrors.RegisterGRPCErrorMapper(operations.GRPCMapper)
