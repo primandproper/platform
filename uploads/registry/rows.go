@@ -40,16 +40,18 @@ func utcPtr(t *time.Time) *time.Time {
 	return &utc
 }
 
-// createObjectParams renders an Object as the create's arguments.
+// createObjectParams renders an Object, under the scope the write named, as the
+// create's arguments.
 //
 // The three convention timestamps are absent because the database owns them —
-// see uploads/registry/internal/queries — and the scope binds as the Scope
-// itself rather than a string derived from it, so an unset scope is a driver
-// error instead of a row silently written into the global tenant.
-func createObjectParams(o *Object) registrydb.CreateObjectParams {
+// see uploads/registry/internal/queries — and the scope binds as the Scope the
+// call passed rather than a string derived from it or a field read off the
+// object, so an unset scope is a driver error instead of a row silently written
+// into the global tenant.
+func createObjectParams(scope tenancy.Scope, o *Object) registrydb.CreateObjectParams {
 	return registrydb.CreateObjectParams{
 		ID:            o.ID,
-		Scope:         o.Scope,
+		Scope:         scope,
 		ObjectKey:     o.Key,
 		ContentType:   o.ContentType,
 		SizeBytes:     o.Size,

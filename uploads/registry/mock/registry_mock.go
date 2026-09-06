@@ -7,6 +7,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/primandproper/platform-go/v14/database"
 	"github.com/primandproper/platform-go/v14/filtering"
 	"github.com/primandproper/platform-go/v14/tenancy"
 	"github.com/primandproper/platform-go/v14/uploads/registry"
@@ -22,25 +23,25 @@ var _ registry.Store = &StoreMock{}
 //
 //		// make and configure a mocked registry.Store
 //		mockedStore := &StoreMock{
-//			ArchiveObjectFunc: func(ctx context.Context, scope tenancy.Scope, objectID string) error {
+//			ArchiveObjectFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, objectID string) error {
 //				panic("mock out the ArchiveObject method")
 //			},
-//			GetObjectFunc: func(ctx context.Context, scope tenancy.Scope, objectID string) (*registry.Object, error) {
+//			GetObjectFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, objectID string) (*registry.Object, error) {
 //				panic("mock out the GetObject method")
 //			},
-//			GetObjectByKeyFunc: func(ctx context.Context, scope tenancy.Scope, key string) (*registry.Object, error) {
+//			GetObjectByKeyFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, key string) (*registry.Object, error) {
 //				panic("mock out the GetObjectByKey method")
 //			},
-//			ListObjectsFunc: func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[registry.Object], error) {
+//			ListObjectsFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[registry.Object], error) {
 //				panic("mock out the ListObjects method")
 //			},
-//			ListObjectsByOwnerFunc: func(ctx context.Context, scope tenancy.Scope, ownerID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[registry.Object], error) {
+//			ListObjectsByOwnerFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, ownerID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[registry.Object], error) {
 //				panic("mock out the ListObjectsByOwner method")
 //			},
-//			ListObjectsBySubjectFunc: func(ctx context.Context, scope tenancy.Scope, subject registry.Subject, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[registry.Object], error) {
+//			ListObjectsBySubjectFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject registry.Subject, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[registry.Object], error) {
 //				panic("mock out the ListObjectsBySubject method")
 //			},
-//			RecordObjectFunc: func(ctx context.Context, object *registry.Object) error {
+//			RecordObjectFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, object *registry.Object) error {
 //				panic("mock out the RecordObject method")
 //			},
 //		}
@@ -51,25 +52,25 @@ var _ registry.Store = &StoreMock{}
 //	}
 type StoreMock struct {
 	// ArchiveObjectFunc mocks the ArchiveObject method.
-	ArchiveObjectFunc func(ctx context.Context, scope tenancy.Scope, objectID string) error
+	ArchiveObjectFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, objectID string) error
 
 	// GetObjectFunc mocks the GetObject method.
-	GetObjectFunc func(ctx context.Context, scope tenancy.Scope, objectID string) (*registry.Object, error)
+	GetObjectFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, objectID string) (*registry.Object, error)
 
 	// GetObjectByKeyFunc mocks the GetObjectByKey method.
-	GetObjectByKeyFunc func(ctx context.Context, scope tenancy.Scope, key string) (*registry.Object, error)
+	GetObjectByKeyFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, key string) (*registry.Object, error)
 
 	// ListObjectsFunc mocks the ListObjects method.
-	ListObjectsFunc func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[registry.Object], error)
+	ListObjectsFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[registry.Object], error)
 
 	// ListObjectsByOwnerFunc mocks the ListObjectsByOwner method.
-	ListObjectsByOwnerFunc func(ctx context.Context, scope tenancy.Scope, ownerID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[registry.Object], error)
+	ListObjectsByOwnerFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, ownerID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[registry.Object], error)
 
 	// ListObjectsBySubjectFunc mocks the ListObjectsBySubject method.
-	ListObjectsBySubjectFunc func(ctx context.Context, scope tenancy.Scope, subject registry.Subject, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[registry.Object], error)
+	ListObjectsBySubjectFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject registry.Subject, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[registry.Object], error)
 
 	// RecordObjectFunc mocks the RecordObject method.
-	RecordObjectFunc func(ctx context.Context, object *registry.Object) error
+	RecordObjectFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, object *registry.Object) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -77,6 +78,8 @@ type StoreMock struct {
 		ArchiveObject []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// ObjectID is the objectID argument value.
@@ -86,6 +89,8 @@ type StoreMock struct {
 		GetObject []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// ObjectID is the objectID argument value.
@@ -95,6 +100,8 @@ type StoreMock struct {
 		GetObjectByKey []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Key is the key argument value.
@@ -104,6 +111,8 @@ type StoreMock struct {
 		ListObjects []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Filter is the filter argument value.
@@ -113,6 +122,8 @@ type StoreMock struct {
 		ListObjectsByOwner []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// OwnerID is the ownerID argument value.
@@ -124,6 +135,8 @@ type StoreMock struct {
 		ListObjectsBySubject []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Subject is the subject argument value.
@@ -135,6 +148,10 @@ type StoreMock struct {
 		RecordObject []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Tx is the tx argument value.
+			Tx database.Tx
+			// Scope is the scope argument value.
+			Scope tenancy.Scope
 			// Object is the object argument value.
 			Object *registry.Object
 		}
@@ -149,23 +166,25 @@ type StoreMock struct {
 }
 
 // ArchiveObject calls ArchiveObjectFunc.
-func (mock *StoreMock) ArchiveObject(ctx context.Context, scope tenancy.Scope, objectID string) error {
+func (mock *StoreMock) ArchiveObject(ctx context.Context, tx database.Tx, scope tenancy.Scope, objectID string) error {
 	if mock.ArchiveObjectFunc == nil {
 		panic("StoreMock.ArchiveObjectFunc: method is nil but Store.ArchiveObject was just called")
 	}
 	callInfo := struct {
 		Ctx      context.Context
+		Tx       database.Tx
 		Scope    tenancy.Scope
 		ObjectID string
 	}{
 		Ctx:      ctx,
+		Tx:       tx,
 		Scope:    scope,
 		ObjectID: objectID,
 	}
 	mock.lockArchiveObject.Lock()
 	mock.calls.ArchiveObject = append(mock.calls.ArchiveObject, callInfo)
 	mock.lockArchiveObject.Unlock()
-	return mock.ArchiveObjectFunc(ctx, scope, objectID)
+	return mock.ArchiveObjectFunc(ctx, tx, scope, objectID)
 }
 
 // ArchiveObjectCalls gets all the calls that were made to ArchiveObject.
@@ -174,11 +193,13 @@ func (mock *StoreMock) ArchiveObject(ctx context.Context, scope tenancy.Scope, o
 //	len(mockedStore.ArchiveObjectCalls())
 func (mock *StoreMock) ArchiveObjectCalls() []struct {
 	Ctx      context.Context
+	Tx       database.Tx
 	Scope    tenancy.Scope
 	ObjectID string
 } {
 	var calls []struct {
 		Ctx      context.Context
+		Tx       database.Tx
 		Scope    tenancy.Scope
 		ObjectID string
 	}
@@ -189,23 +210,25 @@ func (mock *StoreMock) ArchiveObjectCalls() []struct {
 }
 
 // GetObject calls GetObjectFunc.
-func (mock *StoreMock) GetObject(ctx context.Context, scope tenancy.Scope, objectID string) (*registry.Object, error) {
+func (mock *StoreMock) GetObject(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, objectID string) (*registry.Object, error) {
 	if mock.GetObjectFunc == nil {
 		panic("StoreMock.GetObjectFunc: method is nil but Store.GetObject was just called")
 	}
 	callInfo := struct {
 		Ctx      context.Context
+		Q        database.SQLQueryExecutor
 		Scope    tenancy.Scope
 		ObjectID string
 	}{
 		Ctx:      ctx,
+		Q:        q,
 		Scope:    scope,
 		ObjectID: objectID,
 	}
 	mock.lockGetObject.Lock()
 	mock.calls.GetObject = append(mock.calls.GetObject, callInfo)
 	mock.lockGetObject.Unlock()
-	return mock.GetObjectFunc(ctx, scope, objectID)
+	return mock.GetObjectFunc(ctx, q, scope, objectID)
 }
 
 // GetObjectCalls gets all the calls that were made to GetObject.
@@ -214,11 +237,13 @@ func (mock *StoreMock) GetObject(ctx context.Context, scope tenancy.Scope, objec
 //	len(mockedStore.GetObjectCalls())
 func (mock *StoreMock) GetObjectCalls() []struct {
 	Ctx      context.Context
+	Q        database.SQLQueryExecutor
 	Scope    tenancy.Scope
 	ObjectID string
 } {
 	var calls []struct {
 		Ctx      context.Context
+		Q        database.SQLQueryExecutor
 		Scope    tenancy.Scope
 		ObjectID string
 	}
@@ -229,23 +254,25 @@ func (mock *StoreMock) GetObjectCalls() []struct {
 }
 
 // GetObjectByKey calls GetObjectByKeyFunc.
-func (mock *StoreMock) GetObjectByKey(ctx context.Context, scope tenancy.Scope, key string) (*registry.Object, error) {
+func (mock *StoreMock) GetObjectByKey(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, key string) (*registry.Object, error) {
 	if mock.GetObjectByKeyFunc == nil {
 		panic("StoreMock.GetObjectByKeyFunc: method is nil but Store.GetObjectByKey was just called")
 	}
 	callInfo := struct {
 		Ctx   context.Context
+		Q     database.SQLQueryExecutor
 		Scope tenancy.Scope
 		Key   string
 	}{
 		Ctx:   ctx,
+		Q:     q,
 		Scope: scope,
 		Key:   key,
 	}
 	mock.lockGetObjectByKey.Lock()
 	mock.calls.GetObjectByKey = append(mock.calls.GetObjectByKey, callInfo)
 	mock.lockGetObjectByKey.Unlock()
-	return mock.GetObjectByKeyFunc(ctx, scope, key)
+	return mock.GetObjectByKeyFunc(ctx, q, scope, key)
 }
 
 // GetObjectByKeyCalls gets all the calls that were made to GetObjectByKey.
@@ -254,11 +281,13 @@ func (mock *StoreMock) GetObjectByKey(ctx context.Context, scope tenancy.Scope, 
 //	len(mockedStore.GetObjectByKeyCalls())
 func (mock *StoreMock) GetObjectByKeyCalls() []struct {
 	Ctx   context.Context
+	Q     database.SQLQueryExecutor
 	Scope tenancy.Scope
 	Key   string
 } {
 	var calls []struct {
 		Ctx   context.Context
+		Q     database.SQLQueryExecutor
 		Scope tenancy.Scope
 		Key   string
 	}
@@ -269,23 +298,25 @@ func (mock *StoreMock) GetObjectByKeyCalls() []struct {
 }
 
 // ListObjects calls ListObjectsFunc.
-func (mock *StoreMock) ListObjects(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[registry.Object], error) {
+func (mock *StoreMock) ListObjects(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[registry.Object], error) {
 	if mock.ListObjectsFunc == nil {
 		panic("StoreMock.ListObjectsFunc: method is nil but Store.ListObjects was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}{
 		Ctx:    ctx,
+		Q:      q,
 		Scope:  scope,
 		Filter: filter,
 	}
 	mock.lockListObjects.Lock()
 	mock.calls.ListObjects = append(mock.calls.ListObjects, callInfo)
 	mock.lockListObjects.Unlock()
-	return mock.ListObjectsFunc(ctx, scope, filter)
+	return mock.ListObjectsFunc(ctx, q, scope, filter)
 }
 
 // ListObjectsCalls gets all the calls that were made to ListObjects.
@@ -294,11 +325,13 @@ func (mock *StoreMock) ListObjects(ctx context.Context, scope tenancy.Scope, fil
 //	len(mockedStore.ListObjectsCalls())
 func (mock *StoreMock) ListObjectsCalls() []struct {
 	Ctx    context.Context
+	Q      database.SQLQueryExecutor
 	Scope  tenancy.Scope
 	Filter *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}
@@ -309,17 +342,19 @@ func (mock *StoreMock) ListObjectsCalls() []struct {
 }
 
 // ListObjectsByOwner calls ListObjectsByOwnerFunc.
-func (mock *StoreMock) ListObjectsByOwner(ctx context.Context, scope tenancy.Scope, ownerID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[registry.Object], error) {
+func (mock *StoreMock) ListObjectsByOwner(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, ownerID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[registry.Object], error) {
 	if mock.ListObjectsByOwnerFunc == nil {
 		panic("StoreMock.ListObjectsByOwnerFunc: method is nil but Store.ListObjectsByOwner was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
+		Q       database.SQLQueryExecutor
 		Scope   tenancy.Scope
 		OwnerID string
 		Filter  *filtering.QueryFilter
 	}{
 		Ctx:     ctx,
+		Q:       q,
 		Scope:   scope,
 		OwnerID: ownerID,
 		Filter:  filter,
@@ -327,7 +362,7 @@ func (mock *StoreMock) ListObjectsByOwner(ctx context.Context, scope tenancy.Sco
 	mock.lockListObjectsByOwner.Lock()
 	mock.calls.ListObjectsByOwner = append(mock.calls.ListObjectsByOwner, callInfo)
 	mock.lockListObjectsByOwner.Unlock()
-	return mock.ListObjectsByOwnerFunc(ctx, scope, ownerID, filter)
+	return mock.ListObjectsByOwnerFunc(ctx, q, scope, ownerID, filter)
 }
 
 // ListObjectsByOwnerCalls gets all the calls that were made to ListObjectsByOwner.
@@ -336,12 +371,14 @@ func (mock *StoreMock) ListObjectsByOwner(ctx context.Context, scope tenancy.Sco
 //	len(mockedStore.ListObjectsByOwnerCalls())
 func (mock *StoreMock) ListObjectsByOwnerCalls() []struct {
 	Ctx     context.Context
+	Q       database.SQLQueryExecutor
 	Scope   tenancy.Scope
 	OwnerID string
 	Filter  *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx     context.Context
+		Q       database.SQLQueryExecutor
 		Scope   tenancy.Scope
 		OwnerID string
 		Filter  *filtering.QueryFilter
@@ -353,17 +390,19 @@ func (mock *StoreMock) ListObjectsByOwnerCalls() []struct {
 }
 
 // ListObjectsBySubject calls ListObjectsBySubjectFunc.
-func (mock *StoreMock) ListObjectsBySubject(ctx context.Context, scope tenancy.Scope, subject registry.Subject, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[registry.Object], error) {
+func (mock *StoreMock) ListObjectsBySubject(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subject registry.Subject, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[registry.Object], error) {
 	if mock.ListObjectsBySubjectFunc == nil {
 		panic("StoreMock.ListObjectsBySubjectFunc: method is nil but Store.ListObjectsBySubject was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
+		Q       database.SQLQueryExecutor
 		Scope   tenancy.Scope
 		Subject registry.Subject
 		Filter  *filtering.QueryFilter
 	}{
 		Ctx:     ctx,
+		Q:       q,
 		Scope:   scope,
 		Subject: subject,
 		Filter:  filter,
@@ -371,7 +410,7 @@ func (mock *StoreMock) ListObjectsBySubject(ctx context.Context, scope tenancy.S
 	mock.lockListObjectsBySubject.Lock()
 	mock.calls.ListObjectsBySubject = append(mock.calls.ListObjectsBySubject, callInfo)
 	mock.lockListObjectsBySubject.Unlock()
-	return mock.ListObjectsBySubjectFunc(ctx, scope, subject, filter)
+	return mock.ListObjectsBySubjectFunc(ctx, q, scope, subject, filter)
 }
 
 // ListObjectsBySubjectCalls gets all the calls that were made to ListObjectsBySubject.
@@ -380,12 +419,14 @@ func (mock *StoreMock) ListObjectsBySubject(ctx context.Context, scope tenancy.S
 //	len(mockedStore.ListObjectsBySubjectCalls())
 func (mock *StoreMock) ListObjectsBySubjectCalls() []struct {
 	Ctx     context.Context
+	Q       database.SQLQueryExecutor
 	Scope   tenancy.Scope
 	Subject registry.Subject
 	Filter  *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx     context.Context
+		Q       database.SQLQueryExecutor
 		Scope   tenancy.Scope
 		Subject registry.Subject
 		Filter  *filtering.QueryFilter
@@ -397,21 +438,25 @@ func (mock *StoreMock) ListObjectsBySubjectCalls() []struct {
 }
 
 // RecordObject calls RecordObjectFunc.
-func (mock *StoreMock) RecordObject(ctx context.Context, object *registry.Object) error {
+func (mock *StoreMock) RecordObject(ctx context.Context, tx database.Tx, scope tenancy.Scope, object *registry.Object) error {
 	if mock.RecordObjectFunc == nil {
 		panic("StoreMock.RecordObjectFunc: method is nil but Store.RecordObject was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
+		Tx     database.Tx
+		Scope  tenancy.Scope
 		Object *registry.Object
 	}{
 		Ctx:    ctx,
+		Tx:     tx,
+		Scope:  scope,
 		Object: object,
 	}
 	mock.lockRecordObject.Lock()
 	mock.calls.RecordObject = append(mock.calls.RecordObject, callInfo)
 	mock.lockRecordObject.Unlock()
-	return mock.RecordObjectFunc(ctx, object)
+	return mock.RecordObjectFunc(ctx, tx, scope, object)
 }
 
 // RecordObjectCalls gets all the calls that were made to RecordObject.
@@ -420,10 +465,14 @@ func (mock *StoreMock) RecordObject(ctx context.Context, object *registry.Object
 //	len(mockedStore.RecordObjectCalls())
 func (mock *StoreMock) RecordObjectCalls() []struct {
 	Ctx    context.Context
+	Tx     database.Tx
+	Scope  tenancy.Scope
 	Object *registry.Object
 } {
 	var calls []struct {
 		Ctx    context.Context
+		Tx     database.Tx
+		Scope  tenancy.Scope
 		Object *registry.Object
 	}
 	mock.lockRecordObject.RLock()

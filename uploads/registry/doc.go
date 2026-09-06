@@ -31,14 +31,27 @@ row is hidden and the object stays in the bucket, because whether a receipt is
 still needed for tax purposes is the consumer's retention policy rather than
 this package's guess. See the retention package.
 
+# The row commits with what references it
+
+Both writes take the caller's database.Tx and every read takes the wider
+database.SQLQueryExecutor, which is the module's store convention. There is no
+form of either write that opens a transaction of its own, and that is what the
+signatures are for: a consumer that records an upload is almost always writing a
+row of their own that references it, and two transactions means either a
+reference to an object the registry has no row for or a row for an object
+nothing points at. The bytes are spent either way. A caller with nothing to join
+opens one with database.Client.WithTransaction and passes the Tx it is handed.
+
 # Tenancy
 
 Every read is scoped and there is no unscoped variant of any of them. The scope
 is a column — TEXT NOT NULL with deliberately no DEFAULT, since the empty string
 is tenancy.Global() rather than "unset" — it is bound as a tenancy.Scope rather
-than a string derived from one, and no read path omits it. An application with a
-single tenant passes tenancy.Global() everywhere and behaves exactly as it would
-have without the column.
+than a string derived from one, and no read path omits it. It is an argument on
+every method, [Store.RecordObject] included, rather than read off the Object the
+write is handed; see the Store documentation for why, and for what happens when
+the two disagree. An application with a single tenant passes tenancy.Global()
+everywhere and behaves exactly as it would have without the column.
 
 # Usage
 
@@ -46,18 +59,27 @@ have without the column.
 	// ...
 
 	object := &registry.Object{
-		Scope:     scope,
 		Key:       "avatars/" + userID + "/original.png",
 		OwnerID:   userID,
 		BelongsTo: registry.Subject{Type: "user", ID: userID},
 	}
 
-	if err = registry.StoreAndRecord(ctx, manager, store, object, upload); err != nil {
+	// The row and the profile it hangs off commit together, or neither does.
+	err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		if txErr := registry.StoreAndRecord(ctx, tx, scope, manager, store, object, upload); txErr != nil {
+			return txErr
+		}
+
+		return profiles.SetAvatar(ctx, tx, scope, userID, object.ID)
+	})
+	if err != nil {
 		// ...
 	}
 
-	// Later, deciding whether this caller may have the bytes:
-	object, err = store.GetObjectByKey(ctx, scope, key)
+	// Later, deciding whether this caller may have the bytes. This read is
+	// outside any transaction, so it runs on the client's reader; a caller
+	// inside one passes their Tx and sees their own uncommitted writes.
+	object, err = store.GetObjectByKey(ctx, client.Reader(), scope, key)
 	switch {
 	case errors.Is(err, registry.ErrObjectNotFound):
 		// no row: not this tenant's object, or not registered at all

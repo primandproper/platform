@@ -93,11 +93,57 @@ func newSQLiteEnv(t *testing.T) *storeEnv {
 	return &storeEnv{client: client, dialect: dialect.SQLite}
 }
 
+// inTx runs fn inside a transaction on the environment's database and reports
+// what fn returned.
+//
+// Both writes take the caller's transaction, so a test that wants an object
+// registered opens one — which is what a consumer does. It hands back fn's error
+// rather than asserting on it, because a refused write is what half of these
+// cases are about and RunInTransaction returns the callback's error unwrapped.
+func (e *storeEnv) inTx(tb testing.TB, fn func(tx database.Tx) error) error {
+	tb.Helper()
+
+	return e.client.WithTransaction(tb.Context(), fn)
+}
+
+// reader is the executor an ordinary read runs on: the client's, outside any
+// transaction. The cases about a read that joins a transaction pass the Tx
+// instead, and they are in the transaction suite.
+func (e *storeEnv) reader() database.SQLQueryExecutor { return e.client.Reader() }
+
+// record registers one object in a transaction of its own and reports what the
+// write returned.
+//
+// The transaction is a detail here rather than the subject: these cases are
+// about what the write checks and what the reads then see, and a consumer with
+// nothing to commit alongside opens exactly this. What a row commits *with* is
+// the transaction suite.
+func (e *storeEnv) record(tb testing.TB, store *SQLStore, scope tenancy.Scope, object *Object) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.RecordObject(tb.Context(), tx, scope, object)
+	})
+}
+
+// archive soft-deletes one row in a transaction of its own and reports what the
+// write returned.
+func (e *storeEnv) archive(tb testing.TB, store *SQLStore, scope tenancy.Scope, objectID string) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.ArchiveObject(tb.Context(), tx, scope, objectID)
+	})
+}
+
 // newObject is the object the suite records, with the fields a caller has to
 // supply and nothing else.
-func newObject(scope tenancy.Scope, key, ownerID string) *Object {
+//
+// It names no scope: the write's argument is what decides the tenant, and a
+// fixture that carried one would be asserting the field the port removed from
+// the write path. The cases about a scope-carrying object set it themselves.
+func newObject(key, ownerID string) *Object {
 	return &Object{
-		Scope:       scope,
 		Key:         key,
 		ContentType: "image/png",
 		OwnerID:     ownerID,
