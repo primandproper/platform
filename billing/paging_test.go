@@ -100,15 +100,15 @@ func runPagingSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		mustCreateProduct(t, store, testScope, oneTimeProduct("first"))
-		mustCreateProduct(t, store, testScope, oneTimeProduct("second"))
-		mustCreateProduct(t, store, testScope, oneTimeProduct("third"))
+		mustCreateProduct(t, env, store, testScope, oneTimeProduct("first"))
+		mustCreateProduct(t, env, store, testScope, oneTimeProduct("second"))
+		mustCreateProduct(t, env, store, testScope, oneTimeProduct("third"))
 
-		up, err := store.ListProducts(t.Context(), testScope, nil)
+		up, err := store.ListProducts(t.Context(), env.reader(), testScope, nil)
 		must.NoError(t, err)
 		must.SliceLen(t, 3, up.Data)
 
-		down, err := store.ListProducts(t.Context(), testScope, descending())
+		down, err := store.ListProducts(t.Context(), env.reader(), testScope, descending())
 		must.NoError(t, err)
 		must.SliceLen(t, 3, down.Data)
 
@@ -124,42 +124,42 @@ func runPagingSuite(t *testing.T, env *storeEnv) {
 		// Each of these is a second statement that only a descending filter
 		// reaches, so a read wired to the wrong one is invisible until asked.
 		store := env.newStore(t)
-		product := mustCreateProduct(t, store, testScope, recurringProduct("pro"))
-		oneTime := mustCreateProduct(t, store, testScope, oneTimeProduct("lifetime"))
+		product := mustCreateProduct(t, env, store, testScope, recurringProduct("pro"))
+		oneTime := mustCreateProduct(t, env, store, testScope, oneTimeProduct("lifetime"))
 
-		mustCreateSubscription(t, store, testScope, currentSubscription(product.ID, testAccount))
-		mustCreateSubscription(t, store, testScope, currentSubscription(product.ID, testAccount))
-		mustCreatePurchase(t, store, testScope, outstandingPurchase(oneTime.ID, testAccount))
-		mustCreatePurchase(t, store, testScope, outstandingPurchase(oneTime.ID, testAccount))
-		mustRecordTransaction(t, store, testScope, pendingTransaction(testAccount))
-		mustRecordTransaction(t, store, testScope, pendingTransaction(testAccount))
+		mustCreateSubscription(t, env, store, testScope, currentSubscription(product.ID, testAccount))
+		mustCreateSubscription(t, env, store, testScope, currentSubscription(product.ID, testAccount))
+		mustCreatePurchase(t, env, store, testScope, outstandingPurchase(oneTime.ID, testAccount))
+		mustCreatePurchase(t, env, store, testScope, outstandingPurchase(oneTime.ID, testAccount))
+		mustRecordTransaction(t, env, store, testScope, pendingTransaction(testAccount))
+		mustRecordTransaction(t, env, store, testScope, pendingTransaction(testAccount))
 
-		subs, err := store.ListSubscriptions(t.Context(), testScope, descending())
+		subs, err := store.ListSubscriptions(t.Context(), env.reader(), testScope, descending())
 		must.NoError(t, err)
 		test.SliceLen(t, 2, subs.Data)
 
-		subsForAccount, err := store.ListSubscriptionsForAccount(t.Context(), testScope, testAccount, descending())
+		subsForAccount, err := store.ListSubscriptionsForAccount(t.Context(), env.reader(), testScope, testAccount, descending())
 		must.NoError(t, err)
 		test.SliceLen(t, 2, subsForAccount.Data)
 
-		current, err := store.ListCurrentSubscriptions(t.Context(), testScope, testAccount, descending())
+		current, err := store.ListCurrentSubscriptions(t.Context(), env.reader(), testScope, testAccount, descending())
 		must.NoError(t, err)
 		test.SliceLen(t, 2, current.Data)
 
-		purchases, err := store.ListPurchases(t.Context(), testScope, descending())
+		purchases, err := store.ListPurchases(t.Context(), env.reader(), testScope, descending())
 		must.NoError(t, err)
 		test.SliceLen(t, 2, purchases.Data)
 
-		purchasesForAccount, err := store.ListPurchasesForAccount(t.Context(), testScope, testAccount, descending())
+		purchasesForAccount, err := store.ListPurchasesForAccount(t.Context(), env.reader(), testScope, testAccount, descending())
 		must.NoError(t, err)
 		test.SliceLen(t, 2, purchasesForAccount.Data)
 
-		transactions, err := store.ListTransactions(t.Context(), testScope, descending())
+		transactions, err := store.ListTransactions(t.Context(), env.reader(), testScope, descending())
 		must.NoError(t, err)
 		test.SliceLen(t, 2, transactions.Data)
 
 		transactionsForAccount, err := store.ListTransactionsForAccount(
-			t.Context(), testScope, testAccount, descending())
+			t.Context(), env.reader(), testScope, testAccount, descending())
 		must.NoError(t, err)
 		test.SliceLen(t, 2, transactionsForAccount.Data)
 	})
@@ -168,18 +168,18 @@ func runPagingSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		mustCreateProduct(t, store, testScope, oneTimeProduct("first"))
-		mustCreateProduct(t, store, testScope, oneTimeProduct("second"))
-		mustCreateProduct(t, store, testScope, oneTimeProduct("third"))
+		mustCreateProduct(t, env, store, testScope, oneTimeProduct("first"))
+		mustCreateProduct(t, env, store, testScope, oneTimeProduct("second"))
+		mustCreateProduct(t, env, store, testScope, oneTimeProduct("third"))
 
 		size := uint16(2)
 
-		up, err := store.ListProducts(t.Context(), testScope,
+		up, err := store.ListProducts(t.Context(), env.reader(), testScope,
 			&filtering.QueryFilter{MaxResponseSize: &size})
 		must.NoError(t, err)
 		test.SliceLen(t, 2, up.Data)
 
-		down, err := store.ListProducts(t.Context(), testScope,
+		down, err := store.ListProducts(t.Context(), env.reader(), testScope,
 			&filtering.QueryFilter{MaxResponseSize: &size, SortBy: filtering.SortDescending})
 		must.NoError(t, err)
 		test.SliceLen(t, 2, down.Data)

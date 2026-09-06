@@ -24,13 +24,13 @@ func runAdministrativeSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		product := mustCreateProduct(t, store, testScope, oneTimeProduct("lifetime"))
+		product := mustCreateProduct(t, env, store, testScope, oneTimeProduct("lifetime"))
 
 		purchase := outstandingPurchase(product.ID, testAccount)
 		purchase.ExternalTransactionID = "pi_stripe_1"
-		created := mustCreatePurchase(t, store, testScope, purchase)
+		created := mustCreatePurchase(t, env, store, testScope, purchase)
 
-		read, err := store.GetPurchaseByExternalID(t.Context(), testScope, "pi_stripe_1")
+		read, err := store.GetPurchaseByExternalID(t.Context(), env.reader(), testScope, "pi_stripe_1")
 		must.NoError(t, err)
 		test.EqOp(t, created.ID, read.ID)
 	})
@@ -42,15 +42,15 @@ func runAdministrativeSuite(t *testing.T, env *storeEnv) {
 		// archived rows on purpose. A caller asking for a live purchase is not
 		// the caller asking whether an identifier is taken.
 		store := env.newStore(t)
-		product := mustCreateProduct(t, store, testScope, oneTimeProduct("lifetime"))
+		product := mustCreateProduct(t, env, store, testScope, oneTimeProduct("lifetime"))
 
 		purchase := outstandingPurchase(product.ID, testAccount)
 		purchase.ExternalTransactionID = "pi_stripe_archived"
-		created := mustCreatePurchase(t, store, testScope, purchase)
+		created := mustCreatePurchase(t, env, store, testScope, purchase)
 
-		must.NoError(t, store.ArchivePurchase(t.Context(), testScope, created.ID))
+		must.NoError(t, env.archivePurchase(t, store, testScope, created.ID))
 
-		_, err := store.GetPurchaseByExternalID(t.Context(), testScope, "pi_stripe_archived")
+		_, err := store.GetPurchaseByExternalID(t.Context(), env.reader(), testScope, "pi_stripe_archived")
 		test.ErrorIs(t, err, ErrPurchaseNotFound)
 	})
 
@@ -60,18 +60,18 @@ func runAdministrativeSuite(t *testing.T, env *storeEnv) {
 		// The other side of the same fact: a provider that redelivers a charge
 		// for a sale somebody archived must not be able to write it again.
 		store := env.newStore(t)
-		product := mustCreateProduct(t, store, testScope, oneTimeProduct("lifetime"))
+		product := mustCreateProduct(t, env, store, testScope, oneTimeProduct("lifetime"))
 
 		first := outstandingPurchase(product.ID, testAccount)
 		first.ExternalTransactionID = "pi_stripe_reused"
-		created := mustCreatePurchase(t, store, testScope, first)
+		created := mustCreatePurchase(t, env, store, testScope, first)
 
-		must.NoError(t, store.ArchivePurchase(t.Context(), testScope, created.ID))
+		must.NoError(t, env.archivePurchase(t, store, testScope, created.ID))
 
 		second := outstandingPurchase(product.ID, testAccount)
 		second.ExternalTransactionID = "pi_stripe_reused"
 
-		_, err := store.CreatePurchase(t.Context(), testScope, second)
+		_, err := env.createPurchase(t, store, testScope, second)
 		test.ErrorIs(t, err, ErrPurchaseExists)
 	})
 
@@ -80,7 +80,7 @@ func runAdministrativeSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		_, err := store.GetPurchaseByExternalID(t.Context(), testScope, "pi_nobody_has")
+		_, err := store.GetPurchaseByExternalID(t.Context(), env.reader(), testScope, "pi_nobody_has")
 		test.ErrorIs(t, err, ErrPurchaseNotFound)
 	})
 
@@ -89,7 +89,7 @@ func runAdministrativeSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		_, err := store.GetPurchaseByExternalID(t.Context(), testScope, "")
+		_, err := store.GetPurchaseByExternalID(t.Context(), env.reader(), testScope, "")
 		test.ErrorIs(t, err, ErrEmptyExternalID)
 	})
 
@@ -98,7 +98,7 @@ func runAdministrativeSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		_, err := store.GetPurchaseByExternalID(t.Context(), tenancy.Scope{}, "pi_stripe_1")
+		_, err := store.GetPurchaseByExternalID(t.Context(), env.reader(), tenancy.Scope{}, "pi_stripe_1")
 		must.Error(t, err)
 	})
 
@@ -106,13 +106,13 @@ func runAdministrativeSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		product := mustCreateProduct(t, store, testScope, oneTimeProduct("lifetime"))
+		product := mustCreateProduct(t, env, store, testScope, oneTimeProduct("lifetime"))
 
 		purchase := outstandingPurchase(product.ID, testAccount)
 		purchase.ExternalTransactionID = "pi_stripe_scoped"
-		mustCreatePurchase(t, store, testScope, purchase)
+		mustCreatePurchase(t, env, store, testScope, purchase)
 
-		_, err := store.GetPurchaseByExternalID(t.Context(), otherScope, "pi_stripe_scoped")
+		_, err := store.GetPurchaseByExternalID(t.Context(), env.reader(), otherScope, "pi_stripe_scoped")
 		test.ErrorIs(t, err, ErrPurchaseNotFound)
 	})
 
@@ -120,20 +120,20 @@ func runAdministrativeSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		product := mustCreateProduct(t, store, testScope, oneTimeProduct("lifetime"))
-		created := mustCreatePurchase(t, store, testScope, outstandingPurchase(product.ID, testAccount))
+		product := mustCreateProduct(t, env, store, testScope, oneTimeProduct("lifetime"))
+		created := mustCreatePurchase(t, env, store, testScope, outstandingPurchase(product.ID, testAccount))
 
 		ledger := pendingTransaction(testAccount)
 		ledger.PurchaseID = created.ID
-		recorded := mustRecordTransaction(t, store, testScope, ledger)
+		recorded := mustRecordTransaction(t, env, store, testScope, ledger)
 
-		must.NoError(t, store.ArchivePurchase(t.Context(), testScope, created.ID))
+		must.NoError(t, env.archivePurchase(t, store, testScope, created.ID))
 
-		_, err := store.GetPurchase(t.Context(), testScope, created.ID)
+		_, err := store.GetPurchase(t.Context(), env.reader(), testScope, created.ID)
 		test.ErrorIs(t, err, ErrPurchaseNotFound)
 
 		// The money that moved is not undone by retiring the sale it paid for.
-		stillThere, err := store.GetTransaction(t.Context(), testScope, recorded.ID)
+		stillThere, err := store.GetTransaction(t.Context(), env.reader(), testScope, recorded.ID)
 		must.NoError(t, err)
 		test.EqOp(t, created.ID, stillThere.PurchaseID)
 	})
@@ -143,7 +143,7 @@ func runAdministrativeSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		test.ErrorIs(t, store.ArchivePurchase(t.Context(), testScope, "purchase-nobody-has"), ErrPurchaseNotFound)
+		test.ErrorIs(t, env.archivePurchase(t, store, testScope, "purchase-nobody-has"), ErrPurchaseNotFound)
 	})
 
 	t.Run("refuses an unscoped purchase archive", func(t *testing.T) {
@@ -151,19 +151,19 @@ func runAdministrativeSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		must.Error(t, store.ArchivePurchase(t.Context(), tenancy.Scope{}, "purchase-1"))
+		must.Error(t, env.archivePurchase(t, store, tenancy.Scope{}, "purchase-1"))
 	})
 
 	t.Run("does not archive another scope's sale", func(t *testing.T) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		product := mustCreateProduct(t, store, testScope, oneTimeProduct("lifetime"))
-		created := mustCreatePurchase(t, store, testScope, outstandingPurchase(product.ID, testAccount))
+		product := mustCreateProduct(t, env, store, testScope, oneTimeProduct("lifetime"))
+		created := mustCreatePurchase(t, env, store, testScope, outstandingPurchase(product.ID, testAccount))
 
-		test.ErrorIs(t, store.ArchivePurchase(t.Context(), otherScope, created.ID), ErrPurchaseNotFound)
+		test.ErrorIs(t, env.archivePurchase(t, store, otherScope, created.ID), ErrPurchaseNotFound)
 
-		survivor, err := store.GetPurchase(t.Context(), testScope, created.ID)
+		survivor, err := store.GetPurchase(t.Context(), env.reader(), testScope, created.ID)
 		must.NoError(t, err)
 		test.EqOp(t, created.ID, survivor.ID)
 	})
@@ -172,11 +172,11 @@ func runAdministrativeSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		recorded := mustRecordTransaction(t, store, testScope, pendingTransaction(testAccount))
+		recorded := mustRecordTransaction(t, env, store, testScope, pendingTransaction(testAccount))
 
-		must.NoError(t, store.ArchiveTransaction(t.Context(), testScope, recorded.ID))
+		must.NoError(t, env.archiveTransaction(t, store, testScope, recorded.ID))
 
-		_, err := store.GetTransaction(t.Context(), testScope, recorded.ID)
+		_, err := store.GetTransaction(t.Context(), env.reader(), testScope, recorded.ID)
 		test.ErrorIs(t, err, ErrTransactionNotFound)
 	})
 
@@ -186,7 +186,7 @@ func runAdministrativeSuite(t *testing.T, env *storeEnv) {
 		store := env.newStore(t)
 
 		test.ErrorIs(t,
-			store.ArchiveTransaction(t.Context(), testScope, "transaction-nobody-has"),
+			env.archiveTransaction(t, store, testScope, "transaction-nobody-has"),
 			ErrTransactionNotFound)
 	})
 
@@ -195,18 +195,18 @@ func runAdministrativeSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		must.Error(t, store.ArchiveTransaction(t.Context(), tenancy.Scope{}, "transaction-1"))
+		must.Error(t, env.archiveTransaction(t, store, tenancy.Scope{}, "transaction-1"))
 	})
 
 	t.Run("does not archive another scope's ledger row", func(t *testing.T) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		recorded := mustRecordTransaction(t, store, testScope, pendingTransaction(testAccount))
+		recorded := mustRecordTransaction(t, env, store, testScope, pendingTransaction(testAccount))
 
-		test.ErrorIs(t, store.ArchiveTransaction(t.Context(), otherScope, recorded.ID), ErrTransactionNotFound)
+		test.ErrorIs(t, env.archiveTransaction(t, store, otherScope, recorded.ID), ErrTransactionNotFound)
 
-		survivor, err := store.GetTransaction(t.Context(), testScope, recorded.ID)
+		survivor, err := store.GetTransaction(t.Context(), env.reader(), testScope, recorded.ID)
 		must.NoError(t, err)
 		test.EqOp(t, recorded.ID, survivor.ID)
 	})
@@ -217,33 +217,33 @@ func runAdministrativeSuite(t *testing.T, env *storeEnv) {
 		// The update asks whether the identifier is free, and the row that
 		// already holds it is not a collision with itself.
 		store := env.newStore(t)
-		product := mustCreateProduct(t, store, testScope, recurringProduct("pro"))
+		product := mustCreateProduct(t, env, store, testScope, recurringProduct("pro"))
 
 		subscription := currentSubscription(product.ID, testAccount)
 		subscription.ExternalSubscriptionID = "sub_stripe_kept"
-		created := mustCreateSubscription(t, store, testScope, subscription)
+		created := mustCreateSubscription(t, env, store, testScope, subscription)
 
 		created.CurrentPeriodEnd = created.CurrentPeriodEnd.Add(24 * time.Hour)
 
-		must.NoError(t, store.UpdateSubscription(t.Context(), testScope, created))
+		must.NoError(t, env.updateSubscription(t, store, testScope, created))
 	})
 
 	t.Run("refuses an update claiming another subscription's provider subscription", func(t *testing.T) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		product := mustCreateProduct(t, store, testScope, recurringProduct("pro"))
+		product := mustCreateProduct(t, env, store, testScope, recurringProduct("pro"))
 
 		first := currentSubscription(product.ID, testAccount)
 		first.ExternalSubscriptionID = "sub_stripe_taken"
-		mustCreateSubscription(t, store, testScope, first)
+		mustCreateSubscription(t, env, store, testScope, first)
 
 		second := currentSubscription(product.ID, otherAccount)
-		created := mustCreateSubscription(t, store, testScope, second)
+		created := mustCreateSubscription(t, env, store, testScope, second)
 
 		created.ExternalSubscriptionID = "sub_stripe_taken"
 
-		test.ErrorIs(t, store.UpdateSubscription(t.Context(), testScope, created), ErrSubscriptionExists)
+		test.ErrorIs(t, env.updateSubscription(t, store, testScope, created), ErrSubscriptionExists)
 	})
 
 	t.Run("an update with no provider subscription is always free", func(t *testing.T) {
@@ -253,12 +253,12 @@ func runAdministrativeSuite(t *testing.T, env *storeEnv) {
 		// makes an agreement granted by hand storable at all — so several of
 		// them can be updated without ever colliding.
 		store := env.newStore(t)
-		product := mustCreateProduct(t, store, testScope, recurringProduct("pro"))
+		product := mustCreateProduct(t, env, store, testScope, recurringProduct("pro"))
 
-		first := mustCreateSubscription(t, store, testScope, currentSubscription(product.ID, testAccount))
-		second := mustCreateSubscription(t, store, testScope, currentSubscription(product.ID, otherAccount))
+		first := mustCreateSubscription(t, env, store, testScope, currentSubscription(product.ID, testAccount))
+		second := mustCreateSubscription(t, env, store, testScope, currentSubscription(product.ID, otherAccount))
 
-		must.NoError(t, store.UpdateSubscription(t.Context(), testScope, first))
-		must.NoError(t, store.UpdateSubscription(t.Context(), testScope, second))
+		must.NoError(t, env.updateSubscription(t, store, testScope, first))
+		must.NoError(t, env.updateSubscription(t, store, testScope, second))
 	})
 }

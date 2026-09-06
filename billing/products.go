@@ -18,77 +18,37 @@ import (
 // deployment and read by everything that sells.
 var _ ProductStore = (*SQLStore)(nil)
 
-// CreateProduct adds a product to the scope's catalog.
+// CreateProduct adds a product to the scope's catalog, through the caller's
+// transaction.
 //
-// The insert and the read-back of the creation time share one transaction. The
-// insert decides the collision itself — it is an insert-ignore over the (scope,
-// external id) unique index, so a provider product already in the catalog leaves
-// the row that is there unchanged and reports a zero affected count. That is
-// still not a caught constraint violation, for the reason every uniqueness in
-// this module avoids being one: the caller's next move differs between "this
-// provider product is already in the catalog" and "the database is unwell", and
-// asking them to parse a SQLSTATE to find out is how that distinction gets
-// skipped. What the count cannot say is which identifier it lost to, which is
-// refuseProductCreate's one read on the losing path.
-func (s *SQLStore) CreateProduct(ctx context.Context, scope tenancy.Scope, product *Product) (*Product, error) {
-	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
-	defer op.End()
-
-	created, err := productToCreate(op, scope, product)
-	if err != nil {
-		return nil, err
-	}
-
-	if err = s.client.WithTransaction(ctx, func(q database.Tx) error {
-		return s.insertProduct(ctx, q, scope, created)
-	}); err != nil {
-		return nil, op.Error(err, "creating product %q", created.Name)
-	}
-
-	return created, nil
-}
-
-// CreateProductTx is CreateProduct inside the caller's transaction.
+// The insert decides the collision itself — it is an insert-ignore over the
+// (scope, external id) unique index, so a provider product already in the
+// catalog leaves the row that is there unchanged and reports a zero affected
+// count. That is still not a caught constraint violation, for the reason every
+// uniqueness in this module avoids being one: the caller's next move differs
+// between "this provider product is already in the catalog" and "the database is
+// unwell", and asking them to parse a SQLSTATE to find out is how that
+// distinction gets skipped. What the count cannot say is which identifier it
+// lost to, which is refuseProductCreate's one read on the losing path.
 //
-// Every check CreateProduct makes is made here, and every statement runs on q
-// rather than in a transaction of this store's own — the insert, the read-back
-// of the creation time, and the attribution read the insert-ignore makes when it
-// loses. That last one is why the executor has to be the caller's: a redelivery
-// arriving in the same transaction as the row it collides with would otherwise
-// be attributed against a snapshot that cannot see it. See [Store.CreateProductTx].
-func (s *SQLStore) CreateProductTx(
+// Every statement runs on tx — the insert-ignore, the read-back of the creation
+// time, and that attribution read. The last one is why the executor has to be
+// the caller's: a redelivery arriving in the same transaction as the row it
+// collides with would otherwise be attributed against a snapshot that cannot see
+// it. See [Store.CreateProduct].
+func (s *SQLStore) CreateProduct(
 	ctx context.Context,
-	q database.Tx,
+	tx database.Tx,
 	scope tenancy.Scope,
 	product *Product,
 ) (*Product, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
-	if q == nil {
+	if tx == nil {
 		return nil, op.Error(ErrNilExecutor, "creating product")
 	}
 
-	created, err := productToCreate(op, scope, product)
-	if err != nil {
-		return nil, err
-	}
-
-	if err = s.insertProduct(ctx, q, scope, created); err != nil {
-		return nil, op.Error(err, "creating product %q", created.Name)
-	}
-
-	return created, nil
-}
-
-// productToCreate is the checks CreateProduct and CreateProductTx share, and the
-// value they write: a copy of the caller's, under the scope, normalized, with
-// its id minted where the caller left it empty.
-//
-// Shared rather than written twice so that the two paths cannot drift into
-// accepting different products. It runs before any transaction is opened,
-// because a product refused here is refused without a round trip.
-func productToCreate(op observability.Operation, scope tenancy.Scope, product *Product) (*Product, error) {
 	if product == nil {
 		return nil, op.Error(ErrNilProduct, "creating product")
 	}
@@ -111,12 +71,15 @@ func productToCreate(op observability.Operation, scope tenancy.Scope, product *P
 
 	op.Set(productKey, created.ID)
 
+	if err := s.insertProduct(ctx, tx, scope, &created); err != nil {
+		return nil, op.Error(err, "creating product %q", created.Name)
+	}
+
 	return &created, nil
 }
 
-// insertProduct is the statements the create runs, on whatever executor the
-// caller is holding: the insert-ignore, the attribution of a loss, and the
-// read-back of the creation time onto created.
+// insertProduct is the statements the create runs: the insert-ignore, the
+// attribution of a loss, and the read-back of the creation time onto created.
 func (s *SQLStore) insertProduct(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
@@ -142,19 +105,30 @@ func (s *SQLStore) insertProduct(
 	return nil
 }
 
-// GetProduct reads one of the scope's live products by id.
-func (s *SQLStore) GetProduct(ctx context.Context, scope tenancy.Scope, productID string) (*Product, error) {
+// GetProduct reads one of the scope's live products by id, on the caller's
+// executor — so a caller inside a transaction reads the product that transaction
+// has written and not yet committed.
+func (s *SQLStore) GetProduct(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	productID string,
+) (*Product, error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(productKey, productID),
 	)
 	defer op.End()
 
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "reading product %q", productID)
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "reading product %q", productID)
 	}
 
-	product, err := s.readProduct(ctx, s.client.Reader(), scope, productID)
+	product, err := s.readProduct(ctx, q, scope, productID)
 	if err != nil {
 		return nil, op.Error(err, "reading product %q", productID)
 	}
@@ -170,17 +144,22 @@ func (s *SQLStore) GetProduct(ctx context.Context, scope tenancy.Scope, productI
 // decides an archived hit is not an answer.
 func (s *SQLStore) GetProductByExternalID(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	externalProductID string,
 ) (*Product, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "reading product by external id")
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "reading product by external id")
 	}
 
-	product, err := s.readProductByExternalID(ctx, s.client.Reader(), scope, externalProductID)
+	product, err := s.readProductByExternalID(ctx, q, scope, externalProductID)
 	if err != nil {
 		return nil, op.Error(err, "reading product by external id")
 	}
@@ -195,12 +174,26 @@ func (s *SQLStore) GetProductByExternalID(
 }
 
 // ProductExists reports whether the scope has a live product by that id.
-func (s *SQLStore) ProductExists(ctx context.Context, scope tenancy.Scope, productID string) (bool, error) {
+//
+// It is exported because a consumer wants the question, and it is the same
+// statement the subscription and purchase writes are gated on — asked on the
+// executor those writes are running on, which is why a product stocked earlier
+// in a transaction is one a subscription can be opened against.
+func (s *SQLStore) ProductExists(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	productID string,
+) (bool, error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(productKey, productID),
 	)
 	defer op.End()
+
+	if q == nil {
+		return false, op.Error(ErrNilExecutor, "checking product %q", productID)
+	}
 
 	if err := scope.Validate(); err != nil {
 		return false, op.Error(err, "checking product %q", productID)
@@ -210,7 +203,7 @@ func (s *SQLStore) ProductExists(ctx context.Context, scope tenancy.Scope, produ
 		return false, op.Error(err, "checking product %q", productID)
 	}
 
-	row, err := s.q.CheckProductExistence(ctx, s.client.Reader(),
+	row, err := s.q.CheckProductExistence(ctx, q,
 		billingdb.CheckProductExistenceParams{ID: productID, Scope: scope})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -231,11 +224,16 @@ func (s *SQLStore) ProductExists(ctx context.Context, scope tenancy.Scope, produ
 // it.
 func (s *SQLStore) ListProducts(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	filter *filtering.QueryFilter,
 ) (*filtering.QueryFilteredResult[Product], error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
+
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "listing products")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "listing products")
@@ -245,10 +243,10 @@ func (s *SQLStore) ListProducts(
 
 	productRows, err := sortedRows(filter,
 		func() ([]billingdb.ListProductsRow, error) {
-			return s.q.ListProducts(ctx, s.client.Reader(), listProductsParams(scope, filter))
+			return s.q.ListProducts(ctx, q, listProductsParams(scope, filter))
 		},
 		func() ([]billingdb.ListProductsDescendingRow, error) {
-			return s.q.ListProductsDescending(ctx, s.client.Reader(),
+			return s.q.ListProductsDescending(ctx, q,
 				billingdb.ListProductsDescendingParams(listProductsParams(scope, filter)))
 		},
 		func(r billingdb.ListProductsDescendingRow) billingdb.ListProductsRow {
@@ -268,124 +266,67 @@ func (s *SQLStore) ListProducts(
 	return drainPage(rows, func(p *Product) string { return p.ID }, filter), nil
 }
 
-// UpdateProduct rewrites everything about a product a caller may assign.
-func (s *SQLStore) UpdateProduct(ctx context.Context, scope tenancy.Scope, product *Product) error {
-	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
-	defer op.End()
-
-	updated, err := productToUpdate(op, scope, product)
-	if err != nil {
-		return err
-	}
-
-	if err = s.client.WithTransaction(ctx, func(q database.Tx) error {
-		return s.rewriteProduct(ctx, q, scope, updated)
-	}); err != nil {
-		return op.Error(err, "updating product %q", updated.ID)
-	}
-
-	return nil
-}
-
-// UpdateProductTx is UpdateProduct inside the caller's transaction.
+// UpdateProduct rewrites everything about a product a caller may assign, through
+// the caller's transaction.
 //
-// The same checks and the same statements, on q — including the collision check
-// against the provider-side id, so a product created earlier in the same
-// transaction is one this edit can be checked against. See [Store.UpdateProductTx].
-func (s *SQLStore) UpdateProductTx(
+// The collision check against the provider-side id runs on tx, so a product
+// created earlier in the same transaction is one this edit is checked against.
+// See [Store.UpdateProduct].
+func (s *SQLStore) UpdateProduct(
 	ctx context.Context,
-	q database.Tx,
+	tx database.Tx,
 	scope tenancy.Scope,
 	product *Product,
 ) error {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
-	if q == nil {
+	if tx == nil {
 		return op.Error(ErrNilExecutor, "updating product")
 	}
 
-	updated, err := productToUpdate(op, scope, product)
-	if err != nil {
-		return err
-	}
-
-	if err = s.rewriteProduct(ctx, q, scope, updated); err != nil {
-		return op.Error(err, "updating product %q", updated.ID)
-	}
-
-	return nil
-}
-
-// productToUpdate is the checks UpdateProduct and UpdateProductTx share, and the
-// value they write. It runs before any transaction is opened, for the reason
-// productToCreate does.
-func productToUpdate(op observability.Operation, scope tenancy.Scope, product *Product) (*Product, error) {
 	if product == nil {
-		return nil, op.Error(ErrNilProduct, "updating product")
+		return op.Error(ErrNilProduct, "updating product")
 	}
 
 	op.Set(productKey, product.ID)
 
 	if err := scope.Validate(); err != nil {
-		return nil, op.Error(err, "updating product %q", product.ID)
+		return op.Error(err, "updating product %q", product.ID)
 	}
 
 	if err := requireID(product.ID); err != nil {
-		return nil, op.Error(err, "updating product %q", product.ID)
+		return op.Error(err, "updating product %q", product.ID)
 	}
 
 	updated := *product
 	updated.normalize()
 
 	if err := updated.validate(); err != nil {
-		return nil, op.Error(err, "updating product %q", product.ID)
+		return op.Error(err, "updating product %q", product.ID)
 	}
 
-	return &updated, nil
-}
-
-// rewriteProduct is the statements the update runs, on whatever executor the
-// caller is holding: the collision check against the provider-side id, and the
-// guarded write.
-func (s *SQLStore) rewriteProduct(
-	ctx context.Context,
-	q database.SQLQueryExecutor,
-	scope tenancy.Scope,
-	updated *Product,
-) error {
 	// The row being updated is excluded by its own id, which is what lets a
 	// product keep the provider id it already holds. The statement projects the
 	// whole row, so the exclusion is a comparison here rather than a second
 	// argument the SQL has to carry.
-	if err := s.ensureProductExternalIDFree(ctx, q, scope, updated.ExternalProductID, updated.ID); err != nil {
-		return err
+	if err := s.ensureProductExternalIDFree(ctx, tx, scope, updated.ExternalProductID, updated.ID); err != nil {
+		return op.Error(err, "updating product %q", updated.ID)
 	}
 
-	count, err := s.q.UpdateProduct(ctx, q, updateProductParams(updated, scope))
+	count, err := s.q.UpdateProduct(ctx, tx, updateProductParams(&updated, scope))
+	if err = guardCount(count, err, ErrProductNotFound, "updating product"); err != nil {
+		return op.Error(err, "updating product %q", updated.ID)
+	}
 
-	return guardCount(count, err, ErrProductNotFound, "updating product")
+	return nil
 }
 
-// ArchiveProduct withdraws one of the scope's products from sale.
-//
-// It is one statement, so it runs on the writer rather than in a transaction of
-// its own; ArchiveProductTx is the form that joins somebody else's.
-func (s *SQLStore) ArchiveProduct(ctx context.Context, scope tenancy.Scope, productID string) error {
-	ctx, op := s.o11y.Begin(ctx,
-		observability.WithValue(scopeKey, scope.String()),
-		observability.WithValue(productKey, productID),
-	)
-	defer op.End()
-
-	return s.archiveProduct(ctx, op, s.client.Writer(), scope, productID)
-}
-
-// ArchiveProductTx is ArchiveProduct inside the caller's transaction. See
-// [Store.ArchiveProductTx].
-func (s *SQLStore) ArchiveProductTx(
+// ArchiveProduct withdraws one of the scope's products from sale, through the
+// caller's transaction. See [Store.ArchiveProduct].
+func (s *SQLStore) ArchiveProduct(
 	ctx context.Context,
-	q database.Tx,
+	tx database.Tx,
 	scope tenancy.Scope,
 	productID string,
 ) error {
@@ -395,27 +336,15 @@ func (s *SQLStore) ArchiveProductTx(
 	)
 	defer op.End()
 
-	if q == nil {
+	if tx == nil {
 		return op.Error(ErrNilExecutor, "archiving product %q", productID)
 	}
 
-	return s.archiveProduct(ctx, op, q, scope, productID)
-}
-
-// archiveProduct is the shared body of ArchiveProduct and ArchiveProductTx,
-// which differ in the executor they run on and in nothing else.
-func (s *SQLStore) archiveProduct(
-	ctx context.Context,
-	op observability.Operation,
-	q database.SQLQueryExecutor,
-	scope tenancy.Scope,
-	productID string,
-) error {
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "archiving product %q", productID)
 	}
 
-	count, err := s.q.ArchiveProduct(ctx, q, billingdb.ArchiveProductParams{ID: productID, Scope: scope})
+	count, err := s.q.ArchiveProduct(ctx, tx, billingdb.ArchiveProductParams{ID: productID, Scope: scope})
 	if err = guardCount(count, err, ErrProductNotFound, "archiving product"); err != nil {
 		return op.Error(err, "archiving product %q", productID)
 	}
@@ -492,7 +421,7 @@ func (s *SQLStore) refuseProductCreate(
 // which is the whole reason a product with no provider behind it is storable at
 // all. See billing/migrations.
 //
-// The creates do not use it. Theirs is the insert-ignore, which decides the same
+// The create does not use it. Its is the insert-ignore, which decides the same
 // question inside the statement and so has no window between deciding and
 // writing; an update has no such spelling, and does not need one — a redelivered
 // sync writes the row's own external id back to it, which the exceptID branch

@@ -33,6 +33,20 @@ whose catalog keys are words like "pro" writes the mapping inside its own Choose
 which is a switch over a closed set it controls rather than a column this package
 would have had to add to a table for one consumer's naming.
 
+# Where the executor comes from
+
+Every read in billing runs on an executor its caller supplies, and
+entitlements.PlanSource.PlanFor takes an account and nothing else — there is
+nowhere in that signature to put one. So [New] takes it once, at construction,
+and every plan lookup runs on it.
+
+It is a database.SQLQueryExecutor rather than a database.Client because a plan
+source reads and does nothing else, and the narrower type is also the one that
+lets a consumer hand it a Tx where an entitlement check genuinely has to see a
+subscription that transaction has written and not yet committed. Client.Reader()
+is what a deployment ordinarily passes. It is the shape comments/privacy took
+first.
+
 # Why this is a package rather than a method on the store
 
 billing would otherwise import entitlements, and a service selling one thing with
@@ -47,6 +61,7 @@ import (
 
 	"github.com/primandproper/platform-go/v14/billing"
 	"github.com/primandproper/platform-go/v14/capitalism"
+	"github.com/primandproper/platform-go/v14/database"
 	"github.com/primandproper/platform-go/v14/entitlements"
 	platformerrors "github.com/primandproper/platform-go/v14/errors"
 	"github.com/primandproper/platform-go/v14/filtering"
@@ -61,6 +76,11 @@ var (
 	// ErrNilChoose indicates a nil Choose. It is required — see the package
 	// documentation for why there is no default.
 	ErrNilChoose = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil plan chooser")
+
+	// ErrNilExecutor indicates a nil executor. The reads run on one somebody
+	// else supplies, because billing keeps no connection of its own to fall
+	// back to.
+	ErrNilExecutor = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil query executor")
 )
 
 // pageSize is how many of an account's current subscriptions Choose is shown.
@@ -112,19 +132,31 @@ var _ entitlements.PlanSource = (*Source)(nil)
 // built rather than on the seam every source shares.
 type Source struct {
 	store  billing.SubscriptionStore
+	reader database.SQLQueryExecutor
 	choose Choose
 	scope  tenancy.Scope
 }
 
-// New builds a PlanSource reading one scope's subscriptions.
+// New builds a PlanSource reading one scope's subscriptions, over the executor
+// its reads run on.
 //
-// The scope is fixed at construction because entitlements.PlanSource.PlanFor
-// takes an account and nothing else. A deployment serving several scopes builds
-// one Source per scope, alongside the entitlements checker that reads it — which
-// is the same shape a per-scope catalog already has.
-func New(store billing.SubscriptionStore, scope tenancy.Scope, choose Choose) (*Source, error) {
+// The scope and the executor are both fixed at construction because
+// entitlements.PlanSource.PlanFor takes an account and nothing else. A
+// deployment serving several scopes builds one Source per scope, alongside the
+// entitlements checker that reads it — which is the same shape a per-scope
+// catalog already has.
+func New(
+	store billing.SubscriptionStore,
+	reader database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	choose Choose,
+) (*Source, error) {
 	if store == nil {
 		return nil, ErrNilStore
+	}
+
+	if reader == nil {
+		return nil, ErrNilExecutor
 	}
 
 	if choose == nil {
@@ -135,7 +167,7 @@ func New(store billing.SubscriptionStore, scope tenancy.Scope, choose Choose) (*
 		return nil, err
 	}
 
-	return &Source{store: store, scope: scope, choose: choose}, nil
+	return &Source{store: store, reader: reader, scope: scope, choose: choose}, nil
 }
 
 // PlanFor implements entitlements.PlanSource.
@@ -147,7 +179,7 @@ func New(store billing.SubscriptionStore, scope tenancy.Scope, choose Choose) (*
 func (s *Source) PlanFor(ctx context.Context, account string) (string, error) {
 	limit := uint16(pageSize)
 
-	page, err := s.store.ListCurrentSubscriptions(ctx, s.scope, account,
+	page, err := s.store.ListCurrentSubscriptions(ctx, s.reader, s.scope, account,
 		&filtering.QueryFilter{MaxResponseSize: &limit})
 	if err != nil {
 		return "", platformerrors.Wrapf(err, "reading current subscriptions for account %q", account)

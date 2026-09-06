@@ -2,6 +2,7 @@ package plans
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/primandproper/platform-go/v14/billing"
 	billingmock "github.com/primandproper/platform-go/v14/billing/mock"
 	"github.com/primandproper/platform-go/v14/capitalism"
+	"github.com/primandproper/platform-go/v14/database"
 	"github.com/primandproper/platform-go/v14/entitlements"
 	platformerrors "github.com/primandproper/platform-go/v14/errors"
 	"github.com/primandproper/platform-go/v14/filtering"
@@ -21,6 +23,32 @@ import (
 var testScope = tenancy.Of("acme")
 
 const testAccount = "account-1"
+
+// testReader is the executor a source is built over.
+//
+// Nothing executes through it: the store beneath the source is a mock, and what
+// these tests assert is that the executor the source was built with is the one
+// it passes down. database.SQLQueryExecutor is an interface with no unexported
+// methods, so unlike database.Tx a test can stand in for it.
+type testReader struct{}
+
+var _ database.SQLQueryExecutor = (*testReader)(nil)
+
+func (*testReader) ExecContext(context.Context, string, ...any) (sql.Result, error) {
+	panic("the source's store is a mock; nothing runs on this")
+}
+
+func (*testReader) PrepareContext(context.Context, string) (*sql.Stmt, error) {
+	panic("the source's store is a mock; nothing runs on this")
+}
+
+func (*testReader) QueryContext(context.Context, string, ...any) (*sql.Rows, error) {
+	panic("the source's store is a mock; nothing runs on this")
+}
+
+func (*testReader) QueryRowContext(context.Context, string, ...any) *sql.Row {
+	panic("the source's store is a mock; nothing runs on this")
+}
 
 // subscription is one agreement in a status, on a product.
 func subscription(status capitalism.SubscriptionStatus, productID string) *billing.Subscription {
@@ -40,6 +68,7 @@ func storeReturning(subscriptions ...*billing.Subscription) *billingmock.Subscri
 	return &billingmock.SubscriptionStoreMock{
 		ListCurrentSubscriptionsFunc: func(
 			_ context.Context,
+			_ database.SQLQueryExecutor,
 			_ tenancy.Scope,
 			_ string,
 			filter *filtering.QueryFilter,
@@ -56,7 +85,7 @@ func TestNew_Refusals(T *testing.T) {
 	T.Run("refuses a nil store", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := New(nil, testScope, Entitled)
+		_, err := New(nil, &testReader{}, testScope, Entitled)
 		test.ErrorIs(t, err, ErrNilStore)
 	})
 
@@ -66,14 +95,24 @@ func TestNew_Refusals(T *testing.T) {
 		// There is no default, deliberately: which statuses leave an account
 		// entitled is the deployment's answer, and a package that guessed would
 		// be gating one customer's features on a rule nobody chose.
-		_, err := New(storeReturning(), testScope, nil)
+		_, err := New(storeReturning(), &testReader{}, testScope, nil)
 		test.ErrorIs(t, err, ErrNilChoose)
+	})
+
+	T.Run("refuses a nil executor", func(t *testing.T) {
+		t.Parallel()
+
+		// It is a constructor argument because PlanFor has nowhere to put one,
+		// so an absent executor has to be refused here or every entitlement
+		// check fails at the store instead.
+		_, err := New(storeReturning(), nil, testScope, Entitled)
+		test.ErrorIs(t, err, ErrNilExecutor)
 	})
 
 	T.Run("refuses an unset scope", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := New(storeReturning(), tenancy.Scope{}, Entitled)
+		_, err := New(storeReturning(), &testReader{}, tenancy.Scope{}, Entitled)
 		test.Error(t, err)
 	})
 }
@@ -146,7 +185,7 @@ func TestSource_PlanFor(T *testing.T) {
 		t.Parallel()
 
 		source, err := New(storeReturning(
-			subscription(capitalism.SubscriptionStatusActive, "pro")), testScope, Entitled)
+			subscription(capitalism.SubscriptionStatusActive, "pro")), &testReader{}, testScope, Entitled)
 		must.NoError(t, err)
 
 		plan, err := source.PlanFor(t.Context(), testAccount)
@@ -158,7 +197,7 @@ func TestSource_PlanFor(T *testing.T) {
 		t.Parallel()
 
 		source, err := New(storeReturning(
-			subscription(capitalism.SubscriptionStatusPastDue, "pro")), testScope, Entitled)
+			subscription(capitalism.SubscriptionStatusPastDue, "pro")), &testReader{}, testScope, Entitled)
 		must.NoError(t, err)
 
 		_, err = source.PlanFor(t.Context(), testAccount)
@@ -168,7 +207,7 @@ func TestSource_PlanFor(T *testing.T) {
 	T.Run("reports no plan for an account with nothing current", func(t *testing.T) {
 		t.Parallel()
 
-		source, err := New(storeReturning(), testScope, Entitled)
+		source, err := New(storeReturning(), &testReader{}, testScope, Entitled)
 		must.NoError(t, err)
 
 		_, err = source.PlanFor(t.Context(), testAccount)
@@ -192,7 +231,7 @@ func TestSource_PlanFor(T *testing.T) {
 		}
 
 		source, err := New(storeReturning(
-			subscription(capitalism.SubscriptionStatusPastDue, "pro")), testScope, duringDunning)
+			subscription(capitalism.SubscriptionStatusPastDue, "pro")), &testReader{}, testScope, duringDunning)
 		must.NoError(t, err)
 
 		plan, err := source.PlanFor(t.Context(), testAccount)
@@ -208,6 +247,7 @@ func TestSource_PlanFor(T *testing.T) {
 		store := &billingmock.SubscriptionStoreMock{
 			ListCurrentSubscriptionsFunc: func(
 				_ context.Context,
+				_ database.SQLQueryExecutor,
 				_ tenancy.Scope,
 				_ string,
 				_ *filtering.QueryFilter,
@@ -216,7 +256,7 @@ func TestSource_PlanFor(T *testing.T) {
 			},
 		}
 
-		source, err := New(store, testScope, Entitled)
+		source, err := New(store, &testReader{}, testScope, Entitled)
 		must.NoError(t, err)
 
 		_, err = source.PlanFor(t.Context(), testAccount)
@@ -228,6 +268,36 @@ func TestSource_PlanFor(T *testing.T) {
 		test.False(t, errors.Is(err, entitlements.ErrNoPlan))
 	})
 
+	T.Run("reads through the executor it was built with", func(t *testing.T) {
+		t.Parallel()
+
+		var (
+			reader database.SQLQueryExecutor = &testReader{}
+			seen   database.SQLQueryExecutor
+		)
+
+		store := &billingmock.SubscriptionStoreMock{
+			ListCurrentSubscriptionsFunc: func(
+				_ context.Context,
+				q database.SQLQueryExecutor,
+				_ tenancy.Scope,
+				_ string,
+				filter *filtering.QueryFilter,
+			) (*filtering.QueryFilteredResult[billing.Subscription], error) {
+				seen = q
+
+				return filtering.NewQueryFilteredResultWithoutCounts[billing.Subscription](nil,
+					func(s *billing.Subscription) string { return s.ID }, filter), nil
+			},
+		}
+
+		source, err := New(store, reader, testScope, Entitled)
+		must.NoError(t, err)
+
+		_, _ = source.PlanFor(t.Context(), testAccount)
+		test.EqOp(t, reader, seen)
+	})
+
 	T.Run("reads the scope it was built for", func(t *testing.T) {
 		t.Parallel()
 
@@ -236,6 +306,7 @@ func TestSource_PlanFor(T *testing.T) {
 		store := &billingmock.SubscriptionStoreMock{
 			ListCurrentSubscriptionsFunc: func(
 				_ context.Context,
+				_ database.SQLQueryExecutor,
 				scope tenancy.Scope,
 				_ string,
 				filter *filtering.QueryFilter,
@@ -247,7 +318,7 @@ func TestSource_PlanFor(T *testing.T) {
 			},
 		}
 
-		source, err := New(store, testScope, Entitled)
+		source, err := New(store, &testReader{}, testScope, Entitled)
 		must.NoError(t, err)
 
 		_, _ = source.PlanFor(t.Context(), testAccount)

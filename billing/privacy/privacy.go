@@ -38,6 +38,20 @@ comments/privacy gives about its own resolver: a default that answered "the
 account whose id equals the subject id" would export nothing for most deployments
 and report success doing it.
 
+# Where the executor comes from
+
+Every read in billing runs on an executor its caller supplies, and
+dataprivacy.Collector.Collect is handed nothing — an export is a read, and the
+seam that asks for it hands over a subject and nothing else. So [NewCollector]
+takes the executor once, at construction, and every collection runs on it. It is
+the shape comments/privacy took first.
+
+That is a database.SQLQueryExecutor rather than a database.Client: a collector
+reads and does nothing else, and the narrower type is also the one that lets a
+consumer hand it a Tx where an export genuinely has to see a transaction's own
+writes. There is no matching argument for an eraser because there is no eraser —
+see above.
+
 # Why this is a package rather than methods on the store
 
 billing would otherwise import dataprivacy, which imports operations, which
@@ -58,6 +72,7 @@ import (
 	"encoding/json"
 
 	"github.com/primandproper/platform-go/v14/billing"
+	"github.com/primandproper/platform-go/v14/database"
 	"github.com/primandproper/platform-go/v14/dataprivacy"
 	platformerrors "github.com/primandproper/platform-go/v14/errors"
 	"github.com/primandproper/platform-go/v14/filtering"
@@ -79,6 +94,11 @@ var (
 	// ErrNilAccountResolver indicates a nil AccountResolver. It is required —
 	// see the package documentation for why there is no default.
 	ErrNilAccountResolver = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil account resolver")
+
+	// ErrNilExecutor indicates a nil executor. The collector's is supplied at
+	// construction, because billing keeps no connection of its own to fall back
+	// to and Collect has nowhere to take one.
+	ErrNilExecutor = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil query executor")
 )
 
 // Account is one account a subject's billing may be under: which scope it is in,
@@ -139,20 +159,35 @@ var _ dataprivacy.Collector = (*Collector)(nil)
 // built rather than on the dataprivacy.Collector seam.
 type Collector struct {
 	store   billing.Store
+	reader  database.SQLQueryExecutor
 	resolve AccountResolver
 }
 
-// NewCollector builds the collector.
-func NewCollector(store billing.Store, resolve AccountResolver) (*Collector, error) {
+// NewCollector builds the collector over a store, the executor its reads run on,
+// and an account resolver. All three are required.
+//
+// The executor is a constructor argument because dataprivacy.Collector.Collect
+// has nowhere to put one. Client.Reader() is what a consumer ordinarily passes;
+// a Tx is what it passes when the export has to see writes that transaction has
+// not committed.
+func NewCollector(
+	store billing.Store,
+	reader database.SQLQueryExecutor,
+	resolve AccountResolver,
+) (*Collector, error) {
 	if store == nil {
 		return nil, ErrNilStore
+	}
+
+	if reader == nil {
+		return nil, ErrNilExecutor
 	}
 
 	if resolve == nil {
 		return nil, ErrNilAccountResolver
 	}
 
-	return &Collector{store: store, resolve: resolve}, nil
+	return &Collector{store: store, reader: reader, resolve: resolve}, nil
 }
 
 // Collect implements dataprivacy.Collector.
@@ -191,21 +226,21 @@ func (c *Collector) collectAccount(ctx context.Context, account *Account) (Expor
 	export := Export{Account: account.ID, Scope: account.Scope.String()}
 
 	subscriptions, err := drain(func(filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
-		return c.store.ListSubscriptionsForAccount(ctx, account.Scope, account.ID, filter)
+		return c.store.ListSubscriptionsForAccount(ctx, c.reader, account.Scope, account.ID, filter)
 	})
 	if err != nil {
 		return export, platformerrors.Wrapf(err, "collecting subscriptions for account %q", account.ID)
 	}
 
 	purchases, err := drain(func(filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error) {
-		return c.store.ListPurchasesForAccount(ctx, account.Scope, account.ID, filter)
+		return c.store.ListPurchasesForAccount(ctx, c.reader, account.Scope, account.ID, filter)
 	})
 	if err != nil {
 		return export, platformerrors.Wrapf(err, "collecting purchases for account %q", account.ID)
 	}
 
 	transactions, err := drain(func(filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error) {
-		return c.store.ListTransactionsForAccount(ctx, account.Scope, account.ID, filter)
+		return c.store.ListTransactionsForAccount(ctx, c.reader, account.Scope, account.ID, filter)
 	})
 	if err != nil {
 		return export, platformerrors.Wrapf(err, "collecting transactions for account %q", account.ID)
