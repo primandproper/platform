@@ -18,65 +18,26 @@ import (
 // The SQLStore's PurchaseStore: the one-time half.
 var _ PurchaseStore = (*SQLStore)(nil)
 
-// CreatePurchase records a sale in the scope, outstanding.
+// CreatePurchase records a sale in the scope, outstanding, through the caller's
+// transaction.
+//
+// Every statement runs on tx — including the product check the write is gated
+// on, so a product created through CreateProduct earlier in the same transaction
+// is one a sale can be recorded against. The attribution read on the losing path
+// runs there too; see [Store.CreatePurchase].
 func (s *SQLStore) CreatePurchase(
 	ctx context.Context,
+	tx database.Tx,
 	scope tenancy.Scope,
 	purchase *Purchase,
 ) (*Purchase, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
-	created, err := purchaseToCreate(op, scope, purchase)
-	if err != nil {
-		return nil, err
-	}
-
-	if err = s.client.WithTransaction(ctx, func(q database.Tx) error {
-		return s.insertPurchase(ctx, q, scope, created)
-	}); err != nil {
-		return nil, op.Error(err, "creating purchase")
-	}
-
-	return created, nil
-}
-
-// CreatePurchaseTx is CreatePurchase inside the caller's transaction.
-//
-// Every check CreatePurchase makes is made here, and every statement runs on q —
-// including the product check the write is gated on, so a product created
-// through CreateProductTx earlier in the same transaction is one a sale can be
-// recorded against. The attribution read on the losing path runs there too; see
-// [Store.CreatePurchaseTx].
-func (s *SQLStore) CreatePurchaseTx(
-	ctx context.Context,
-	q database.Tx,
-	scope tenancy.Scope,
-	purchase *Purchase,
-) (*Purchase, error) {
-	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
-	defer op.End()
-
-	if q == nil {
+	if tx == nil {
 		return nil, op.Error(ErrNilExecutor, "creating purchase")
 	}
 
-	created, err := purchaseToCreate(op, scope, purchase)
-	if err != nil {
-		return nil, err
-	}
-
-	if err = s.insertPurchase(ctx, q, scope, created); err != nil {
-		return nil, op.Error(err, "creating purchase")
-	}
-
-	return created, nil
-}
-
-// purchaseToCreate is the checks CreatePurchase and CreatePurchaseTx share, and
-// the value they write. It runs before any transaction is opened, for the reason
-// productToCreate does.
-func purchaseToCreate(op observability.Operation, scope tenancy.Scope, purchase *Purchase) (*Purchase, error) {
 	if purchase == nil {
 		return nil, op.Error(ErrNilPurchase, "creating purchase")
 	}
@@ -101,12 +62,16 @@ func purchaseToCreate(op observability.Operation, scope tenancy.Scope, purchase 
 	op.Set(purchaseKey, created.ID)
 	op.Set(accountKey, created.BelongsToAccount)
 
+	if err := s.insertPurchase(ctx, tx, scope, &created); err != nil {
+		return nil, op.Error(err, "creating purchase")
+	}
+
 	return &created, nil
 }
 
-// insertPurchase is the statements the create runs, on whatever executor the
-// caller is holding: the product check, the insert-ignore, the attribution of a
-// loss, and the read-back of the creation time onto created.
+// insertPurchase is the statements the create runs: the product check, the
+// insert-ignore, the attribution of a loss, and the read-back of the creation
+// time onto created.
 func (s *SQLStore) insertPurchase(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
@@ -136,13 +101,23 @@ func (s *SQLStore) insertPurchase(
 	return nil
 }
 
-// GetPurchase reads one of the scope's live purchases by id.
-func (s *SQLStore) GetPurchase(ctx context.Context, scope tenancy.Scope, purchaseID string) (*Purchase, error) {
+// GetPurchase reads one of the scope's live purchases by id, on the caller's
+// executor.
+func (s *SQLStore) GetPurchase(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	purchaseID string,
+) (*Purchase, error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(purchaseKey, purchaseID),
 	)
 	defer op.End()
+
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "reading purchase %q", purchaseID)
+	}
 
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "reading purchase %q", purchaseID)
@@ -152,7 +127,7 @@ func (s *SQLStore) GetPurchase(ctx context.Context, scope tenancy.Scope, purchas
 		return nil, op.Error(err, "reading purchase %q", purchaseID)
 	}
 
-	row, err := s.q.GetPurchase(ctx, s.client.Reader(),
+	row, err := s.q.GetPurchase(ctx, q,
 		billingdb.GetPurchaseParams{ID: purchaseID, Scope: scope})
 	if err != nil {
 		return nil, op.Error(notFound(err, ErrPurchaseNotFound), "reading purchase %q", purchaseID)
@@ -166,17 +141,22 @@ func (s *SQLStore) GetPurchase(ctx context.Context, scope tenancy.Scope, purchas
 // because it is also the collision check the write runs.
 func (s *SQLStore) GetPurchaseByExternalID(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	externalTransactionID string,
 ) (*Purchase, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "reading purchase by external id")
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "reading purchase by external id")
 	}
 
-	purchase, err := s.readPurchaseByExternalID(ctx, s.client.Reader(), scope, externalTransactionID)
+	purchase, err := s.readPurchaseByExternalID(ctx, q, scope, externalTransactionID)
 	if err != nil {
 		return nil, op.Error(err, "reading purchase by external id")
 	}
@@ -193,11 +173,16 @@ func (s *SQLStore) GetPurchaseByExternalID(
 // ListPurchases pages every purchase in the scope.
 func (s *SQLStore) ListPurchases(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	filter *filtering.QueryFilter,
 ) (*filtering.QueryFilteredResult[Purchase], error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
+
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "listing purchases")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "listing purchases")
@@ -207,10 +192,10 @@ func (s *SQLStore) ListPurchases(
 
 	purchaseRows, err := sortedRows(filter,
 		func() ([]billingdb.ListPurchasesRow, error) {
-			return s.q.ListPurchases(ctx, s.client.Reader(), listPurchasesParams(scope, filter))
+			return s.q.ListPurchases(ctx, q, listPurchasesParams(scope, filter))
 		},
 		func() ([]billingdb.ListPurchasesDescendingRow, error) {
-			return s.q.ListPurchasesDescending(ctx, s.client.Reader(),
+			return s.q.ListPurchasesDescending(ctx, q,
 				billingdb.ListPurchasesDescendingParams(listPurchasesParams(scope, filter)))
 		},
 		func(r billingdb.ListPurchasesDescendingRow) billingdb.ListPurchasesRow {
@@ -226,6 +211,7 @@ func (s *SQLStore) ListPurchases(
 // ListPurchasesForAccount pages one account's purchases.
 func (s *SQLStore) ListPurchasesForAccount(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	accountID string,
 	filter *filtering.QueryFilter,
@@ -235,6 +221,10 @@ func (s *SQLStore) ListPurchasesForAccount(
 		observability.WithValue(accountKey, accountID),
 	)
 	defer op.End()
+
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "listing purchases for account %q", accountID)
+	}
 
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "listing purchases for account %q", accountID)
@@ -248,11 +238,11 @@ func (s *SQLStore) ListPurchasesForAccount(
 
 	purchaseRows, err := sortedRows(filter,
 		func() ([]billingdb.ListPurchasesForAccountRow, error) {
-			return s.q.ListPurchasesForAccount(ctx, s.client.Reader(),
+			return s.q.ListPurchasesForAccount(ctx, q,
 				listPurchasesForAccountParams(scope, accountID, filter))
 		},
 		func() ([]billingdb.ListPurchasesForAccountDescendingRow, error) {
-			return s.q.ListPurchasesForAccountDescending(ctx, s.client.Reader(),
+			return s.q.ListPurchasesForAccountDescending(ctx, q,
 				billingdb.ListPurchasesForAccountDescendingParams(
 					listPurchasesForAccountParams(scope, accountID, filter)))
 		},
@@ -271,14 +261,17 @@ func (s *SQLStore) ListPurchasesForAccount(
 	return s.drainPurchases(op, shaped, filter), nil
 }
 
-// CompletePurchase stamps the moment the money arrived.
+// CompletePurchase stamps the moment the money arrived, through the caller's
+// transaction.
 //
 // The guard is completed_at IS NULL, in the statement, so a purchase completes
 // exactly once however many times the provider delivers the event. Telling a
 // replay apart from a missing purchase takes one read, made only on the losing
-// path.
+// path — and on tx, so a sale created and settled in one transaction is answered
+// by the row that transaction wrote. See [Store.CompletePurchase].
 func (s *SQLStore) CompletePurchase(
 	ctx context.Context,
+	tx database.Tx,
 	scope tenancy.Scope,
 	purchaseID string,
 	at time.Time,
@@ -289,47 +282,10 @@ func (s *SQLStore) CompletePurchase(
 	)
 	defer op.End()
 
-	return s.completePurchase(ctx, op, s.client.Writer(), scope, purchaseID, at)
-}
-
-// CompletePurchaseTx is CompletePurchase inside the caller's transaction.
-//
-// The guard and the attribution read behind it both run on q, so a settlement
-// landing in the same transaction as the sale it settles is answered by the row
-// that transaction wrote rather than by a snapshot that cannot see it. See
-// [Store.CompletePurchaseTx].
-func (s *SQLStore) CompletePurchaseTx(
-	ctx context.Context,
-	q database.Tx,
-	scope tenancy.Scope,
-	purchaseID string,
-	at time.Time,
-) error {
-	ctx, op := s.o11y.Begin(ctx,
-		observability.WithValue(scopeKey, scope.String()),
-		observability.WithValue(purchaseKey, purchaseID),
-	)
-	defer op.End()
-
-	if q == nil {
+	if tx == nil {
 		return op.Error(ErrNilExecutor, "completing purchase %q", purchaseID)
 	}
 
-	return s.completePurchase(ctx, op, q, scope, purchaseID, at)
-}
-
-// completePurchase is the shared body of CompletePurchase and
-// CompletePurchaseTx, which differ in the executor they run on and in nothing
-// else — the clock fallback included, so a comped order stamps the same instant
-// on both paths.
-func (s *SQLStore) completePurchase(
-	ctx context.Context,
-	op observability.Operation,
-	q database.SQLQueryExecutor,
-	scope tenancy.Scope,
-	purchaseID string,
-	at time.Time,
-) error {
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "completing purchase %q", purchaseID)
 	}
@@ -347,7 +303,7 @@ func (s *SQLStore) completePurchase(
 		stamped = s.clock.Now().UTC()
 	}
 
-	count, err := s.q.CompletePurchase(ctx, q, billingdb.CompletePurchaseParams{
+	count, err := s.q.CompletePurchase(ctx, tx, billingdb.CompletePurchaseParams{
 		CompletedAt: &stamped,
 		ID:          purchaseID,
 		Scope:       scope,
@@ -358,31 +314,17 @@ func (s *SQLStore) completePurchase(
 	}
 
 	if count == 0 {
-		return op.Error(s.refuseCompletion(ctx, q, scope, purchaseID), "completing purchase %q", purchaseID)
+		return op.Error(s.refuseCompletion(ctx, tx, scope, purchaseID), "completing purchase %q", purchaseID)
 	}
 
 	return nil
 }
 
-// ArchivePurchase retires one of the scope's purchases administratively.
-//
-// It is one statement, so it runs on the writer rather than in a transaction of
-// its own; ArchivePurchaseTx is the form that joins somebody else's.
-func (s *SQLStore) ArchivePurchase(ctx context.Context, scope tenancy.Scope, purchaseID string) error {
-	ctx, op := s.o11y.Begin(ctx,
-		observability.WithValue(scopeKey, scope.String()),
-		observability.WithValue(purchaseKey, purchaseID),
-	)
-	defer op.End()
-
-	return s.archivePurchase(ctx, op, s.client.Writer(), scope, purchaseID)
-}
-
-// ArchivePurchaseTx is ArchivePurchase inside the caller's transaction. See
-// [Store.ArchivePurchaseTx].
-func (s *SQLStore) ArchivePurchaseTx(
+// ArchivePurchase retires one of the scope's purchases administratively, through
+// the caller's transaction. See [Store.ArchivePurchase].
+func (s *SQLStore) ArchivePurchase(
 	ctx context.Context,
-	q database.Tx,
+	tx database.Tx,
 	scope tenancy.Scope,
 	purchaseID string,
 ) error {
@@ -392,27 +334,15 @@ func (s *SQLStore) ArchivePurchaseTx(
 	)
 	defer op.End()
 
-	if q == nil {
+	if tx == nil {
 		return op.Error(ErrNilExecutor, "archiving purchase %q", purchaseID)
 	}
 
-	return s.archivePurchase(ctx, op, q, scope, purchaseID)
-}
-
-// archivePurchase is the shared body of ArchivePurchase and ArchivePurchaseTx,
-// which differ in the executor they run on and in nothing else.
-func (s *SQLStore) archivePurchase(
-	ctx context.Context,
-	op observability.Operation,
-	q database.SQLQueryExecutor,
-	scope tenancy.Scope,
-	purchaseID string,
-) error {
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "archiving purchase %q", purchaseID)
 	}
 
-	count, err := s.q.ArchivePurchase(ctx, q,
+	count, err := s.q.ArchivePurchase(ctx, tx,
 		billingdb.ArchivePurchaseParams{ID: purchaseID, Scope: scope})
 	if err = guardCount(count, err, ErrPurchaseNotFound, "archiving purchase"); err != nil {
 		return op.Error(err, "archiving purchase %q", purchaseID)

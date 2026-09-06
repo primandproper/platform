@@ -22,68 +22,91 @@ import (
 // renewed it is recorded in the ledger.
 func Example() {
 	ctx := context.Background()
-	store := exampleWiring()
+	store, client := exampleWiring()
 
 	// One catalog, so the scope is global — the shape a single-tenant
 	// application has, behaving exactly as it would without the column.
 	scope := tenancy.Global()
 
-	// The administrative half. Written once, by whoever decides what is on
-	// offer, rather than on a request path.
-	product, err := store.CreateProduct(ctx, scope, &billing.Product{
-		Name:                  "Pro",
-		Kind:                  billing.KindRecurring,
-		AmountCents:           2_500,
-		Currency:              "usd", // upper-cased on write
-		BillingIntervalMonths: 1,
-		ExternalProductID:     "prod_abc",
-	})
-	if err != nil {
+	// Every write takes the caller's transaction, so each of these opens one.
+	// A consumer with something to commit alongside — an audit entry, an outbox
+	// event — passes that same Tx to both; Example_callerTransaction is that
+	// shape.
+	var product *billing.Product
+
+	if err := client.WithTransaction(ctx, func(tx database.Tx) error {
+		// The administrative half. Written once, by whoever decides what is on
+		// offer, rather than on a request path.
+		var txErr error
+
+		product, txErr = store.CreateProduct(ctx, tx, scope, &billing.Product{
+			Name:                  "Pro",
+			Kind:                  billing.KindRecurring,
+			AmountCents:           2_500,
+			Currency:              "usd", // upper-cased on write
+			BillingIntervalMonths: 1,
+			ExternalProductID:     "prod_abc",
+		})
+
+		return txErr
+	}); err != nil {
 		panic(err)
 	}
 
 	fmt.Println("selling:", product.Name, product.Currency, product.AmountCents)
 
-	// The webhook half. What the provider reports is stored as reported; nothing
-	// here decides what the status means.
-	subscription, err := store.CreateSubscription(ctx, scope, &billing.Subscription{
-		BelongsToAccount:       "account-1",
-		ProductID:              product.ID,
-		ExternalSubscriptionID: "sub_abc",
-		Status:                 capitalism.SubscriptionStatusActive,
-		CurrentPeriodStart:     time.Now().Add(-24 * time.Hour),
-		CurrentPeriodEnd:       time.Now().Add(30 * 24 * time.Hour),
-	})
-	if err != nil {
+	var subscription *billing.Subscription
+
+	if err := client.WithTransaction(ctx, func(tx database.Tx) error {
+		// The webhook half. What the provider reports is stored as reported;
+		// nothing here decides what the status means.
+		var txErr error
+
+		subscription, txErr = store.CreateSubscription(ctx, tx, scope, &billing.Subscription{
+			BelongsToAccount:       "account-1",
+			ProductID:              product.ID,
+			ExternalSubscriptionID: "sub_abc",
+			Status:                 capitalism.SubscriptionStatusActive,
+			CurrentPeriodStart:     time.Now().Add(-24 * time.Hour),
+			CurrentPeriodEnd:       time.Now().Add(30 * 24 * time.Hour),
+		})
+
+		return txErr
+	}); err != nil {
 		panic(err)
 	}
 
 	// The ledger. The provider's own identifier is unique within the scope, so
 	// the second delivery of one charge collides instead of recording it twice.
-	charge := &billing.Transaction{
-		BelongsToAccount:      "account-1",
-		SubscriptionID:        subscription.ID,
-		ExternalTransactionID: "ch_abc",
-		Status:                billing.TransactionSucceeded,
-		AmountCents:           2_500,
-		Currency:              "USD",
+	charge := func() *billing.Transaction {
+		return &billing.Transaction{
+			BelongsToAccount:      "account-1",
+			SubscriptionID:        subscription.ID,
+			ExternalTransactionID: "ch_abc",
+			Status:                billing.TransactionSucceeded,
+			AmountCents:           2_500,
+			Currency:              "USD",
+		}
 	}
 
-	if _, err = store.RecordTransaction(ctx, scope, charge); err != nil {
+	if err := client.WithTransaction(ctx, func(tx database.Tx) error {
+		_, txErr := store.RecordTransaction(ctx, tx, scope, charge())
+
+		return txErr
+	}); err != nil {
 		panic(err)
 	}
 
-	_, err = store.RecordTransaction(ctx, scope, &billing.Transaction{
-		BelongsToAccount:      "account-1",
-		SubscriptionID:        subscription.ID,
-		ExternalTransactionID: "ch_abc",
-		Status:                billing.TransactionSucceeded,
-		AmountCents:           2_500,
-		Currency:              "USD",
+	// The redelivery, in the transaction its own handler opened. It writes
+	// nothing, and the transaction it takes back with it holds nothing either.
+	err := client.WithTransaction(ctx, func(tx database.Tx) error {
+		_, txErr := store.RecordTransaction(ctx, tx, scope, charge())
+
+		return txErr
 	})
 	fmt.Println("redelivery recorded once:", errors.Is(err, billing.ErrTransactionExists))
 
-	ledger, err := store.ListTransactionsForAccount(ctx, scope, "account-1", nil)
+	ledger, err := store.ListTransactionsForAccount(ctx, client.Reader(), scope, "account-1", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -105,32 +128,42 @@ func Example() {
 // entitlements.PlanSource.
 func Example_entitlement() {
 	ctx := context.Background()
-	store := exampleWiring()
+	store, client := exampleWiring()
 	scope := tenancy.Global()
 
-	product, err := store.CreateProduct(ctx, scope, &billing.Product{
-		Name:                  "Pro",
-		Kind:                  billing.KindRecurring,
-		AmountCents:           2_500,
-		Currency:              "USD",
-		BillingIntervalMonths: 1,
-	})
-	if err != nil {
+	var subscription *billing.Subscription
+
+	// The catalog and the agreement, in one transaction: the product check the
+	// subscription is gated on runs on that same executor, so it finds a product
+	// nothing outside the transaction can see yet.
+	if err := client.WithTransaction(ctx, func(tx database.Tx) error {
+		product, txErr := store.CreateProduct(ctx, tx, scope, &billing.Product{
+			Name:                  "Pro",
+			Kind:                  billing.KindRecurring,
+			AmountCents:           2_500,
+			Currency:              "USD",
+			BillingIntervalMonths: 1,
+		})
+		if txErr != nil {
+			return txErr
+		}
+
+		subscription, txErr = store.CreateSubscription(ctx, tx, scope, &billing.Subscription{
+			BelongsToAccount:   "account-1",
+			ProductID:          product.ID,
+			Status:             capitalism.SubscriptionStatusPastDue,
+			CurrentPeriodStart: time.Now().Add(-24 * time.Hour),
+			CurrentPeriodEnd:   time.Now().Add(7 * 24 * time.Hour),
+		})
+
+		return txErr
+	}); err != nil {
 		panic(err)
 	}
 
-	subscription, err := store.CreateSubscription(ctx, scope, &billing.Subscription{
-		BelongsToAccount:   "account-1",
-		ProductID:          product.ID,
-		Status:             capitalism.SubscriptionStatusPastDue,
-		CurrentPeriodStart: time.Now().Add(-24 * time.Hour),
-		CurrentPeriodEnd:   time.Now().Add(7 * 24 * time.Hour),
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	current, err := store.ListCurrentSubscriptions(ctx, scope, "account-1", nil)
+	// The read holds no transaction, so it passes the client's reader. It would
+	// take the Tx above just as well, and see the row before it committed.
+	current, err := store.ListCurrentSubscriptions(ctx, client.Reader(), scope, "account-1", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -156,60 +189,69 @@ func Example_entitlement() {
 // the second delivery of one event writes nothing and says so.
 func Example_redeliveredStatus() {
 	ctx := context.Background()
-	store := exampleWiring()
+	store, client := exampleWiring()
 	scope := tenancy.Global()
 
-	product, err := store.CreateProduct(ctx, scope, &billing.Product{
-		Name:                  "Pro",
-		Kind:                  billing.KindRecurring,
-		AmountCents:           2_500,
-		Currency:              "USD",
-		BillingIntervalMonths: 1,
-	})
-	if err != nil {
+	var subscription *billing.Subscription
+
+	if err := client.WithTransaction(ctx, func(tx database.Tx) error {
+		product, txErr := store.CreateProduct(ctx, tx, scope, &billing.Product{
+			Name:                  "Pro",
+			Kind:                  billing.KindRecurring,
+			AmountCents:           2_500,
+			Currency:              "USD",
+			BillingIntervalMonths: 1,
+		})
+		if txErr != nil {
+			return txErr
+		}
+
+		subscription, txErr = store.CreateSubscription(ctx, tx, scope, &billing.Subscription{
+			BelongsToAccount:   "account-1",
+			ProductID:          product.ID,
+			Status:             capitalism.SubscriptionStatusActive,
+			CurrentPeriodStart: time.Now().Add(-24 * time.Hour),
+			CurrentPeriodEnd:   time.Now().Add(7 * 24 * time.Hour),
+		})
+
+		return txErr
+	}); err != nil {
 		panic(err)
 	}
 
-	subscription, err := store.CreateSubscription(ctx, scope, &billing.Subscription{
-		BelongsToAccount:   "account-1",
-		ProductID:          product.ID,
-		Status:             capitalism.SubscriptionStatusActive,
-		CurrentPeriodStart: time.Now().Add(-24 * time.Hour),
-		CurrentPeriodEnd:   time.Now().Add(7 * 24 * time.Hour),
-	})
-	if err != nil {
-		panic(err)
+	// One transaction per delivery, which is what a webhook endpoint opens.
+	cancel := func(subscriptionID string) error {
+		return client.WithTransaction(ctx, func(tx database.Tx) error {
+			return store.SetSubscriptionStatus(ctx, tx, scope, subscriptionID,
+				capitalism.SubscriptionStatusCanceled)
+		})
 	}
 
-	if err = store.SetSubscriptionStatus(ctx, scope, subscription.ID,
-		capitalism.SubscriptionStatusCanceled); err != nil {
+	if err := cancel(subscription.ID); err != nil {
 		panic(err)
 	}
-
-	err = store.SetSubscriptionStatus(ctx, scope, subscription.ID,
-		capitalism.SubscriptionStatusCanceled)
 
 	// An answer rather than a failure: the work the event describes has already
 	// been done, and a handler acknowledges the delivery on it.
-	fmt.Println("already recorded:", errors.Is(err, billing.ErrStatusUnchanged))
+	fmt.Println("already recorded:", errors.Is(cancel(subscription.ID), billing.ErrStatusUnchanged))
 
 	// A write against a subscription nobody has is a different thing entirely,
 	// and is reported as one.
-	err = store.SetSubscriptionStatus(ctx, scope, "sub-nobody-has",
-		capitalism.SubscriptionStatusCanceled)
-	fmt.Println("no such subscription:", errors.Is(err, billing.ErrSubscriptionNotFound))
+	fmt.Println("no such subscription:",
+		errors.Is(cancel("sub-nobody-has"), billing.ErrSubscriptionNotFound))
 
 	// Output:
 	// already recorded: true
 	// no such subscription: true
 }
 
-// Example_callerTransaction shows what the Tx variants are for: a charge and
-// what a consumer records about it, in one transaction.
+// Example_callerTransaction shows what the caller's transaction is for: a charge
+// and what a consumer records about it, in one transaction.
 //
 // A ledger row that committed ahead of its audit entry is a charge nothing
-// downstream heard about, and no amount of care outside this package closes that
-// window — the store owns the transaction. RecordTransactionTx hands it over.
+// downstream heard about, and no amount of care outside this package could close
+// that window while the store owned the transaction. Taking a database.Tx is how
+// it hands that over.
 func Example_callerTransaction() {
 	ctx := context.Background()
 	client := exampleDatabase(ctx)
@@ -232,7 +274,7 @@ func Example_callerTransaction() {
 		// The catalog, the sale and the charge, all in the caller's
 		// transaction — so the product check behind the sale finds a product
 		// nothing outside this transaction can see yet.
-		product, txErr := store.CreateProductTx(ctx, tx, scope, &billing.Product{
+		product, txErr := store.CreateProduct(ctx, tx, scope, &billing.Product{
 			Name:        "Lifetime",
 			Kind:        billing.KindOneTime,
 			AmountCents: 9_900,
@@ -242,7 +284,7 @@ func Example_callerTransaction() {
 			return txErr
 		}
 
-		purchase, txErr := store.CreatePurchaseTx(ctx, tx, scope, &billing.Purchase{
+		purchase, txErr := store.CreatePurchase(ctx, tx, scope, &billing.Purchase{
 			BelongsToAccount: "account-1",
 			ProductID:        product.ID,
 			AmountCents:      product.AmountCents,
@@ -252,7 +294,7 @@ func Example_callerTransaction() {
 			return txErr
 		}
 
-		charge, txErr := store.RecordTransactionTx(ctx, tx, scope, &billing.Transaction{
+		charge, txErr := store.RecordTransaction(ctx, tx, scope, &billing.Transaction{
 			BelongsToAccount:      "account-1",
 			PurchaseID:            purchase.ID,
 			ExternalTransactionID: "ch_abc",
@@ -281,7 +323,7 @@ func Example_callerTransaction() {
 		panic(err)
 	}
 
-	ledger, err := store.ListTransactionsForAccount(ctx, tenancy.Global(), "account-1", nil)
+	ledger, err := store.ListTransactionsForAccount(ctx, client.Reader(), tenancy.Global(), "account-1", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -294,14 +336,21 @@ func Example_callerTransaction() {
 	// audited: 9900
 }
 
-// exampleWiring builds a store over a throwaway SQLite database.
-func exampleWiring() billing.Store {
-	store, err := billing.NewSQLStore(exampleDatabase(context.Background()))
+// exampleWiring builds a store over a throwaway SQLite database, and hands back
+// the client alongside it.
+//
+// The store keeps no reference to the client — it takes it for the dialect and
+// nothing else — so a caller needs it in its own hands: to open the transaction
+// every write takes, and to supply the executor every read takes.
+func exampleWiring() (billing.Store, database.Client) {
+	client := exampleDatabase(context.Background())
+
+	store, err := billing.NewSQLStore(client)
 	if err != nil {
 		panic(err)
 	}
 
-	return store
+	return store, client
 }
 
 // exampleDatabase is a throwaway SQLite database with the billing tables in it.

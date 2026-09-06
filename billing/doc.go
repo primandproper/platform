@@ -100,55 +100,55 @@ treat NULLs in a unique index as distinct — so the rows that have a provider i
 are unique and the rows that do not stay out of each other's way. See
 billing/migrations.
 
-# Joining a caller's transaction
+# The transaction is the caller's
 
-Every write here has a second form that runs inside a transaction the caller
-owns: [Store.CreateProductTx], [Store.UpdateProductTx], [Store.ArchiveProductTx],
-[Store.CreateSubscriptionTx], [Store.UpdateSubscriptionTx],
-[Store.SetSubscriptionStatusTx], [Store.ArchiveSubscriptionTx],
-[Store.CreatePurchaseTx], [Store.CompletePurchaseTx], [Store.ArchivePurchaseTx],
-[Store.RecordTransactionTx], [Store.SetTransactionStatusTx] and
-[Store.ArchiveTransactionTx]. Each takes a database.Tx rather than reaching for
-the store's own writer, and the type is what says so — only
-database.RunInTransaction produces one, so the obligation is the compiler's
-rather than a doc comment's. The thirteen originals are unchanged in what they
-run on — the creates and the two updates still open a transaction of this store's
-own, and the guarded writes and the archives are still one statement on the
-writer — and each pairs with its twin over a shared body, so the two cannot drift
-into accepting different rows.
+Every write here takes a database.Tx and every read takes the wider
+database.SQLQueryExecutor. There is no form of any write that opens a
+transaction of its own, and the type is what says so — only
+database.RunInTransaction produces a Tx, so the obligation is the compiler's
+rather than a doc comment's. A consumer with nothing to join writes
+client.WithTransaction(ctx, func(tx database.Tx) error { ... }) and passes what
+it is handed.
 
 The reason is that a payment provider's event is rarely one row. An audit entry
 naming who was billed and a data change event on an outbox somebody fans out are
 the ordinary companions, and a companion written after this store's own
-transaction has committed is one that can go missing while the row stays. The gap
-is narrow and one-directional — a subscription with no event, never an event
-naming a subscription that was not written — and nothing outside this package can
-close it.
+transaction had committed was one that could go missing while the row stayed.
+The gap was narrow and one-directional — a subscription with no event, never an
+event naming a subscription that was not written — and nothing outside this
+package could close it.
 
 It is sharper here than in the packages that made the same argument first,
 because of the section above. The store already makes a replayed webhook collide
 rather than record twice; a consumer wants that same property for what it records
-*about* the write, and without these a first delivery whose audit entry the
-database refuses leaves a subscription row with no provenance and an entitlement
-check reading it.
+*about* the write, and a first delivery whose audit entry the database refuses
+must not leave a subscription row with no provenance and an entitlement check
+reading it. A subscription status change nobody can attribute is the expensive
+kind of missing record, in the one domain where attribution is the point.
 
-Every read a write depends on runs on that executor too, and both of them are
-decisions rather than accidents. The product check gating
-[Store.CreateSubscriptionTx] and [Store.CreatePurchaseTx] runs there, so a
-product stocked and subscribed to in one transaction is visible to the check that
-would otherwise refuse the subscription. And the attribution read the
-insert-ignore makes on the losing path runs there, so a redelivery arriving in
-the same transaction as the row it collides with is named by a snapshot that can
-see that row rather than mis-blamed by one that cannot. The guarded writes'
-refusals — [ErrStatusUnchanged], [ErrAlreadyCompleted] — read through the same
-executor for the same reason.
+Every read a write depends on runs on the caller's executor too, and that is the
+reason the reads take the wider type rather than a Tx. The product check gating
+[Store.CreateSubscription] and [Store.CreatePurchase] runs there, so a product
+stocked and subscribed to in one transaction is visible to the check that would
+otherwise refuse the subscription. The attribution read the insert-ignore makes
+on the losing path runs there, so a redelivery arriving in the same transaction
+as the row it collides with is named by a snapshot that can see that row rather
+than mis-blamed by one that cannot. The guarded writes' refusals —
+[ErrStatusUnchanged], [ErrAlreadyCompleted] — read through the same executor for
+the same reason. And a consumer holding no transaction at all passes
+Client.Reader() to any of the reads, which is what an entitlement check does.
 
-One thing does not move. The ledger's instrument is incremented when the
-statement writes the row rather than when the caller commits, because nothing
-here can observe somebody else's commit. A caller that rolls back leaves a count
-with no row behind it; the alternative was to leave the transactional path
-uncounted, which would quietly remove the one instrument a payment integration's
-health is read from for whoever adopts it. [Store.RecordTransactionTx] says so.
+One thing does not follow the transaction. The ledger's instrument is incremented
+when the statement writes the row rather than when the caller commits, because
+nothing here can observe somebody else's commit. A caller that rolls back leaves
+a count with no row behind it; the alternative was to leave the write uncounted,
+which would quietly remove the one instrument a payment integration's health is
+read from. [Store.RecordTransaction] says so.
+
+The two consumers in this module take their executor at construction, because
+neither seam they implement hands one over: billing/plans is an
+entitlements.PlanSource, whose PlanFor takes an account and nothing else, and
+billing/privacy is a dataprivacy.Collector, whose Collect takes a subject.
 
 # A price is a fact about a moment, not a lookup
 

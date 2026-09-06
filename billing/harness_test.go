@@ -184,6 +184,217 @@ func (e *storeEnv) newStoreWithClock(tb testing.TB, opts ...SQLStoreOption) (*SQ
 	return store, stub
 }
 
+// inTx runs fn inside a transaction on the environment's database and reports
+// what fn returned.
+//
+// Every write in this store takes the caller's transaction, so a test that wants
+// a row written opens one — which is what a consumer does. It hands back fn's
+// error rather than asserting on it, because a refused write is what half of
+// these cases are about and RunInTransaction returns the callback's error
+// unwrapped.
+func (e *storeEnv) inTx(tb testing.TB, fn func(tx database.Tx) error) error {
+	tb.Helper()
+
+	return e.client.WithTransaction(tb.Context(), fn)
+}
+
+// reader is the executor an ordinary read runs on: the client's, outside any
+// transaction. The cases about a read that joins a transaction pass the Tx
+// instead, and they are in the caller-transaction suite.
+func (e *storeEnv) reader() database.SQLQueryExecutor { return e.client.Reader() }
+
+// The thirteen writes, each in a transaction of its own, reporting what the
+// write returned.
+//
+// The transaction is a detail in most of these cases rather than the subject: a
+// consumer with nothing to commit alongside opens exactly this. What a billing
+// row commits *with* is the caller-transaction suite.
+
+func (e *storeEnv) createProduct(
+	tb testing.TB,
+	store *SQLStore,
+	scope tenancy.Scope,
+	product *Product,
+) (*Product, error) {
+	tb.Helper()
+
+	var created *Product
+
+	err := e.inTx(tb, func(tx database.Tx) error {
+		var txErr error
+		created, txErr = store.CreateProduct(tb.Context(), tx, scope, product)
+
+		return txErr
+	})
+
+	return created, err
+}
+
+func (e *storeEnv) updateProduct(tb testing.TB, store *SQLStore, scope tenancy.Scope, product *Product) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.UpdateProduct(tb.Context(), tx, scope, product)
+	})
+}
+
+func (e *storeEnv) archiveProduct(tb testing.TB, store *SQLStore, scope tenancy.Scope, productID string) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.ArchiveProduct(tb.Context(), tx, scope, productID)
+	})
+}
+
+func (e *storeEnv) createSubscription(
+	tb testing.TB,
+	store *SQLStore,
+	scope tenancy.Scope,
+	subscription *Subscription,
+) (*Subscription, error) {
+	tb.Helper()
+
+	var created *Subscription
+
+	err := e.inTx(tb, func(tx database.Tx) error {
+		var txErr error
+		created, txErr = store.CreateSubscription(tb.Context(), tx, scope, subscription)
+
+		return txErr
+	})
+
+	return created, err
+}
+
+func (e *storeEnv) updateSubscription(
+	tb testing.TB,
+	store *SQLStore,
+	scope tenancy.Scope,
+	subscription *Subscription,
+) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.UpdateSubscription(tb.Context(), tx, scope, subscription)
+	})
+}
+
+func (e *storeEnv) setSubscriptionStatus(
+	tb testing.TB,
+	store *SQLStore,
+	scope tenancy.Scope,
+	subscriptionID string,
+	status capitalism.SubscriptionStatus,
+) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.SetSubscriptionStatus(tb.Context(), tx, scope, subscriptionID, status)
+	})
+}
+
+func (e *storeEnv) archiveSubscription(
+	tb testing.TB,
+	store *SQLStore,
+	scope tenancy.Scope,
+	subscriptionID string,
+) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.ArchiveSubscription(tb.Context(), tx, scope, subscriptionID)
+	})
+}
+
+func (e *storeEnv) createPurchase(
+	tb testing.TB,
+	store *SQLStore,
+	scope tenancy.Scope,
+	purchase *Purchase,
+) (*Purchase, error) {
+	tb.Helper()
+
+	var created *Purchase
+
+	err := e.inTx(tb, func(tx database.Tx) error {
+		var txErr error
+		created, txErr = store.CreatePurchase(tb.Context(), tx, scope, purchase)
+
+		return txErr
+	})
+
+	return created, err
+}
+
+func (e *storeEnv) completePurchase(
+	tb testing.TB,
+	store *SQLStore,
+	scope tenancy.Scope,
+	purchaseID string,
+	at time.Time,
+) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.CompletePurchase(tb.Context(), tx, scope, purchaseID, at)
+	})
+}
+
+func (e *storeEnv) archivePurchase(tb testing.TB, store *SQLStore, scope tenancy.Scope, purchaseID string) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.ArchivePurchase(tb.Context(), tx, scope, purchaseID)
+	})
+}
+
+func (e *storeEnv) recordTransaction(
+	tb testing.TB,
+	store *SQLStore,
+	scope tenancy.Scope,
+	transaction *Transaction,
+) (*Transaction, error) {
+	tb.Helper()
+
+	var recorded *Transaction
+
+	err := e.inTx(tb, func(tx database.Tx) error {
+		var txErr error
+		recorded, txErr = store.RecordTransaction(tb.Context(), tx, scope, transaction)
+
+		return txErr
+	})
+
+	return recorded, err
+}
+
+func (e *storeEnv) setTransactionStatus(
+	tb testing.TB,
+	store *SQLStore,
+	scope tenancy.Scope,
+	transactionID string,
+	status TransactionStatus,
+) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.SetTransactionStatus(tb.Context(), tx, scope, transactionID, status)
+	})
+}
+
+func (e *storeEnv) archiveTransaction(
+	tb testing.TB,
+	store *SQLStore,
+	scope tenancy.Scope,
+	transactionID string,
+) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.ArchiveTransaction(tb.Context(), tx, scope, transactionID)
+	})
+}
+
 // recurringProduct is a subscription product priced in whole dollars.
 func recurringProduct(name string) *Product {
 	return &Product{
@@ -249,10 +460,16 @@ func pendingTransaction(accountID string) *Transaction {
 }
 
 // mustCreateProduct writes a product and fails the test if it will not go in.
-func mustCreateProduct(tb testing.TB, store *SQLStore, scope tenancy.Scope, product *Product) *Product {
+func mustCreateProduct(
+	tb testing.TB,
+	e *storeEnv,
+	store *SQLStore,
+	scope tenancy.Scope,
+	product *Product,
+) *Product {
 	tb.Helper()
 
-	created, err := store.CreateProduct(tb.Context(), scope, product)
+	created, err := e.createProduct(tb, store, scope, product)
 	must.NoError(tb, err)
 	must.NotNil(tb, created)
 
@@ -263,13 +480,14 @@ func mustCreateProduct(tb testing.TB, store *SQLStore, scope tenancy.Scope, prod
 // go in.
 func mustCreateSubscription(
 	tb testing.TB,
+	e *storeEnv,
 	store *SQLStore,
 	scope tenancy.Scope,
 	subscription *Subscription,
 ) *Subscription {
 	tb.Helper()
 
-	created, err := store.CreateSubscription(tb.Context(), scope, subscription)
+	created, err := e.createSubscription(tb, store, scope, subscription)
 	must.NoError(tb, err)
 	must.NotNil(tb, created)
 
@@ -277,10 +495,16 @@ func mustCreateSubscription(
 }
 
 // mustCreatePurchase writes a purchase and fails the test if it will not go in.
-func mustCreatePurchase(tb testing.TB, store *SQLStore, scope tenancy.Scope, purchase *Purchase) *Purchase {
+func mustCreatePurchase(
+	tb testing.TB,
+	e *storeEnv,
+	store *SQLStore,
+	scope tenancy.Scope,
+	purchase *Purchase,
+) *Purchase {
 	tb.Helper()
 
-	created, err := store.CreatePurchase(tb.Context(), scope, purchase)
+	created, err := e.createPurchase(tb, store, scope, purchase)
 	must.NoError(tb, err)
 	must.NotNil(tb, created)
 
@@ -291,13 +515,14 @@ func mustCreatePurchase(tb testing.TB, store *SQLStore, scope tenancy.Scope, pur
 // in.
 func mustRecordTransaction(
 	tb testing.TB,
+	e *storeEnv,
 	store *SQLStore,
 	scope tenancy.Scope,
 	transaction *Transaction,
 ) *Transaction {
 	tb.Helper()
 
-	recorded, err := store.RecordTransaction(tb.Context(), scope, transaction)
+	recorded, err := e.recordTransaction(tb, store, scope, transaction)
 	must.NoError(tb, err)
 	must.NotNil(tb, recorded)
 

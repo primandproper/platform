@@ -25,134 +25,95 @@ var _ billing.Store = &StoreMock{}
 //
 //		// make and configure a mocked billing.Store
 //		mockedStore := &StoreMock{
-//			ArchiveProductFunc: func(ctx context.Context, scope tenancy.Scope, productID string) error {
+//			ArchiveProductFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, productID string) error {
 //				panic("mock out the ArchiveProduct method")
 //			},
-//			ArchiveProductTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, productID string) error {
-//				panic("mock out the ArchiveProductTx method")
-//			},
-//			ArchivePurchaseFunc: func(ctx context.Context, scope tenancy.Scope, purchaseID string) error {
+//			ArchivePurchaseFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, purchaseID string) error {
 //				panic("mock out the ArchivePurchase method")
 //			},
-//			ArchivePurchaseTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, purchaseID string) error {
-//				panic("mock out the ArchivePurchaseTx method")
-//			},
-//			ArchiveSubscriptionFunc: func(ctx context.Context, scope tenancy.Scope, subscriptionID string) error {
+//			ArchiveSubscriptionFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscriptionID string) error {
 //				panic("mock out the ArchiveSubscription method")
 //			},
-//			ArchiveSubscriptionTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, subscriptionID string) error {
-//				panic("mock out the ArchiveSubscriptionTx method")
-//			},
-//			ArchiveTransactionFunc: func(ctx context.Context, scope tenancy.Scope, transactionID string) error {
+//			ArchiveTransactionFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, transactionID string) error {
 //				panic("mock out the ArchiveTransaction method")
 //			},
-//			ArchiveTransactionTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, transactionID string) error {
-//				panic("mock out the ArchiveTransactionTx method")
-//			},
-//			CompletePurchaseFunc: func(ctx context.Context, scope tenancy.Scope, purchaseID string, at time.Time) error {
+//			CompletePurchaseFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, purchaseID string, at time.Time) error {
 //				panic("mock out the CompletePurchase method")
 //			},
-//			CompletePurchaseTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, purchaseID string, at time.Time) error {
-//				panic("mock out the CompletePurchaseTx method")
-//			},
-//			CreateProductFunc: func(ctx context.Context, scope tenancy.Scope, product *billing.Product) (*billing.Product, error) {
+//			CreateProductFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, product *billing.Product) (*billing.Product, error) {
 //				panic("mock out the CreateProduct method")
 //			},
-//			CreateProductTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, product *billing.Product) (*billing.Product, error) {
-//				panic("mock out the CreateProductTx method")
-//			},
-//			CreatePurchaseFunc: func(ctx context.Context, scope tenancy.Scope, purchase *billing.Purchase) (*billing.Purchase, error) {
+//			CreatePurchaseFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, purchase *billing.Purchase) (*billing.Purchase, error) {
 //				panic("mock out the CreatePurchase method")
 //			},
-//			CreatePurchaseTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, purchase *billing.Purchase) (*billing.Purchase, error) {
-//				panic("mock out the CreatePurchaseTx method")
-//			},
-//			CreateSubscriptionFunc: func(ctx context.Context, scope tenancy.Scope, subscription *billing.Subscription) (*billing.Subscription, error) {
+//			CreateSubscriptionFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscription *billing.Subscription) (*billing.Subscription, error) {
 //				panic("mock out the CreateSubscription method")
 //			},
-//			CreateSubscriptionTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, subscription *billing.Subscription) (*billing.Subscription, error) {
-//				panic("mock out the CreateSubscriptionTx method")
-//			},
-//			GetProductFunc: func(ctx context.Context, scope tenancy.Scope, productID string) (*billing.Product, error) {
+//			GetProductFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, productID string) (*billing.Product, error) {
 //				panic("mock out the GetProduct method")
 //			},
-//			GetProductByExternalIDFunc: func(ctx context.Context, scope tenancy.Scope, externalProductID string) (*billing.Product, error) {
+//			GetProductByExternalIDFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalProductID string) (*billing.Product, error) {
 //				panic("mock out the GetProductByExternalID method")
 //			},
-//			GetPurchaseFunc: func(ctx context.Context, scope tenancy.Scope, purchaseID string) (*billing.Purchase, error) {
+//			GetPurchaseFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, purchaseID string) (*billing.Purchase, error) {
 //				panic("mock out the GetPurchase method")
 //			},
-//			GetPurchaseByExternalIDFunc: func(ctx context.Context, scope tenancy.Scope, externalTransactionID string) (*billing.Purchase, error) {
+//			GetPurchaseByExternalIDFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalTransactionID string) (*billing.Purchase, error) {
 //				panic("mock out the GetPurchaseByExternalID method")
 //			},
-//			GetSubscriptionFunc: func(ctx context.Context, scope tenancy.Scope, subscriptionID string) (*billing.Subscription, error) {
+//			GetSubscriptionFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subscriptionID string) (*billing.Subscription, error) {
 //				panic("mock out the GetSubscription method")
 //			},
-//			GetSubscriptionByExternalIDFunc: func(ctx context.Context, scope tenancy.Scope, externalSubscriptionID string) (*billing.Subscription, error) {
+//			GetSubscriptionByExternalIDFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalSubscriptionID string) (*billing.Subscription, error) {
 //				panic("mock out the GetSubscriptionByExternalID method")
 //			},
-//			GetTransactionFunc: func(ctx context.Context, scope tenancy.Scope, transactionID string) (*billing.Transaction, error) {
+//			GetTransactionFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, transactionID string) (*billing.Transaction, error) {
 //				panic("mock out the GetTransaction method")
 //			},
-//			GetTransactionByExternalIDFunc: func(ctx context.Context, scope tenancy.Scope, externalTransactionID string) (*billing.Transaction, error) {
+//			GetTransactionByExternalIDFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalTransactionID string) (*billing.Transaction, error) {
 //				panic("mock out the GetTransactionByExternalID method")
 //			},
-//			ListCurrentSubscriptionsFunc: func(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
+//			ListCurrentSubscriptionsFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
 //				panic("mock out the ListCurrentSubscriptions method")
 //			},
-//			ListProductsFunc: func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Product], error) {
+//			ListProductsFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Product], error) {
 //				panic("mock out the ListProducts method")
 //			},
-//			ListPurchasesFunc: func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error) {
+//			ListPurchasesFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error) {
 //				panic("mock out the ListPurchases method")
 //			},
-//			ListPurchasesForAccountFunc: func(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error) {
+//			ListPurchasesForAccountFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error) {
 //				panic("mock out the ListPurchasesForAccount method")
 //			},
-//			ListSubscriptionsFunc: func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
+//			ListSubscriptionsFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
 //				panic("mock out the ListSubscriptions method")
 //			},
-//			ListSubscriptionsForAccountFunc: func(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
+//			ListSubscriptionsForAccountFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
 //				panic("mock out the ListSubscriptionsForAccount method")
 //			},
-//			ListTransactionsFunc: func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error) {
+//			ListTransactionsFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error) {
 //				panic("mock out the ListTransactions method")
 //			},
-//			ListTransactionsForAccountFunc: func(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error) {
+//			ListTransactionsForAccountFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error) {
 //				panic("mock out the ListTransactionsForAccount method")
 //			},
-//			ProductExistsFunc: func(ctx context.Context, scope tenancy.Scope, productID string) (bool, error) {
+//			ProductExistsFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, productID string) (bool, error) {
 //				panic("mock out the ProductExists method")
 //			},
-//			RecordTransactionFunc: func(ctx context.Context, scope tenancy.Scope, transaction *billing.Transaction) (*billing.Transaction, error) {
+//			RecordTransactionFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, transaction *billing.Transaction) (*billing.Transaction, error) {
 //				panic("mock out the RecordTransaction method")
 //			},
-//			RecordTransactionTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, transaction *billing.Transaction) (*billing.Transaction, error) {
-//				panic("mock out the RecordTransactionTx method")
-//			},
-//			SetSubscriptionStatusFunc: func(ctx context.Context, scope tenancy.Scope, subscriptionID string, status capitalism.SubscriptionStatus) error {
+//			SetSubscriptionStatusFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscriptionID string, status capitalism.SubscriptionStatus) error {
 //				panic("mock out the SetSubscriptionStatus method")
 //			},
-//			SetSubscriptionStatusTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, subscriptionID string, status capitalism.SubscriptionStatus) error {
-//				panic("mock out the SetSubscriptionStatusTx method")
-//			},
-//			SetTransactionStatusFunc: func(ctx context.Context, scope tenancy.Scope, transactionID string, status billing.TransactionStatus) error {
+//			SetTransactionStatusFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, transactionID string, status billing.TransactionStatus) error {
 //				panic("mock out the SetTransactionStatus method")
 //			},
-//			SetTransactionStatusTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, transactionID string, status billing.TransactionStatus) error {
-//				panic("mock out the SetTransactionStatusTx method")
-//			},
-//			UpdateProductFunc: func(ctx context.Context, scope tenancy.Scope, product *billing.Product) error {
+//			UpdateProductFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, product *billing.Product) error {
 //				panic("mock out the UpdateProduct method")
 //			},
-//			UpdateProductTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, product *billing.Product) error {
-//				panic("mock out the UpdateProductTx method")
-//			},
-//			UpdateSubscriptionFunc: func(ctx context.Context, scope tenancy.Scope, subscription *billing.Subscription) error {
+//			UpdateSubscriptionFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscription *billing.Subscription) error {
 //				panic("mock out the UpdateSubscription method")
-//			},
-//			UpdateSubscriptionTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, subscription *billing.Subscription) error {
-//				panic("mock out the UpdateSubscriptionTx method")
 //			},
 //		}
 //
@@ -162,133 +123,94 @@ var _ billing.Store = &StoreMock{}
 //	}
 type StoreMock struct {
 	// ArchiveProductFunc mocks the ArchiveProduct method.
-	ArchiveProductFunc func(ctx context.Context, scope tenancy.Scope, productID string) error
-
-	// ArchiveProductTxFunc mocks the ArchiveProductTx method.
-	ArchiveProductTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, productID string) error
+	ArchiveProductFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, productID string) error
 
 	// ArchivePurchaseFunc mocks the ArchivePurchase method.
-	ArchivePurchaseFunc func(ctx context.Context, scope tenancy.Scope, purchaseID string) error
-
-	// ArchivePurchaseTxFunc mocks the ArchivePurchaseTx method.
-	ArchivePurchaseTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, purchaseID string) error
+	ArchivePurchaseFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, purchaseID string) error
 
 	// ArchiveSubscriptionFunc mocks the ArchiveSubscription method.
-	ArchiveSubscriptionFunc func(ctx context.Context, scope tenancy.Scope, subscriptionID string) error
-
-	// ArchiveSubscriptionTxFunc mocks the ArchiveSubscriptionTx method.
-	ArchiveSubscriptionTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, subscriptionID string) error
+	ArchiveSubscriptionFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscriptionID string) error
 
 	// ArchiveTransactionFunc mocks the ArchiveTransaction method.
-	ArchiveTransactionFunc func(ctx context.Context, scope tenancy.Scope, transactionID string) error
-
-	// ArchiveTransactionTxFunc mocks the ArchiveTransactionTx method.
-	ArchiveTransactionTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, transactionID string) error
+	ArchiveTransactionFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, transactionID string) error
 
 	// CompletePurchaseFunc mocks the CompletePurchase method.
-	CompletePurchaseFunc func(ctx context.Context, scope tenancy.Scope, purchaseID string, at time.Time) error
-
-	// CompletePurchaseTxFunc mocks the CompletePurchaseTx method.
-	CompletePurchaseTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, purchaseID string, at time.Time) error
+	CompletePurchaseFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, purchaseID string, at time.Time) error
 
 	// CreateProductFunc mocks the CreateProduct method.
-	CreateProductFunc func(ctx context.Context, scope tenancy.Scope, product *billing.Product) (*billing.Product, error)
-
-	// CreateProductTxFunc mocks the CreateProductTx method.
-	CreateProductTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, product *billing.Product) (*billing.Product, error)
+	CreateProductFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, product *billing.Product) (*billing.Product, error)
 
 	// CreatePurchaseFunc mocks the CreatePurchase method.
-	CreatePurchaseFunc func(ctx context.Context, scope tenancy.Scope, purchase *billing.Purchase) (*billing.Purchase, error)
-
-	// CreatePurchaseTxFunc mocks the CreatePurchaseTx method.
-	CreatePurchaseTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, purchase *billing.Purchase) (*billing.Purchase, error)
+	CreatePurchaseFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, purchase *billing.Purchase) (*billing.Purchase, error)
 
 	// CreateSubscriptionFunc mocks the CreateSubscription method.
-	CreateSubscriptionFunc func(ctx context.Context, scope tenancy.Scope, subscription *billing.Subscription) (*billing.Subscription, error)
-
-	// CreateSubscriptionTxFunc mocks the CreateSubscriptionTx method.
-	CreateSubscriptionTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, subscription *billing.Subscription) (*billing.Subscription, error)
+	CreateSubscriptionFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscription *billing.Subscription) (*billing.Subscription, error)
 
 	// GetProductFunc mocks the GetProduct method.
-	GetProductFunc func(ctx context.Context, scope tenancy.Scope, productID string) (*billing.Product, error)
+	GetProductFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, productID string) (*billing.Product, error)
 
 	// GetProductByExternalIDFunc mocks the GetProductByExternalID method.
-	GetProductByExternalIDFunc func(ctx context.Context, scope tenancy.Scope, externalProductID string) (*billing.Product, error)
+	GetProductByExternalIDFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalProductID string) (*billing.Product, error)
 
 	// GetPurchaseFunc mocks the GetPurchase method.
-	GetPurchaseFunc func(ctx context.Context, scope tenancy.Scope, purchaseID string) (*billing.Purchase, error)
+	GetPurchaseFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, purchaseID string) (*billing.Purchase, error)
 
 	// GetPurchaseByExternalIDFunc mocks the GetPurchaseByExternalID method.
-	GetPurchaseByExternalIDFunc func(ctx context.Context, scope tenancy.Scope, externalTransactionID string) (*billing.Purchase, error)
+	GetPurchaseByExternalIDFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalTransactionID string) (*billing.Purchase, error)
 
 	// GetSubscriptionFunc mocks the GetSubscription method.
-	GetSubscriptionFunc func(ctx context.Context, scope tenancy.Scope, subscriptionID string) (*billing.Subscription, error)
+	GetSubscriptionFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subscriptionID string) (*billing.Subscription, error)
 
 	// GetSubscriptionByExternalIDFunc mocks the GetSubscriptionByExternalID method.
-	GetSubscriptionByExternalIDFunc func(ctx context.Context, scope tenancy.Scope, externalSubscriptionID string) (*billing.Subscription, error)
+	GetSubscriptionByExternalIDFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalSubscriptionID string) (*billing.Subscription, error)
 
 	// GetTransactionFunc mocks the GetTransaction method.
-	GetTransactionFunc func(ctx context.Context, scope tenancy.Scope, transactionID string) (*billing.Transaction, error)
+	GetTransactionFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, transactionID string) (*billing.Transaction, error)
 
 	// GetTransactionByExternalIDFunc mocks the GetTransactionByExternalID method.
-	GetTransactionByExternalIDFunc func(ctx context.Context, scope tenancy.Scope, externalTransactionID string) (*billing.Transaction, error)
+	GetTransactionByExternalIDFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalTransactionID string) (*billing.Transaction, error)
 
 	// ListCurrentSubscriptionsFunc mocks the ListCurrentSubscriptions method.
-	ListCurrentSubscriptionsFunc func(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error)
+	ListCurrentSubscriptionsFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error)
 
 	// ListProductsFunc mocks the ListProducts method.
-	ListProductsFunc func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Product], error)
+	ListProductsFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Product], error)
 
 	// ListPurchasesFunc mocks the ListPurchases method.
-	ListPurchasesFunc func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error)
+	ListPurchasesFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error)
 
 	// ListPurchasesForAccountFunc mocks the ListPurchasesForAccount method.
-	ListPurchasesForAccountFunc func(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error)
+	ListPurchasesForAccountFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error)
 
 	// ListSubscriptionsFunc mocks the ListSubscriptions method.
-	ListSubscriptionsFunc func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error)
+	ListSubscriptionsFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error)
 
 	// ListSubscriptionsForAccountFunc mocks the ListSubscriptionsForAccount method.
-	ListSubscriptionsForAccountFunc func(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error)
+	ListSubscriptionsForAccountFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error)
 
 	// ListTransactionsFunc mocks the ListTransactions method.
-	ListTransactionsFunc func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error)
+	ListTransactionsFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error)
 
 	// ListTransactionsForAccountFunc mocks the ListTransactionsForAccount method.
-	ListTransactionsForAccountFunc func(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error)
+	ListTransactionsForAccountFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error)
 
 	// ProductExistsFunc mocks the ProductExists method.
-	ProductExistsFunc func(ctx context.Context, scope tenancy.Scope, productID string) (bool, error)
+	ProductExistsFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, productID string) (bool, error)
 
 	// RecordTransactionFunc mocks the RecordTransaction method.
-	RecordTransactionFunc func(ctx context.Context, scope tenancy.Scope, transaction *billing.Transaction) (*billing.Transaction, error)
-
-	// RecordTransactionTxFunc mocks the RecordTransactionTx method.
-	RecordTransactionTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, transaction *billing.Transaction) (*billing.Transaction, error)
+	RecordTransactionFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, transaction *billing.Transaction) (*billing.Transaction, error)
 
 	// SetSubscriptionStatusFunc mocks the SetSubscriptionStatus method.
-	SetSubscriptionStatusFunc func(ctx context.Context, scope tenancy.Scope, subscriptionID string, status capitalism.SubscriptionStatus) error
-
-	// SetSubscriptionStatusTxFunc mocks the SetSubscriptionStatusTx method.
-	SetSubscriptionStatusTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, subscriptionID string, status capitalism.SubscriptionStatus) error
+	SetSubscriptionStatusFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscriptionID string, status capitalism.SubscriptionStatus) error
 
 	// SetTransactionStatusFunc mocks the SetTransactionStatus method.
-	SetTransactionStatusFunc func(ctx context.Context, scope tenancy.Scope, transactionID string, status billing.TransactionStatus) error
-
-	// SetTransactionStatusTxFunc mocks the SetTransactionStatusTx method.
-	SetTransactionStatusTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, transactionID string, status billing.TransactionStatus) error
+	SetTransactionStatusFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, transactionID string, status billing.TransactionStatus) error
 
 	// UpdateProductFunc mocks the UpdateProduct method.
-	UpdateProductFunc func(ctx context.Context, scope tenancy.Scope, product *billing.Product) error
-
-	// UpdateProductTxFunc mocks the UpdateProductTx method.
-	UpdateProductTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, product *billing.Product) error
+	UpdateProductFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, product *billing.Product) error
 
 	// UpdateSubscriptionFunc mocks the UpdateSubscription method.
-	UpdateSubscriptionFunc func(ctx context.Context, scope tenancy.Scope, subscription *billing.Subscription) error
-
-	// UpdateSubscriptionTxFunc mocks the UpdateSubscriptionTx method.
-	UpdateSubscriptionTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, subscription *billing.Subscription) error
+	UpdateSubscriptionFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscription *billing.Subscription) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -296,17 +218,8 @@ type StoreMock struct {
 		ArchiveProduct []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// ProductID is the productID argument value.
-			ProductID string
-		}
-		// ArchiveProductTx holds details about calls to the ArchiveProductTx method.
-		ArchiveProductTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// ProductID is the productID argument value.
@@ -316,17 +229,8 @@ type StoreMock struct {
 		ArchivePurchase []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// PurchaseID is the purchaseID argument value.
-			PurchaseID string
-		}
-		// ArchivePurchaseTx holds details about calls to the ArchivePurchaseTx method.
-		ArchivePurchaseTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// PurchaseID is the purchaseID argument value.
@@ -336,17 +240,8 @@ type StoreMock struct {
 		ArchiveSubscription []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// SubscriptionID is the subscriptionID argument value.
-			SubscriptionID string
-		}
-		// ArchiveSubscriptionTx holds details about calls to the ArchiveSubscriptionTx method.
-		ArchiveSubscriptionTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// SubscriptionID is the subscriptionID argument value.
@@ -356,17 +251,8 @@ type StoreMock struct {
 		ArchiveTransaction []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// TransactionID is the transactionID argument value.
-			TransactionID string
-		}
-		// ArchiveTransactionTx holds details about calls to the ArchiveTransactionTx method.
-		ArchiveTransactionTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// TransactionID is the transactionID argument value.
@@ -376,19 +262,8 @@ type StoreMock struct {
 		CompletePurchase []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// PurchaseID is the purchaseID argument value.
-			PurchaseID string
-			// At is the at argument value.
-			At time.Time
-		}
-		// CompletePurchaseTx holds details about calls to the CompletePurchaseTx method.
-		CompletePurchaseTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// PurchaseID is the purchaseID argument value.
@@ -400,17 +275,8 @@ type StoreMock struct {
 		CreateProduct []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// Product is the product argument value.
-			Product *billing.Product
-		}
-		// CreateProductTx holds details about calls to the CreateProductTx method.
-		CreateProductTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Product is the product argument value.
@@ -420,17 +286,8 @@ type StoreMock struct {
 		CreatePurchase []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// Purchase is the purchase argument value.
-			Purchase *billing.Purchase
-		}
-		// CreatePurchaseTx holds details about calls to the CreatePurchaseTx method.
-		CreatePurchaseTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Purchase is the purchase argument value.
@@ -440,17 +297,8 @@ type StoreMock struct {
 		CreateSubscription []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// Subscription is the subscription argument value.
-			Subscription *billing.Subscription
-		}
-		// CreateSubscriptionTx holds details about calls to the CreateSubscriptionTx method.
-		CreateSubscriptionTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Subscription is the subscription argument value.
@@ -460,6 +308,8 @@ type StoreMock struct {
 		GetProduct []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// ProductID is the productID argument value.
@@ -469,6 +319,8 @@ type StoreMock struct {
 		GetProductByExternalID []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// ExternalProductID is the externalProductID argument value.
@@ -478,6 +330,8 @@ type StoreMock struct {
 		GetPurchase []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// PurchaseID is the purchaseID argument value.
@@ -487,6 +341,8 @@ type StoreMock struct {
 		GetPurchaseByExternalID []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// ExternalTransactionID is the externalTransactionID argument value.
@@ -496,6 +352,8 @@ type StoreMock struct {
 		GetSubscription []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// SubscriptionID is the subscriptionID argument value.
@@ -505,6 +363,8 @@ type StoreMock struct {
 		GetSubscriptionByExternalID []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// ExternalSubscriptionID is the externalSubscriptionID argument value.
@@ -514,6 +374,8 @@ type StoreMock struct {
 		GetTransaction []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// TransactionID is the transactionID argument value.
@@ -523,6 +385,8 @@ type StoreMock struct {
 		GetTransactionByExternalID []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// ExternalTransactionID is the externalTransactionID argument value.
@@ -532,6 +396,8 @@ type StoreMock struct {
 		ListCurrentSubscriptions []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// AccountID is the accountID argument value.
@@ -543,6 +409,8 @@ type StoreMock struct {
 		ListProducts []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Filter is the filter argument value.
@@ -552,6 +420,8 @@ type StoreMock struct {
 		ListPurchases []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Filter is the filter argument value.
@@ -561,6 +431,8 @@ type StoreMock struct {
 		ListPurchasesForAccount []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// AccountID is the accountID argument value.
@@ -572,6 +444,8 @@ type StoreMock struct {
 		ListSubscriptions []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Filter is the filter argument value.
@@ -581,6 +455,8 @@ type StoreMock struct {
 		ListSubscriptionsForAccount []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// AccountID is the accountID argument value.
@@ -592,6 +468,8 @@ type StoreMock struct {
 		ListTransactions []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Filter is the filter argument value.
@@ -601,6 +479,8 @@ type StoreMock struct {
 		ListTransactionsForAccount []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// AccountID is the accountID argument value.
@@ -612,6 +492,8 @@ type StoreMock struct {
 		ProductExists []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// ProductID is the productID argument value.
@@ -621,17 +503,8 @@ type StoreMock struct {
 		RecordTransaction []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// Transaction is the transaction argument value.
-			Transaction *billing.Transaction
-		}
-		// RecordTransactionTx holds details about calls to the RecordTransactionTx method.
-		RecordTransactionTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Transaction is the transaction argument value.
@@ -641,19 +514,8 @@ type StoreMock struct {
 		SetSubscriptionStatus []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// SubscriptionID is the subscriptionID argument value.
-			SubscriptionID string
-			// Status is the status argument value.
-			Status capitalism.SubscriptionStatus
-		}
-		// SetSubscriptionStatusTx holds details about calls to the SetSubscriptionStatusTx method.
-		SetSubscriptionStatusTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// SubscriptionID is the subscriptionID argument value.
@@ -665,19 +527,8 @@ type StoreMock struct {
 		SetTransactionStatus []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// TransactionID is the transactionID argument value.
-			TransactionID string
-			// Status is the status argument value.
-			Status billing.TransactionStatus
-		}
-		// SetTransactionStatusTx holds details about calls to the SetTransactionStatusTx method.
-		SetTransactionStatusTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// TransactionID is the transactionID argument value.
@@ -689,17 +540,8 @@ type StoreMock struct {
 		UpdateProduct []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// Product is the product argument value.
-			Product *billing.Product
-		}
-		// UpdateProductTx holds details about calls to the UpdateProductTx method.
-		UpdateProductTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Product is the product argument value.
@@ -709,17 +551,8 @@ type StoreMock struct {
 		UpdateSubscription []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// Subscription is the subscription argument value.
-			Subscription *billing.Subscription
-		}
-		// UpdateSubscriptionTx holds details about calls to the UpdateSubscriptionTx method.
-		UpdateSubscriptionTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Subscription is the subscription argument value.
@@ -727,21 +560,13 @@ type StoreMock struct {
 		}
 	}
 	lockArchiveProduct              sync.RWMutex
-	lockArchiveProductTx            sync.RWMutex
 	lockArchivePurchase             sync.RWMutex
-	lockArchivePurchaseTx           sync.RWMutex
 	lockArchiveSubscription         sync.RWMutex
-	lockArchiveSubscriptionTx       sync.RWMutex
 	lockArchiveTransaction          sync.RWMutex
-	lockArchiveTransactionTx        sync.RWMutex
 	lockCompletePurchase            sync.RWMutex
-	lockCompletePurchaseTx          sync.RWMutex
 	lockCreateProduct               sync.RWMutex
-	lockCreateProductTx             sync.RWMutex
 	lockCreatePurchase              sync.RWMutex
-	lockCreatePurchaseTx            sync.RWMutex
 	lockCreateSubscription          sync.RWMutex
-	lockCreateSubscriptionTx        sync.RWMutex
 	lockGetProduct                  sync.RWMutex
 	lockGetProductByExternalID      sync.RWMutex
 	lockGetPurchase                 sync.RWMutex
@@ -760,35 +585,32 @@ type StoreMock struct {
 	lockListTransactionsForAccount  sync.RWMutex
 	lockProductExists               sync.RWMutex
 	lockRecordTransaction           sync.RWMutex
-	lockRecordTransactionTx         sync.RWMutex
 	lockSetSubscriptionStatus       sync.RWMutex
-	lockSetSubscriptionStatusTx     sync.RWMutex
 	lockSetTransactionStatus        sync.RWMutex
-	lockSetTransactionStatusTx      sync.RWMutex
 	lockUpdateProduct               sync.RWMutex
-	lockUpdateProductTx             sync.RWMutex
 	lockUpdateSubscription          sync.RWMutex
-	lockUpdateSubscriptionTx        sync.RWMutex
 }
 
 // ArchiveProduct calls ArchiveProductFunc.
-func (mock *StoreMock) ArchiveProduct(ctx context.Context, scope tenancy.Scope, productID string) error {
+func (mock *StoreMock) ArchiveProduct(ctx context.Context, tx database.Tx, scope tenancy.Scope, productID string) error {
 	if mock.ArchiveProductFunc == nil {
 		panic("StoreMock.ArchiveProductFunc: method is nil but Store.ArchiveProduct was just called")
 	}
 	callInfo := struct {
 		Ctx       context.Context
+		Tx        database.Tx
 		Scope     tenancy.Scope
 		ProductID string
 	}{
 		Ctx:       ctx,
+		Tx:        tx,
 		Scope:     scope,
 		ProductID: productID,
 	}
 	mock.lockArchiveProduct.Lock()
 	mock.calls.ArchiveProduct = append(mock.calls.ArchiveProduct, callInfo)
 	mock.lockArchiveProduct.Unlock()
-	return mock.ArchiveProductFunc(ctx, scope, productID)
+	return mock.ArchiveProductFunc(ctx, tx, scope, productID)
 }
 
 // ArchiveProductCalls gets all the calls that were made to ArchiveProduct.
@@ -797,11 +619,13 @@ func (mock *StoreMock) ArchiveProduct(ctx context.Context, scope tenancy.Scope, 
 //	len(mockedStore.ArchiveProductCalls())
 func (mock *StoreMock) ArchiveProductCalls() []struct {
 	Ctx       context.Context
+	Tx        database.Tx
 	Scope     tenancy.Scope
 	ProductID string
 } {
 	var calls []struct {
 		Ctx       context.Context
+		Tx        database.Tx
 		Scope     tenancy.Scope
 		ProductID string
 	}
@@ -811,68 +635,26 @@ func (mock *StoreMock) ArchiveProductCalls() []struct {
 	return calls
 }
 
-// ArchiveProductTx calls ArchiveProductTxFunc.
-func (mock *StoreMock) ArchiveProductTx(ctx context.Context, q database.Tx, scope tenancy.Scope, productID string) error {
-	if mock.ArchiveProductTxFunc == nil {
-		panic("StoreMock.ArchiveProductTxFunc: method is nil but Store.ArchiveProductTx was just called")
-	}
-	callInfo := struct {
-		Ctx       context.Context
-		Q         database.Tx
-		Scope     tenancy.Scope
-		ProductID string
-	}{
-		Ctx:       ctx,
-		Q:         q,
-		Scope:     scope,
-		ProductID: productID,
-	}
-	mock.lockArchiveProductTx.Lock()
-	mock.calls.ArchiveProductTx = append(mock.calls.ArchiveProductTx, callInfo)
-	mock.lockArchiveProductTx.Unlock()
-	return mock.ArchiveProductTxFunc(ctx, q, scope, productID)
-}
-
-// ArchiveProductTxCalls gets all the calls that were made to ArchiveProductTx.
-// Check the length with:
-//
-//	len(mockedStore.ArchiveProductTxCalls())
-func (mock *StoreMock) ArchiveProductTxCalls() []struct {
-	Ctx       context.Context
-	Q         database.Tx
-	Scope     tenancy.Scope
-	ProductID string
-} {
-	var calls []struct {
-		Ctx       context.Context
-		Q         database.Tx
-		Scope     tenancy.Scope
-		ProductID string
-	}
-	mock.lockArchiveProductTx.RLock()
-	calls = mock.calls.ArchiveProductTx
-	mock.lockArchiveProductTx.RUnlock()
-	return calls
-}
-
 // ArchivePurchase calls ArchivePurchaseFunc.
-func (mock *StoreMock) ArchivePurchase(ctx context.Context, scope tenancy.Scope, purchaseID string) error {
+func (mock *StoreMock) ArchivePurchase(ctx context.Context, tx database.Tx, scope tenancy.Scope, purchaseID string) error {
 	if mock.ArchivePurchaseFunc == nil {
 		panic("StoreMock.ArchivePurchaseFunc: method is nil but Store.ArchivePurchase was just called")
 	}
 	callInfo := struct {
 		Ctx        context.Context
+		Tx         database.Tx
 		Scope      tenancy.Scope
 		PurchaseID string
 	}{
 		Ctx:        ctx,
+		Tx:         tx,
 		Scope:      scope,
 		PurchaseID: purchaseID,
 	}
 	mock.lockArchivePurchase.Lock()
 	mock.calls.ArchivePurchase = append(mock.calls.ArchivePurchase, callInfo)
 	mock.lockArchivePurchase.Unlock()
-	return mock.ArchivePurchaseFunc(ctx, scope, purchaseID)
+	return mock.ArchivePurchaseFunc(ctx, tx, scope, purchaseID)
 }
 
 // ArchivePurchaseCalls gets all the calls that were made to ArchivePurchase.
@@ -881,11 +663,13 @@ func (mock *StoreMock) ArchivePurchase(ctx context.Context, scope tenancy.Scope,
 //	len(mockedStore.ArchivePurchaseCalls())
 func (mock *StoreMock) ArchivePurchaseCalls() []struct {
 	Ctx        context.Context
+	Tx         database.Tx
 	Scope      tenancy.Scope
 	PurchaseID string
 } {
 	var calls []struct {
 		Ctx        context.Context
+		Tx         database.Tx
 		Scope      tenancy.Scope
 		PurchaseID string
 	}
@@ -895,68 +679,26 @@ func (mock *StoreMock) ArchivePurchaseCalls() []struct {
 	return calls
 }
 
-// ArchivePurchaseTx calls ArchivePurchaseTxFunc.
-func (mock *StoreMock) ArchivePurchaseTx(ctx context.Context, q database.Tx, scope tenancy.Scope, purchaseID string) error {
-	if mock.ArchivePurchaseTxFunc == nil {
-		panic("StoreMock.ArchivePurchaseTxFunc: method is nil but Store.ArchivePurchaseTx was just called")
-	}
-	callInfo := struct {
-		Ctx        context.Context
-		Q          database.Tx
-		Scope      tenancy.Scope
-		PurchaseID string
-	}{
-		Ctx:        ctx,
-		Q:          q,
-		Scope:      scope,
-		PurchaseID: purchaseID,
-	}
-	mock.lockArchivePurchaseTx.Lock()
-	mock.calls.ArchivePurchaseTx = append(mock.calls.ArchivePurchaseTx, callInfo)
-	mock.lockArchivePurchaseTx.Unlock()
-	return mock.ArchivePurchaseTxFunc(ctx, q, scope, purchaseID)
-}
-
-// ArchivePurchaseTxCalls gets all the calls that were made to ArchivePurchaseTx.
-// Check the length with:
-//
-//	len(mockedStore.ArchivePurchaseTxCalls())
-func (mock *StoreMock) ArchivePurchaseTxCalls() []struct {
-	Ctx        context.Context
-	Q          database.Tx
-	Scope      tenancy.Scope
-	PurchaseID string
-} {
-	var calls []struct {
-		Ctx        context.Context
-		Q          database.Tx
-		Scope      tenancy.Scope
-		PurchaseID string
-	}
-	mock.lockArchivePurchaseTx.RLock()
-	calls = mock.calls.ArchivePurchaseTx
-	mock.lockArchivePurchaseTx.RUnlock()
-	return calls
-}
-
 // ArchiveSubscription calls ArchiveSubscriptionFunc.
-func (mock *StoreMock) ArchiveSubscription(ctx context.Context, scope tenancy.Scope, subscriptionID string) error {
+func (mock *StoreMock) ArchiveSubscription(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscriptionID string) error {
 	if mock.ArchiveSubscriptionFunc == nil {
 		panic("StoreMock.ArchiveSubscriptionFunc: method is nil but Store.ArchiveSubscription was just called")
 	}
 	callInfo := struct {
 		Ctx            context.Context
+		Tx             database.Tx
 		Scope          tenancy.Scope
 		SubscriptionID string
 	}{
 		Ctx:            ctx,
+		Tx:             tx,
 		Scope:          scope,
 		SubscriptionID: subscriptionID,
 	}
 	mock.lockArchiveSubscription.Lock()
 	mock.calls.ArchiveSubscription = append(mock.calls.ArchiveSubscription, callInfo)
 	mock.lockArchiveSubscription.Unlock()
-	return mock.ArchiveSubscriptionFunc(ctx, scope, subscriptionID)
+	return mock.ArchiveSubscriptionFunc(ctx, tx, scope, subscriptionID)
 }
 
 // ArchiveSubscriptionCalls gets all the calls that were made to ArchiveSubscription.
@@ -965,11 +707,13 @@ func (mock *StoreMock) ArchiveSubscription(ctx context.Context, scope tenancy.Sc
 //	len(mockedStore.ArchiveSubscriptionCalls())
 func (mock *StoreMock) ArchiveSubscriptionCalls() []struct {
 	Ctx            context.Context
+	Tx             database.Tx
 	Scope          tenancy.Scope
 	SubscriptionID string
 } {
 	var calls []struct {
 		Ctx            context.Context
+		Tx             database.Tx
 		Scope          tenancy.Scope
 		SubscriptionID string
 	}
@@ -979,68 +723,26 @@ func (mock *StoreMock) ArchiveSubscriptionCalls() []struct {
 	return calls
 }
 
-// ArchiveSubscriptionTx calls ArchiveSubscriptionTxFunc.
-func (mock *StoreMock) ArchiveSubscriptionTx(ctx context.Context, q database.Tx, scope tenancy.Scope, subscriptionID string) error {
-	if mock.ArchiveSubscriptionTxFunc == nil {
-		panic("StoreMock.ArchiveSubscriptionTxFunc: method is nil but Store.ArchiveSubscriptionTx was just called")
-	}
-	callInfo := struct {
-		Ctx            context.Context
-		Q              database.Tx
-		Scope          tenancy.Scope
-		SubscriptionID string
-	}{
-		Ctx:            ctx,
-		Q:              q,
-		Scope:          scope,
-		SubscriptionID: subscriptionID,
-	}
-	mock.lockArchiveSubscriptionTx.Lock()
-	mock.calls.ArchiveSubscriptionTx = append(mock.calls.ArchiveSubscriptionTx, callInfo)
-	mock.lockArchiveSubscriptionTx.Unlock()
-	return mock.ArchiveSubscriptionTxFunc(ctx, q, scope, subscriptionID)
-}
-
-// ArchiveSubscriptionTxCalls gets all the calls that were made to ArchiveSubscriptionTx.
-// Check the length with:
-//
-//	len(mockedStore.ArchiveSubscriptionTxCalls())
-func (mock *StoreMock) ArchiveSubscriptionTxCalls() []struct {
-	Ctx            context.Context
-	Q              database.Tx
-	Scope          tenancy.Scope
-	SubscriptionID string
-} {
-	var calls []struct {
-		Ctx            context.Context
-		Q              database.Tx
-		Scope          tenancy.Scope
-		SubscriptionID string
-	}
-	mock.lockArchiveSubscriptionTx.RLock()
-	calls = mock.calls.ArchiveSubscriptionTx
-	mock.lockArchiveSubscriptionTx.RUnlock()
-	return calls
-}
-
 // ArchiveTransaction calls ArchiveTransactionFunc.
-func (mock *StoreMock) ArchiveTransaction(ctx context.Context, scope tenancy.Scope, transactionID string) error {
+func (mock *StoreMock) ArchiveTransaction(ctx context.Context, tx database.Tx, scope tenancy.Scope, transactionID string) error {
 	if mock.ArchiveTransactionFunc == nil {
 		panic("StoreMock.ArchiveTransactionFunc: method is nil but Store.ArchiveTransaction was just called")
 	}
 	callInfo := struct {
 		Ctx           context.Context
+		Tx            database.Tx
 		Scope         tenancy.Scope
 		TransactionID string
 	}{
 		Ctx:           ctx,
+		Tx:            tx,
 		Scope:         scope,
 		TransactionID: transactionID,
 	}
 	mock.lockArchiveTransaction.Lock()
 	mock.calls.ArchiveTransaction = append(mock.calls.ArchiveTransaction, callInfo)
 	mock.lockArchiveTransaction.Unlock()
-	return mock.ArchiveTransactionFunc(ctx, scope, transactionID)
+	return mock.ArchiveTransactionFunc(ctx, tx, scope, transactionID)
 }
 
 // ArchiveTransactionCalls gets all the calls that were made to ArchiveTransaction.
@@ -1049,11 +751,13 @@ func (mock *StoreMock) ArchiveTransaction(ctx context.Context, scope tenancy.Sco
 //	len(mockedStore.ArchiveTransactionCalls())
 func (mock *StoreMock) ArchiveTransactionCalls() []struct {
 	Ctx           context.Context
+	Tx            database.Tx
 	Scope         tenancy.Scope
 	TransactionID string
 } {
 	var calls []struct {
 		Ctx           context.Context
+		Tx            database.Tx
 		Scope         tenancy.Scope
 		TransactionID string
 	}
@@ -1063,62 +767,20 @@ func (mock *StoreMock) ArchiveTransactionCalls() []struct {
 	return calls
 }
 
-// ArchiveTransactionTx calls ArchiveTransactionTxFunc.
-func (mock *StoreMock) ArchiveTransactionTx(ctx context.Context, q database.Tx, scope tenancy.Scope, transactionID string) error {
-	if mock.ArchiveTransactionTxFunc == nil {
-		panic("StoreMock.ArchiveTransactionTxFunc: method is nil but Store.ArchiveTransactionTx was just called")
-	}
-	callInfo := struct {
-		Ctx           context.Context
-		Q             database.Tx
-		Scope         tenancy.Scope
-		TransactionID string
-	}{
-		Ctx:           ctx,
-		Q:             q,
-		Scope:         scope,
-		TransactionID: transactionID,
-	}
-	mock.lockArchiveTransactionTx.Lock()
-	mock.calls.ArchiveTransactionTx = append(mock.calls.ArchiveTransactionTx, callInfo)
-	mock.lockArchiveTransactionTx.Unlock()
-	return mock.ArchiveTransactionTxFunc(ctx, q, scope, transactionID)
-}
-
-// ArchiveTransactionTxCalls gets all the calls that were made to ArchiveTransactionTx.
-// Check the length with:
-//
-//	len(mockedStore.ArchiveTransactionTxCalls())
-func (mock *StoreMock) ArchiveTransactionTxCalls() []struct {
-	Ctx           context.Context
-	Q             database.Tx
-	Scope         tenancy.Scope
-	TransactionID string
-} {
-	var calls []struct {
-		Ctx           context.Context
-		Q             database.Tx
-		Scope         tenancy.Scope
-		TransactionID string
-	}
-	mock.lockArchiveTransactionTx.RLock()
-	calls = mock.calls.ArchiveTransactionTx
-	mock.lockArchiveTransactionTx.RUnlock()
-	return calls
-}
-
 // CompletePurchase calls CompletePurchaseFunc.
-func (mock *StoreMock) CompletePurchase(ctx context.Context, scope tenancy.Scope, purchaseID string, at time.Time) error {
+func (mock *StoreMock) CompletePurchase(ctx context.Context, tx database.Tx, scope tenancy.Scope, purchaseID string, at time.Time) error {
 	if mock.CompletePurchaseFunc == nil {
 		panic("StoreMock.CompletePurchaseFunc: method is nil but Store.CompletePurchase was just called")
 	}
 	callInfo := struct {
 		Ctx        context.Context
+		Tx         database.Tx
 		Scope      tenancy.Scope
 		PurchaseID string
 		At         time.Time
 	}{
 		Ctx:        ctx,
+		Tx:         tx,
 		Scope:      scope,
 		PurchaseID: purchaseID,
 		At:         at,
@@ -1126,7 +788,7 @@ func (mock *StoreMock) CompletePurchase(ctx context.Context, scope tenancy.Scope
 	mock.lockCompletePurchase.Lock()
 	mock.calls.CompletePurchase = append(mock.calls.CompletePurchase, callInfo)
 	mock.lockCompletePurchase.Unlock()
-	return mock.CompletePurchaseFunc(ctx, scope, purchaseID, at)
+	return mock.CompletePurchaseFunc(ctx, tx, scope, purchaseID, at)
 }
 
 // CompletePurchaseCalls gets all the calls that were made to CompletePurchase.
@@ -1135,12 +797,14 @@ func (mock *StoreMock) CompletePurchase(ctx context.Context, scope tenancy.Scope
 //	len(mockedStore.CompletePurchaseCalls())
 func (mock *StoreMock) CompletePurchaseCalls() []struct {
 	Ctx        context.Context
+	Tx         database.Tx
 	Scope      tenancy.Scope
 	PurchaseID string
 	At         time.Time
 } {
 	var calls []struct {
 		Ctx        context.Context
+		Tx         database.Tx
 		Scope      tenancy.Scope
 		PurchaseID string
 		At         time.Time
@@ -1151,72 +815,26 @@ func (mock *StoreMock) CompletePurchaseCalls() []struct {
 	return calls
 }
 
-// CompletePurchaseTx calls CompletePurchaseTxFunc.
-func (mock *StoreMock) CompletePurchaseTx(ctx context.Context, q database.Tx, scope tenancy.Scope, purchaseID string, at time.Time) error {
-	if mock.CompletePurchaseTxFunc == nil {
-		panic("StoreMock.CompletePurchaseTxFunc: method is nil but Store.CompletePurchaseTx was just called")
-	}
-	callInfo := struct {
-		Ctx        context.Context
-		Q          database.Tx
-		Scope      tenancy.Scope
-		PurchaseID string
-		At         time.Time
-	}{
-		Ctx:        ctx,
-		Q:          q,
-		Scope:      scope,
-		PurchaseID: purchaseID,
-		At:         at,
-	}
-	mock.lockCompletePurchaseTx.Lock()
-	mock.calls.CompletePurchaseTx = append(mock.calls.CompletePurchaseTx, callInfo)
-	mock.lockCompletePurchaseTx.Unlock()
-	return mock.CompletePurchaseTxFunc(ctx, q, scope, purchaseID, at)
-}
-
-// CompletePurchaseTxCalls gets all the calls that were made to CompletePurchaseTx.
-// Check the length with:
-//
-//	len(mockedStore.CompletePurchaseTxCalls())
-func (mock *StoreMock) CompletePurchaseTxCalls() []struct {
-	Ctx        context.Context
-	Q          database.Tx
-	Scope      tenancy.Scope
-	PurchaseID string
-	At         time.Time
-} {
-	var calls []struct {
-		Ctx        context.Context
-		Q          database.Tx
-		Scope      tenancy.Scope
-		PurchaseID string
-		At         time.Time
-	}
-	mock.lockCompletePurchaseTx.RLock()
-	calls = mock.calls.CompletePurchaseTx
-	mock.lockCompletePurchaseTx.RUnlock()
-	return calls
-}
-
 // CreateProduct calls CreateProductFunc.
-func (mock *StoreMock) CreateProduct(ctx context.Context, scope tenancy.Scope, product *billing.Product) (*billing.Product, error) {
+func (mock *StoreMock) CreateProduct(ctx context.Context, tx database.Tx, scope tenancy.Scope, product *billing.Product) (*billing.Product, error) {
 	if mock.CreateProductFunc == nil {
 		panic("StoreMock.CreateProductFunc: method is nil but Store.CreateProduct was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
+		Tx      database.Tx
 		Scope   tenancy.Scope
 		Product *billing.Product
 	}{
 		Ctx:     ctx,
+		Tx:      tx,
 		Scope:   scope,
 		Product: product,
 	}
 	mock.lockCreateProduct.Lock()
 	mock.calls.CreateProduct = append(mock.calls.CreateProduct, callInfo)
 	mock.lockCreateProduct.Unlock()
-	return mock.CreateProductFunc(ctx, scope, product)
+	return mock.CreateProductFunc(ctx, tx, scope, product)
 }
 
 // CreateProductCalls gets all the calls that were made to CreateProduct.
@@ -1225,11 +843,13 @@ func (mock *StoreMock) CreateProduct(ctx context.Context, scope tenancy.Scope, p
 //	len(mockedStore.CreateProductCalls())
 func (mock *StoreMock) CreateProductCalls() []struct {
 	Ctx     context.Context
+	Tx      database.Tx
 	Scope   tenancy.Scope
 	Product *billing.Product
 } {
 	var calls []struct {
 		Ctx     context.Context
+		Tx      database.Tx
 		Scope   tenancy.Scope
 		Product *billing.Product
 	}
@@ -1239,68 +859,26 @@ func (mock *StoreMock) CreateProductCalls() []struct {
 	return calls
 }
 
-// CreateProductTx calls CreateProductTxFunc.
-func (mock *StoreMock) CreateProductTx(ctx context.Context, q database.Tx, scope tenancy.Scope, product *billing.Product) (*billing.Product, error) {
-	if mock.CreateProductTxFunc == nil {
-		panic("StoreMock.CreateProductTxFunc: method is nil but Store.CreateProductTx was just called")
-	}
-	callInfo := struct {
-		Ctx     context.Context
-		Q       database.Tx
-		Scope   tenancy.Scope
-		Product *billing.Product
-	}{
-		Ctx:     ctx,
-		Q:       q,
-		Scope:   scope,
-		Product: product,
-	}
-	mock.lockCreateProductTx.Lock()
-	mock.calls.CreateProductTx = append(mock.calls.CreateProductTx, callInfo)
-	mock.lockCreateProductTx.Unlock()
-	return mock.CreateProductTxFunc(ctx, q, scope, product)
-}
-
-// CreateProductTxCalls gets all the calls that were made to CreateProductTx.
-// Check the length with:
-//
-//	len(mockedStore.CreateProductTxCalls())
-func (mock *StoreMock) CreateProductTxCalls() []struct {
-	Ctx     context.Context
-	Q       database.Tx
-	Scope   tenancy.Scope
-	Product *billing.Product
-} {
-	var calls []struct {
-		Ctx     context.Context
-		Q       database.Tx
-		Scope   tenancy.Scope
-		Product *billing.Product
-	}
-	mock.lockCreateProductTx.RLock()
-	calls = mock.calls.CreateProductTx
-	mock.lockCreateProductTx.RUnlock()
-	return calls
-}
-
 // CreatePurchase calls CreatePurchaseFunc.
-func (mock *StoreMock) CreatePurchase(ctx context.Context, scope tenancy.Scope, purchase *billing.Purchase) (*billing.Purchase, error) {
+func (mock *StoreMock) CreatePurchase(ctx context.Context, tx database.Tx, scope tenancy.Scope, purchase *billing.Purchase) (*billing.Purchase, error) {
 	if mock.CreatePurchaseFunc == nil {
 		panic("StoreMock.CreatePurchaseFunc: method is nil but Store.CreatePurchase was just called")
 	}
 	callInfo := struct {
 		Ctx      context.Context
+		Tx       database.Tx
 		Scope    tenancy.Scope
 		Purchase *billing.Purchase
 	}{
 		Ctx:      ctx,
+		Tx:       tx,
 		Scope:    scope,
 		Purchase: purchase,
 	}
 	mock.lockCreatePurchase.Lock()
 	mock.calls.CreatePurchase = append(mock.calls.CreatePurchase, callInfo)
 	mock.lockCreatePurchase.Unlock()
-	return mock.CreatePurchaseFunc(ctx, scope, purchase)
+	return mock.CreatePurchaseFunc(ctx, tx, scope, purchase)
 }
 
 // CreatePurchaseCalls gets all the calls that were made to CreatePurchase.
@@ -1309,11 +887,13 @@ func (mock *StoreMock) CreatePurchase(ctx context.Context, scope tenancy.Scope, 
 //	len(mockedStore.CreatePurchaseCalls())
 func (mock *StoreMock) CreatePurchaseCalls() []struct {
 	Ctx      context.Context
+	Tx       database.Tx
 	Scope    tenancy.Scope
 	Purchase *billing.Purchase
 } {
 	var calls []struct {
 		Ctx      context.Context
+		Tx       database.Tx
 		Scope    tenancy.Scope
 		Purchase *billing.Purchase
 	}
@@ -1323,68 +903,26 @@ func (mock *StoreMock) CreatePurchaseCalls() []struct {
 	return calls
 }
 
-// CreatePurchaseTx calls CreatePurchaseTxFunc.
-func (mock *StoreMock) CreatePurchaseTx(ctx context.Context, q database.Tx, scope tenancy.Scope, purchase *billing.Purchase) (*billing.Purchase, error) {
-	if mock.CreatePurchaseTxFunc == nil {
-		panic("StoreMock.CreatePurchaseTxFunc: method is nil but Store.CreatePurchaseTx was just called")
-	}
-	callInfo := struct {
-		Ctx      context.Context
-		Q        database.Tx
-		Scope    tenancy.Scope
-		Purchase *billing.Purchase
-	}{
-		Ctx:      ctx,
-		Q:        q,
-		Scope:    scope,
-		Purchase: purchase,
-	}
-	mock.lockCreatePurchaseTx.Lock()
-	mock.calls.CreatePurchaseTx = append(mock.calls.CreatePurchaseTx, callInfo)
-	mock.lockCreatePurchaseTx.Unlock()
-	return mock.CreatePurchaseTxFunc(ctx, q, scope, purchase)
-}
-
-// CreatePurchaseTxCalls gets all the calls that were made to CreatePurchaseTx.
-// Check the length with:
-//
-//	len(mockedStore.CreatePurchaseTxCalls())
-func (mock *StoreMock) CreatePurchaseTxCalls() []struct {
-	Ctx      context.Context
-	Q        database.Tx
-	Scope    tenancy.Scope
-	Purchase *billing.Purchase
-} {
-	var calls []struct {
-		Ctx      context.Context
-		Q        database.Tx
-		Scope    tenancy.Scope
-		Purchase *billing.Purchase
-	}
-	mock.lockCreatePurchaseTx.RLock()
-	calls = mock.calls.CreatePurchaseTx
-	mock.lockCreatePurchaseTx.RUnlock()
-	return calls
-}
-
 // CreateSubscription calls CreateSubscriptionFunc.
-func (mock *StoreMock) CreateSubscription(ctx context.Context, scope tenancy.Scope, subscription *billing.Subscription) (*billing.Subscription, error) {
+func (mock *StoreMock) CreateSubscription(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscription *billing.Subscription) (*billing.Subscription, error) {
 	if mock.CreateSubscriptionFunc == nil {
 		panic("StoreMock.CreateSubscriptionFunc: method is nil but Store.CreateSubscription was just called")
 	}
 	callInfo := struct {
 		Ctx          context.Context
+		Tx           database.Tx
 		Scope        tenancy.Scope
 		Subscription *billing.Subscription
 	}{
 		Ctx:          ctx,
+		Tx:           tx,
 		Scope:        scope,
 		Subscription: subscription,
 	}
 	mock.lockCreateSubscription.Lock()
 	mock.calls.CreateSubscription = append(mock.calls.CreateSubscription, callInfo)
 	mock.lockCreateSubscription.Unlock()
-	return mock.CreateSubscriptionFunc(ctx, scope, subscription)
+	return mock.CreateSubscriptionFunc(ctx, tx, scope, subscription)
 }
 
 // CreateSubscriptionCalls gets all the calls that were made to CreateSubscription.
@@ -1393,11 +931,13 @@ func (mock *StoreMock) CreateSubscription(ctx context.Context, scope tenancy.Sco
 //	len(mockedStore.CreateSubscriptionCalls())
 func (mock *StoreMock) CreateSubscriptionCalls() []struct {
 	Ctx          context.Context
+	Tx           database.Tx
 	Scope        tenancy.Scope
 	Subscription *billing.Subscription
 } {
 	var calls []struct {
 		Ctx          context.Context
+		Tx           database.Tx
 		Scope        tenancy.Scope
 		Subscription *billing.Subscription
 	}
@@ -1407,68 +947,26 @@ func (mock *StoreMock) CreateSubscriptionCalls() []struct {
 	return calls
 }
 
-// CreateSubscriptionTx calls CreateSubscriptionTxFunc.
-func (mock *StoreMock) CreateSubscriptionTx(ctx context.Context, q database.Tx, scope tenancy.Scope, subscription *billing.Subscription) (*billing.Subscription, error) {
-	if mock.CreateSubscriptionTxFunc == nil {
-		panic("StoreMock.CreateSubscriptionTxFunc: method is nil but Store.CreateSubscriptionTx was just called")
-	}
-	callInfo := struct {
-		Ctx          context.Context
-		Q            database.Tx
-		Scope        tenancy.Scope
-		Subscription *billing.Subscription
-	}{
-		Ctx:          ctx,
-		Q:            q,
-		Scope:        scope,
-		Subscription: subscription,
-	}
-	mock.lockCreateSubscriptionTx.Lock()
-	mock.calls.CreateSubscriptionTx = append(mock.calls.CreateSubscriptionTx, callInfo)
-	mock.lockCreateSubscriptionTx.Unlock()
-	return mock.CreateSubscriptionTxFunc(ctx, q, scope, subscription)
-}
-
-// CreateSubscriptionTxCalls gets all the calls that were made to CreateSubscriptionTx.
-// Check the length with:
-//
-//	len(mockedStore.CreateSubscriptionTxCalls())
-func (mock *StoreMock) CreateSubscriptionTxCalls() []struct {
-	Ctx          context.Context
-	Q            database.Tx
-	Scope        tenancy.Scope
-	Subscription *billing.Subscription
-} {
-	var calls []struct {
-		Ctx          context.Context
-		Q            database.Tx
-		Scope        tenancy.Scope
-		Subscription *billing.Subscription
-	}
-	mock.lockCreateSubscriptionTx.RLock()
-	calls = mock.calls.CreateSubscriptionTx
-	mock.lockCreateSubscriptionTx.RUnlock()
-	return calls
-}
-
 // GetProduct calls GetProductFunc.
-func (mock *StoreMock) GetProduct(ctx context.Context, scope tenancy.Scope, productID string) (*billing.Product, error) {
+func (mock *StoreMock) GetProduct(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, productID string) (*billing.Product, error) {
 	if mock.GetProductFunc == nil {
 		panic("StoreMock.GetProductFunc: method is nil but Store.GetProduct was just called")
 	}
 	callInfo := struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		ProductID string
 	}{
 		Ctx:       ctx,
+		Q:         q,
 		Scope:     scope,
 		ProductID: productID,
 	}
 	mock.lockGetProduct.Lock()
 	mock.calls.GetProduct = append(mock.calls.GetProduct, callInfo)
 	mock.lockGetProduct.Unlock()
-	return mock.GetProductFunc(ctx, scope, productID)
+	return mock.GetProductFunc(ctx, q, scope, productID)
 }
 
 // GetProductCalls gets all the calls that were made to GetProduct.
@@ -1477,11 +975,13 @@ func (mock *StoreMock) GetProduct(ctx context.Context, scope tenancy.Scope, prod
 //	len(mockedStore.GetProductCalls())
 func (mock *StoreMock) GetProductCalls() []struct {
 	Ctx       context.Context
+	Q         database.SQLQueryExecutor
 	Scope     tenancy.Scope
 	ProductID string
 } {
 	var calls []struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		ProductID string
 	}
@@ -1492,23 +992,25 @@ func (mock *StoreMock) GetProductCalls() []struct {
 }
 
 // GetProductByExternalID calls GetProductByExternalIDFunc.
-func (mock *StoreMock) GetProductByExternalID(ctx context.Context, scope tenancy.Scope, externalProductID string) (*billing.Product, error) {
+func (mock *StoreMock) GetProductByExternalID(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalProductID string) (*billing.Product, error) {
 	if mock.GetProductByExternalIDFunc == nil {
 		panic("StoreMock.GetProductByExternalIDFunc: method is nil but Store.GetProductByExternalID was just called")
 	}
 	callInfo := struct {
 		Ctx               context.Context
+		Q                 database.SQLQueryExecutor
 		Scope             tenancy.Scope
 		ExternalProductID string
 	}{
 		Ctx:               ctx,
+		Q:                 q,
 		Scope:             scope,
 		ExternalProductID: externalProductID,
 	}
 	mock.lockGetProductByExternalID.Lock()
 	mock.calls.GetProductByExternalID = append(mock.calls.GetProductByExternalID, callInfo)
 	mock.lockGetProductByExternalID.Unlock()
-	return mock.GetProductByExternalIDFunc(ctx, scope, externalProductID)
+	return mock.GetProductByExternalIDFunc(ctx, q, scope, externalProductID)
 }
 
 // GetProductByExternalIDCalls gets all the calls that were made to GetProductByExternalID.
@@ -1517,11 +1019,13 @@ func (mock *StoreMock) GetProductByExternalID(ctx context.Context, scope tenancy
 //	len(mockedStore.GetProductByExternalIDCalls())
 func (mock *StoreMock) GetProductByExternalIDCalls() []struct {
 	Ctx               context.Context
+	Q                 database.SQLQueryExecutor
 	Scope             tenancy.Scope
 	ExternalProductID string
 } {
 	var calls []struct {
 		Ctx               context.Context
+		Q                 database.SQLQueryExecutor
 		Scope             tenancy.Scope
 		ExternalProductID string
 	}
@@ -1532,23 +1036,25 @@ func (mock *StoreMock) GetProductByExternalIDCalls() []struct {
 }
 
 // GetPurchase calls GetPurchaseFunc.
-func (mock *StoreMock) GetPurchase(ctx context.Context, scope tenancy.Scope, purchaseID string) (*billing.Purchase, error) {
+func (mock *StoreMock) GetPurchase(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, purchaseID string) (*billing.Purchase, error) {
 	if mock.GetPurchaseFunc == nil {
 		panic("StoreMock.GetPurchaseFunc: method is nil but Store.GetPurchase was just called")
 	}
 	callInfo := struct {
 		Ctx        context.Context
+		Q          database.SQLQueryExecutor
 		Scope      tenancy.Scope
 		PurchaseID string
 	}{
 		Ctx:        ctx,
+		Q:          q,
 		Scope:      scope,
 		PurchaseID: purchaseID,
 	}
 	mock.lockGetPurchase.Lock()
 	mock.calls.GetPurchase = append(mock.calls.GetPurchase, callInfo)
 	mock.lockGetPurchase.Unlock()
-	return mock.GetPurchaseFunc(ctx, scope, purchaseID)
+	return mock.GetPurchaseFunc(ctx, q, scope, purchaseID)
 }
 
 // GetPurchaseCalls gets all the calls that were made to GetPurchase.
@@ -1557,11 +1063,13 @@ func (mock *StoreMock) GetPurchase(ctx context.Context, scope tenancy.Scope, pur
 //	len(mockedStore.GetPurchaseCalls())
 func (mock *StoreMock) GetPurchaseCalls() []struct {
 	Ctx        context.Context
+	Q          database.SQLQueryExecutor
 	Scope      tenancy.Scope
 	PurchaseID string
 } {
 	var calls []struct {
 		Ctx        context.Context
+		Q          database.SQLQueryExecutor
 		Scope      tenancy.Scope
 		PurchaseID string
 	}
@@ -1572,23 +1080,25 @@ func (mock *StoreMock) GetPurchaseCalls() []struct {
 }
 
 // GetPurchaseByExternalID calls GetPurchaseByExternalIDFunc.
-func (mock *StoreMock) GetPurchaseByExternalID(ctx context.Context, scope tenancy.Scope, externalTransactionID string) (*billing.Purchase, error) {
+func (mock *StoreMock) GetPurchaseByExternalID(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalTransactionID string) (*billing.Purchase, error) {
 	if mock.GetPurchaseByExternalIDFunc == nil {
 		panic("StoreMock.GetPurchaseByExternalIDFunc: method is nil but Store.GetPurchaseByExternalID was just called")
 	}
 	callInfo := struct {
 		Ctx                   context.Context
+		Q                     database.SQLQueryExecutor
 		Scope                 tenancy.Scope
 		ExternalTransactionID string
 	}{
 		Ctx:                   ctx,
+		Q:                     q,
 		Scope:                 scope,
 		ExternalTransactionID: externalTransactionID,
 	}
 	mock.lockGetPurchaseByExternalID.Lock()
 	mock.calls.GetPurchaseByExternalID = append(mock.calls.GetPurchaseByExternalID, callInfo)
 	mock.lockGetPurchaseByExternalID.Unlock()
-	return mock.GetPurchaseByExternalIDFunc(ctx, scope, externalTransactionID)
+	return mock.GetPurchaseByExternalIDFunc(ctx, q, scope, externalTransactionID)
 }
 
 // GetPurchaseByExternalIDCalls gets all the calls that were made to GetPurchaseByExternalID.
@@ -1597,11 +1107,13 @@ func (mock *StoreMock) GetPurchaseByExternalID(ctx context.Context, scope tenanc
 //	len(mockedStore.GetPurchaseByExternalIDCalls())
 func (mock *StoreMock) GetPurchaseByExternalIDCalls() []struct {
 	Ctx                   context.Context
+	Q                     database.SQLQueryExecutor
 	Scope                 tenancy.Scope
 	ExternalTransactionID string
 } {
 	var calls []struct {
 		Ctx                   context.Context
+		Q                     database.SQLQueryExecutor
 		Scope                 tenancy.Scope
 		ExternalTransactionID string
 	}
@@ -1612,23 +1124,25 @@ func (mock *StoreMock) GetPurchaseByExternalIDCalls() []struct {
 }
 
 // GetSubscription calls GetSubscriptionFunc.
-func (mock *StoreMock) GetSubscription(ctx context.Context, scope tenancy.Scope, subscriptionID string) (*billing.Subscription, error) {
+func (mock *StoreMock) GetSubscription(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subscriptionID string) (*billing.Subscription, error) {
 	if mock.GetSubscriptionFunc == nil {
 		panic("StoreMock.GetSubscriptionFunc: method is nil but Store.GetSubscription was just called")
 	}
 	callInfo := struct {
 		Ctx            context.Context
+		Q              database.SQLQueryExecutor
 		Scope          tenancy.Scope
 		SubscriptionID string
 	}{
 		Ctx:            ctx,
+		Q:              q,
 		Scope:          scope,
 		SubscriptionID: subscriptionID,
 	}
 	mock.lockGetSubscription.Lock()
 	mock.calls.GetSubscription = append(mock.calls.GetSubscription, callInfo)
 	mock.lockGetSubscription.Unlock()
-	return mock.GetSubscriptionFunc(ctx, scope, subscriptionID)
+	return mock.GetSubscriptionFunc(ctx, q, scope, subscriptionID)
 }
 
 // GetSubscriptionCalls gets all the calls that were made to GetSubscription.
@@ -1637,11 +1151,13 @@ func (mock *StoreMock) GetSubscription(ctx context.Context, scope tenancy.Scope,
 //	len(mockedStore.GetSubscriptionCalls())
 func (mock *StoreMock) GetSubscriptionCalls() []struct {
 	Ctx            context.Context
+	Q              database.SQLQueryExecutor
 	Scope          tenancy.Scope
 	SubscriptionID string
 } {
 	var calls []struct {
 		Ctx            context.Context
+		Q              database.SQLQueryExecutor
 		Scope          tenancy.Scope
 		SubscriptionID string
 	}
@@ -1652,23 +1168,25 @@ func (mock *StoreMock) GetSubscriptionCalls() []struct {
 }
 
 // GetSubscriptionByExternalID calls GetSubscriptionByExternalIDFunc.
-func (mock *StoreMock) GetSubscriptionByExternalID(ctx context.Context, scope tenancy.Scope, externalSubscriptionID string) (*billing.Subscription, error) {
+func (mock *StoreMock) GetSubscriptionByExternalID(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalSubscriptionID string) (*billing.Subscription, error) {
 	if mock.GetSubscriptionByExternalIDFunc == nil {
 		panic("StoreMock.GetSubscriptionByExternalIDFunc: method is nil but Store.GetSubscriptionByExternalID was just called")
 	}
 	callInfo := struct {
 		Ctx                    context.Context
+		Q                      database.SQLQueryExecutor
 		Scope                  tenancy.Scope
 		ExternalSubscriptionID string
 	}{
 		Ctx:                    ctx,
+		Q:                      q,
 		Scope:                  scope,
 		ExternalSubscriptionID: externalSubscriptionID,
 	}
 	mock.lockGetSubscriptionByExternalID.Lock()
 	mock.calls.GetSubscriptionByExternalID = append(mock.calls.GetSubscriptionByExternalID, callInfo)
 	mock.lockGetSubscriptionByExternalID.Unlock()
-	return mock.GetSubscriptionByExternalIDFunc(ctx, scope, externalSubscriptionID)
+	return mock.GetSubscriptionByExternalIDFunc(ctx, q, scope, externalSubscriptionID)
 }
 
 // GetSubscriptionByExternalIDCalls gets all the calls that were made to GetSubscriptionByExternalID.
@@ -1677,11 +1195,13 @@ func (mock *StoreMock) GetSubscriptionByExternalID(ctx context.Context, scope te
 //	len(mockedStore.GetSubscriptionByExternalIDCalls())
 func (mock *StoreMock) GetSubscriptionByExternalIDCalls() []struct {
 	Ctx                    context.Context
+	Q                      database.SQLQueryExecutor
 	Scope                  tenancy.Scope
 	ExternalSubscriptionID string
 } {
 	var calls []struct {
 		Ctx                    context.Context
+		Q                      database.SQLQueryExecutor
 		Scope                  tenancy.Scope
 		ExternalSubscriptionID string
 	}
@@ -1692,23 +1212,25 @@ func (mock *StoreMock) GetSubscriptionByExternalIDCalls() []struct {
 }
 
 // GetTransaction calls GetTransactionFunc.
-func (mock *StoreMock) GetTransaction(ctx context.Context, scope tenancy.Scope, transactionID string) (*billing.Transaction, error) {
+func (mock *StoreMock) GetTransaction(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, transactionID string) (*billing.Transaction, error) {
 	if mock.GetTransactionFunc == nil {
 		panic("StoreMock.GetTransactionFunc: method is nil but Store.GetTransaction was just called")
 	}
 	callInfo := struct {
 		Ctx           context.Context
+		Q             database.SQLQueryExecutor
 		Scope         tenancy.Scope
 		TransactionID string
 	}{
 		Ctx:           ctx,
+		Q:             q,
 		Scope:         scope,
 		TransactionID: transactionID,
 	}
 	mock.lockGetTransaction.Lock()
 	mock.calls.GetTransaction = append(mock.calls.GetTransaction, callInfo)
 	mock.lockGetTransaction.Unlock()
-	return mock.GetTransactionFunc(ctx, scope, transactionID)
+	return mock.GetTransactionFunc(ctx, q, scope, transactionID)
 }
 
 // GetTransactionCalls gets all the calls that were made to GetTransaction.
@@ -1717,11 +1239,13 @@ func (mock *StoreMock) GetTransaction(ctx context.Context, scope tenancy.Scope, 
 //	len(mockedStore.GetTransactionCalls())
 func (mock *StoreMock) GetTransactionCalls() []struct {
 	Ctx           context.Context
+	Q             database.SQLQueryExecutor
 	Scope         tenancy.Scope
 	TransactionID string
 } {
 	var calls []struct {
 		Ctx           context.Context
+		Q             database.SQLQueryExecutor
 		Scope         tenancy.Scope
 		TransactionID string
 	}
@@ -1732,23 +1256,25 @@ func (mock *StoreMock) GetTransactionCalls() []struct {
 }
 
 // GetTransactionByExternalID calls GetTransactionByExternalIDFunc.
-func (mock *StoreMock) GetTransactionByExternalID(ctx context.Context, scope tenancy.Scope, externalTransactionID string) (*billing.Transaction, error) {
+func (mock *StoreMock) GetTransactionByExternalID(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalTransactionID string) (*billing.Transaction, error) {
 	if mock.GetTransactionByExternalIDFunc == nil {
 		panic("StoreMock.GetTransactionByExternalIDFunc: method is nil but Store.GetTransactionByExternalID was just called")
 	}
 	callInfo := struct {
 		Ctx                   context.Context
+		Q                     database.SQLQueryExecutor
 		Scope                 tenancy.Scope
 		ExternalTransactionID string
 	}{
 		Ctx:                   ctx,
+		Q:                     q,
 		Scope:                 scope,
 		ExternalTransactionID: externalTransactionID,
 	}
 	mock.lockGetTransactionByExternalID.Lock()
 	mock.calls.GetTransactionByExternalID = append(mock.calls.GetTransactionByExternalID, callInfo)
 	mock.lockGetTransactionByExternalID.Unlock()
-	return mock.GetTransactionByExternalIDFunc(ctx, scope, externalTransactionID)
+	return mock.GetTransactionByExternalIDFunc(ctx, q, scope, externalTransactionID)
 }
 
 // GetTransactionByExternalIDCalls gets all the calls that were made to GetTransactionByExternalID.
@@ -1757,11 +1283,13 @@ func (mock *StoreMock) GetTransactionByExternalID(ctx context.Context, scope ten
 //	len(mockedStore.GetTransactionByExternalIDCalls())
 func (mock *StoreMock) GetTransactionByExternalIDCalls() []struct {
 	Ctx                   context.Context
+	Q                     database.SQLQueryExecutor
 	Scope                 tenancy.Scope
 	ExternalTransactionID string
 } {
 	var calls []struct {
 		Ctx                   context.Context
+		Q                     database.SQLQueryExecutor
 		Scope                 tenancy.Scope
 		ExternalTransactionID string
 	}
@@ -1772,17 +1300,19 @@ func (mock *StoreMock) GetTransactionByExternalIDCalls() []struct {
 }
 
 // ListCurrentSubscriptions calls ListCurrentSubscriptionsFunc.
-func (mock *StoreMock) ListCurrentSubscriptions(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
+func (mock *StoreMock) ListCurrentSubscriptions(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
 	if mock.ListCurrentSubscriptionsFunc == nil {
 		panic("StoreMock.ListCurrentSubscriptionsFunc: method is nil but Store.ListCurrentSubscriptions was just called")
 	}
 	callInfo := struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		AccountID string
 		Filter    *filtering.QueryFilter
 	}{
 		Ctx:       ctx,
+		Q:         q,
 		Scope:     scope,
 		AccountID: accountID,
 		Filter:    filter,
@@ -1790,7 +1320,7 @@ func (mock *StoreMock) ListCurrentSubscriptions(ctx context.Context, scope tenan
 	mock.lockListCurrentSubscriptions.Lock()
 	mock.calls.ListCurrentSubscriptions = append(mock.calls.ListCurrentSubscriptions, callInfo)
 	mock.lockListCurrentSubscriptions.Unlock()
-	return mock.ListCurrentSubscriptionsFunc(ctx, scope, accountID, filter)
+	return mock.ListCurrentSubscriptionsFunc(ctx, q, scope, accountID, filter)
 }
 
 // ListCurrentSubscriptionsCalls gets all the calls that were made to ListCurrentSubscriptions.
@@ -1799,12 +1329,14 @@ func (mock *StoreMock) ListCurrentSubscriptions(ctx context.Context, scope tenan
 //	len(mockedStore.ListCurrentSubscriptionsCalls())
 func (mock *StoreMock) ListCurrentSubscriptionsCalls() []struct {
 	Ctx       context.Context
+	Q         database.SQLQueryExecutor
 	Scope     tenancy.Scope
 	AccountID string
 	Filter    *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		AccountID string
 		Filter    *filtering.QueryFilter
@@ -1816,23 +1348,25 @@ func (mock *StoreMock) ListCurrentSubscriptionsCalls() []struct {
 }
 
 // ListProducts calls ListProductsFunc.
-func (mock *StoreMock) ListProducts(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Product], error) {
+func (mock *StoreMock) ListProducts(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Product], error) {
 	if mock.ListProductsFunc == nil {
 		panic("StoreMock.ListProductsFunc: method is nil but Store.ListProducts was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}{
 		Ctx:    ctx,
+		Q:      q,
 		Scope:  scope,
 		Filter: filter,
 	}
 	mock.lockListProducts.Lock()
 	mock.calls.ListProducts = append(mock.calls.ListProducts, callInfo)
 	mock.lockListProducts.Unlock()
-	return mock.ListProductsFunc(ctx, scope, filter)
+	return mock.ListProductsFunc(ctx, q, scope, filter)
 }
 
 // ListProductsCalls gets all the calls that were made to ListProducts.
@@ -1841,11 +1375,13 @@ func (mock *StoreMock) ListProducts(ctx context.Context, scope tenancy.Scope, fi
 //	len(mockedStore.ListProductsCalls())
 func (mock *StoreMock) ListProductsCalls() []struct {
 	Ctx    context.Context
+	Q      database.SQLQueryExecutor
 	Scope  tenancy.Scope
 	Filter *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}
@@ -1856,23 +1392,25 @@ func (mock *StoreMock) ListProductsCalls() []struct {
 }
 
 // ListPurchases calls ListPurchasesFunc.
-func (mock *StoreMock) ListPurchases(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error) {
+func (mock *StoreMock) ListPurchases(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error) {
 	if mock.ListPurchasesFunc == nil {
 		panic("StoreMock.ListPurchasesFunc: method is nil but Store.ListPurchases was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}{
 		Ctx:    ctx,
+		Q:      q,
 		Scope:  scope,
 		Filter: filter,
 	}
 	mock.lockListPurchases.Lock()
 	mock.calls.ListPurchases = append(mock.calls.ListPurchases, callInfo)
 	mock.lockListPurchases.Unlock()
-	return mock.ListPurchasesFunc(ctx, scope, filter)
+	return mock.ListPurchasesFunc(ctx, q, scope, filter)
 }
 
 // ListPurchasesCalls gets all the calls that were made to ListPurchases.
@@ -1881,11 +1419,13 @@ func (mock *StoreMock) ListPurchases(ctx context.Context, scope tenancy.Scope, f
 //	len(mockedStore.ListPurchasesCalls())
 func (mock *StoreMock) ListPurchasesCalls() []struct {
 	Ctx    context.Context
+	Q      database.SQLQueryExecutor
 	Scope  tenancy.Scope
 	Filter *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}
@@ -1896,17 +1436,19 @@ func (mock *StoreMock) ListPurchasesCalls() []struct {
 }
 
 // ListPurchasesForAccount calls ListPurchasesForAccountFunc.
-func (mock *StoreMock) ListPurchasesForAccount(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error) {
+func (mock *StoreMock) ListPurchasesForAccount(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error) {
 	if mock.ListPurchasesForAccountFunc == nil {
 		panic("StoreMock.ListPurchasesForAccountFunc: method is nil but Store.ListPurchasesForAccount was just called")
 	}
 	callInfo := struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		AccountID string
 		Filter    *filtering.QueryFilter
 	}{
 		Ctx:       ctx,
+		Q:         q,
 		Scope:     scope,
 		AccountID: accountID,
 		Filter:    filter,
@@ -1914,7 +1456,7 @@ func (mock *StoreMock) ListPurchasesForAccount(ctx context.Context, scope tenanc
 	mock.lockListPurchasesForAccount.Lock()
 	mock.calls.ListPurchasesForAccount = append(mock.calls.ListPurchasesForAccount, callInfo)
 	mock.lockListPurchasesForAccount.Unlock()
-	return mock.ListPurchasesForAccountFunc(ctx, scope, accountID, filter)
+	return mock.ListPurchasesForAccountFunc(ctx, q, scope, accountID, filter)
 }
 
 // ListPurchasesForAccountCalls gets all the calls that were made to ListPurchasesForAccount.
@@ -1923,12 +1465,14 @@ func (mock *StoreMock) ListPurchasesForAccount(ctx context.Context, scope tenanc
 //	len(mockedStore.ListPurchasesForAccountCalls())
 func (mock *StoreMock) ListPurchasesForAccountCalls() []struct {
 	Ctx       context.Context
+	Q         database.SQLQueryExecutor
 	Scope     tenancy.Scope
 	AccountID string
 	Filter    *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		AccountID string
 		Filter    *filtering.QueryFilter
@@ -1940,23 +1484,25 @@ func (mock *StoreMock) ListPurchasesForAccountCalls() []struct {
 }
 
 // ListSubscriptions calls ListSubscriptionsFunc.
-func (mock *StoreMock) ListSubscriptions(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
+func (mock *StoreMock) ListSubscriptions(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
 	if mock.ListSubscriptionsFunc == nil {
 		panic("StoreMock.ListSubscriptionsFunc: method is nil but Store.ListSubscriptions was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}{
 		Ctx:    ctx,
+		Q:      q,
 		Scope:  scope,
 		Filter: filter,
 	}
 	mock.lockListSubscriptions.Lock()
 	mock.calls.ListSubscriptions = append(mock.calls.ListSubscriptions, callInfo)
 	mock.lockListSubscriptions.Unlock()
-	return mock.ListSubscriptionsFunc(ctx, scope, filter)
+	return mock.ListSubscriptionsFunc(ctx, q, scope, filter)
 }
 
 // ListSubscriptionsCalls gets all the calls that were made to ListSubscriptions.
@@ -1965,11 +1511,13 @@ func (mock *StoreMock) ListSubscriptions(ctx context.Context, scope tenancy.Scop
 //	len(mockedStore.ListSubscriptionsCalls())
 func (mock *StoreMock) ListSubscriptionsCalls() []struct {
 	Ctx    context.Context
+	Q      database.SQLQueryExecutor
 	Scope  tenancy.Scope
 	Filter *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}
@@ -1980,17 +1528,19 @@ func (mock *StoreMock) ListSubscriptionsCalls() []struct {
 }
 
 // ListSubscriptionsForAccount calls ListSubscriptionsForAccountFunc.
-func (mock *StoreMock) ListSubscriptionsForAccount(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
+func (mock *StoreMock) ListSubscriptionsForAccount(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
 	if mock.ListSubscriptionsForAccountFunc == nil {
 		panic("StoreMock.ListSubscriptionsForAccountFunc: method is nil but Store.ListSubscriptionsForAccount was just called")
 	}
 	callInfo := struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		AccountID string
 		Filter    *filtering.QueryFilter
 	}{
 		Ctx:       ctx,
+		Q:         q,
 		Scope:     scope,
 		AccountID: accountID,
 		Filter:    filter,
@@ -1998,7 +1548,7 @@ func (mock *StoreMock) ListSubscriptionsForAccount(ctx context.Context, scope te
 	mock.lockListSubscriptionsForAccount.Lock()
 	mock.calls.ListSubscriptionsForAccount = append(mock.calls.ListSubscriptionsForAccount, callInfo)
 	mock.lockListSubscriptionsForAccount.Unlock()
-	return mock.ListSubscriptionsForAccountFunc(ctx, scope, accountID, filter)
+	return mock.ListSubscriptionsForAccountFunc(ctx, q, scope, accountID, filter)
 }
 
 // ListSubscriptionsForAccountCalls gets all the calls that were made to ListSubscriptionsForAccount.
@@ -2007,12 +1557,14 @@ func (mock *StoreMock) ListSubscriptionsForAccount(ctx context.Context, scope te
 //	len(mockedStore.ListSubscriptionsForAccountCalls())
 func (mock *StoreMock) ListSubscriptionsForAccountCalls() []struct {
 	Ctx       context.Context
+	Q         database.SQLQueryExecutor
 	Scope     tenancy.Scope
 	AccountID string
 	Filter    *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		AccountID string
 		Filter    *filtering.QueryFilter
@@ -2024,23 +1576,25 @@ func (mock *StoreMock) ListSubscriptionsForAccountCalls() []struct {
 }
 
 // ListTransactions calls ListTransactionsFunc.
-func (mock *StoreMock) ListTransactions(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error) {
+func (mock *StoreMock) ListTransactions(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error) {
 	if mock.ListTransactionsFunc == nil {
 		panic("StoreMock.ListTransactionsFunc: method is nil but Store.ListTransactions was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}{
 		Ctx:    ctx,
+		Q:      q,
 		Scope:  scope,
 		Filter: filter,
 	}
 	mock.lockListTransactions.Lock()
 	mock.calls.ListTransactions = append(mock.calls.ListTransactions, callInfo)
 	mock.lockListTransactions.Unlock()
-	return mock.ListTransactionsFunc(ctx, scope, filter)
+	return mock.ListTransactionsFunc(ctx, q, scope, filter)
 }
 
 // ListTransactionsCalls gets all the calls that were made to ListTransactions.
@@ -2049,11 +1603,13 @@ func (mock *StoreMock) ListTransactions(ctx context.Context, scope tenancy.Scope
 //	len(mockedStore.ListTransactionsCalls())
 func (mock *StoreMock) ListTransactionsCalls() []struct {
 	Ctx    context.Context
+	Q      database.SQLQueryExecutor
 	Scope  tenancy.Scope
 	Filter *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}
@@ -2064,17 +1620,19 @@ func (mock *StoreMock) ListTransactionsCalls() []struct {
 }
 
 // ListTransactionsForAccount calls ListTransactionsForAccountFunc.
-func (mock *StoreMock) ListTransactionsForAccount(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error) {
+func (mock *StoreMock) ListTransactionsForAccount(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error) {
 	if mock.ListTransactionsForAccountFunc == nil {
 		panic("StoreMock.ListTransactionsForAccountFunc: method is nil but Store.ListTransactionsForAccount was just called")
 	}
 	callInfo := struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		AccountID string
 		Filter    *filtering.QueryFilter
 	}{
 		Ctx:       ctx,
+		Q:         q,
 		Scope:     scope,
 		AccountID: accountID,
 		Filter:    filter,
@@ -2082,7 +1640,7 @@ func (mock *StoreMock) ListTransactionsForAccount(ctx context.Context, scope ten
 	mock.lockListTransactionsForAccount.Lock()
 	mock.calls.ListTransactionsForAccount = append(mock.calls.ListTransactionsForAccount, callInfo)
 	mock.lockListTransactionsForAccount.Unlock()
-	return mock.ListTransactionsForAccountFunc(ctx, scope, accountID, filter)
+	return mock.ListTransactionsForAccountFunc(ctx, q, scope, accountID, filter)
 }
 
 // ListTransactionsForAccountCalls gets all the calls that were made to ListTransactionsForAccount.
@@ -2091,12 +1649,14 @@ func (mock *StoreMock) ListTransactionsForAccount(ctx context.Context, scope ten
 //	len(mockedStore.ListTransactionsForAccountCalls())
 func (mock *StoreMock) ListTransactionsForAccountCalls() []struct {
 	Ctx       context.Context
+	Q         database.SQLQueryExecutor
 	Scope     tenancy.Scope
 	AccountID string
 	Filter    *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		AccountID string
 		Filter    *filtering.QueryFilter
@@ -2108,23 +1668,25 @@ func (mock *StoreMock) ListTransactionsForAccountCalls() []struct {
 }
 
 // ProductExists calls ProductExistsFunc.
-func (mock *StoreMock) ProductExists(ctx context.Context, scope tenancy.Scope, productID string) (bool, error) {
+func (mock *StoreMock) ProductExists(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, productID string) (bool, error) {
 	if mock.ProductExistsFunc == nil {
 		panic("StoreMock.ProductExistsFunc: method is nil but Store.ProductExists was just called")
 	}
 	callInfo := struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		ProductID string
 	}{
 		Ctx:       ctx,
+		Q:         q,
 		Scope:     scope,
 		ProductID: productID,
 	}
 	mock.lockProductExists.Lock()
 	mock.calls.ProductExists = append(mock.calls.ProductExists, callInfo)
 	mock.lockProductExists.Unlock()
-	return mock.ProductExistsFunc(ctx, scope, productID)
+	return mock.ProductExistsFunc(ctx, q, scope, productID)
 }
 
 // ProductExistsCalls gets all the calls that were made to ProductExists.
@@ -2133,11 +1695,13 @@ func (mock *StoreMock) ProductExists(ctx context.Context, scope tenancy.Scope, p
 //	len(mockedStore.ProductExistsCalls())
 func (mock *StoreMock) ProductExistsCalls() []struct {
 	Ctx       context.Context
+	Q         database.SQLQueryExecutor
 	Scope     tenancy.Scope
 	ProductID string
 } {
 	var calls []struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		ProductID string
 	}
@@ -2148,23 +1712,25 @@ func (mock *StoreMock) ProductExistsCalls() []struct {
 }
 
 // RecordTransaction calls RecordTransactionFunc.
-func (mock *StoreMock) RecordTransaction(ctx context.Context, scope tenancy.Scope, transaction *billing.Transaction) (*billing.Transaction, error) {
+func (mock *StoreMock) RecordTransaction(ctx context.Context, tx database.Tx, scope tenancy.Scope, transaction *billing.Transaction) (*billing.Transaction, error) {
 	if mock.RecordTransactionFunc == nil {
 		panic("StoreMock.RecordTransactionFunc: method is nil but Store.RecordTransaction was just called")
 	}
 	callInfo := struct {
 		Ctx         context.Context
+		Tx          database.Tx
 		Scope       tenancy.Scope
 		Transaction *billing.Transaction
 	}{
 		Ctx:         ctx,
+		Tx:          tx,
 		Scope:       scope,
 		Transaction: transaction,
 	}
 	mock.lockRecordTransaction.Lock()
 	mock.calls.RecordTransaction = append(mock.calls.RecordTransaction, callInfo)
 	mock.lockRecordTransaction.Unlock()
-	return mock.RecordTransactionFunc(ctx, scope, transaction)
+	return mock.RecordTransactionFunc(ctx, tx, scope, transaction)
 }
 
 // RecordTransactionCalls gets all the calls that were made to RecordTransaction.
@@ -2173,11 +1739,13 @@ func (mock *StoreMock) RecordTransaction(ctx context.Context, scope tenancy.Scop
 //	len(mockedStore.RecordTransactionCalls())
 func (mock *StoreMock) RecordTransactionCalls() []struct {
 	Ctx         context.Context
+	Tx          database.Tx
 	Scope       tenancy.Scope
 	Transaction *billing.Transaction
 } {
 	var calls []struct {
 		Ctx         context.Context
+		Tx          database.Tx
 		Scope       tenancy.Scope
 		Transaction *billing.Transaction
 	}
@@ -2187,62 +1755,20 @@ func (mock *StoreMock) RecordTransactionCalls() []struct {
 	return calls
 }
 
-// RecordTransactionTx calls RecordTransactionTxFunc.
-func (mock *StoreMock) RecordTransactionTx(ctx context.Context, q database.Tx, scope tenancy.Scope, transaction *billing.Transaction) (*billing.Transaction, error) {
-	if mock.RecordTransactionTxFunc == nil {
-		panic("StoreMock.RecordTransactionTxFunc: method is nil but Store.RecordTransactionTx was just called")
-	}
-	callInfo := struct {
-		Ctx         context.Context
-		Q           database.Tx
-		Scope       tenancy.Scope
-		Transaction *billing.Transaction
-	}{
-		Ctx:         ctx,
-		Q:           q,
-		Scope:       scope,
-		Transaction: transaction,
-	}
-	mock.lockRecordTransactionTx.Lock()
-	mock.calls.RecordTransactionTx = append(mock.calls.RecordTransactionTx, callInfo)
-	mock.lockRecordTransactionTx.Unlock()
-	return mock.RecordTransactionTxFunc(ctx, q, scope, transaction)
-}
-
-// RecordTransactionTxCalls gets all the calls that were made to RecordTransactionTx.
-// Check the length with:
-//
-//	len(mockedStore.RecordTransactionTxCalls())
-func (mock *StoreMock) RecordTransactionTxCalls() []struct {
-	Ctx         context.Context
-	Q           database.Tx
-	Scope       tenancy.Scope
-	Transaction *billing.Transaction
-} {
-	var calls []struct {
-		Ctx         context.Context
-		Q           database.Tx
-		Scope       tenancy.Scope
-		Transaction *billing.Transaction
-	}
-	mock.lockRecordTransactionTx.RLock()
-	calls = mock.calls.RecordTransactionTx
-	mock.lockRecordTransactionTx.RUnlock()
-	return calls
-}
-
 // SetSubscriptionStatus calls SetSubscriptionStatusFunc.
-func (mock *StoreMock) SetSubscriptionStatus(ctx context.Context, scope tenancy.Scope, subscriptionID string, status capitalism.SubscriptionStatus) error {
+func (mock *StoreMock) SetSubscriptionStatus(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscriptionID string, status capitalism.SubscriptionStatus) error {
 	if mock.SetSubscriptionStatusFunc == nil {
 		panic("StoreMock.SetSubscriptionStatusFunc: method is nil but Store.SetSubscriptionStatus was just called")
 	}
 	callInfo := struct {
 		Ctx            context.Context
+		Tx             database.Tx
 		Scope          tenancy.Scope
 		SubscriptionID string
 		Status         capitalism.SubscriptionStatus
 	}{
 		Ctx:            ctx,
+		Tx:             tx,
 		Scope:          scope,
 		SubscriptionID: subscriptionID,
 		Status:         status,
@@ -2250,7 +1776,7 @@ func (mock *StoreMock) SetSubscriptionStatus(ctx context.Context, scope tenancy.
 	mock.lockSetSubscriptionStatus.Lock()
 	mock.calls.SetSubscriptionStatus = append(mock.calls.SetSubscriptionStatus, callInfo)
 	mock.lockSetSubscriptionStatus.Unlock()
-	return mock.SetSubscriptionStatusFunc(ctx, scope, subscriptionID, status)
+	return mock.SetSubscriptionStatusFunc(ctx, tx, scope, subscriptionID, status)
 }
 
 // SetSubscriptionStatusCalls gets all the calls that were made to SetSubscriptionStatus.
@@ -2259,12 +1785,14 @@ func (mock *StoreMock) SetSubscriptionStatus(ctx context.Context, scope tenancy.
 //	len(mockedStore.SetSubscriptionStatusCalls())
 func (mock *StoreMock) SetSubscriptionStatusCalls() []struct {
 	Ctx            context.Context
+	Tx             database.Tx
 	Scope          tenancy.Scope
 	SubscriptionID string
 	Status         capitalism.SubscriptionStatus
 } {
 	var calls []struct {
 		Ctx            context.Context
+		Tx             database.Tx
 		Scope          tenancy.Scope
 		SubscriptionID string
 		Status         capitalism.SubscriptionStatus
@@ -2275,66 +1803,20 @@ func (mock *StoreMock) SetSubscriptionStatusCalls() []struct {
 	return calls
 }
 
-// SetSubscriptionStatusTx calls SetSubscriptionStatusTxFunc.
-func (mock *StoreMock) SetSubscriptionStatusTx(ctx context.Context, q database.Tx, scope tenancy.Scope, subscriptionID string, status capitalism.SubscriptionStatus) error {
-	if mock.SetSubscriptionStatusTxFunc == nil {
-		panic("StoreMock.SetSubscriptionStatusTxFunc: method is nil but Store.SetSubscriptionStatusTx was just called")
-	}
-	callInfo := struct {
-		Ctx            context.Context
-		Q              database.Tx
-		Scope          tenancy.Scope
-		SubscriptionID string
-		Status         capitalism.SubscriptionStatus
-	}{
-		Ctx:            ctx,
-		Q:              q,
-		Scope:          scope,
-		SubscriptionID: subscriptionID,
-		Status:         status,
-	}
-	mock.lockSetSubscriptionStatusTx.Lock()
-	mock.calls.SetSubscriptionStatusTx = append(mock.calls.SetSubscriptionStatusTx, callInfo)
-	mock.lockSetSubscriptionStatusTx.Unlock()
-	return mock.SetSubscriptionStatusTxFunc(ctx, q, scope, subscriptionID, status)
-}
-
-// SetSubscriptionStatusTxCalls gets all the calls that were made to SetSubscriptionStatusTx.
-// Check the length with:
-//
-//	len(mockedStore.SetSubscriptionStatusTxCalls())
-func (mock *StoreMock) SetSubscriptionStatusTxCalls() []struct {
-	Ctx            context.Context
-	Q              database.Tx
-	Scope          tenancy.Scope
-	SubscriptionID string
-	Status         capitalism.SubscriptionStatus
-} {
-	var calls []struct {
-		Ctx            context.Context
-		Q              database.Tx
-		Scope          tenancy.Scope
-		SubscriptionID string
-		Status         capitalism.SubscriptionStatus
-	}
-	mock.lockSetSubscriptionStatusTx.RLock()
-	calls = mock.calls.SetSubscriptionStatusTx
-	mock.lockSetSubscriptionStatusTx.RUnlock()
-	return calls
-}
-
 // SetTransactionStatus calls SetTransactionStatusFunc.
-func (mock *StoreMock) SetTransactionStatus(ctx context.Context, scope tenancy.Scope, transactionID string, status billing.TransactionStatus) error {
+func (mock *StoreMock) SetTransactionStatus(ctx context.Context, tx database.Tx, scope tenancy.Scope, transactionID string, status billing.TransactionStatus) error {
 	if mock.SetTransactionStatusFunc == nil {
 		panic("StoreMock.SetTransactionStatusFunc: method is nil but Store.SetTransactionStatus was just called")
 	}
 	callInfo := struct {
 		Ctx           context.Context
+		Tx            database.Tx
 		Scope         tenancy.Scope
 		TransactionID string
 		Status        billing.TransactionStatus
 	}{
 		Ctx:           ctx,
+		Tx:            tx,
 		Scope:         scope,
 		TransactionID: transactionID,
 		Status:        status,
@@ -2342,7 +1824,7 @@ func (mock *StoreMock) SetTransactionStatus(ctx context.Context, scope tenancy.S
 	mock.lockSetTransactionStatus.Lock()
 	mock.calls.SetTransactionStatus = append(mock.calls.SetTransactionStatus, callInfo)
 	mock.lockSetTransactionStatus.Unlock()
-	return mock.SetTransactionStatusFunc(ctx, scope, transactionID, status)
+	return mock.SetTransactionStatusFunc(ctx, tx, scope, transactionID, status)
 }
 
 // SetTransactionStatusCalls gets all the calls that were made to SetTransactionStatus.
@@ -2351,12 +1833,14 @@ func (mock *StoreMock) SetTransactionStatus(ctx context.Context, scope tenancy.S
 //	len(mockedStore.SetTransactionStatusCalls())
 func (mock *StoreMock) SetTransactionStatusCalls() []struct {
 	Ctx           context.Context
+	Tx            database.Tx
 	Scope         tenancy.Scope
 	TransactionID string
 	Status        billing.TransactionStatus
 } {
 	var calls []struct {
 		Ctx           context.Context
+		Tx            database.Tx
 		Scope         tenancy.Scope
 		TransactionID string
 		Status        billing.TransactionStatus
@@ -2367,72 +1851,26 @@ func (mock *StoreMock) SetTransactionStatusCalls() []struct {
 	return calls
 }
 
-// SetTransactionStatusTx calls SetTransactionStatusTxFunc.
-func (mock *StoreMock) SetTransactionStatusTx(ctx context.Context, q database.Tx, scope tenancy.Scope, transactionID string, status billing.TransactionStatus) error {
-	if mock.SetTransactionStatusTxFunc == nil {
-		panic("StoreMock.SetTransactionStatusTxFunc: method is nil but Store.SetTransactionStatusTx was just called")
-	}
-	callInfo := struct {
-		Ctx           context.Context
-		Q             database.Tx
-		Scope         tenancy.Scope
-		TransactionID string
-		Status        billing.TransactionStatus
-	}{
-		Ctx:           ctx,
-		Q:             q,
-		Scope:         scope,
-		TransactionID: transactionID,
-		Status:        status,
-	}
-	mock.lockSetTransactionStatusTx.Lock()
-	mock.calls.SetTransactionStatusTx = append(mock.calls.SetTransactionStatusTx, callInfo)
-	mock.lockSetTransactionStatusTx.Unlock()
-	return mock.SetTransactionStatusTxFunc(ctx, q, scope, transactionID, status)
-}
-
-// SetTransactionStatusTxCalls gets all the calls that were made to SetTransactionStatusTx.
-// Check the length with:
-//
-//	len(mockedStore.SetTransactionStatusTxCalls())
-func (mock *StoreMock) SetTransactionStatusTxCalls() []struct {
-	Ctx           context.Context
-	Q             database.Tx
-	Scope         tenancy.Scope
-	TransactionID string
-	Status        billing.TransactionStatus
-} {
-	var calls []struct {
-		Ctx           context.Context
-		Q             database.Tx
-		Scope         tenancy.Scope
-		TransactionID string
-		Status        billing.TransactionStatus
-	}
-	mock.lockSetTransactionStatusTx.RLock()
-	calls = mock.calls.SetTransactionStatusTx
-	mock.lockSetTransactionStatusTx.RUnlock()
-	return calls
-}
-
 // UpdateProduct calls UpdateProductFunc.
-func (mock *StoreMock) UpdateProduct(ctx context.Context, scope tenancy.Scope, product *billing.Product) error {
+func (mock *StoreMock) UpdateProduct(ctx context.Context, tx database.Tx, scope tenancy.Scope, product *billing.Product) error {
 	if mock.UpdateProductFunc == nil {
 		panic("StoreMock.UpdateProductFunc: method is nil but Store.UpdateProduct was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
+		Tx      database.Tx
 		Scope   tenancy.Scope
 		Product *billing.Product
 	}{
 		Ctx:     ctx,
+		Tx:      tx,
 		Scope:   scope,
 		Product: product,
 	}
 	mock.lockUpdateProduct.Lock()
 	mock.calls.UpdateProduct = append(mock.calls.UpdateProduct, callInfo)
 	mock.lockUpdateProduct.Unlock()
-	return mock.UpdateProductFunc(ctx, scope, product)
+	return mock.UpdateProductFunc(ctx, tx, scope, product)
 }
 
 // UpdateProductCalls gets all the calls that were made to UpdateProduct.
@@ -2441,11 +1879,13 @@ func (mock *StoreMock) UpdateProduct(ctx context.Context, scope tenancy.Scope, p
 //	len(mockedStore.UpdateProductCalls())
 func (mock *StoreMock) UpdateProductCalls() []struct {
 	Ctx     context.Context
+	Tx      database.Tx
 	Scope   tenancy.Scope
 	Product *billing.Product
 } {
 	var calls []struct {
 		Ctx     context.Context
+		Tx      database.Tx
 		Scope   tenancy.Scope
 		Product *billing.Product
 	}
@@ -2455,68 +1895,26 @@ func (mock *StoreMock) UpdateProductCalls() []struct {
 	return calls
 }
 
-// UpdateProductTx calls UpdateProductTxFunc.
-func (mock *StoreMock) UpdateProductTx(ctx context.Context, q database.Tx, scope tenancy.Scope, product *billing.Product) error {
-	if mock.UpdateProductTxFunc == nil {
-		panic("StoreMock.UpdateProductTxFunc: method is nil but Store.UpdateProductTx was just called")
-	}
-	callInfo := struct {
-		Ctx     context.Context
-		Q       database.Tx
-		Scope   tenancy.Scope
-		Product *billing.Product
-	}{
-		Ctx:     ctx,
-		Q:       q,
-		Scope:   scope,
-		Product: product,
-	}
-	mock.lockUpdateProductTx.Lock()
-	mock.calls.UpdateProductTx = append(mock.calls.UpdateProductTx, callInfo)
-	mock.lockUpdateProductTx.Unlock()
-	return mock.UpdateProductTxFunc(ctx, q, scope, product)
-}
-
-// UpdateProductTxCalls gets all the calls that were made to UpdateProductTx.
-// Check the length with:
-//
-//	len(mockedStore.UpdateProductTxCalls())
-func (mock *StoreMock) UpdateProductTxCalls() []struct {
-	Ctx     context.Context
-	Q       database.Tx
-	Scope   tenancy.Scope
-	Product *billing.Product
-} {
-	var calls []struct {
-		Ctx     context.Context
-		Q       database.Tx
-		Scope   tenancy.Scope
-		Product *billing.Product
-	}
-	mock.lockUpdateProductTx.RLock()
-	calls = mock.calls.UpdateProductTx
-	mock.lockUpdateProductTx.RUnlock()
-	return calls
-}
-
 // UpdateSubscription calls UpdateSubscriptionFunc.
-func (mock *StoreMock) UpdateSubscription(ctx context.Context, scope tenancy.Scope, subscription *billing.Subscription) error {
+func (mock *StoreMock) UpdateSubscription(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscription *billing.Subscription) error {
 	if mock.UpdateSubscriptionFunc == nil {
 		panic("StoreMock.UpdateSubscriptionFunc: method is nil but Store.UpdateSubscription was just called")
 	}
 	callInfo := struct {
 		Ctx          context.Context
+		Tx           database.Tx
 		Scope        tenancy.Scope
 		Subscription *billing.Subscription
 	}{
 		Ctx:          ctx,
+		Tx:           tx,
 		Scope:        scope,
 		Subscription: subscription,
 	}
 	mock.lockUpdateSubscription.Lock()
 	mock.calls.UpdateSubscription = append(mock.calls.UpdateSubscription, callInfo)
 	mock.lockUpdateSubscription.Unlock()
-	return mock.UpdateSubscriptionFunc(ctx, scope, subscription)
+	return mock.UpdateSubscriptionFunc(ctx, tx, scope, subscription)
 }
 
 // UpdateSubscriptionCalls gets all the calls that were made to UpdateSubscription.
@@ -2525,61 +1923,19 @@ func (mock *StoreMock) UpdateSubscription(ctx context.Context, scope tenancy.Sco
 //	len(mockedStore.UpdateSubscriptionCalls())
 func (mock *StoreMock) UpdateSubscriptionCalls() []struct {
 	Ctx          context.Context
+	Tx           database.Tx
 	Scope        tenancy.Scope
 	Subscription *billing.Subscription
 } {
 	var calls []struct {
 		Ctx          context.Context
+		Tx           database.Tx
 		Scope        tenancy.Scope
 		Subscription *billing.Subscription
 	}
 	mock.lockUpdateSubscription.RLock()
 	calls = mock.calls.UpdateSubscription
 	mock.lockUpdateSubscription.RUnlock()
-	return calls
-}
-
-// UpdateSubscriptionTx calls UpdateSubscriptionTxFunc.
-func (mock *StoreMock) UpdateSubscriptionTx(ctx context.Context, q database.Tx, scope tenancy.Scope, subscription *billing.Subscription) error {
-	if mock.UpdateSubscriptionTxFunc == nil {
-		panic("StoreMock.UpdateSubscriptionTxFunc: method is nil but Store.UpdateSubscriptionTx was just called")
-	}
-	callInfo := struct {
-		Ctx          context.Context
-		Q            database.Tx
-		Scope        tenancy.Scope
-		Subscription *billing.Subscription
-	}{
-		Ctx:          ctx,
-		Q:            q,
-		Scope:        scope,
-		Subscription: subscription,
-	}
-	mock.lockUpdateSubscriptionTx.Lock()
-	mock.calls.UpdateSubscriptionTx = append(mock.calls.UpdateSubscriptionTx, callInfo)
-	mock.lockUpdateSubscriptionTx.Unlock()
-	return mock.UpdateSubscriptionTxFunc(ctx, q, scope, subscription)
-}
-
-// UpdateSubscriptionTxCalls gets all the calls that were made to UpdateSubscriptionTx.
-// Check the length with:
-//
-//	len(mockedStore.UpdateSubscriptionTxCalls())
-func (mock *StoreMock) UpdateSubscriptionTxCalls() []struct {
-	Ctx          context.Context
-	Q            database.Tx
-	Scope        tenancy.Scope
-	Subscription *billing.Subscription
-} {
-	var calls []struct {
-		Ctx          context.Context
-		Q            database.Tx
-		Scope        tenancy.Scope
-		Subscription *billing.Subscription
-	}
-	mock.lockUpdateSubscriptionTx.RLock()
-	calls = mock.calls.UpdateSubscriptionTx
-	mock.lockUpdateSubscriptionTx.RUnlock()
 	return calls
 }
 
@@ -2593,35 +1949,26 @@ var _ billing.ProductStore = &ProductStoreMock{}
 //
 //		// make and configure a mocked billing.ProductStore
 //		mockedProductStore := &ProductStoreMock{
-//			ArchiveProductFunc: func(ctx context.Context, scope tenancy.Scope, productID string) error {
+//			ArchiveProductFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, productID string) error {
 //				panic("mock out the ArchiveProduct method")
 //			},
-//			ArchiveProductTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, productID string) error {
-//				panic("mock out the ArchiveProductTx method")
-//			},
-//			CreateProductFunc: func(ctx context.Context, scope tenancy.Scope, product *billing.Product) (*billing.Product, error) {
+//			CreateProductFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, product *billing.Product) (*billing.Product, error) {
 //				panic("mock out the CreateProduct method")
 //			},
-//			CreateProductTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, product *billing.Product) (*billing.Product, error) {
-//				panic("mock out the CreateProductTx method")
-//			},
-//			GetProductFunc: func(ctx context.Context, scope tenancy.Scope, productID string) (*billing.Product, error) {
+//			GetProductFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, productID string) (*billing.Product, error) {
 //				panic("mock out the GetProduct method")
 //			},
-//			GetProductByExternalIDFunc: func(ctx context.Context, scope tenancy.Scope, externalProductID string) (*billing.Product, error) {
+//			GetProductByExternalIDFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalProductID string) (*billing.Product, error) {
 //				panic("mock out the GetProductByExternalID method")
 //			},
-//			ListProductsFunc: func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Product], error) {
+//			ListProductsFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Product], error) {
 //				panic("mock out the ListProducts method")
 //			},
-//			ProductExistsFunc: func(ctx context.Context, scope tenancy.Scope, productID string) (bool, error) {
+//			ProductExistsFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, productID string) (bool, error) {
 //				panic("mock out the ProductExists method")
 //			},
-//			UpdateProductFunc: func(ctx context.Context, scope tenancy.Scope, product *billing.Product) error {
+//			UpdateProductFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, product *billing.Product) error {
 //				panic("mock out the UpdateProduct method")
-//			},
-//			UpdateProductTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, product *billing.Product) error {
-//				panic("mock out the UpdateProductTx method")
 //			},
 //		}
 //
@@ -2631,34 +1978,25 @@ var _ billing.ProductStore = &ProductStoreMock{}
 //	}
 type ProductStoreMock struct {
 	// ArchiveProductFunc mocks the ArchiveProduct method.
-	ArchiveProductFunc func(ctx context.Context, scope tenancy.Scope, productID string) error
-
-	// ArchiveProductTxFunc mocks the ArchiveProductTx method.
-	ArchiveProductTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, productID string) error
+	ArchiveProductFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, productID string) error
 
 	// CreateProductFunc mocks the CreateProduct method.
-	CreateProductFunc func(ctx context.Context, scope tenancy.Scope, product *billing.Product) (*billing.Product, error)
-
-	// CreateProductTxFunc mocks the CreateProductTx method.
-	CreateProductTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, product *billing.Product) (*billing.Product, error)
+	CreateProductFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, product *billing.Product) (*billing.Product, error)
 
 	// GetProductFunc mocks the GetProduct method.
-	GetProductFunc func(ctx context.Context, scope tenancy.Scope, productID string) (*billing.Product, error)
+	GetProductFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, productID string) (*billing.Product, error)
 
 	// GetProductByExternalIDFunc mocks the GetProductByExternalID method.
-	GetProductByExternalIDFunc func(ctx context.Context, scope tenancy.Scope, externalProductID string) (*billing.Product, error)
+	GetProductByExternalIDFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalProductID string) (*billing.Product, error)
 
 	// ListProductsFunc mocks the ListProducts method.
-	ListProductsFunc func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Product], error)
+	ListProductsFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Product], error)
 
 	// ProductExistsFunc mocks the ProductExists method.
-	ProductExistsFunc func(ctx context.Context, scope tenancy.Scope, productID string) (bool, error)
+	ProductExistsFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, productID string) (bool, error)
 
 	// UpdateProductFunc mocks the UpdateProduct method.
-	UpdateProductFunc func(ctx context.Context, scope tenancy.Scope, product *billing.Product) error
-
-	// UpdateProductTxFunc mocks the UpdateProductTx method.
-	UpdateProductTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, product *billing.Product) error
+	UpdateProductFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, product *billing.Product) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -2666,17 +2004,8 @@ type ProductStoreMock struct {
 		ArchiveProduct []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// ProductID is the productID argument value.
-			ProductID string
-		}
-		// ArchiveProductTx holds details about calls to the ArchiveProductTx method.
-		ArchiveProductTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// ProductID is the productID argument value.
@@ -2686,17 +2015,8 @@ type ProductStoreMock struct {
 		CreateProduct []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// Product is the product argument value.
-			Product *billing.Product
-		}
-		// CreateProductTx holds details about calls to the CreateProductTx method.
-		CreateProductTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Product is the product argument value.
@@ -2706,6 +2026,8 @@ type ProductStoreMock struct {
 		GetProduct []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// ProductID is the productID argument value.
@@ -2715,6 +2037,8 @@ type ProductStoreMock struct {
 		GetProductByExternalID []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// ExternalProductID is the externalProductID argument value.
@@ -2724,6 +2048,8 @@ type ProductStoreMock struct {
 		ListProducts []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Filter is the filter argument value.
@@ -2733,6 +2059,8 @@ type ProductStoreMock struct {
 		ProductExists []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// ProductID is the productID argument value.
@@ -2742,17 +2070,8 @@ type ProductStoreMock struct {
 		UpdateProduct []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// Product is the product argument value.
-			Product *billing.Product
-		}
-		// UpdateProductTx holds details about calls to the UpdateProductTx method.
-		UpdateProductTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Product is the product argument value.
@@ -2760,35 +2079,34 @@ type ProductStoreMock struct {
 		}
 	}
 	lockArchiveProduct         sync.RWMutex
-	lockArchiveProductTx       sync.RWMutex
 	lockCreateProduct          sync.RWMutex
-	lockCreateProductTx        sync.RWMutex
 	lockGetProduct             sync.RWMutex
 	lockGetProductByExternalID sync.RWMutex
 	lockListProducts           sync.RWMutex
 	lockProductExists          sync.RWMutex
 	lockUpdateProduct          sync.RWMutex
-	lockUpdateProductTx        sync.RWMutex
 }
 
 // ArchiveProduct calls ArchiveProductFunc.
-func (mock *ProductStoreMock) ArchiveProduct(ctx context.Context, scope tenancy.Scope, productID string) error {
+func (mock *ProductStoreMock) ArchiveProduct(ctx context.Context, tx database.Tx, scope tenancy.Scope, productID string) error {
 	if mock.ArchiveProductFunc == nil {
 		panic("ProductStoreMock.ArchiveProductFunc: method is nil but ProductStore.ArchiveProduct was just called")
 	}
 	callInfo := struct {
 		Ctx       context.Context
+		Tx        database.Tx
 		Scope     tenancy.Scope
 		ProductID string
 	}{
 		Ctx:       ctx,
+		Tx:        tx,
 		Scope:     scope,
 		ProductID: productID,
 	}
 	mock.lockArchiveProduct.Lock()
 	mock.calls.ArchiveProduct = append(mock.calls.ArchiveProduct, callInfo)
 	mock.lockArchiveProduct.Unlock()
-	return mock.ArchiveProductFunc(ctx, scope, productID)
+	return mock.ArchiveProductFunc(ctx, tx, scope, productID)
 }
 
 // ArchiveProductCalls gets all the calls that were made to ArchiveProduct.
@@ -2797,11 +2115,13 @@ func (mock *ProductStoreMock) ArchiveProduct(ctx context.Context, scope tenancy.
 //	len(mockedProductStore.ArchiveProductCalls())
 func (mock *ProductStoreMock) ArchiveProductCalls() []struct {
 	Ctx       context.Context
+	Tx        database.Tx
 	Scope     tenancy.Scope
 	ProductID string
 } {
 	var calls []struct {
 		Ctx       context.Context
+		Tx        database.Tx
 		Scope     tenancy.Scope
 		ProductID string
 	}
@@ -2811,68 +2131,26 @@ func (mock *ProductStoreMock) ArchiveProductCalls() []struct {
 	return calls
 }
 
-// ArchiveProductTx calls ArchiveProductTxFunc.
-func (mock *ProductStoreMock) ArchiveProductTx(ctx context.Context, q database.Tx, scope tenancy.Scope, productID string) error {
-	if mock.ArchiveProductTxFunc == nil {
-		panic("ProductStoreMock.ArchiveProductTxFunc: method is nil but ProductStore.ArchiveProductTx was just called")
-	}
-	callInfo := struct {
-		Ctx       context.Context
-		Q         database.Tx
-		Scope     tenancy.Scope
-		ProductID string
-	}{
-		Ctx:       ctx,
-		Q:         q,
-		Scope:     scope,
-		ProductID: productID,
-	}
-	mock.lockArchiveProductTx.Lock()
-	mock.calls.ArchiveProductTx = append(mock.calls.ArchiveProductTx, callInfo)
-	mock.lockArchiveProductTx.Unlock()
-	return mock.ArchiveProductTxFunc(ctx, q, scope, productID)
-}
-
-// ArchiveProductTxCalls gets all the calls that were made to ArchiveProductTx.
-// Check the length with:
-//
-//	len(mockedProductStore.ArchiveProductTxCalls())
-func (mock *ProductStoreMock) ArchiveProductTxCalls() []struct {
-	Ctx       context.Context
-	Q         database.Tx
-	Scope     tenancy.Scope
-	ProductID string
-} {
-	var calls []struct {
-		Ctx       context.Context
-		Q         database.Tx
-		Scope     tenancy.Scope
-		ProductID string
-	}
-	mock.lockArchiveProductTx.RLock()
-	calls = mock.calls.ArchiveProductTx
-	mock.lockArchiveProductTx.RUnlock()
-	return calls
-}
-
 // CreateProduct calls CreateProductFunc.
-func (mock *ProductStoreMock) CreateProduct(ctx context.Context, scope tenancy.Scope, product *billing.Product) (*billing.Product, error) {
+func (mock *ProductStoreMock) CreateProduct(ctx context.Context, tx database.Tx, scope tenancy.Scope, product *billing.Product) (*billing.Product, error) {
 	if mock.CreateProductFunc == nil {
 		panic("ProductStoreMock.CreateProductFunc: method is nil but ProductStore.CreateProduct was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
+		Tx      database.Tx
 		Scope   tenancy.Scope
 		Product *billing.Product
 	}{
 		Ctx:     ctx,
+		Tx:      tx,
 		Scope:   scope,
 		Product: product,
 	}
 	mock.lockCreateProduct.Lock()
 	mock.calls.CreateProduct = append(mock.calls.CreateProduct, callInfo)
 	mock.lockCreateProduct.Unlock()
-	return mock.CreateProductFunc(ctx, scope, product)
+	return mock.CreateProductFunc(ctx, tx, scope, product)
 }
 
 // CreateProductCalls gets all the calls that were made to CreateProduct.
@@ -2881,11 +2159,13 @@ func (mock *ProductStoreMock) CreateProduct(ctx context.Context, scope tenancy.S
 //	len(mockedProductStore.CreateProductCalls())
 func (mock *ProductStoreMock) CreateProductCalls() []struct {
 	Ctx     context.Context
+	Tx      database.Tx
 	Scope   tenancy.Scope
 	Product *billing.Product
 } {
 	var calls []struct {
 		Ctx     context.Context
+		Tx      database.Tx
 		Scope   tenancy.Scope
 		Product *billing.Product
 	}
@@ -2895,68 +2175,26 @@ func (mock *ProductStoreMock) CreateProductCalls() []struct {
 	return calls
 }
 
-// CreateProductTx calls CreateProductTxFunc.
-func (mock *ProductStoreMock) CreateProductTx(ctx context.Context, q database.Tx, scope tenancy.Scope, product *billing.Product) (*billing.Product, error) {
-	if mock.CreateProductTxFunc == nil {
-		panic("ProductStoreMock.CreateProductTxFunc: method is nil but ProductStore.CreateProductTx was just called")
-	}
-	callInfo := struct {
-		Ctx     context.Context
-		Q       database.Tx
-		Scope   tenancy.Scope
-		Product *billing.Product
-	}{
-		Ctx:     ctx,
-		Q:       q,
-		Scope:   scope,
-		Product: product,
-	}
-	mock.lockCreateProductTx.Lock()
-	mock.calls.CreateProductTx = append(mock.calls.CreateProductTx, callInfo)
-	mock.lockCreateProductTx.Unlock()
-	return mock.CreateProductTxFunc(ctx, q, scope, product)
-}
-
-// CreateProductTxCalls gets all the calls that were made to CreateProductTx.
-// Check the length with:
-//
-//	len(mockedProductStore.CreateProductTxCalls())
-func (mock *ProductStoreMock) CreateProductTxCalls() []struct {
-	Ctx     context.Context
-	Q       database.Tx
-	Scope   tenancy.Scope
-	Product *billing.Product
-} {
-	var calls []struct {
-		Ctx     context.Context
-		Q       database.Tx
-		Scope   tenancy.Scope
-		Product *billing.Product
-	}
-	mock.lockCreateProductTx.RLock()
-	calls = mock.calls.CreateProductTx
-	mock.lockCreateProductTx.RUnlock()
-	return calls
-}
-
 // GetProduct calls GetProductFunc.
-func (mock *ProductStoreMock) GetProduct(ctx context.Context, scope tenancy.Scope, productID string) (*billing.Product, error) {
+func (mock *ProductStoreMock) GetProduct(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, productID string) (*billing.Product, error) {
 	if mock.GetProductFunc == nil {
 		panic("ProductStoreMock.GetProductFunc: method is nil but ProductStore.GetProduct was just called")
 	}
 	callInfo := struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		ProductID string
 	}{
 		Ctx:       ctx,
+		Q:         q,
 		Scope:     scope,
 		ProductID: productID,
 	}
 	mock.lockGetProduct.Lock()
 	mock.calls.GetProduct = append(mock.calls.GetProduct, callInfo)
 	mock.lockGetProduct.Unlock()
-	return mock.GetProductFunc(ctx, scope, productID)
+	return mock.GetProductFunc(ctx, q, scope, productID)
 }
 
 // GetProductCalls gets all the calls that were made to GetProduct.
@@ -2965,11 +2203,13 @@ func (mock *ProductStoreMock) GetProduct(ctx context.Context, scope tenancy.Scop
 //	len(mockedProductStore.GetProductCalls())
 func (mock *ProductStoreMock) GetProductCalls() []struct {
 	Ctx       context.Context
+	Q         database.SQLQueryExecutor
 	Scope     tenancy.Scope
 	ProductID string
 } {
 	var calls []struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		ProductID string
 	}
@@ -2980,23 +2220,25 @@ func (mock *ProductStoreMock) GetProductCalls() []struct {
 }
 
 // GetProductByExternalID calls GetProductByExternalIDFunc.
-func (mock *ProductStoreMock) GetProductByExternalID(ctx context.Context, scope tenancy.Scope, externalProductID string) (*billing.Product, error) {
+func (mock *ProductStoreMock) GetProductByExternalID(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalProductID string) (*billing.Product, error) {
 	if mock.GetProductByExternalIDFunc == nil {
 		panic("ProductStoreMock.GetProductByExternalIDFunc: method is nil but ProductStore.GetProductByExternalID was just called")
 	}
 	callInfo := struct {
 		Ctx               context.Context
+		Q                 database.SQLQueryExecutor
 		Scope             tenancy.Scope
 		ExternalProductID string
 	}{
 		Ctx:               ctx,
+		Q:                 q,
 		Scope:             scope,
 		ExternalProductID: externalProductID,
 	}
 	mock.lockGetProductByExternalID.Lock()
 	mock.calls.GetProductByExternalID = append(mock.calls.GetProductByExternalID, callInfo)
 	mock.lockGetProductByExternalID.Unlock()
-	return mock.GetProductByExternalIDFunc(ctx, scope, externalProductID)
+	return mock.GetProductByExternalIDFunc(ctx, q, scope, externalProductID)
 }
 
 // GetProductByExternalIDCalls gets all the calls that were made to GetProductByExternalID.
@@ -3005,11 +2247,13 @@ func (mock *ProductStoreMock) GetProductByExternalID(ctx context.Context, scope 
 //	len(mockedProductStore.GetProductByExternalIDCalls())
 func (mock *ProductStoreMock) GetProductByExternalIDCalls() []struct {
 	Ctx               context.Context
+	Q                 database.SQLQueryExecutor
 	Scope             tenancy.Scope
 	ExternalProductID string
 } {
 	var calls []struct {
 		Ctx               context.Context
+		Q                 database.SQLQueryExecutor
 		Scope             tenancy.Scope
 		ExternalProductID string
 	}
@@ -3020,23 +2264,25 @@ func (mock *ProductStoreMock) GetProductByExternalIDCalls() []struct {
 }
 
 // ListProducts calls ListProductsFunc.
-func (mock *ProductStoreMock) ListProducts(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Product], error) {
+func (mock *ProductStoreMock) ListProducts(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Product], error) {
 	if mock.ListProductsFunc == nil {
 		panic("ProductStoreMock.ListProductsFunc: method is nil but ProductStore.ListProducts was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}{
 		Ctx:    ctx,
+		Q:      q,
 		Scope:  scope,
 		Filter: filter,
 	}
 	mock.lockListProducts.Lock()
 	mock.calls.ListProducts = append(mock.calls.ListProducts, callInfo)
 	mock.lockListProducts.Unlock()
-	return mock.ListProductsFunc(ctx, scope, filter)
+	return mock.ListProductsFunc(ctx, q, scope, filter)
 }
 
 // ListProductsCalls gets all the calls that were made to ListProducts.
@@ -3045,11 +2291,13 @@ func (mock *ProductStoreMock) ListProducts(ctx context.Context, scope tenancy.Sc
 //	len(mockedProductStore.ListProductsCalls())
 func (mock *ProductStoreMock) ListProductsCalls() []struct {
 	Ctx    context.Context
+	Q      database.SQLQueryExecutor
 	Scope  tenancy.Scope
 	Filter *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}
@@ -3060,23 +2308,25 @@ func (mock *ProductStoreMock) ListProductsCalls() []struct {
 }
 
 // ProductExists calls ProductExistsFunc.
-func (mock *ProductStoreMock) ProductExists(ctx context.Context, scope tenancy.Scope, productID string) (bool, error) {
+func (mock *ProductStoreMock) ProductExists(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, productID string) (bool, error) {
 	if mock.ProductExistsFunc == nil {
 		panic("ProductStoreMock.ProductExistsFunc: method is nil but ProductStore.ProductExists was just called")
 	}
 	callInfo := struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		ProductID string
 	}{
 		Ctx:       ctx,
+		Q:         q,
 		Scope:     scope,
 		ProductID: productID,
 	}
 	mock.lockProductExists.Lock()
 	mock.calls.ProductExists = append(mock.calls.ProductExists, callInfo)
 	mock.lockProductExists.Unlock()
-	return mock.ProductExistsFunc(ctx, scope, productID)
+	return mock.ProductExistsFunc(ctx, q, scope, productID)
 }
 
 // ProductExistsCalls gets all the calls that were made to ProductExists.
@@ -3085,11 +2335,13 @@ func (mock *ProductStoreMock) ProductExists(ctx context.Context, scope tenancy.S
 //	len(mockedProductStore.ProductExistsCalls())
 func (mock *ProductStoreMock) ProductExistsCalls() []struct {
 	Ctx       context.Context
+	Q         database.SQLQueryExecutor
 	Scope     tenancy.Scope
 	ProductID string
 } {
 	var calls []struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		ProductID string
 	}
@@ -3100,23 +2352,25 @@ func (mock *ProductStoreMock) ProductExistsCalls() []struct {
 }
 
 // UpdateProduct calls UpdateProductFunc.
-func (mock *ProductStoreMock) UpdateProduct(ctx context.Context, scope tenancy.Scope, product *billing.Product) error {
+func (mock *ProductStoreMock) UpdateProduct(ctx context.Context, tx database.Tx, scope tenancy.Scope, product *billing.Product) error {
 	if mock.UpdateProductFunc == nil {
 		panic("ProductStoreMock.UpdateProductFunc: method is nil but ProductStore.UpdateProduct was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
+		Tx      database.Tx
 		Scope   tenancy.Scope
 		Product *billing.Product
 	}{
 		Ctx:     ctx,
+		Tx:      tx,
 		Scope:   scope,
 		Product: product,
 	}
 	mock.lockUpdateProduct.Lock()
 	mock.calls.UpdateProduct = append(mock.calls.UpdateProduct, callInfo)
 	mock.lockUpdateProduct.Unlock()
-	return mock.UpdateProductFunc(ctx, scope, product)
+	return mock.UpdateProductFunc(ctx, tx, scope, product)
 }
 
 // UpdateProductCalls gets all the calls that were made to UpdateProduct.
@@ -3125,61 +2379,19 @@ func (mock *ProductStoreMock) UpdateProduct(ctx context.Context, scope tenancy.S
 //	len(mockedProductStore.UpdateProductCalls())
 func (mock *ProductStoreMock) UpdateProductCalls() []struct {
 	Ctx     context.Context
+	Tx      database.Tx
 	Scope   tenancy.Scope
 	Product *billing.Product
 } {
 	var calls []struct {
 		Ctx     context.Context
+		Tx      database.Tx
 		Scope   tenancy.Scope
 		Product *billing.Product
 	}
 	mock.lockUpdateProduct.RLock()
 	calls = mock.calls.UpdateProduct
 	mock.lockUpdateProduct.RUnlock()
-	return calls
-}
-
-// UpdateProductTx calls UpdateProductTxFunc.
-func (mock *ProductStoreMock) UpdateProductTx(ctx context.Context, q database.Tx, scope tenancy.Scope, product *billing.Product) error {
-	if mock.UpdateProductTxFunc == nil {
-		panic("ProductStoreMock.UpdateProductTxFunc: method is nil but ProductStore.UpdateProductTx was just called")
-	}
-	callInfo := struct {
-		Ctx     context.Context
-		Q       database.Tx
-		Scope   tenancy.Scope
-		Product *billing.Product
-	}{
-		Ctx:     ctx,
-		Q:       q,
-		Scope:   scope,
-		Product: product,
-	}
-	mock.lockUpdateProductTx.Lock()
-	mock.calls.UpdateProductTx = append(mock.calls.UpdateProductTx, callInfo)
-	mock.lockUpdateProductTx.Unlock()
-	return mock.UpdateProductTxFunc(ctx, q, scope, product)
-}
-
-// UpdateProductTxCalls gets all the calls that were made to UpdateProductTx.
-// Check the length with:
-//
-//	len(mockedProductStore.UpdateProductTxCalls())
-func (mock *ProductStoreMock) UpdateProductTxCalls() []struct {
-	Ctx     context.Context
-	Q       database.Tx
-	Scope   tenancy.Scope
-	Product *billing.Product
-} {
-	var calls []struct {
-		Ctx     context.Context
-		Q       database.Tx
-		Scope   tenancy.Scope
-		Product *billing.Product
-	}
-	mock.lockUpdateProductTx.RLock()
-	calls = mock.calls.UpdateProductTx
-	mock.lockUpdateProductTx.RUnlock()
 	return calls
 }
 
@@ -3193,44 +2405,32 @@ var _ billing.SubscriptionStore = &SubscriptionStoreMock{}
 //
 //		// make and configure a mocked billing.SubscriptionStore
 //		mockedSubscriptionStore := &SubscriptionStoreMock{
-//			ArchiveSubscriptionFunc: func(ctx context.Context, scope tenancy.Scope, subscriptionID string) error {
+//			ArchiveSubscriptionFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscriptionID string) error {
 //				panic("mock out the ArchiveSubscription method")
 //			},
-//			ArchiveSubscriptionTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, subscriptionID string) error {
-//				panic("mock out the ArchiveSubscriptionTx method")
-//			},
-//			CreateSubscriptionFunc: func(ctx context.Context, scope tenancy.Scope, subscription *billing.Subscription) (*billing.Subscription, error) {
+//			CreateSubscriptionFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscription *billing.Subscription) (*billing.Subscription, error) {
 //				panic("mock out the CreateSubscription method")
 //			},
-//			CreateSubscriptionTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, subscription *billing.Subscription) (*billing.Subscription, error) {
-//				panic("mock out the CreateSubscriptionTx method")
-//			},
-//			GetSubscriptionFunc: func(ctx context.Context, scope tenancy.Scope, subscriptionID string) (*billing.Subscription, error) {
+//			GetSubscriptionFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subscriptionID string) (*billing.Subscription, error) {
 //				panic("mock out the GetSubscription method")
 //			},
-//			GetSubscriptionByExternalIDFunc: func(ctx context.Context, scope tenancy.Scope, externalSubscriptionID string) (*billing.Subscription, error) {
+//			GetSubscriptionByExternalIDFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalSubscriptionID string) (*billing.Subscription, error) {
 //				panic("mock out the GetSubscriptionByExternalID method")
 //			},
-//			ListCurrentSubscriptionsFunc: func(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
+//			ListCurrentSubscriptionsFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
 //				panic("mock out the ListCurrentSubscriptions method")
 //			},
-//			ListSubscriptionsFunc: func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
+//			ListSubscriptionsFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
 //				panic("mock out the ListSubscriptions method")
 //			},
-//			ListSubscriptionsForAccountFunc: func(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
+//			ListSubscriptionsForAccountFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
 //				panic("mock out the ListSubscriptionsForAccount method")
 //			},
-//			SetSubscriptionStatusFunc: func(ctx context.Context, scope tenancy.Scope, subscriptionID string, status capitalism.SubscriptionStatus) error {
+//			SetSubscriptionStatusFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscriptionID string, status capitalism.SubscriptionStatus) error {
 //				panic("mock out the SetSubscriptionStatus method")
 //			},
-//			SetSubscriptionStatusTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, subscriptionID string, status capitalism.SubscriptionStatus) error {
-//				panic("mock out the SetSubscriptionStatusTx method")
-//			},
-//			UpdateSubscriptionFunc: func(ctx context.Context, scope tenancy.Scope, subscription *billing.Subscription) error {
+//			UpdateSubscriptionFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscription *billing.Subscription) error {
 //				panic("mock out the UpdateSubscription method")
-//			},
-//			UpdateSubscriptionTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, subscription *billing.Subscription) error {
-//				panic("mock out the UpdateSubscriptionTx method")
 //			},
 //		}
 //
@@ -3240,43 +2440,31 @@ var _ billing.SubscriptionStore = &SubscriptionStoreMock{}
 //	}
 type SubscriptionStoreMock struct {
 	// ArchiveSubscriptionFunc mocks the ArchiveSubscription method.
-	ArchiveSubscriptionFunc func(ctx context.Context, scope tenancy.Scope, subscriptionID string) error
-
-	// ArchiveSubscriptionTxFunc mocks the ArchiveSubscriptionTx method.
-	ArchiveSubscriptionTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, subscriptionID string) error
+	ArchiveSubscriptionFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscriptionID string) error
 
 	// CreateSubscriptionFunc mocks the CreateSubscription method.
-	CreateSubscriptionFunc func(ctx context.Context, scope tenancy.Scope, subscription *billing.Subscription) (*billing.Subscription, error)
-
-	// CreateSubscriptionTxFunc mocks the CreateSubscriptionTx method.
-	CreateSubscriptionTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, subscription *billing.Subscription) (*billing.Subscription, error)
+	CreateSubscriptionFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscription *billing.Subscription) (*billing.Subscription, error)
 
 	// GetSubscriptionFunc mocks the GetSubscription method.
-	GetSubscriptionFunc func(ctx context.Context, scope tenancy.Scope, subscriptionID string) (*billing.Subscription, error)
+	GetSubscriptionFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subscriptionID string) (*billing.Subscription, error)
 
 	// GetSubscriptionByExternalIDFunc mocks the GetSubscriptionByExternalID method.
-	GetSubscriptionByExternalIDFunc func(ctx context.Context, scope tenancy.Scope, externalSubscriptionID string) (*billing.Subscription, error)
+	GetSubscriptionByExternalIDFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalSubscriptionID string) (*billing.Subscription, error)
 
 	// ListCurrentSubscriptionsFunc mocks the ListCurrentSubscriptions method.
-	ListCurrentSubscriptionsFunc func(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error)
+	ListCurrentSubscriptionsFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error)
 
 	// ListSubscriptionsFunc mocks the ListSubscriptions method.
-	ListSubscriptionsFunc func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error)
+	ListSubscriptionsFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error)
 
 	// ListSubscriptionsForAccountFunc mocks the ListSubscriptionsForAccount method.
-	ListSubscriptionsForAccountFunc func(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error)
+	ListSubscriptionsForAccountFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error)
 
 	// SetSubscriptionStatusFunc mocks the SetSubscriptionStatus method.
-	SetSubscriptionStatusFunc func(ctx context.Context, scope tenancy.Scope, subscriptionID string, status capitalism.SubscriptionStatus) error
-
-	// SetSubscriptionStatusTxFunc mocks the SetSubscriptionStatusTx method.
-	SetSubscriptionStatusTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, subscriptionID string, status capitalism.SubscriptionStatus) error
+	SetSubscriptionStatusFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscriptionID string, status capitalism.SubscriptionStatus) error
 
 	// UpdateSubscriptionFunc mocks the UpdateSubscription method.
-	UpdateSubscriptionFunc func(ctx context.Context, scope tenancy.Scope, subscription *billing.Subscription) error
-
-	// UpdateSubscriptionTxFunc mocks the UpdateSubscriptionTx method.
-	UpdateSubscriptionTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, subscription *billing.Subscription) error
+	UpdateSubscriptionFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscription *billing.Subscription) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -3284,17 +2472,8 @@ type SubscriptionStoreMock struct {
 		ArchiveSubscription []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// SubscriptionID is the subscriptionID argument value.
-			SubscriptionID string
-		}
-		// ArchiveSubscriptionTx holds details about calls to the ArchiveSubscriptionTx method.
-		ArchiveSubscriptionTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// SubscriptionID is the subscriptionID argument value.
@@ -3304,17 +2483,8 @@ type SubscriptionStoreMock struct {
 		CreateSubscription []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// Subscription is the subscription argument value.
-			Subscription *billing.Subscription
-		}
-		// CreateSubscriptionTx holds details about calls to the CreateSubscriptionTx method.
-		CreateSubscriptionTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Subscription is the subscription argument value.
@@ -3324,6 +2494,8 @@ type SubscriptionStoreMock struct {
 		GetSubscription []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// SubscriptionID is the subscriptionID argument value.
@@ -3333,6 +2505,8 @@ type SubscriptionStoreMock struct {
 		GetSubscriptionByExternalID []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// ExternalSubscriptionID is the externalSubscriptionID argument value.
@@ -3342,6 +2516,8 @@ type SubscriptionStoreMock struct {
 		ListCurrentSubscriptions []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// AccountID is the accountID argument value.
@@ -3353,6 +2529,8 @@ type SubscriptionStoreMock struct {
 		ListSubscriptions []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Filter is the filter argument value.
@@ -3362,6 +2540,8 @@ type SubscriptionStoreMock struct {
 		ListSubscriptionsForAccount []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// AccountID is the accountID argument value.
@@ -3373,19 +2553,8 @@ type SubscriptionStoreMock struct {
 		SetSubscriptionStatus []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// SubscriptionID is the subscriptionID argument value.
-			SubscriptionID string
-			// Status is the status argument value.
-			Status capitalism.SubscriptionStatus
-		}
-		// SetSubscriptionStatusTx holds details about calls to the SetSubscriptionStatusTx method.
-		SetSubscriptionStatusTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// SubscriptionID is the subscriptionID argument value.
@@ -3397,17 +2566,8 @@ type SubscriptionStoreMock struct {
 		UpdateSubscription []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// Subscription is the subscription argument value.
-			Subscription *billing.Subscription
-		}
-		// UpdateSubscriptionTx holds details about calls to the UpdateSubscriptionTx method.
-		UpdateSubscriptionTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Subscription is the subscription argument value.
@@ -3415,38 +2575,36 @@ type SubscriptionStoreMock struct {
 		}
 	}
 	lockArchiveSubscription         sync.RWMutex
-	lockArchiveSubscriptionTx       sync.RWMutex
 	lockCreateSubscription          sync.RWMutex
-	lockCreateSubscriptionTx        sync.RWMutex
 	lockGetSubscription             sync.RWMutex
 	lockGetSubscriptionByExternalID sync.RWMutex
 	lockListCurrentSubscriptions    sync.RWMutex
 	lockListSubscriptions           sync.RWMutex
 	lockListSubscriptionsForAccount sync.RWMutex
 	lockSetSubscriptionStatus       sync.RWMutex
-	lockSetSubscriptionStatusTx     sync.RWMutex
 	lockUpdateSubscription          sync.RWMutex
-	lockUpdateSubscriptionTx        sync.RWMutex
 }
 
 // ArchiveSubscription calls ArchiveSubscriptionFunc.
-func (mock *SubscriptionStoreMock) ArchiveSubscription(ctx context.Context, scope tenancy.Scope, subscriptionID string) error {
+func (mock *SubscriptionStoreMock) ArchiveSubscription(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscriptionID string) error {
 	if mock.ArchiveSubscriptionFunc == nil {
 		panic("SubscriptionStoreMock.ArchiveSubscriptionFunc: method is nil but SubscriptionStore.ArchiveSubscription was just called")
 	}
 	callInfo := struct {
 		Ctx            context.Context
+		Tx             database.Tx
 		Scope          tenancy.Scope
 		SubscriptionID string
 	}{
 		Ctx:            ctx,
+		Tx:             tx,
 		Scope:          scope,
 		SubscriptionID: subscriptionID,
 	}
 	mock.lockArchiveSubscription.Lock()
 	mock.calls.ArchiveSubscription = append(mock.calls.ArchiveSubscription, callInfo)
 	mock.lockArchiveSubscription.Unlock()
-	return mock.ArchiveSubscriptionFunc(ctx, scope, subscriptionID)
+	return mock.ArchiveSubscriptionFunc(ctx, tx, scope, subscriptionID)
 }
 
 // ArchiveSubscriptionCalls gets all the calls that were made to ArchiveSubscription.
@@ -3455,11 +2613,13 @@ func (mock *SubscriptionStoreMock) ArchiveSubscription(ctx context.Context, scop
 //	len(mockedSubscriptionStore.ArchiveSubscriptionCalls())
 func (mock *SubscriptionStoreMock) ArchiveSubscriptionCalls() []struct {
 	Ctx            context.Context
+	Tx             database.Tx
 	Scope          tenancy.Scope
 	SubscriptionID string
 } {
 	var calls []struct {
 		Ctx            context.Context
+		Tx             database.Tx
 		Scope          tenancy.Scope
 		SubscriptionID string
 	}
@@ -3469,68 +2629,26 @@ func (mock *SubscriptionStoreMock) ArchiveSubscriptionCalls() []struct {
 	return calls
 }
 
-// ArchiveSubscriptionTx calls ArchiveSubscriptionTxFunc.
-func (mock *SubscriptionStoreMock) ArchiveSubscriptionTx(ctx context.Context, q database.Tx, scope tenancy.Scope, subscriptionID string) error {
-	if mock.ArchiveSubscriptionTxFunc == nil {
-		panic("SubscriptionStoreMock.ArchiveSubscriptionTxFunc: method is nil but SubscriptionStore.ArchiveSubscriptionTx was just called")
-	}
-	callInfo := struct {
-		Ctx            context.Context
-		Q              database.Tx
-		Scope          tenancy.Scope
-		SubscriptionID string
-	}{
-		Ctx:            ctx,
-		Q:              q,
-		Scope:          scope,
-		SubscriptionID: subscriptionID,
-	}
-	mock.lockArchiveSubscriptionTx.Lock()
-	mock.calls.ArchiveSubscriptionTx = append(mock.calls.ArchiveSubscriptionTx, callInfo)
-	mock.lockArchiveSubscriptionTx.Unlock()
-	return mock.ArchiveSubscriptionTxFunc(ctx, q, scope, subscriptionID)
-}
-
-// ArchiveSubscriptionTxCalls gets all the calls that were made to ArchiveSubscriptionTx.
-// Check the length with:
-//
-//	len(mockedSubscriptionStore.ArchiveSubscriptionTxCalls())
-func (mock *SubscriptionStoreMock) ArchiveSubscriptionTxCalls() []struct {
-	Ctx            context.Context
-	Q              database.Tx
-	Scope          tenancy.Scope
-	SubscriptionID string
-} {
-	var calls []struct {
-		Ctx            context.Context
-		Q              database.Tx
-		Scope          tenancy.Scope
-		SubscriptionID string
-	}
-	mock.lockArchiveSubscriptionTx.RLock()
-	calls = mock.calls.ArchiveSubscriptionTx
-	mock.lockArchiveSubscriptionTx.RUnlock()
-	return calls
-}
-
 // CreateSubscription calls CreateSubscriptionFunc.
-func (mock *SubscriptionStoreMock) CreateSubscription(ctx context.Context, scope tenancy.Scope, subscription *billing.Subscription) (*billing.Subscription, error) {
+func (mock *SubscriptionStoreMock) CreateSubscription(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscription *billing.Subscription) (*billing.Subscription, error) {
 	if mock.CreateSubscriptionFunc == nil {
 		panic("SubscriptionStoreMock.CreateSubscriptionFunc: method is nil but SubscriptionStore.CreateSubscription was just called")
 	}
 	callInfo := struct {
 		Ctx          context.Context
+		Tx           database.Tx
 		Scope        tenancy.Scope
 		Subscription *billing.Subscription
 	}{
 		Ctx:          ctx,
+		Tx:           tx,
 		Scope:        scope,
 		Subscription: subscription,
 	}
 	mock.lockCreateSubscription.Lock()
 	mock.calls.CreateSubscription = append(mock.calls.CreateSubscription, callInfo)
 	mock.lockCreateSubscription.Unlock()
-	return mock.CreateSubscriptionFunc(ctx, scope, subscription)
+	return mock.CreateSubscriptionFunc(ctx, tx, scope, subscription)
 }
 
 // CreateSubscriptionCalls gets all the calls that were made to CreateSubscription.
@@ -3539,11 +2657,13 @@ func (mock *SubscriptionStoreMock) CreateSubscription(ctx context.Context, scope
 //	len(mockedSubscriptionStore.CreateSubscriptionCalls())
 func (mock *SubscriptionStoreMock) CreateSubscriptionCalls() []struct {
 	Ctx          context.Context
+	Tx           database.Tx
 	Scope        tenancy.Scope
 	Subscription *billing.Subscription
 } {
 	var calls []struct {
 		Ctx          context.Context
+		Tx           database.Tx
 		Scope        tenancy.Scope
 		Subscription *billing.Subscription
 	}
@@ -3553,68 +2673,26 @@ func (mock *SubscriptionStoreMock) CreateSubscriptionCalls() []struct {
 	return calls
 }
 
-// CreateSubscriptionTx calls CreateSubscriptionTxFunc.
-func (mock *SubscriptionStoreMock) CreateSubscriptionTx(ctx context.Context, q database.Tx, scope tenancy.Scope, subscription *billing.Subscription) (*billing.Subscription, error) {
-	if mock.CreateSubscriptionTxFunc == nil {
-		panic("SubscriptionStoreMock.CreateSubscriptionTxFunc: method is nil but SubscriptionStore.CreateSubscriptionTx was just called")
-	}
-	callInfo := struct {
-		Ctx          context.Context
-		Q            database.Tx
-		Scope        tenancy.Scope
-		Subscription *billing.Subscription
-	}{
-		Ctx:          ctx,
-		Q:            q,
-		Scope:        scope,
-		Subscription: subscription,
-	}
-	mock.lockCreateSubscriptionTx.Lock()
-	mock.calls.CreateSubscriptionTx = append(mock.calls.CreateSubscriptionTx, callInfo)
-	mock.lockCreateSubscriptionTx.Unlock()
-	return mock.CreateSubscriptionTxFunc(ctx, q, scope, subscription)
-}
-
-// CreateSubscriptionTxCalls gets all the calls that were made to CreateSubscriptionTx.
-// Check the length with:
-//
-//	len(mockedSubscriptionStore.CreateSubscriptionTxCalls())
-func (mock *SubscriptionStoreMock) CreateSubscriptionTxCalls() []struct {
-	Ctx          context.Context
-	Q            database.Tx
-	Scope        tenancy.Scope
-	Subscription *billing.Subscription
-} {
-	var calls []struct {
-		Ctx          context.Context
-		Q            database.Tx
-		Scope        tenancy.Scope
-		Subscription *billing.Subscription
-	}
-	mock.lockCreateSubscriptionTx.RLock()
-	calls = mock.calls.CreateSubscriptionTx
-	mock.lockCreateSubscriptionTx.RUnlock()
-	return calls
-}
-
 // GetSubscription calls GetSubscriptionFunc.
-func (mock *SubscriptionStoreMock) GetSubscription(ctx context.Context, scope tenancy.Scope, subscriptionID string) (*billing.Subscription, error) {
+func (mock *SubscriptionStoreMock) GetSubscription(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subscriptionID string) (*billing.Subscription, error) {
 	if mock.GetSubscriptionFunc == nil {
 		panic("SubscriptionStoreMock.GetSubscriptionFunc: method is nil but SubscriptionStore.GetSubscription was just called")
 	}
 	callInfo := struct {
 		Ctx            context.Context
+		Q              database.SQLQueryExecutor
 		Scope          tenancy.Scope
 		SubscriptionID string
 	}{
 		Ctx:            ctx,
+		Q:              q,
 		Scope:          scope,
 		SubscriptionID: subscriptionID,
 	}
 	mock.lockGetSubscription.Lock()
 	mock.calls.GetSubscription = append(mock.calls.GetSubscription, callInfo)
 	mock.lockGetSubscription.Unlock()
-	return mock.GetSubscriptionFunc(ctx, scope, subscriptionID)
+	return mock.GetSubscriptionFunc(ctx, q, scope, subscriptionID)
 }
 
 // GetSubscriptionCalls gets all the calls that were made to GetSubscription.
@@ -3623,11 +2701,13 @@ func (mock *SubscriptionStoreMock) GetSubscription(ctx context.Context, scope te
 //	len(mockedSubscriptionStore.GetSubscriptionCalls())
 func (mock *SubscriptionStoreMock) GetSubscriptionCalls() []struct {
 	Ctx            context.Context
+	Q              database.SQLQueryExecutor
 	Scope          tenancy.Scope
 	SubscriptionID string
 } {
 	var calls []struct {
 		Ctx            context.Context
+		Q              database.SQLQueryExecutor
 		Scope          tenancy.Scope
 		SubscriptionID string
 	}
@@ -3638,23 +2718,25 @@ func (mock *SubscriptionStoreMock) GetSubscriptionCalls() []struct {
 }
 
 // GetSubscriptionByExternalID calls GetSubscriptionByExternalIDFunc.
-func (mock *SubscriptionStoreMock) GetSubscriptionByExternalID(ctx context.Context, scope tenancy.Scope, externalSubscriptionID string) (*billing.Subscription, error) {
+func (mock *SubscriptionStoreMock) GetSubscriptionByExternalID(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalSubscriptionID string) (*billing.Subscription, error) {
 	if mock.GetSubscriptionByExternalIDFunc == nil {
 		panic("SubscriptionStoreMock.GetSubscriptionByExternalIDFunc: method is nil but SubscriptionStore.GetSubscriptionByExternalID was just called")
 	}
 	callInfo := struct {
 		Ctx                    context.Context
+		Q                      database.SQLQueryExecutor
 		Scope                  tenancy.Scope
 		ExternalSubscriptionID string
 	}{
 		Ctx:                    ctx,
+		Q:                      q,
 		Scope:                  scope,
 		ExternalSubscriptionID: externalSubscriptionID,
 	}
 	mock.lockGetSubscriptionByExternalID.Lock()
 	mock.calls.GetSubscriptionByExternalID = append(mock.calls.GetSubscriptionByExternalID, callInfo)
 	mock.lockGetSubscriptionByExternalID.Unlock()
-	return mock.GetSubscriptionByExternalIDFunc(ctx, scope, externalSubscriptionID)
+	return mock.GetSubscriptionByExternalIDFunc(ctx, q, scope, externalSubscriptionID)
 }
 
 // GetSubscriptionByExternalIDCalls gets all the calls that were made to GetSubscriptionByExternalID.
@@ -3663,11 +2745,13 @@ func (mock *SubscriptionStoreMock) GetSubscriptionByExternalID(ctx context.Conte
 //	len(mockedSubscriptionStore.GetSubscriptionByExternalIDCalls())
 func (mock *SubscriptionStoreMock) GetSubscriptionByExternalIDCalls() []struct {
 	Ctx                    context.Context
+	Q                      database.SQLQueryExecutor
 	Scope                  tenancy.Scope
 	ExternalSubscriptionID string
 } {
 	var calls []struct {
 		Ctx                    context.Context
+		Q                      database.SQLQueryExecutor
 		Scope                  tenancy.Scope
 		ExternalSubscriptionID string
 	}
@@ -3678,17 +2762,19 @@ func (mock *SubscriptionStoreMock) GetSubscriptionByExternalIDCalls() []struct {
 }
 
 // ListCurrentSubscriptions calls ListCurrentSubscriptionsFunc.
-func (mock *SubscriptionStoreMock) ListCurrentSubscriptions(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
+func (mock *SubscriptionStoreMock) ListCurrentSubscriptions(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
 	if mock.ListCurrentSubscriptionsFunc == nil {
 		panic("SubscriptionStoreMock.ListCurrentSubscriptionsFunc: method is nil but SubscriptionStore.ListCurrentSubscriptions was just called")
 	}
 	callInfo := struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		AccountID string
 		Filter    *filtering.QueryFilter
 	}{
 		Ctx:       ctx,
+		Q:         q,
 		Scope:     scope,
 		AccountID: accountID,
 		Filter:    filter,
@@ -3696,7 +2782,7 @@ func (mock *SubscriptionStoreMock) ListCurrentSubscriptions(ctx context.Context,
 	mock.lockListCurrentSubscriptions.Lock()
 	mock.calls.ListCurrentSubscriptions = append(mock.calls.ListCurrentSubscriptions, callInfo)
 	mock.lockListCurrentSubscriptions.Unlock()
-	return mock.ListCurrentSubscriptionsFunc(ctx, scope, accountID, filter)
+	return mock.ListCurrentSubscriptionsFunc(ctx, q, scope, accountID, filter)
 }
 
 // ListCurrentSubscriptionsCalls gets all the calls that were made to ListCurrentSubscriptions.
@@ -3705,12 +2791,14 @@ func (mock *SubscriptionStoreMock) ListCurrentSubscriptions(ctx context.Context,
 //	len(mockedSubscriptionStore.ListCurrentSubscriptionsCalls())
 func (mock *SubscriptionStoreMock) ListCurrentSubscriptionsCalls() []struct {
 	Ctx       context.Context
+	Q         database.SQLQueryExecutor
 	Scope     tenancy.Scope
 	AccountID string
 	Filter    *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		AccountID string
 		Filter    *filtering.QueryFilter
@@ -3722,23 +2810,25 @@ func (mock *SubscriptionStoreMock) ListCurrentSubscriptionsCalls() []struct {
 }
 
 // ListSubscriptions calls ListSubscriptionsFunc.
-func (mock *SubscriptionStoreMock) ListSubscriptions(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
+func (mock *SubscriptionStoreMock) ListSubscriptions(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
 	if mock.ListSubscriptionsFunc == nil {
 		panic("SubscriptionStoreMock.ListSubscriptionsFunc: method is nil but SubscriptionStore.ListSubscriptions was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}{
 		Ctx:    ctx,
+		Q:      q,
 		Scope:  scope,
 		Filter: filter,
 	}
 	mock.lockListSubscriptions.Lock()
 	mock.calls.ListSubscriptions = append(mock.calls.ListSubscriptions, callInfo)
 	mock.lockListSubscriptions.Unlock()
-	return mock.ListSubscriptionsFunc(ctx, scope, filter)
+	return mock.ListSubscriptionsFunc(ctx, q, scope, filter)
 }
 
 // ListSubscriptionsCalls gets all the calls that were made to ListSubscriptions.
@@ -3747,11 +2837,13 @@ func (mock *SubscriptionStoreMock) ListSubscriptions(ctx context.Context, scope 
 //	len(mockedSubscriptionStore.ListSubscriptionsCalls())
 func (mock *SubscriptionStoreMock) ListSubscriptionsCalls() []struct {
 	Ctx    context.Context
+	Q      database.SQLQueryExecutor
 	Scope  tenancy.Scope
 	Filter *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}
@@ -3762,17 +2854,19 @@ func (mock *SubscriptionStoreMock) ListSubscriptionsCalls() []struct {
 }
 
 // ListSubscriptionsForAccount calls ListSubscriptionsForAccountFunc.
-func (mock *SubscriptionStoreMock) ListSubscriptionsForAccount(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
+func (mock *SubscriptionStoreMock) ListSubscriptionsForAccount(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Subscription], error) {
 	if mock.ListSubscriptionsForAccountFunc == nil {
 		panic("SubscriptionStoreMock.ListSubscriptionsForAccountFunc: method is nil but SubscriptionStore.ListSubscriptionsForAccount was just called")
 	}
 	callInfo := struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		AccountID string
 		Filter    *filtering.QueryFilter
 	}{
 		Ctx:       ctx,
+		Q:         q,
 		Scope:     scope,
 		AccountID: accountID,
 		Filter:    filter,
@@ -3780,7 +2874,7 @@ func (mock *SubscriptionStoreMock) ListSubscriptionsForAccount(ctx context.Conte
 	mock.lockListSubscriptionsForAccount.Lock()
 	mock.calls.ListSubscriptionsForAccount = append(mock.calls.ListSubscriptionsForAccount, callInfo)
 	mock.lockListSubscriptionsForAccount.Unlock()
-	return mock.ListSubscriptionsForAccountFunc(ctx, scope, accountID, filter)
+	return mock.ListSubscriptionsForAccountFunc(ctx, q, scope, accountID, filter)
 }
 
 // ListSubscriptionsForAccountCalls gets all the calls that were made to ListSubscriptionsForAccount.
@@ -3789,12 +2883,14 @@ func (mock *SubscriptionStoreMock) ListSubscriptionsForAccount(ctx context.Conte
 //	len(mockedSubscriptionStore.ListSubscriptionsForAccountCalls())
 func (mock *SubscriptionStoreMock) ListSubscriptionsForAccountCalls() []struct {
 	Ctx       context.Context
+	Q         database.SQLQueryExecutor
 	Scope     tenancy.Scope
 	AccountID string
 	Filter    *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		AccountID string
 		Filter    *filtering.QueryFilter
@@ -3806,17 +2902,19 @@ func (mock *SubscriptionStoreMock) ListSubscriptionsForAccountCalls() []struct {
 }
 
 // SetSubscriptionStatus calls SetSubscriptionStatusFunc.
-func (mock *SubscriptionStoreMock) SetSubscriptionStatus(ctx context.Context, scope tenancy.Scope, subscriptionID string, status capitalism.SubscriptionStatus) error {
+func (mock *SubscriptionStoreMock) SetSubscriptionStatus(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscriptionID string, status capitalism.SubscriptionStatus) error {
 	if mock.SetSubscriptionStatusFunc == nil {
 		panic("SubscriptionStoreMock.SetSubscriptionStatusFunc: method is nil but SubscriptionStore.SetSubscriptionStatus was just called")
 	}
 	callInfo := struct {
 		Ctx            context.Context
+		Tx             database.Tx
 		Scope          tenancy.Scope
 		SubscriptionID string
 		Status         capitalism.SubscriptionStatus
 	}{
 		Ctx:            ctx,
+		Tx:             tx,
 		Scope:          scope,
 		SubscriptionID: subscriptionID,
 		Status:         status,
@@ -3824,7 +2922,7 @@ func (mock *SubscriptionStoreMock) SetSubscriptionStatus(ctx context.Context, sc
 	mock.lockSetSubscriptionStatus.Lock()
 	mock.calls.SetSubscriptionStatus = append(mock.calls.SetSubscriptionStatus, callInfo)
 	mock.lockSetSubscriptionStatus.Unlock()
-	return mock.SetSubscriptionStatusFunc(ctx, scope, subscriptionID, status)
+	return mock.SetSubscriptionStatusFunc(ctx, tx, scope, subscriptionID, status)
 }
 
 // SetSubscriptionStatusCalls gets all the calls that were made to SetSubscriptionStatus.
@@ -3833,12 +2931,14 @@ func (mock *SubscriptionStoreMock) SetSubscriptionStatus(ctx context.Context, sc
 //	len(mockedSubscriptionStore.SetSubscriptionStatusCalls())
 func (mock *SubscriptionStoreMock) SetSubscriptionStatusCalls() []struct {
 	Ctx            context.Context
+	Tx             database.Tx
 	Scope          tenancy.Scope
 	SubscriptionID string
 	Status         capitalism.SubscriptionStatus
 } {
 	var calls []struct {
 		Ctx            context.Context
+		Tx             database.Tx
 		Scope          tenancy.Scope
 		SubscriptionID string
 		Status         capitalism.SubscriptionStatus
@@ -3849,72 +2949,26 @@ func (mock *SubscriptionStoreMock) SetSubscriptionStatusCalls() []struct {
 	return calls
 }
 
-// SetSubscriptionStatusTx calls SetSubscriptionStatusTxFunc.
-func (mock *SubscriptionStoreMock) SetSubscriptionStatusTx(ctx context.Context, q database.Tx, scope tenancy.Scope, subscriptionID string, status capitalism.SubscriptionStatus) error {
-	if mock.SetSubscriptionStatusTxFunc == nil {
-		panic("SubscriptionStoreMock.SetSubscriptionStatusTxFunc: method is nil but SubscriptionStore.SetSubscriptionStatusTx was just called")
-	}
-	callInfo := struct {
-		Ctx            context.Context
-		Q              database.Tx
-		Scope          tenancy.Scope
-		SubscriptionID string
-		Status         capitalism.SubscriptionStatus
-	}{
-		Ctx:            ctx,
-		Q:              q,
-		Scope:          scope,
-		SubscriptionID: subscriptionID,
-		Status:         status,
-	}
-	mock.lockSetSubscriptionStatusTx.Lock()
-	mock.calls.SetSubscriptionStatusTx = append(mock.calls.SetSubscriptionStatusTx, callInfo)
-	mock.lockSetSubscriptionStatusTx.Unlock()
-	return mock.SetSubscriptionStatusTxFunc(ctx, q, scope, subscriptionID, status)
-}
-
-// SetSubscriptionStatusTxCalls gets all the calls that were made to SetSubscriptionStatusTx.
-// Check the length with:
-//
-//	len(mockedSubscriptionStore.SetSubscriptionStatusTxCalls())
-func (mock *SubscriptionStoreMock) SetSubscriptionStatusTxCalls() []struct {
-	Ctx            context.Context
-	Q              database.Tx
-	Scope          tenancy.Scope
-	SubscriptionID string
-	Status         capitalism.SubscriptionStatus
-} {
-	var calls []struct {
-		Ctx            context.Context
-		Q              database.Tx
-		Scope          tenancy.Scope
-		SubscriptionID string
-		Status         capitalism.SubscriptionStatus
-	}
-	mock.lockSetSubscriptionStatusTx.RLock()
-	calls = mock.calls.SetSubscriptionStatusTx
-	mock.lockSetSubscriptionStatusTx.RUnlock()
-	return calls
-}
-
 // UpdateSubscription calls UpdateSubscriptionFunc.
-func (mock *SubscriptionStoreMock) UpdateSubscription(ctx context.Context, scope tenancy.Scope, subscription *billing.Subscription) error {
+func (mock *SubscriptionStoreMock) UpdateSubscription(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscription *billing.Subscription) error {
 	if mock.UpdateSubscriptionFunc == nil {
 		panic("SubscriptionStoreMock.UpdateSubscriptionFunc: method is nil but SubscriptionStore.UpdateSubscription was just called")
 	}
 	callInfo := struct {
 		Ctx          context.Context
+		Tx           database.Tx
 		Scope        tenancy.Scope
 		Subscription *billing.Subscription
 	}{
 		Ctx:          ctx,
+		Tx:           tx,
 		Scope:        scope,
 		Subscription: subscription,
 	}
 	mock.lockUpdateSubscription.Lock()
 	mock.calls.UpdateSubscription = append(mock.calls.UpdateSubscription, callInfo)
 	mock.lockUpdateSubscription.Unlock()
-	return mock.UpdateSubscriptionFunc(ctx, scope, subscription)
+	return mock.UpdateSubscriptionFunc(ctx, tx, scope, subscription)
 }
 
 // UpdateSubscriptionCalls gets all the calls that were made to UpdateSubscription.
@@ -3923,61 +2977,19 @@ func (mock *SubscriptionStoreMock) UpdateSubscription(ctx context.Context, scope
 //	len(mockedSubscriptionStore.UpdateSubscriptionCalls())
 func (mock *SubscriptionStoreMock) UpdateSubscriptionCalls() []struct {
 	Ctx          context.Context
+	Tx           database.Tx
 	Scope        tenancy.Scope
 	Subscription *billing.Subscription
 } {
 	var calls []struct {
 		Ctx          context.Context
+		Tx           database.Tx
 		Scope        tenancy.Scope
 		Subscription *billing.Subscription
 	}
 	mock.lockUpdateSubscription.RLock()
 	calls = mock.calls.UpdateSubscription
 	mock.lockUpdateSubscription.RUnlock()
-	return calls
-}
-
-// UpdateSubscriptionTx calls UpdateSubscriptionTxFunc.
-func (mock *SubscriptionStoreMock) UpdateSubscriptionTx(ctx context.Context, q database.Tx, scope tenancy.Scope, subscription *billing.Subscription) error {
-	if mock.UpdateSubscriptionTxFunc == nil {
-		panic("SubscriptionStoreMock.UpdateSubscriptionTxFunc: method is nil but SubscriptionStore.UpdateSubscriptionTx was just called")
-	}
-	callInfo := struct {
-		Ctx          context.Context
-		Q            database.Tx
-		Scope        tenancy.Scope
-		Subscription *billing.Subscription
-	}{
-		Ctx:          ctx,
-		Q:            q,
-		Scope:        scope,
-		Subscription: subscription,
-	}
-	mock.lockUpdateSubscriptionTx.Lock()
-	mock.calls.UpdateSubscriptionTx = append(mock.calls.UpdateSubscriptionTx, callInfo)
-	mock.lockUpdateSubscriptionTx.Unlock()
-	return mock.UpdateSubscriptionTxFunc(ctx, q, scope, subscription)
-}
-
-// UpdateSubscriptionTxCalls gets all the calls that were made to UpdateSubscriptionTx.
-// Check the length with:
-//
-//	len(mockedSubscriptionStore.UpdateSubscriptionTxCalls())
-func (mock *SubscriptionStoreMock) UpdateSubscriptionTxCalls() []struct {
-	Ctx          context.Context
-	Q            database.Tx
-	Scope        tenancy.Scope
-	Subscription *billing.Subscription
-} {
-	var calls []struct {
-		Ctx          context.Context
-		Q            database.Tx
-		Scope        tenancy.Scope
-		Subscription *billing.Subscription
-	}
-	mock.lockUpdateSubscriptionTx.RLock()
-	calls = mock.calls.UpdateSubscriptionTx
-	mock.lockUpdateSubscriptionTx.RUnlock()
 	return calls
 }
 
@@ -3991,34 +3003,25 @@ var _ billing.PurchaseStore = &PurchaseStoreMock{}
 //
 //		// make and configure a mocked billing.PurchaseStore
 //		mockedPurchaseStore := &PurchaseStoreMock{
-//			ArchivePurchaseFunc: func(ctx context.Context, scope tenancy.Scope, purchaseID string) error {
+//			ArchivePurchaseFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, purchaseID string) error {
 //				panic("mock out the ArchivePurchase method")
 //			},
-//			ArchivePurchaseTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, purchaseID string) error {
-//				panic("mock out the ArchivePurchaseTx method")
-//			},
-//			CompletePurchaseFunc: func(ctx context.Context, scope tenancy.Scope, purchaseID string, at time.Time) error {
+//			CompletePurchaseFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, purchaseID string, at time.Time) error {
 //				panic("mock out the CompletePurchase method")
 //			},
-//			CompletePurchaseTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, purchaseID string, at time.Time) error {
-//				panic("mock out the CompletePurchaseTx method")
-//			},
-//			CreatePurchaseFunc: func(ctx context.Context, scope tenancy.Scope, purchase *billing.Purchase) (*billing.Purchase, error) {
+//			CreatePurchaseFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, purchase *billing.Purchase) (*billing.Purchase, error) {
 //				panic("mock out the CreatePurchase method")
 //			},
-//			CreatePurchaseTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, purchase *billing.Purchase) (*billing.Purchase, error) {
-//				panic("mock out the CreatePurchaseTx method")
-//			},
-//			GetPurchaseFunc: func(ctx context.Context, scope tenancy.Scope, purchaseID string) (*billing.Purchase, error) {
+//			GetPurchaseFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, purchaseID string) (*billing.Purchase, error) {
 //				panic("mock out the GetPurchase method")
 //			},
-//			GetPurchaseByExternalIDFunc: func(ctx context.Context, scope tenancy.Scope, externalTransactionID string) (*billing.Purchase, error) {
+//			GetPurchaseByExternalIDFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalTransactionID string) (*billing.Purchase, error) {
 //				panic("mock out the GetPurchaseByExternalID method")
 //			},
-//			ListPurchasesFunc: func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error) {
+//			ListPurchasesFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error) {
 //				panic("mock out the ListPurchases method")
 //			},
-//			ListPurchasesForAccountFunc: func(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error) {
+//			ListPurchasesForAccountFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error) {
 //				panic("mock out the ListPurchasesForAccount method")
 //			},
 //		}
@@ -4029,34 +3032,25 @@ var _ billing.PurchaseStore = &PurchaseStoreMock{}
 //	}
 type PurchaseStoreMock struct {
 	// ArchivePurchaseFunc mocks the ArchivePurchase method.
-	ArchivePurchaseFunc func(ctx context.Context, scope tenancy.Scope, purchaseID string) error
-
-	// ArchivePurchaseTxFunc mocks the ArchivePurchaseTx method.
-	ArchivePurchaseTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, purchaseID string) error
+	ArchivePurchaseFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, purchaseID string) error
 
 	// CompletePurchaseFunc mocks the CompletePurchase method.
-	CompletePurchaseFunc func(ctx context.Context, scope tenancy.Scope, purchaseID string, at time.Time) error
-
-	// CompletePurchaseTxFunc mocks the CompletePurchaseTx method.
-	CompletePurchaseTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, purchaseID string, at time.Time) error
+	CompletePurchaseFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, purchaseID string, at time.Time) error
 
 	// CreatePurchaseFunc mocks the CreatePurchase method.
-	CreatePurchaseFunc func(ctx context.Context, scope tenancy.Scope, purchase *billing.Purchase) (*billing.Purchase, error)
-
-	// CreatePurchaseTxFunc mocks the CreatePurchaseTx method.
-	CreatePurchaseTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, purchase *billing.Purchase) (*billing.Purchase, error)
+	CreatePurchaseFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, purchase *billing.Purchase) (*billing.Purchase, error)
 
 	// GetPurchaseFunc mocks the GetPurchase method.
-	GetPurchaseFunc func(ctx context.Context, scope tenancy.Scope, purchaseID string) (*billing.Purchase, error)
+	GetPurchaseFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, purchaseID string) (*billing.Purchase, error)
 
 	// GetPurchaseByExternalIDFunc mocks the GetPurchaseByExternalID method.
-	GetPurchaseByExternalIDFunc func(ctx context.Context, scope tenancy.Scope, externalTransactionID string) (*billing.Purchase, error)
+	GetPurchaseByExternalIDFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalTransactionID string) (*billing.Purchase, error)
 
 	// ListPurchasesFunc mocks the ListPurchases method.
-	ListPurchasesFunc func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error)
+	ListPurchasesFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error)
 
 	// ListPurchasesForAccountFunc mocks the ListPurchasesForAccount method.
-	ListPurchasesForAccountFunc func(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error)
+	ListPurchasesForAccountFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -4064,17 +3058,8 @@ type PurchaseStoreMock struct {
 		ArchivePurchase []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// PurchaseID is the purchaseID argument value.
-			PurchaseID string
-		}
-		// ArchivePurchaseTx holds details about calls to the ArchivePurchaseTx method.
-		ArchivePurchaseTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// PurchaseID is the purchaseID argument value.
@@ -4084,19 +3069,8 @@ type PurchaseStoreMock struct {
 		CompletePurchase []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// PurchaseID is the purchaseID argument value.
-			PurchaseID string
-			// At is the at argument value.
-			At time.Time
-		}
-		// CompletePurchaseTx holds details about calls to the CompletePurchaseTx method.
-		CompletePurchaseTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// PurchaseID is the purchaseID argument value.
@@ -4108,17 +3082,8 @@ type PurchaseStoreMock struct {
 		CreatePurchase []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// Purchase is the purchase argument value.
-			Purchase *billing.Purchase
-		}
-		// CreatePurchaseTx holds details about calls to the CreatePurchaseTx method.
-		CreatePurchaseTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Purchase is the purchase argument value.
@@ -4128,6 +3093,8 @@ type PurchaseStoreMock struct {
 		GetPurchase []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// PurchaseID is the purchaseID argument value.
@@ -4137,6 +3104,8 @@ type PurchaseStoreMock struct {
 		GetPurchaseByExternalID []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// ExternalTransactionID is the externalTransactionID argument value.
@@ -4146,6 +3115,8 @@ type PurchaseStoreMock struct {
 		ListPurchases []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Filter is the filter argument value.
@@ -4155,6 +3126,8 @@ type PurchaseStoreMock struct {
 		ListPurchasesForAccount []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// AccountID is the accountID argument value.
@@ -4164,11 +3137,8 @@ type PurchaseStoreMock struct {
 		}
 	}
 	lockArchivePurchase         sync.RWMutex
-	lockArchivePurchaseTx       sync.RWMutex
 	lockCompletePurchase        sync.RWMutex
-	lockCompletePurchaseTx      sync.RWMutex
 	lockCreatePurchase          sync.RWMutex
-	lockCreatePurchaseTx        sync.RWMutex
 	lockGetPurchase             sync.RWMutex
 	lockGetPurchaseByExternalID sync.RWMutex
 	lockListPurchases           sync.RWMutex
@@ -4176,23 +3146,25 @@ type PurchaseStoreMock struct {
 }
 
 // ArchivePurchase calls ArchivePurchaseFunc.
-func (mock *PurchaseStoreMock) ArchivePurchase(ctx context.Context, scope tenancy.Scope, purchaseID string) error {
+func (mock *PurchaseStoreMock) ArchivePurchase(ctx context.Context, tx database.Tx, scope tenancy.Scope, purchaseID string) error {
 	if mock.ArchivePurchaseFunc == nil {
 		panic("PurchaseStoreMock.ArchivePurchaseFunc: method is nil but PurchaseStore.ArchivePurchase was just called")
 	}
 	callInfo := struct {
 		Ctx        context.Context
+		Tx         database.Tx
 		Scope      tenancy.Scope
 		PurchaseID string
 	}{
 		Ctx:        ctx,
+		Tx:         tx,
 		Scope:      scope,
 		PurchaseID: purchaseID,
 	}
 	mock.lockArchivePurchase.Lock()
 	mock.calls.ArchivePurchase = append(mock.calls.ArchivePurchase, callInfo)
 	mock.lockArchivePurchase.Unlock()
-	return mock.ArchivePurchaseFunc(ctx, scope, purchaseID)
+	return mock.ArchivePurchaseFunc(ctx, tx, scope, purchaseID)
 }
 
 // ArchivePurchaseCalls gets all the calls that were made to ArchivePurchase.
@@ -4201,11 +3173,13 @@ func (mock *PurchaseStoreMock) ArchivePurchase(ctx context.Context, scope tenanc
 //	len(mockedPurchaseStore.ArchivePurchaseCalls())
 func (mock *PurchaseStoreMock) ArchivePurchaseCalls() []struct {
 	Ctx        context.Context
+	Tx         database.Tx
 	Scope      tenancy.Scope
 	PurchaseID string
 } {
 	var calls []struct {
 		Ctx        context.Context
+		Tx         database.Tx
 		Scope      tenancy.Scope
 		PurchaseID string
 	}
@@ -4215,62 +3189,20 @@ func (mock *PurchaseStoreMock) ArchivePurchaseCalls() []struct {
 	return calls
 }
 
-// ArchivePurchaseTx calls ArchivePurchaseTxFunc.
-func (mock *PurchaseStoreMock) ArchivePurchaseTx(ctx context.Context, q database.Tx, scope tenancy.Scope, purchaseID string) error {
-	if mock.ArchivePurchaseTxFunc == nil {
-		panic("PurchaseStoreMock.ArchivePurchaseTxFunc: method is nil but PurchaseStore.ArchivePurchaseTx was just called")
-	}
-	callInfo := struct {
-		Ctx        context.Context
-		Q          database.Tx
-		Scope      tenancy.Scope
-		PurchaseID string
-	}{
-		Ctx:        ctx,
-		Q:          q,
-		Scope:      scope,
-		PurchaseID: purchaseID,
-	}
-	mock.lockArchivePurchaseTx.Lock()
-	mock.calls.ArchivePurchaseTx = append(mock.calls.ArchivePurchaseTx, callInfo)
-	mock.lockArchivePurchaseTx.Unlock()
-	return mock.ArchivePurchaseTxFunc(ctx, q, scope, purchaseID)
-}
-
-// ArchivePurchaseTxCalls gets all the calls that were made to ArchivePurchaseTx.
-// Check the length with:
-//
-//	len(mockedPurchaseStore.ArchivePurchaseTxCalls())
-func (mock *PurchaseStoreMock) ArchivePurchaseTxCalls() []struct {
-	Ctx        context.Context
-	Q          database.Tx
-	Scope      tenancy.Scope
-	PurchaseID string
-} {
-	var calls []struct {
-		Ctx        context.Context
-		Q          database.Tx
-		Scope      tenancy.Scope
-		PurchaseID string
-	}
-	mock.lockArchivePurchaseTx.RLock()
-	calls = mock.calls.ArchivePurchaseTx
-	mock.lockArchivePurchaseTx.RUnlock()
-	return calls
-}
-
 // CompletePurchase calls CompletePurchaseFunc.
-func (mock *PurchaseStoreMock) CompletePurchase(ctx context.Context, scope tenancy.Scope, purchaseID string, at time.Time) error {
+func (mock *PurchaseStoreMock) CompletePurchase(ctx context.Context, tx database.Tx, scope tenancy.Scope, purchaseID string, at time.Time) error {
 	if mock.CompletePurchaseFunc == nil {
 		panic("PurchaseStoreMock.CompletePurchaseFunc: method is nil but PurchaseStore.CompletePurchase was just called")
 	}
 	callInfo := struct {
 		Ctx        context.Context
+		Tx         database.Tx
 		Scope      tenancy.Scope
 		PurchaseID string
 		At         time.Time
 	}{
 		Ctx:        ctx,
+		Tx:         tx,
 		Scope:      scope,
 		PurchaseID: purchaseID,
 		At:         at,
@@ -4278,7 +3210,7 @@ func (mock *PurchaseStoreMock) CompletePurchase(ctx context.Context, scope tenan
 	mock.lockCompletePurchase.Lock()
 	mock.calls.CompletePurchase = append(mock.calls.CompletePurchase, callInfo)
 	mock.lockCompletePurchase.Unlock()
-	return mock.CompletePurchaseFunc(ctx, scope, purchaseID, at)
+	return mock.CompletePurchaseFunc(ctx, tx, scope, purchaseID, at)
 }
 
 // CompletePurchaseCalls gets all the calls that were made to CompletePurchase.
@@ -4287,12 +3219,14 @@ func (mock *PurchaseStoreMock) CompletePurchase(ctx context.Context, scope tenan
 //	len(mockedPurchaseStore.CompletePurchaseCalls())
 func (mock *PurchaseStoreMock) CompletePurchaseCalls() []struct {
 	Ctx        context.Context
+	Tx         database.Tx
 	Scope      tenancy.Scope
 	PurchaseID string
 	At         time.Time
 } {
 	var calls []struct {
 		Ctx        context.Context
+		Tx         database.Tx
 		Scope      tenancy.Scope
 		PurchaseID string
 		At         time.Time
@@ -4303,72 +3237,26 @@ func (mock *PurchaseStoreMock) CompletePurchaseCalls() []struct {
 	return calls
 }
 
-// CompletePurchaseTx calls CompletePurchaseTxFunc.
-func (mock *PurchaseStoreMock) CompletePurchaseTx(ctx context.Context, q database.Tx, scope tenancy.Scope, purchaseID string, at time.Time) error {
-	if mock.CompletePurchaseTxFunc == nil {
-		panic("PurchaseStoreMock.CompletePurchaseTxFunc: method is nil but PurchaseStore.CompletePurchaseTx was just called")
-	}
-	callInfo := struct {
-		Ctx        context.Context
-		Q          database.Tx
-		Scope      tenancy.Scope
-		PurchaseID string
-		At         time.Time
-	}{
-		Ctx:        ctx,
-		Q:          q,
-		Scope:      scope,
-		PurchaseID: purchaseID,
-		At:         at,
-	}
-	mock.lockCompletePurchaseTx.Lock()
-	mock.calls.CompletePurchaseTx = append(mock.calls.CompletePurchaseTx, callInfo)
-	mock.lockCompletePurchaseTx.Unlock()
-	return mock.CompletePurchaseTxFunc(ctx, q, scope, purchaseID, at)
-}
-
-// CompletePurchaseTxCalls gets all the calls that were made to CompletePurchaseTx.
-// Check the length with:
-//
-//	len(mockedPurchaseStore.CompletePurchaseTxCalls())
-func (mock *PurchaseStoreMock) CompletePurchaseTxCalls() []struct {
-	Ctx        context.Context
-	Q          database.Tx
-	Scope      tenancy.Scope
-	PurchaseID string
-	At         time.Time
-} {
-	var calls []struct {
-		Ctx        context.Context
-		Q          database.Tx
-		Scope      tenancy.Scope
-		PurchaseID string
-		At         time.Time
-	}
-	mock.lockCompletePurchaseTx.RLock()
-	calls = mock.calls.CompletePurchaseTx
-	mock.lockCompletePurchaseTx.RUnlock()
-	return calls
-}
-
 // CreatePurchase calls CreatePurchaseFunc.
-func (mock *PurchaseStoreMock) CreatePurchase(ctx context.Context, scope tenancy.Scope, purchase *billing.Purchase) (*billing.Purchase, error) {
+func (mock *PurchaseStoreMock) CreatePurchase(ctx context.Context, tx database.Tx, scope tenancy.Scope, purchase *billing.Purchase) (*billing.Purchase, error) {
 	if mock.CreatePurchaseFunc == nil {
 		panic("PurchaseStoreMock.CreatePurchaseFunc: method is nil but PurchaseStore.CreatePurchase was just called")
 	}
 	callInfo := struct {
 		Ctx      context.Context
+		Tx       database.Tx
 		Scope    tenancy.Scope
 		Purchase *billing.Purchase
 	}{
 		Ctx:      ctx,
+		Tx:       tx,
 		Scope:    scope,
 		Purchase: purchase,
 	}
 	mock.lockCreatePurchase.Lock()
 	mock.calls.CreatePurchase = append(mock.calls.CreatePurchase, callInfo)
 	mock.lockCreatePurchase.Unlock()
-	return mock.CreatePurchaseFunc(ctx, scope, purchase)
+	return mock.CreatePurchaseFunc(ctx, tx, scope, purchase)
 }
 
 // CreatePurchaseCalls gets all the calls that were made to CreatePurchase.
@@ -4377,11 +3265,13 @@ func (mock *PurchaseStoreMock) CreatePurchase(ctx context.Context, scope tenancy
 //	len(mockedPurchaseStore.CreatePurchaseCalls())
 func (mock *PurchaseStoreMock) CreatePurchaseCalls() []struct {
 	Ctx      context.Context
+	Tx       database.Tx
 	Scope    tenancy.Scope
 	Purchase *billing.Purchase
 } {
 	var calls []struct {
 		Ctx      context.Context
+		Tx       database.Tx
 		Scope    tenancy.Scope
 		Purchase *billing.Purchase
 	}
@@ -4391,68 +3281,26 @@ func (mock *PurchaseStoreMock) CreatePurchaseCalls() []struct {
 	return calls
 }
 
-// CreatePurchaseTx calls CreatePurchaseTxFunc.
-func (mock *PurchaseStoreMock) CreatePurchaseTx(ctx context.Context, q database.Tx, scope tenancy.Scope, purchase *billing.Purchase) (*billing.Purchase, error) {
-	if mock.CreatePurchaseTxFunc == nil {
-		panic("PurchaseStoreMock.CreatePurchaseTxFunc: method is nil but PurchaseStore.CreatePurchaseTx was just called")
-	}
-	callInfo := struct {
-		Ctx      context.Context
-		Q        database.Tx
-		Scope    tenancy.Scope
-		Purchase *billing.Purchase
-	}{
-		Ctx:      ctx,
-		Q:        q,
-		Scope:    scope,
-		Purchase: purchase,
-	}
-	mock.lockCreatePurchaseTx.Lock()
-	mock.calls.CreatePurchaseTx = append(mock.calls.CreatePurchaseTx, callInfo)
-	mock.lockCreatePurchaseTx.Unlock()
-	return mock.CreatePurchaseTxFunc(ctx, q, scope, purchase)
-}
-
-// CreatePurchaseTxCalls gets all the calls that were made to CreatePurchaseTx.
-// Check the length with:
-//
-//	len(mockedPurchaseStore.CreatePurchaseTxCalls())
-func (mock *PurchaseStoreMock) CreatePurchaseTxCalls() []struct {
-	Ctx      context.Context
-	Q        database.Tx
-	Scope    tenancy.Scope
-	Purchase *billing.Purchase
-} {
-	var calls []struct {
-		Ctx      context.Context
-		Q        database.Tx
-		Scope    tenancy.Scope
-		Purchase *billing.Purchase
-	}
-	mock.lockCreatePurchaseTx.RLock()
-	calls = mock.calls.CreatePurchaseTx
-	mock.lockCreatePurchaseTx.RUnlock()
-	return calls
-}
-
 // GetPurchase calls GetPurchaseFunc.
-func (mock *PurchaseStoreMock) GetPurchase(ctx context.Context, scope tenancy.Scope, purchaseID string) (*billing.Purchase, error) {
+func (mock *PurchaseStoreMock) GetPurchase(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, purchaseID string) (*billing.Purchase, error) {
 	if mock.GetPurchaseFunc == nil {
 		panic("PurchaseStoreMock.GetPurchaseFunc: method is nil but PurchaseStore.GetPurchase was just called")
 	}
 	callInfo := struct {
 		Ctx        context.Context
+		Q          database.SQLQueryExecutor
 		Scope      tenancy.Scope
 		PurchaseID string
 	}{
 		Ctx:        ctx,
+		Q:          q,
 		Scope:      scope,
 		PurchaseID: purchaseID,
 	}
 	mock.lockGetPurchase.Lock()
 	mock.calls.GetPurchase = append(mock.calls.GetPurchase, callInfo)
 	mock.lockGetPurchase.Unlock()
-	return mock.GetPurchaseFunc(ctx, scope, purchaseID)
+	return mock.GetPurchaseFunc(ctx, q, scope, purchaseID)
 }
 
 // GetPurchaseCalls gets all the calls that were made to GetPurchase.
@@ -4461,11 +3309,13 @@ func (mock *PurchaseStoreMock) GetPurchase(ctx context.Context, scope tenancy.Sc
 //	len(mockedPurchaseStore.GetPurchaseCalls())
 func (mock *PurchaseStoreMock) GetPurchaseCalls() []struct {
 	Ctx        context.Context
+	Q          database.SQLQueryExecutor
 	Scope      tenancy.Scope
 	PurchaseID string
 } {
 	var calls []struct {
 		Ctx        context.Context
+		Q          database.SQLQueryExecutor
 		Scope      tenancy.Scope
 		PurchaseID string
 	}
@@ -4476,23 +3326,25 @@ func (mock *PurchaseStoreMock) GetPurchaseCalls() []struct {
 }
 
 // GetPurchaseByExternalID calls GetPurchaseByExternalIDFunc.
-func (mock *PurchaseStoreMock) GetPurchaseByExternalID(ctx context.Context, scope tenancy.Scope, externalTransactionID string) (*billing.Purchase, error) {
+func (mock *PurchaseStoreMock) GetPurchaseByExternalID(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalTransactionID string) (*billing.Purchase, error) {
 	if mock.GetPurchaseByExternalIDFunc == nil {
 		panic("PurchaseStoreMock.GetPurchaseByExternalIDFunc: method is nil but PurchaseStore.GetPurchaseByExternalID was just called")
 	}
 	callInfo := struct {
 		Ctx                   context.Context
+		Q                     database.SQLQueryExecutor
 		Scope                 tenancy.Scope
 		ExternalTransactionID string
 	}{
 		Ctx:                   ctx,
+		Q:                     q,
 		Scope:                 scope,
 		ExternalTransactionID: externalTransactionID,
 	}
 	mock.lockGetPurchaseByExternalID.Lock()
 	mock.calls.GetPurchaseByExternalID = append(mock.calls.GetPurchaseByExternalID, callInfo)
 	mock.lockGetPurchaseByExternalID.Unlock()
-	return mock.GetPurchaseByExternalIDFunc(ctx, scope, externalTransactionID)
+	return mock.GetPurchaseByExternalIDFunc(ctx, q, scope, externalTransactionID)
 }
 
 // GetPurchaseByExternalIDCalls gets all the calls that were made to GetPurchaseByExternalID.
@@ -4501,11 +3353,13 @@ func (mock *PurchaseStoreMock) GetPurchaseByExternalID(ctx context.Context, scop
 //	len(mockedPurchaseStore.GetPurchaseByExternalIDCalls())
 func (mock *PurchaseStoreMock) GetPurchaseByExternalIDCalls() []struct {
 	Ctx                   context.Context
+	Q                     database.SQLQueryExecutor
 	Scope                 tenancy.Scope
 	ExternalTransactionID string
 } {
 	var calls []struct {
 		Ctx                   context.Context
+		Q                     database.SQLQueryExecutor
 		Scope                 tenancy.Scope
 		ExternalTransactionID string
 	}
@@ -4516,23 +3370,25 @@ func (mock *PurchaseStoreMock) GetPurchaseByExternalIDCalls() []struct {
 }
 
 // ListPurchases calls ListPurchasesFunc.
-func (mock *PurchaseStoreMock) ListPurchases(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error) {
+func (mock *PurchaseStoreMock) ListPurchases(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error) {
 	if mock.ListPurchasesFunc == nil {
 		panic("PurchaseStoreMock.ListPurchasesFunc: method is nil but PurchaseStore.ListPurchases was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}{
 		Ctx:    ctx,
+		Q:      q,
 		Scope:  scope,
 		Filter: filter,
 	}
 	mock.lockListPurchases.Lock()
 	mock.calls.ListPurchases = append(mock.calls.ListPurchases, callInfo)
 	mock.lockListPurchases.Unlock()
-	return mock.ListPurchasesFunc(ctx, scope, filter)
+	return mock.ListPurchasesFunc(ctx, q, scope, filter)
 }
 
 // ListPurchasesCalls gets all the calls that were made to ListPurchases.
@@ -4541,11 +3397,13 @@ func (mock *PurchaseStoreMock) ListPurchases(ctx context.Context, scope tenancy.
 //	len(mockedPurchaseStore.ListPurchasesCalls())
 func (mock *PurchaseStoreMock) ListPurchasesCalls() []struct {
 	Ctx    context.Context
+	Q      database.SQLQueryExecutor
 	Scope  tenancy.Scope
 	Filter *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}
@@ -4556,17 +3414,19 @@ func (mock *PurchaseStoreMock) ListPurchasesCalls() []struct {
 }
 
 // ListPurchasesForAccount calls ListPurchasesForAccountFunc.
-func (mock *PurchaseStoreMock) ListPurchasesForAccount(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error) {
+func (mock *PurchaseStoreMock) ListPurchasesForAccount(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Purchase], error) {
 	if mock.ListPurchasesForAccountFunc == nil {
 		panic("PurchaseStoreMock.ListPurchasesForAccountFunc: method is nil but PurchaseStore.ListPurchasesForAccount was just called")
 	}
 	callInfo := struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		AccountID string
 		Filter    *filtering.QueryFilter
 	}{
 		Ctx:       ctx,
+		Q:         q,
 		Scope:     scope,
 		AccountID: accountID,
 		Filter:    filter,
@@ -4574,7 +3434,7 @@ func (mock *PurchaseStoreMock) ListPurchasesForAccount(ctx context.Context, scop
 	mock.lockListPurchasesForAccount.Lock()
 	mock.calls.ListPurchasesForAccount = append(mock.calls.ListPurchasesForAccount, callInfo)
 	mock.lockListPurchasesForAccount.Unlock()
-	return mock.ListPurchasesForAccountFunc(ctx, scope, accountID, filter)
+	return mock.ListPurchasesForAccountFunc(ctx, q, scope, accountID, filter)
 }
 
 // ListPurchasesForAccountCalls gets all the calls that were made to ListPurchasesForAccount.
@@ -4583,12 +3443,14 @@ func (mock *PurchaseStoreMock) ListPurchasesForAccount(ctx context.Context, scop
 //	len(mockedPurchaseStore.ListPurchasesForAccountCalls())
 func (mock *PurchaseStoreMock) ListPurchasesForAccountCalls() []struct {
 	Ctx       context.Context
+	Q         database.SQLQueryExecutor
 	Scope     tenancy.Scope
 	AccountID string
 	Filter    *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		AccountID string
 		Filter    *filtering.QueryFilter
@@ -4609,35 +3471,26 @@ var _ billing.TransactionStore = &TransactionStoreMock{}
 //
 //		// make and configure a mocked billing.TransactionStore
 //		mockedTransactionStore := &TransactionStoreMock{
-//			ArchiveTransactionFunc: func(ctx context.Context, scope tenancy.Scope, transactionID string) error {
+//			ArchiveTransactionFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, transactionID string) error {
 //				panic("mock out the ArchiveTransaction method")
 //			},
-//			ArchiveTransactionTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, transactionID string) error {
-//				panic("mock out the ArchiveTransactionTx method")
-//			},
-//			GetTransactionFunc: func(ctx context.Context, scope tenancy.Scope, transactionID string) (*billing.Transaction, error) {
+//			GetTransactionFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, transactionID string) (*billing.Transaction, error) {
 //				panic("mock out the GetTransaction method")
 //			},
-//			GetTransactionByExternalIDFunc: func(ctx context.Context, scope tenancy.Scope, externalTransactionID string) (*billing.Transaction, error) {
+//			GetTransactionByExternalIDFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalTransactionID string) (*billing.Transaction, error) {
 //				panic("mock out the GetTransactionByExternalID method")
 //			},
-//			ListTransactionsFunc: func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error) {
+//			ListTransactionsFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error) {
 //				panic("mock out the ListTransactions method")
 //			},
-//			ListTransactionsForAccountFunc: func(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error) {
+//			ListTransactionsForAccountFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error) {
 //				panic("mock out the ListTransactionsForAccount method")
 //			},
-//			RecordTransactionFunc: func(ctx context.Context, scope tenancy.Scope, transaction *billing.Transaction) (*billing.Transaction, error) {
+//			RecordTransactionFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, transaction *billing.Transaction) (*billing.Transaction, error) {
 //				panic("mock out the RecordTransaction method")
 //			},
-//			RecordTransactionTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, transaction *billing.Transaction) (*billing.Transaction, error) {
-//				panic("mock out the RecordTransactionTx method")
-//			},
-//			SetTransactionStatusFunc: func(ctx context.Context, scope tenancy.Scope, transactionID string, status billing.TransactionStatus) error {
+//			SetTransactionStatusFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, transactionID string, status billing.TransactionStatus) error {
 //				panic("mock out the SetTransactionStatus method")
-//			},
-//			SetTransactionStatusTxFunc: func(ctx context.Context, q database.Tx, scope tenancy.Scope, transactionID string, status billing.TransactionStatus) error {
-//				panic("mock out the SetTransactionStatusTx method")
 //			},
 //		}
 //
@@ -4647,34 +3500,25 @@ var _ billing.TransactionStore = &TransactionStoreMock{}
 //	}
 type TransactionStoreMock struct {
 	// ArchiveTransactionFunc mocks the ArchiveTransaction method.
-	ArchiveTransactionFunc func(ctx context.Context, scope tenancy.Scope, transactionID string) error
-
-	// ArchiveTransactionTxFunc mocks the ArchiveTransactionTx method.
-	ArchiveTransactionTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, transactionID string) error
+	ArchiveTransactionFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, transactionID string) error
 
 	// GetTransactionFunc mocks the GetTransaction method.
-	GetTransactionFunc func(ctx context.Context, scope tenancy.Scope, transactionID string) (*billing.Transaction, error)
+	GetTransactionFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, transactionID string) (*billing.Transaction, error)
 
 	// GetTransactionByExternalIDFunc mocks the GetTransactionByExternalID method.
-	GetTransactionByExternalIDFunc func(ctx context.Context, scope tenancy.Scope, externalTransactionID string) (*billing.Transaction, error)
+	GetTransactionByExternalIDFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalTransactionID string) (*billing.Transaction, error)
 
 	// ListTransactionsFunc mocks the ListTransactions method.
-	ListTransactionsFunc func(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error)
+	ListTransactionsFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error)
 
 	// ListTransactionsForAccountFunc mocks the ListTransactionsForAccount method.
-	ListTransactionsForAccountFunc func(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error)
+	ListTransactionsForAccountFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error)
 
 	// RecordTransactionFunc mocks the RecordTransaction method.
-	RecordTransactionFunc func(ctx context.Context, scope tenancy.Scope, transaction *billing.Transaction) (*billing.Transaction, error)
-
-	// RecordTransactionTxFunc mocks the RecordTransactionTx method.
-	RecordTransactionTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, transaction *billing.Transaction) (*billing.Transaction, error)
+	RecordTransactionFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, transaction *billing.Transaction) (*billing.Transaction, error)
 
 	// SetTransactionStatusFunc mocks the SetTransactionStatus method.
-	SetTransactionStatusFunc func(ctx context.Context, scope tenancy.Scope, transactionID string, status billing.TransactionStatus) error
-
-	// SetTransactionStatusTxFunc mocks the SetTransactionStatusTx method.
-	SetTransactionStatusTxFunc func(ctx context.Context, q database.Tx, scope tenancy.Scope, transactionID string, status billing.TransactionStatus) error
+	SetTransactionStatusFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, transactionID string, status billing.TransactionStatus) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -4682,17 +3526,8 @@ type TransactionStoreMock struct {
 		ArchiveTransaction []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// TransactionID is the transactionID argument value.
-			TransactionID string
-		}
-		// ArchiveTransactionTx holds details about calls to the ArchiveTransactionTx method.
-		ArchiveTransactionTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// TransactionID is the transactionID argument value.
@@ -4702,6 +3537,8 @@ type TransactionStoreMock struct {
 		GetTransaction []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// TransactionID is the transactionID argument value.
@@ -4711,6 +3548,8 @@ type TransactionStoreMock struct {
 		GetTransactionByExternalID []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// ExternalTransactionID is the externalTransactionID argument value.
@@ -4720,6 +3559,8 @@ type TransactionStoreMock struct {
 		ListTransactions []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Filter is the filter argument value.
@@ -4729,6 +3570,8 @@ type TransactionStoreMock struct {
 		ListTransactionsForAccount []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// AccountID is the accountID argument value.
@@ -4740,17 +3583,8 @@ type TransactionStoreMock struct {
 		RecordTransaction []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// Transaction is the transaction argument value.
-			Transaction *billing.Transaction
-		}
-		// RecordTransactionTx holds details about calls to the RecordTransactionTx method.
-		RecordTransactionTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Transaction is the transaction argument value.
@@ -4760,19 +3594,8 @@ type TransactionStoreMock struct {
 		SetTransactionStatus []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Scope is the scope argument value.
-			Scope tenancy.Scope
-			// TransactionID is the transactionID argument value.
-			TransactionID string
-			// Status is the status argument value.
-			Status billing.TransactionStatus
-		}
-		// SetTransactionStatusTx holds details about calls to the SetTransactionStatusTx method.
-		SetTransactionStatusTx []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Q is the q argument value.
-			Q database.Tx
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// TransactionID is the transactionID argument value.
@@ -4782,35 +3605,34 @@ type TransactionStoreMock struct {
 		}
 	}
 	lockArchiveTransaction         sync.RWMutex
-	lockArchiveTransactionTx       sync.RWMutex
 	lockGetTransaction             sync.RWMutex
 	lockGetTransactionByExternalID sync.RWMutex
 	lockListTransactions           sync.RWMutex
 	lockListTransactionsForAccount sync.RWMutex
 	lockRecordTransaction          sync.RWMutex
-	lockRecordTransactionTx        sync.RWMutex
 	lockSetTransactionStatus       sync.RWMutex
-	lockSetTransactionStatusTx     sync.RWMutex
 }
 
 // ArchiveTransaction calls ArchiveTransactionFunc.
-func (mock *TransactionStoreMock) ArchiveTransaction(ctx context.Context, scope tenancy.Scope, transactionID string) error {
+func (mock *TransactionStoreMock) ArchiveTransaction(ctx context.Context, tx database.Tx, scope tenancy.Scope, transactionID string) error {
 	if mock.ArchiveTransactionFunc == nil {
 		panic("TransactionStoreMock.ArchiveTransactionFunc: method is nil but TransactionStore.ArchiveTransaction was just called")
 	}
 	callInfo := struct {
 		Ctx           context.Context
+		Tx            database.Tx
 		Scope         tenancy.Scope
 		TransactionID string
 	}{
 		Ctx:           ctx,
+		Tx:            tx,
 		Scope:         scope,
 		TransactionID: transactionID,
 	}
 	mock.lockArchiveTransaction.Lock()
 	mock.calls.ArchiveTransaction = append(mock.calls.ArchiveTransaction, callInfo)
 	mock.lockArchiveTransaction.Unlock()
-	return mock.ArchiveTransactionFunc(ctx, scope, transactionID)
+	return mock.ArchiveTransactionFunc(ctx, tx, scope, transactionID)
 }
 
 // ArchiveTransactionCalls gets all the calls that were made to ArchiveTransaction.
@@ -4819,11 +3641,13 @@ func (mock *TransactionStoreMock) ArchiveTransaction(ctx context.Context, scope 
 //	len(mockedTransactionStore.ArchiveTransactionCalls())
 func (mock *TransactionStoreMock) ArchiveTransactionCalls() []struct {
 	Ctx           context.Context
+	Tx            database.Tx
 	Scope         tenancy.Scope
 	TransactionID string
 } {
 	var calls []struct {
 		Ctx           context.Context
+		Tx            database.Tx
 		Scope         tenancy.Scope
 		TransactionID string
 	}
@@ -4833,14 +3657,14 @@ func (mock *TransactionStoreMock) ArchiveTransactionCalls() []struct {
 	return calls
 }
 
-// ArchiveTransactionTx calls ArchiveTransactionTxFunc.
-func (mock *TransactionStoreMock) ArchiveTransactionTx(ctx context.Context, q database.Tx, scope tenancy.Scope, transactionID string) error {
-	if mock.ArchiveTransactionTxFunc == nil {
-		panic("TransactionStoreMock.ArchiveTransactionTxFunc: method is nil but TransactionStore.ArchiveTransactionTx was just called")
+// GetTransaction calls GetTransactionFunc.
+func (mock *TransactionStoreMock) GetTransaction(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, transactionID string) (*billing.Transaction, error) {
+	if mock.GetTransactionFunc == nil {
+		panic("TransactionStoreMock.GetTransactionFunc: method is nil but TransactionStore.GetTransaction was just called")
 	}
 	callInfo := struct {
 		Ctx           context.Context
-		Q             database.Tx
+		Q             database.SQLQueryExecutor
 		Scope         tenancy.Scope
 		TransactionID string
 	}{
@@ -4849,52 +3673,10 @@ func (mock *TransactionStoreMock) ArchiveTransactionTx(ctx context.Context, q da
 		Scope:         scope,
 		TransactionID: transactionID,
 	}
-	mock.lockArchiveTransactionTx.Lock()
-	mock.calls.ArchiveTransactionTx = append(mock.calls.ArchiveTransactionTx, callInfo)
-	mock.lockArchiveTransactionTx.Unlock()
-	return mock.ArchiveTransactionTxFunc(ctx, q, scope, transactionID)
-}
-
-// ArchiveTransactionTxCalls gets all the calls that were made to ArchiveTransactionTx.
-// Check the length with:
-//
-//	len(mockedTransactionStore.ArchiveTransactionTxCalls())
-func (mock *TransactionStoreMock) ArchiveTransactionTxCalls() []struct {
-	Ctx           context.Context
-	Q             database.Tx
-	Scope         tenancy.Scope
-	TransactionID string
-} {
-	var calls []struct {
-		Ctx           context.Context
-		Q             database.Tx
-		Scope         tenancy.Scope
-		TransactionID string
-	}
-	mock.lockArchiveTransactionTx.RLock()
-	calls = mock.calls.ArchiveTransactionTx
-	mock.lockArchiveTransactionTx.RUnlock()
-	return calls
-}
-
-// GetTransaction calls GetTransactionFunc.
-func (mock *TransactionStoreMock) GetTransaction(ctx context.Context, scope tenancy.Scope, transactionID string) (*billing.Transaction, error) {
-	if mock.GetTransactionFunc == nil {
-		panic("TransactionStoreMock.GetTransactionFunc: method is nil but TransactionStore.GetTransaction was just called")
-	}
-	callInfo := struct {
-		Ctx           context.Context
-		Scope         tenancy.Scope
-		TransactionID string
-	}{
-		Ctx:           ctx,
-		Scope:         scope,
-		TransactionID: transactionID,
-	}
 	mock.lockGetTransaction.Lock()
 	mock.calls.GetTransaction = append(mock.calls.GetTransaction, callInfo)
 	mock.lockGetTransaction.Unlock()
-	return mock.GetTransactionFunc(ctx, scope, transactionID)
+	return mock.GetTransactionFunc(ctx, q, scope, transactionID)
 }
 
 // GetTransactionCalls gets all the calls that were made to GetTransaction.
@@ -4903,11 +3685,13 @@ func (mock *TransactionStoreMock) GetTransaction(ctx context.Context, scope tena
 //	len(mockedTransactionStore.GetTransactionCalls())
 func (mock *TransactionStoreMock) GetTransactionCalls() []struct {
 	Ctx           context.Context
+	Q             database.SQLQueryExecutor
 	Scope         tenancy.Scope
 	TransactionID string
 } {
 	var calls []struct {
 		Ctx           context.Context
+		Q             database.SQLQueryExecutor
 		Scope         tenancy.Scope
 		TransactionID string
 	}
@@ -4918,23 +3702,25 @@ func (mock *TransactionStoreMock) GetTransactionCalls() []struct {
 }
 
 // GetTransactionByExternalID calls GetTransactionByExternalIDFunc.
-func (mock *TransactionStoreMock) GetTransactionByExternalID(ctx context.Context, scope tenancy.Scope, externalTransactionID string) (*billing.Transaction, error) {
+func (mock *TransactionStoreMock) GetTransactionByExternalID(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, externalTransactionID string) (*billing.Transaction, error) {
 	if mock.GetTransactionByExternalIDFunc == nil {
 		panic("TransactionStoreMock.GetTransactionByExternalIDFunc: method is nil but TransactionStore.GetTransactionByExternalID was just called")
 	}
 	callInfo := struct {
 		Ctx                   context.Context
+		Q                     database.SQLQueryExecutor
 		Scope                 tenancy.Scope
 		ExternalTransactionID string
 	}{
 		Ctx:                   ctx,
+		Q:                     q,
 		Scope:                 scope,
 		ExternalTransactionID: externalTransactionID,
 	}
 	mock.lockGetTransactionByExternalID.Lock()
 	mock.calls.GetTransactionByExternalID = append(mock.calls.GetTransactionByExternalID, callInfo)
 	mock.lockGetTransactionByExternalID.Unlock()
-	return mock.GetTransactionByExternalIDFunc(ctx, scope, externalTransactionID)
+	return mock.GetTransactionByExternalIDFunc(ctx, q, scope, externalTransactionID)
 }
 
 // GetTransactionByExternalIDCalls gets all the calls that were made to GetTransactionByExternalID.
@@ -4943,11 +3729,13 @@ func (mock *TransactionStoreMock) GetTransactionByExternalID(ctx context.Context
 //	len(mockedTransactionStore.GetTransactionByExternalIDCalls())
 func (mock *TransactionStoreMock) GetTransactionByExternalIDCalls() []struct {
 	Ctx                   context.Context
+	Q                     database.SQLQueryExecutor
 	Scope                 tenancy.Scope
 	ExternalTransactionID string
 } {
 	var calls []struct {
 		Ctx                   context.Context
+		Q                     database.SQLQueryExecutor
 		Scope                 tenancy.Scope
 		ExternalTransactionID string
 	}
@@ -4958,23 +3746,25 @@ func (mock *TransactionStoreMock) GetTransactionByExternalIDCalls() []struct {
 }
 
 // ListTransactions calls ListTransactionsFunc.
-func (mock *TransactionStoreMock) ListTransactions(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error) {
+func (mock *TransactionStoreMock) ListTransactions(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error) {
 	if mock.ListTransactionsFunc == nil {
 		panic("TransactionStoreMock.ListTransactionsFunc: method is nil but TransactionStore.ListTransactions was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}{
 		Ctx:    ctx,
+		Q:      q,
 		Scope:  scope,
 		Filter: filter,
 	}
 	mock.lockListTransactions.Lock()
 	mock.calls.ListTransactions = append(mock.calls.ListTransactions, callInfo)
 	mock.lockListTransactions.Unlock()
-	return mock.ListTransactionsFunc(ctx, scope, filter)
+	return mock.ListTransactionsFunc(ctx, q, scope, filter)
 }
 
 // ListTransactionsCalls gets all the calls that were made to ListTransactions.
@@ -4983,11 +3773,13 @@ func (mock *TransactionStoreMock) ListTransactions(ctx context.Context, scope te
 //	len(mockedTransactionStore.ListTransactionsCalls())
 func (mock *TransactionStoreMock) ListTransactionsCalls() []struct {
 	Ctx    context.Context
+	Q      database.SQLQueryExecutor
 	Scope  tenancy.Scope
 	Filter *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Filter *filtering.QueryFilter
 	}
@@ -4998,17 +3790,19 @@ func (mock *TransactionStoreMock) ListTransactionsCalls() []struct {
 }
 
 // ListTransactionsForAccount calls ListTransactionsForAccountFunc.
-func (mock *TransactionStoreMock) ListTransactionsForAccount(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error) {
+func (mock *TransactionStoreMock) ListTransactionsForAccount(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[billing.Transaction], error) {
 	if mock.ListTransactionsForAccountFunc == nil {
 		panic("TransactionStoreMock.ListTransactionsForAccountFunc: method is nil but TransactionStore.ListTransactionsForAccount was just called")
 	}
 	callInfo := struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		AccountID string
 		Filter    *filtering.QueryFilter
 	}{
 		Ctx:       ctx,
+		Q:         q,
 		Scope:     scope,
 		AccountID: accountID,
 		Filter:    filter,
@@ -5016,7 +3810,7 @@ func (mock *TransactionStoreMock) ListTransactionsForAccount(ctx context.Context
 	mock.lockListTransactionsForAccount.Lock()
 	mock.calls.ListTransactionsForAccount = append(mock.calls.ListTransactionsForAccount, callInfo)
 	mock.lockListTransactionsForAccount.Unlock()
-	return mock.ListTransactionsForAccountFunc(ctx, scope, accountID, filter)
+	return mock.ListTransactionsForAccountFunc(ctx, q, scope, accountID, filter)
 }
 
 // ListTransactionsForAccountCalls gets all the calls that were made to ListTransactionsForAccount.
@@ -5025,12 +3819,14 @@ func (mock *TransactionStoreMock) ListTransactionsForAccount(ctx context.Context
 //	len(mockedTransactionStore.ListTransactionsForAccountCalls())
 func (mock *TransactionStoreMock) ListTransactionsForAccountCalls() []struct {
 	Ctx       context.Context
+	Q         database.SQLQueryExecutor
 	Scope     tenancy.Scope
 	AccountID string
 	Filter    *filtering.QueryFilter
 } {
 	var calls []struct {
 		Ctx       context.Context
+		Q         database.SQLQueryExecutor
 		Scope     tenancy.Scope
 		AccountID string
 		Filter    *filtering.QueryFilter
@@ -5042,23 +3838,25 @@ func (mock *TransactionStoreMock) ListTransactionsForAccountCalls() []struct {
 }
 
 // RecordTransaction calls RecordTransactionFunc.
-func (mock *TransactionStoreMock) RecordTransaction(ctx context.Context, scope tenancy.Scope, transaction *billing.Transaction) (*billing.Transaction, error) {
+func (mock *TransactionStoreMock) RecordTransaction(ctx context.Context, tx database.Tx, scope tenancy.Scope, transaction *billing.Transaction) (*billing.Transaction, error) {
 	if mock.RecordTransactionFunc == nil {
 		panic("TransactionStoreMock.RecordTransactionFunc: method is nil but TransactionStore.RecordTransaction was just called")
 	}
 	callInfo := struct {
 		Ctx         context.Context
+		Tx          database.Tx
 		Scope       tenancy.Scope
 		Transaction *billing.Transaction
 	}{
 		Ctx:         ctx,
+		Tx:          tx,
 		Scope:       scope,
 		Transaction: transaction,
 	}
 	mock.lockRecordTransaction.Lock()
 	mock.calls.RecordTransaction = append(mock.calls.RecordTransaction, callInfo)
 	mock.lockRecordTransaction.Unlock()
-	return mock.RecordTransactionFunc(ctx, scope, transaction)
+	return mock.RecordTransactionFunc(ctx, tx, scope, transaction)
 }
 
 // RecordTransactionCalls gets all the calls that were made to RecordTransaction.
@@ -5067,11 +3865,13 @@ func (mock *TransactionStoreMock) RecordTransaction(ctx context.Context, scope t
 //	len(mockedTransactionStore.RecordTransactionCalls())
 func (mock *TransactionStoreMock) RecordTransactionCalls() []struct {
 	Ctx         context.Context
+	Tx          database.Tx
 	Scope       tenancy.Scope
 	Transaction *billing.Transaction
 } {
 	var calls []struct {
 		Ctx         context.Context
+		Tx          database.Tx
 		Scope       tenancy.Scope
 		Transaction *billing.Transaction
 	}
@@ -5081,62 +3881,20 @@ func (mock *TransactionStoreMock) RecordTransactionCalls() []struct {
 	return calls
 }
 
-// RecordTransactionTx calls RecordTransactionTxFunc.
-func (mock *TransactionStoreMock) RecordTransactionTx(ctx context.Context, q database.Tx, scope tenancy.Scope, transaction *billing.Transaction) (*billing.Transaction, error) {
-	if mock.RecordTransactionTxFunc == nil {
-		panic("TransactionStoreMock.RecordTransactionTxFunc: method is nil but TransactionStore.RecordTransactionTx was just called")
-	}
-	callInfo := struct {
-		Ctx         context.Context
-		Q           database.Tx
-		Scope       tenancy.Scope
-		Transaction *billing.Transaction
-	}{
-		Ctx:         ctx,
-		Q:           q,
-		Scope:       scope,
-		Transaction: transaction,
-	}
-	mock.lockRecordTransactionTx.Lock()
-	mock.calls.RecordTransactionTx = append(mock.calls.RecordTransactionTx, callInfo)
-	mock.lockRecordTransactionTx.Unlock()
-	return mock.RecordTransactionTxFunc(ctx, q, scope, transaction)
-}
-
-// RecordTransactionTxCalls gets all the calls that were made to RecordTransactionTx.
-// Check the length with:
-//
-//	len(mockedTransactionStore.RecordTransactionTxCalls())
-func (mock *TransactionStoreMock) RecordTransactionTxCalls() []struct {
-	Ctx         context.Context
-	Q           database.Tx
-	Scope       tenancy.Scope
-	Transaction *billing.Transaction
-} {
-	var calls []struct {
-		Ctx         context.Context
-		Q           database.Tx
-		Scope       tenancy.Scope
-		Transaction *billing.Transaction
-	}
-	mock.lockRecordTransactionTx.RLock()
-	calls = mock.calls.RecordTransactionTx
-	mock.lockRecordTransactionTx.RUnlock()
-	return calls
-}
-
 // SetTransactionStatus calls SetTransactionStatusFunc.
-func (mock *TransactionStoreMock) SetTransactionStatus(ctx context.Context, scope tenancy.Scope, transactionID string, status billing.TransactionStatus) error {
+func (mock *TransactionStoreMock) SetTransactionStatus(ctx context.Context, tx database.Tx, scope tenancy.Scope, transactionID string, status billing.TransactionStatus) error {
 	if mock.SetTransactionStatusFunc == nil {
 		panic("TransactionStoreMock.SetTransactionStatusFunc: method is nil but TransactionStore.SetTransactionStatus was just called")
 	}
 	callInfo := struct {
 		Ctx           context.Context
+		Tx            database.Tx
 		Scope         tenancy.Scope
 		TransactionID string
 		Status        billing.TransactionStatus
 	}{
 		Ctx:           ctx,
+		Tx:            tx,
 		Scope:         scope,
 		TransactionID: transactionID,
 		Status:        status,
@@ -5144,7 +3902,7 @@ func (mock *TransactionStoreMock) SetTransactionStatus(ctx context.Context, scop
 	mock.lockSetTransactionStatus.Lock()
 	mock.calls.SetTransactionStatus = append(mock.calls.SetTransactionStatus, callInfo)
 	mock.lockSetTransactionStatus.Unlock()
-	return mock.SetTransactionStatusFunc(ctx, scope, transactionID, status)
+	return mock.SetTransactionStatusFunc(ctx, tx, scope, transactionID, status)
 }
 
 // SetTransactionStatusCalls gets all the calls that were made to SetTransactionStatus.
@@ -5153,12 +3911,14 @@ func (mock *TransactionStoreMock) SetTransactionStatus(ctx context.Context, scop
 //	len(mockedTransactionStore.SetTransactionStatusCalls())
 func (mock *TransactionStoreMock) SetTransactionStatusCalls() []struct {
 	Ctx           context.Context
+	Tx            database.Tx
 	Scope         tenancy.Scope
 	TransactionID string
 	Status        billing.TransactionStatus
 } {
 	var calls []struct {
 		Ctx           context.Context
+		Tx            database.Tx
 		Scope         tenancy.Scope
 		TransactionID string
 		Status        billing.TransactionStatus
@@ -5166,53 +3926,5 @@ func (mock *TransactionStoreMock) SetTransactionStatusCalls() []struct {
 	mock.lockSetTransactionStatus.RLock()
 	calls = mock.calls.SetTransactionStatus
 	mock.lockSetTransactionStatus.RUnlock()
-	return calls
-}
-
-// SetTransactionStatusTx calls SetTransactionStatusTxFunc.
-func (mock *TransactionStoreMock) SetTransactionStatusTx(ctx context.Context, q database.Tx, scope tenancy.Scope, transactionID string, status billing.TransactionStatus) error {
-	if mock.SetTransactionStatusTxFunc == nil {
-		panic("TransactionStoreMock.SetTransactionStatusTxFunc: method is nil but TransactionStore.SetTransactionStatusTx was just called")
-	}
-	callInfo := struct {
-		Ctx           context.Context
-		Q             database.Tx
-		Scope         tenancy.Scope
-		TransactionID string
-		Status        billing.TransactionStatus
-	}{
-		Ctx:           ctx,
-		Q:             q,
-		Scope:         scope,
-		TransactionID: transactionID,
-		Status:        status,
-	}
-	mock.lockSetTransactionStatusTx.Lock()
-	mock.calls.SetTransactionStatusTx = append(mock.calls.SetTransactionStatusTx, callInfo)
-	mock.lockSetTransactionStatusTx.Unlock()
-	return mock.SetTransactionStatusTxFunc(ctx, q, scope, transactionID, status)
-}
-
-// SetTransactionStatusTxCalls gets all the calls that were made to SetTransactionStatusTx.
-// Check the length with:
-//
-//	len(mockedTransactionStore.SetTransactionStatusTxCalls())
-func (mock *TransactionStoreMock) SetTransactionStatusTxCalls() []struct {
-	Ctx           context.Context
-	Q             database.Tx
-	Scope         tenancy.Scope
-	TransactionID string
-	Status        billing.TransactionStatus
-} {
-	var calls []struct {
-		Ctx           context.Context
-		Q             database.Tx
-		Scope         tenancy.Scope
-		TransactionID string
-		Status        billing.TransactionStatus
-	}
-	mock.lockSetTransactionStatusTx.RLock()
-	calls = mock.calls.SetTransactionStatusTx
-	mock.lockSetTransactionStatusTx.RUnlock()
 	return calls
 }

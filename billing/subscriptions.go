@@ -19,69 +19,26 @@ import (
 // payment provider's events.
 var _ SubscriptionStore = (*SQLStore)(nil)
 
-// CreateSubscription opens an agreement in the scope.
+// CreateSubscription opens an agreement in the scope, through the caller's
+// transaction.
+//
+// Every statement runs on tx — including the product check the write is gated
+// on, so a product created through CreateProduct earlier in the same transaction
+// is one a subscription can be opened against. The attribution read on the
+// losing path runs there too; see [Store.CreateSubscription].
 func (s *SQLStore) CreateSubscription(
 	ctx context.Context,
+	tx database.Tx,
 	scope tenancy.Scope,
 	subscription *Subscription,
 ) (*Subscription, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
-	created, err := subscriptionToCreate(op, scope, subscription)
-	if err != nil {
-		return nil, err
-	}
-
-	if err = s.client.WithTransaction(ctx, func(q database.Tx) error {
-		return s.insertSubscription(ctx, q, scope, created)
-	}); err != nil {
-		return nil, op.Error(err, "creating subscription")
-	}
-
-	return created, nil
-}
-
-// CreateSubscriptionTx is CreateSubscription inside the caller's transaction.
-//
-// Every check CreateSubscription makes is made here, and every statement runs on
-// q — including the product check the write is gated on, so a product created
-// through CreateProductTx earlier in the same transaction is one a subscription
-// can be opened against. The attribution read on the losing path runs there too;
-// see [Store.CreateSubscriptionTx].
-func (s *SQLStore) CreateSubscriptionTx(
-	ctx context.Context,
-	q database.Tx,
-	scope tenancy.Scope,
-	subscription *Subscription,
-) (*Subscription, error) {
-	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
-	defer op.End()
-
-	if q == nil {
+	if tx == nil {
 		return nil, op.Error(ErrNilExecutor, "creating subscription")
 	}
 
-	created, err := subscriptionToCreate(op, scope, subscription)
-	if err != nil {
-		return nil, err
-	}
-
-	if err = s.insertSubscription(ctx, q, scope, created); err != nil {
-		return nil, op.Error(err, "creating subscription")
-	}
-
-	return created, nil
-}
-
-// subscriptionToCreate is the checks CreateSubscription and
-// CreateSubscriptionTx share, and the value they write. It runs before any
-// transaction is opened, for the reason productToCreate does.
-func subscriptionToCreate(
-	op observability.Operation,
-	scope tenancy.Scope,
-	subscription *Subscription,
-) (*Subscription, error) {
 	if subscription == nil {
 		return nil, op.Error(ErrNilSubscription, "creating subscription")
 	}
@@ -106,12 +63,16 @@ func subscriptionToCreate(
 	op.Set(subscriptionKey, created.ID)
 	op.Set(accountKey, created.BelongsToAccount)
 
+	if err := s.insertSubscription(ctx, tx, scope, &created); err != nil {
+		return nil, op.Error(err, "creating subscription")
+	}
+
 	return &created, nil
 }
 
-// insertSubscription is the statements the create runs, on whatever executor the
-// caller is holding: the product check, the insert-ignore, the attribution of a
-// loss, and the read-back of the creation time onto created.
+// insertSubscription is the statements the create runs: the product check, the
+// insert-ignore, the attribution of a loss, and the read-back of the creation
+// time onto created.
 func (s *SQLStore) insertSubscription(
 	ctx context.Context,
 	q database.SQLQueryExecutor,
@@ -142,9 +103,11 @@ func (s *SQLStore) insertSubscription(
 	return nil
 }
 
-// GetSubscription reads one of the scope's live subscriptions by id.
+// GetSubscription reads one of the scope's live subscriptions by id, on the
+// caller's executor.
 func (s *SQLStore) GetSubscription(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	subscriptionID string,
 ) (*Subscription, error) {
@@ -154,6 +117,10 @@ func (s *SQLStore) GetSubscription(
 	)
 	defer op.End()
 
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "reading subscription %q", subscriptionID)
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "reading subscription %q", subscriptionID)
 	}
@@ -162,13 +129,12 @@ func (s *SQLStore) GetSubscription(
 		return nil, op.Error(err, "reading subscription %q", subscriptionID)
 	}
 
-	row, err := s.q.GetSubscription(ctx, s.client.Reader(),
-		billingdb.GetSubscriptionParams{ID: subscriptionID, Scope: scope})
+	subscription, err := s.readSubscription(ctx, q, scope, subscriptionID)
 	if err != nil {
-		return nil, op.Error(notFound(err, ErrSubscriptionNotFound), "reading subscription %q", subscriptionID)
+		return nil, op.Error(err, "reading subscription %q", subscriptionID)
 	}
 
-	return subscriptionFromRow(&row), nil
+	return subscription, nil
 }
 
 // GetSubscriptionByExternalID reads one live subscription by the payment
@@ -179,17 +145,22 @@ func (s *SQLStore) GetSubscription(
 // answer.
 func (s *SQLStore) GetSubscriptionByExternalID(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	externalSubscriptionID string,
 ) (*Subscription, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "reading subscription by external id")
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "reading subscription by external id")
 	}
 
-	subscription, err := s.readSubscriptionByExternalID(ctx, s.client.Reader(), scope, externalSubscriptionID)
+	subscription, err := s.readSubscriptionByExternalID(ctx, q, scope, externalSubscriptionID)
 	if err != nil {
 		return nil, op.Error(err, "reading subscription by external id")
 	}
@@ -206,11 +177,16 @@ func (s *SQLStore) GetSubscriptionByExternalID(
 // ListSubscriptions pages every subscription in the scope.
 func (s *SQLStore) ListSubscriptions(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	filter *filtering.QueryFilter,
 ) (*filtering.QueryFilteredResult[Subscription], error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
+
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "listing subscriptions")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "listing subscriptions")
@@ -220,10 +196,10 @@ func (s *SQLStore) ListSubscriptions(
 
 	subscriptionRows, err := sortedRows(filter,
 		func() ([]billingdb.ListSubscriptionsRow, error) {
-			return s.q.ListSubscriptions(ctx, s.client.Reader(), listSubscriptionsParams(scope, filter))
+			return s.q.ListSubscriptions(ctx, q, listSubscriptionsParams(scope, filter))
 		},
 		func() ([]billingdb.ListSubscriptionsDescendingRow, error) {
-			return s.q.ListSubscriptionsDescending(ctx, s.client.Reader(),
+			return s.q.ListSubscriptionsDescending(ctx, q,
 				billingdb.ListSubscriptionsDescendingParams(listSubscriptionsParams(scope, filter)))
 		},
 		func(r billingdb.ListSubscriptionsDescendingRow) billingdb.ListSubscriptionsRow {
@@ -239,6 +215,7 @@ func (s *SQLStore) ListSubscriptions(
 // ListSubscriptionsForAccount pages one account's subscriptions.
 func (s *SQLStore) ListSubscriptionsForAccount(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	accountID string,
 	filter *filtering.QueryFilter,
@@ -248,6 +225,10 @@ func (s *SQLStore) ListSubscriptionsForAccount(
 		observability.WithValue(accountKey, accountID),
 	)
 	defer op.End()
+
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "listing subscriptions for account %q", accountID)
+	}
 
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "listing subscriptions for account %q", accountID)
@@ -261,11 +242,11 @@ func (s *SQLStore) ListSubscriptionsForAccount(
 
 	subscriptionRows, err := sortedRows(filter,
 		func() ([]billingdb.ListSubscriptionsForAccountRow, error) {
-			return s.q.ListSubscriptionsForAccount(ctx, s.client.Reader(),
+			return s.q.ListSubscriptionsForAccount(ctx, q,
 				listSubscriptionsForAccountParams(scope, accountID, filter))
 		},
 		func() ([]billingdb.ListSubscriptionsForAccountDescendingRow, error) {
-			return s.q.ListSubscriptionsForAccountDescending(ctx, s.client.Reader(),
+			return s.q.ListSubscriptionsForAccountDescending(ctx, q,
 				billingdb.ListSubscriptionsForAccountDescendingParams(
 					listSubscriptionsForAccountParams(scope, accountID, filter)))
 		},
@@ -294,6 +275,7 @@ func (s *SQLStore) ListSubscriptionsForAccount(
 // CURRENT_TIMESTAMP.
 func (s *SQLStore) ListCurrentSubscriptions(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	accountID string,
 	filter *filtering.QueryFilter,
@@ -303,6 +285,10 @@ func (s *SQLStore) ListCurrentSubscriptions(
 		observability.WithValue(accountKey, accountID),
 	)
 	defer op.End()
+
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "listing current subscriptions for account %q", accountID)
+	}
 
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "listing current subscriptions for account %q", accountID)
@@ -317,11 +303,11 @@ func (s *SQLStore) ListCurrentSubscriptions(
 
 	subscriptionRows, err := sortedRows(filter,
 		func() ([]billingdb.ListCurrentSubscriptionsRow, error) {
-			return s.q.ListCurrentSubscriptions(ctx, s.client.Reader(),
+			return s.q.ListCurrentSubscriptions(ctx, q,
 				listCurrentSubscriptionsParams(scope, accountID, asOf, filter))
 		},
 		func() ([]billingdb.ListCurrentSubscriptionsDescendingRow, error) {
-			return s.q.ListCurrentSubscriptionsDescending(ctx, s.client.Reader(),
+			return s.q.ListCurrentSubscriptionsDescending(ctx, q,
 				billingdb.ListCurrentSubscriptionsDescendingParams(
 					listCurrentSubscriptionsParams(scope, accountID, asOf, filter)))
 		},
@@ -340,80 +326,37 @@ func (s *SQLStore) ListCurrentSubscriptions(
 	return s.drainSubscriptions(op, shaped, filter), nil
 }
 
-// UpdateSubscription rewrites everything a provider's own subscription can move.
+// UpdateSubscription rewrites everything a provider's own subscription can move,
+// through the caller's transaction.
+//
+// The collision check against the provider-side id runs on tx, so a subscription
+// written earlier in the same transaction is one this edit is checked against.
+// See [Store.UpdateSubscription].
 func (s *SQLStore) UpdateSubscription(
 	ctx context.Context,
+	tx database.Tx,
 	scope tenancy.Scope,
 	subscription *Subscription,
 ) error {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
-	updated, err := subscriptionToUpdate(op, scope, subscription)
-	if err != nil {
-		return err
-	}
-
-	if err = s.client.WithTransaction(ctx, func(q database.Tx) error {
-		return s.rewriteSubscription(ctx, q, scope, updated)
-	}); err != nil {
-		return op.Error(err, "updating subscription %q", updated.ID)
-	}
-
-	return nil
-}
-
-// UpdateSubscriptionTx is UpdateSubscription inside the caller's transaction.
-//
-// The same checks and the same statements, on q — including the collision check
-// against the provider-side id, so a subscription written earlier in the same
-// transaction is one this edit is checked against. See
-// [Store.UpdateSubscriptionTx].
-func (s *SQLStore) UpdateSubscriptionTx(
-	ctx context.Context,
-	q database.Tx,
-	scope tenancy.Scope,
-	subscription *Subscription,
-) error {
-	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
-	defer op.End()
-
-	if q == nil {
+	if tx == nil {
 		return op.Error(ErrNilExecutor, "updating subscription")
 	}
 
-	updated, err := subscriptionToUpdate(op, scope, subscription)
-	if err != nil {
-		return err
-	}
-
-	if err = s.rewriteSubscription(ctx, q, scope, updated); err != nil {
-		return op.Error(err, "updating subscription %q", updated.ID)
-	}
-
-	return nil
-}
-
-// subscriptionToUpdate is the checks UpdateSubscription and
-// UpdateSubscriptionTx share, and the value they write. It runs before any
-// transaction is opened, for the reason productToCreate does.
-func subscriptionToUpdate(
-	op observability.Operation,
-	scope tenancy.Scope,
-	subscription *Subscription,
-) (*Subscription, error) {
 	if subscription == nil {
-		return nil, op.Error(ErrNilSubscription, "updating subscription")
+		return op.Error(ErrNilSubscription, "updating subscription")
 	}
 
 	op.Set(subscriptionKey, subscription.ID)
 
 	if err := scope.Validate(); err != nil {
-		return nil, op.Error(err, "updating subscription %q", subscription.ID)
+		return op.Error(err, "updating subscription %q", subscription.ID)
 	}
 
 	if err := requireID(subscription.ID); err != nil {
-		return nil, op.Error(err, "updating subscription %q", subscription.ID)
+		return op.Error(err, "updating subscription %q", subscription.ID)
 	}
 
 	updated := *subscription
@@ -421,39 +364,37 @@ func subscriptionToUpdate(
 	updated.CurrentPeriodEnd = updated.CurrentPeriodEnd.UTC()
 
 	if err := updated.validate(); err != nil {
-		return nil, op.Error(err, "updating subscription %q", subscription.ID)
+		return op.Error(err, "updating subscription %q", subscription.ID)
 	}
 
-	return &updated, nil
-}
-
-// rewriteSubscription is the statements the update runs, on whatever executor
-// the caller is holding: the collision check against the provider-side id, and
-// the guarded write.
-func (s *SQLStore) rewriteSubscription(
-	ctx context.Context,
-	q database.SQLQueryExecutor,
-	scope tenancy.Scope,
-	updated *Subscription,
-) error {
-	if err := s.ensureSubscriptionExternalIDFree(ctx, q, scope, updated.ExternalSubscriptionID, updated.ID); err != nil {
-		return err
+	if err := s.ensureSubscriptionExternalIDFree(
+		ctx, tx, scope, updated.ExternalSubscriptionID, updated.ID,
+	); err != nil {
+		return op.Error(err, "updating subscription %q", updated.ID)
 	}
 
-	count, err := s.q.UpdateSubscription(ctx, q, updateSubscriptionParams(updated, scope))
+	count, err := s.q.UpdateSubscription(ctx, tx, updateSubscriptionParams(&updated, scope))
+	if err = guardCount(count, err, ErrSubscriptionNotFound, "updating subscription"); err != nil {
+		return op.Error(err, "updating subscription %q", updated.ID)
+	}
 
-	return guardCount(count, err, ErrSubscriptionNotFound, "updating subscription")
+	return nil
 }
 
-// SetSubscriptionStatus moves the standing and nothing else.
+// SetSubscriptionStatus moves the standing and nothing else, through the
+// caller's transaction.
 //
 // The guard is in the statement rather than in a read before it, so a
 // redelivered event is answered by the affected-row count: the row already holds
 // the status, nothing is written, and the caller is told ErrStatusUnchanged.
 // Distinguishing that from a missing subscription takes one read, which is made
-// only on the losing path and therefore never on the hot one.
+// only on the losing path and therefore never on the hot one — and on tx, which
+// is what keeps a redelivery arriving in the same transaction as the row it
+// addresses from being attributed against a snapshot that cannot see it. See
+// [Store.SetSubscriptionStatus].
 func (s *SQLStore) SetSubscriptionStatus(
 	ctx context.Context,
+	tx database.Tx,
 	scope tenancy.Scope,
 	subscriptionID string,
 	status capitalism.SubscriptionStatus,
@@ -465,48 +406,10 @@ func (s *SQLStore) SetSubscriptionStatus(
 	)
 	defer op.End()
 
-	return s.setSubscriptionStatus(ctx, op, s.client.Writer(), scope, subscriptionID, status)
-}
-
-// SetSubscriptionStatusTx is SetSubscriptionStatus inside the caller's
-// transaction.
-//
-// The guard and the attribution read behind it both run on q, which is what
-// keeps a redelivery arriving in the same transaction as the row it addresses
-// from being attributed against a snapshot that cannot see it. See
-// [Store.SetSubscriptionStatusTx].
-func (s *SQLStore) SetSubscriptionStatusTx(
-	ctx context.Context,
-	q database.Tx,
-	scope tenancy.Scope,
-	subscriptionID string,
-	status capitalism.SubscriptionStatus,
-) error {
-	ctx, op := s.o11y.Begin(ctx,
-		observability.WithValue(scopeKey, scope.String()),
-		observability.WithValue(subscriptionKey, subscriptionID),
-		observability.WithValue(statusKey, string(status)),
-	)
-	defer op.End()
-
-	if q == nil {
+	if tx == nil {
 		return op.Error(ErrNilExecutor, "setting subscription %q status", subscriptionID)
 	}
 
-	return s.setSubscriptionStatus(ctx, op, q, scope, subscriptionID, status)
-}
-
-// setSubscriptionStatus is the shared body of SetSubscriptionStatus and
-// SetSubscriptionStatusTx, which differ in the executor they run on and in
-// nothing else.
-func (s *SQLStore) setSubscriptionStatus(
-	ctx context.Context,
-	op observability.Operation,
-	q database.SQLQueryExecutor,
-	scope tenancy.Scope,
-	subscriptionID string,
-	status capitalism.SubscriptionStatus,
-) error {
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "setting subscription %q status", subscriptionID)
 	}
@@ -520,7 +423,7 @@ func (s *SQLStore) setSubscriptionStatus(
 			"setting subscription %q status", subscriptionID)
 	}
 
-	count, err := s.q.SetSubscriptionStatus(ctx, q, billingdb.SetSubscriptionStatusParams{
+	count, err := s.q.SetSubscriptionStatus(ctx, tx, billingdb.SetSubscriptionStatusParams{
 		Status: string(status),
 		ID:     subscriptionID,
 		Scope:  scope,
@@ -531,32 +434,18 @@ func (s *SQLStore) setSubscriptionStatus(
 	}
 
 	if count == 0 {
-		return op.Error(s.refuseStatusWrite(ctx, q, scope, subscriptionID),
+		return op.Error(s.refuseStatusWrite(ctx, tx, scope, subscriptionID),
 			"setting subscription %q status", subscriptionID)
 	}
 
 	return nil
 }
 
-// ArchiveSubscription retires one of the scope's subscriptions administratively.
-//
-// It is one statement, so it runs on the writer rather than in a transaction of
-// its own; ArchiveSubscriptionTx is the form that joins somebody else's.
-func (s *SQLStore) ArchiveSubscription(ctx context.Context, scope tenancy.Scope, subscriptionID string) error {
-	ctx, op := s.o11y.Begin(ctx,
-		observability.WithValue(scopeKey, scope.String()),
-		observability.WithValue(subscriptionKey, subscriptionID),
-	)
-	defer op.End()
-
-	return s.archiveSubscription(ctx, op, s.client.Writer(), scope, subscriptionID)
-}
-
-// ArchiveSubscriptionTx is ArchiveSubscription inside the caller's transaction.
-// See [Store.ArchiveSubscriptionTx].
-func (s *SQLStore) ArchiveSubscriptionTx(
+// ArchiveSubscription retires one of the scope's subscriptions administratively,
+// through the caller's transaction. See [Store.ArchiveSubscription].
+func (s *SQLStore) ArchiveSubscription(
 	ctx context.Context,
-	q database.Tx,
+	tx database.Tx,
 	scope tenancy.Scope,
 	subscriptionID string,
 ) error {
@@ -566,28 +455,15 @@ func (s *SQLStore) ArchiveSubscriptionTx(
 	)
 	defer op.End()
 
-	if q == nil {
+	if tx == nil {
 		return op.Error(ErrNilExecutor, "archiving subscription %q", subscriptionID)
 	}
 
-	return s.archiveSubscription(ctx, op, q, scope, subscriptionID)
-}
-
-// archiveSubscription is the shared body of ArchiveSubscription and
-// ArchiveSubscriptionTx, which differ in the executor they run on and in nothing
-// else.
-func (s *SQLStore) archiveSubscription(
-	ctx context.Context,
-	op observability.Operation,
-	q database.SQLQueryExecutor,
-	scope tenancy.Scope,
-	subscriptionID string,
-) error {
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "archiving subscription %q", subscriptionID)
 	}
 
-	count, err := s.q.ArchiveSubscription(ctx, q,
+	count, err := s.q.ArchiveSubscription(ctx, tx,
 		billingdb.ArchiveSubscriptionParams{ID: subscriptionID, Scope: scope})
 	if err = guardCount(count, err, ErrSubscriptionNotFound, "archiving subscription"); err != nil {
 		return op.Error(err, "archiving subscription %q", subscriptionID)
@@ -620,11 +496,10 @@ func (s *SQLStore) drainSubscriptions(
 // a redelivery is fine and a write against a subscription nobody has is not. So
 // the read is made here, on the losing path only.
 //
-// It reads through the executor the write ran on rather than through the
-// store's reader, because those are the same thing on one path and not on the
-// other: a caller whose transaction wrote the subscription and then addressed it
-// would otherwise be told no such subscription exists by a snapshot that cannot
-// see the row.
+// It reads through the executor the write ran on, which is the caller's: a
+// caller whose transaction wrote the subscription and then addressed it would
+// otherwise be told no such subscription exists by a snapshot that cannot see
+// the row.
 func (s *SQLStore) refuseStatusWrite(
 	ctx context.Context,
 	q database.SQLQueryExecutor,

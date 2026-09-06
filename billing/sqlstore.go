@@ -57,9 +57,8 @@ var _ Store = (*SQLStore)(nil)
 // clientFoundRows=true in its MySQL DSN, which is the switch that puts MySQL on
 // matched semantics.
 type SQLStore struct {
-	client database.Client
-	q      billingdb.Querier
-	o11y   observability.Observer
+	q    billingdb.Querier
+	o11y observability.Observer
 
 	clock clock.Clock
 
@@ -81,6 +80,17 @@ type SQLStore struct {
 // that, and a mismatch surfaces as a missing table on the first query rather
 // than at construction.
 //
+// The client is taken for its dialect and for nothing else, and the store keeps
+// no reference to it. Every write is handed a database.Tx and every read an
+// executor, so there is no statement this store runs on a connection of its own:
+// no Writer() for the writes and no Reader() for the reads. A consumer with
+// nothing to join opens a transaction with Client.WithTransaction and passes the
+// Tx it is handed.
+//
+// The one clock this store reads is its own, not the client's. It decides which
+// subscriptions are current and stamps a completion the caller supplied no time
+// for, and both have to move when a test moves them — see WithClock.
+//
 // Observability is optional and defaults to nothing: an unconfigured store logs
 // to a noop logger and traces to a noop provider.
 func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, error) {
@@ -94,7 +104,6 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	}
 
 	s := &SQLStore{
-		client: client,
 		prefix: DefaultTablePrefix,
 		clock:  defaultClock(),
 	}
@@ -252,8 +261,8 @@ func requirePresence(err, missing error, id string) error {
 
 // requireProduct refuses a write naming a product this scope does not have.
 //
-// It is asked inside the write's own transaction, before the insert, and it is
-// why billing_products is the one table here that keeps the standard existence
+// It is asked on the caller's transaction, before the insert, and it is why
+// billing_products is the one table here that keeps the standard existence
 // check. The foreign key would refuse the row anyway on Postgres and SQLite — but
 // MySQL's INSERT IGNORE downgrades a foreign key violation to a warning and a
 // zero count, which is indistinguishable from the uniqueness collision that count

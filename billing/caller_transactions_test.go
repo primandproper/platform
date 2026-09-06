@@ -13,16 +13,16 @@ import (
 	"github.com/shoenig/test/must"
 )
 
-// runCallerTransactionSuite is the thirteen writes run inside a transaction the
-// caller owns, which is what the Tx variants exist for.
+// runCallerTransactionSuite is the whole store driven from inside one
+// transaction the caller owns, which is the only way it can be driven.
 //
-// What is under test is the commit boundary — that a write made here lands with
-// the caller's own rows, and that a caller's failure takes it back — and the
-// three reads that move onto the caller's executor with the write: the product
-// check the two creates are gated on, the attribution an insert-ignore makes
-// when it loses, and the read that tells a guarded write's replay from a row
-// nobody has. Everything else is parity: the transactional path must refuse
-// exactly what its own twin refuses, or the two drift into being two stores.
+// What is under test is the commit boundary — that a write lands with the
+// caller's own rows, and that a caller's failure takes it back — and the three
+// reads a write makes on that same executor: the product check the two creates
+// are gated on, the attribution an insert-ignore makes when it loses, and the
+// read that tells a guarded write's replay from a row nobody has. The reads are
+// here too, because widening them to database.SQLQueryExecutor is what lets a
+// caller see what its own transaction has written and not yet committed.
 func runCallerTransactionSuite(t *testing.T, env *storeEnv) {
 	t.Helper()
 
@@ -34,19 +34,19 @@ func runCallerTransactionSuite(t *testing.T, env *storeEnv) {
 		// Everything the transaction below edits, retires or settles, written
 		// and committed first — so what the assertions afterwards find is what
 		// that transaction did rather than what set it up.
-		catalog := mustCreateProduct(t, store, testScope, recurringProduct("catalog"))
-		withdrawn := mustCreateProduct(t, store, testScope, oneTimeProduct("withdrawn"))
+		catalog := mustCreateProduct(t, env, store, testScope, recurringProduct("catalog"))
+		withdrawn := mustCreateProduct(t, env, store, testScope, oneTimeProduct("withdrawn"))
 
-		synced := mustCreateSubscription(t, store, testScope, currentSubscription(catalog.ID, testAccount))
-		moved := mustCreateSubscription(t, store, testScope, currentSubscription(catalog.ID, testAccount))
-		retiredSubscription := mustCreateSubscription(t, store, testScope,
+		synced := mustCreateSubscription(t, env, store, testScope, currentSubscription(catalog.ID, testAccount))
+		moved := mustCreateSubscription(t, env, store, testScope, currentSubscription(catalog.ID, testAccount))
+		retiredSubscription := mustCreateSubscription(t, env, store, testScope,
 			currentSubscription(catalog.ID, testAccount))
 
-		settling := mustCreatePurchase(t, store, testScope, outstandingPurchase(withdrawn.ID, testAccount))
-		retiredPurchase := mustCreatePurchase(t, store, testScope, outstandingPurchase(withdrawn.ID, testAccount))
+		settling := mustCreatePurchase(t, env, store, testScope, outstandingPurchase(withdrawn.ID, testAccount))
+		retiredPurchase := mustCreatePurchase(t, env, store, testScope, outstandingPurchase(withdrawn.ID, testAccount))
 
-		succeeding := mustRecordTransaction(t, store, testScope, pendingTransaction(testAccount))
-		retiredLedgerRow := mustRecordTransaction(t, store, testScope, pendingTransaction(testAccount))
+		succeeding := mustRecordTransaction(t, env, store, testScope, pendingTransaction(testAccount))
+		retiredLedgerRow := mustRecordTransaction(t, env, store, testScope, pendingTransaction(testAccount))
 
 		// The provider's own settlement time, older than the store's clock, as
 		// a completion arriving by webhook always is.
@@ -59,22 +59,22 @@ func runCallerTransactionSuite(t *testing.T, env *storeEnv) {
 			charged *Transaction
 		)
 
-		must.NoError(t, store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(tx database.Tx) error {
 			var txErr error
 
-			if stocked, txErr = store.CreateProductTx(t.Context(), tx, testScope,
+			if stocked, txErr = store.CreateProduct(t.Context(), tx, testScope,
 				recurringProduct("pro")); txErr != nil {
 				return txErr
 			}
 
 			// The product check both creates are gated on runs on tx, so it
 			// finds a product nothing outside this transaction can see yet.
-			if opened, txErr = store.CreateSubscriptionTx(t.Context(), tx, testScope,
+			if opened, txErr = store.CreateSubscription(t.Context(), tx, testScope,
 				currentSubscription(stocked.ID, otherAccount)); txErr != nil {
 				return txErr
 			}
 
-			if sold, txErr = store.CreatePurchaseTx(t.Context(), tx, testScope,
+			if sold, txErr = store.CreatePurchase(t.Context(), tx, testScope,
 				outstandingPurchase(stocked.ID, otherAccount)); txErr != nil {
 				return txErr
 			}
@@ -84,52 +84,52 @@ func runCallerTransactionSuite(t *testing.T, env *storeEnv) {
 			ledgerRow := pendingTransaction(otherAccount)
 			ledgerRow.PurchaseID = sold.ID
 
-			if charged, txErr = store.RecordTransactionTx(t.Context(), tx, testScope, ledgerRow); txErr != nil {
+			if charged, txErr = store.RecordTransaction(t.Context(), tx, testScope, ledgerRow); txErr != nil {
 				return txErr
 			}
 
 			repriced := *catalog
 			repriced.AmountCents = 3_500
 
-			if txErr = store.UpdateProductTx(t.Context(), tx, testScope, &repriced); txErr != nil {
+			if txErr = store.UpdateProduct(t.Context(), tx, testScope, &repriced); txErr != nil {
 				return txErr
 			}
 
-			if txErr = store.ArchiveProductTx(t.Context(), tx, testScope, withdrawn.ID); txErr != nil {
+			if txErr = store.ArchiveProduct(t.Context(), tx, testScope, withdrawn.ID); txErr != nil {
 				return txErr
 			}
 
 			lapsing := *synced
 			lapsing.Status = capitalism.SubscriptionStatusPastDue
 
-			if txErr = store.UpdateSubscriptionTx(t.Context(), tx, testScope, &lapsing); txErr != nil {
+			if txErr = store.UpdateSubscription(t.Context(), tx, testScope, &lapsing); txErr != nil {
 				return txErr
 			}
 
-			if txErr = store.SetSubscriptionStatusTx(t.Context(), tx, testScope, moved.ID,
+			if txErr = store.SetSubscriptionStatus(t.Context(), tx, testScope, moved.ID,
 				capitalism.SubscriptionStatusCanceled); txErr != nil {
 				return txErr
 			}
 
-			if txErr = store.ArchiveSubscriptionTx(t.Context(), tx, testScope,
+			if txErr = store.ArchiveSubscription(t.Context(), tx, testScope,
 				retiredSubscription.ID); txErr != nil {
 				return txErr
 			}
 
-			if txErr = store.CompletePurchaseTx(t.Context(), tx, testScope, settling.ID, settledAt); txErr != nil {
+			if txErr = store.CompletePurchase(t.Context(), tx, testScope, settling.ID, settledAt); txErr != nil {
 				return txErr
 			}
 
-			if txErr = store.ArchivePurchaseTx(t.Context(), tx, testScope, retiredPurchase.ID); txErr != nil {
+			if txErr = store.ArchivePurchase(t.Context(), tx, testScope, retiredPurchase.ID); txErr != nil {
 				return txErr
 			}
 
-			if txErr = store.SetTransactionStatusTx(t.Context(), tx, testScope, succeeding.ID,
+			if txErr = store.SetTransactionStatus(t.Context(), tx, testScope, succeeding.ID,
 				TransactionSucceeded); txErr != nil {
 				return txErr
 			}
 
-			return store.ArchiveTransactionTx(t.Context(), tx, testScope, retiredLedgerRow.ID)
+			return store.ArchiveTransaction(t.Context(), tx, testScope, retiredLedgerRow.ID)
 		}))
 
 		// The creation times were read back through the caller's executor
@@ -140,98 +140,98 @@ func runCallerTransactionSuite(t *testing.T, env *storeEnv) {
 		test.False(t, sold.CreatedAt.IsZero())
 		test.False(t, charged.CreatedAt.IsZero())
 
-		readProduct, err := store.GetProduct(t.Context(), testScope, stocked.ID)
+		readProduct, err := store.GetProduct(t.Context(), env.reader(), testScope, stocked.ID)
 		must.NoError(t, err)
 		test.EqOp(t, "pro", readProduct.Name)
 
-		readProduct, err = store.GetProduct(t.Context(), testScope, catalog.ID)
+		readProduct, err = store.GetProduct(t.Context(), env.reader(), testScope, catalog.ID)
 		must.NoError(t, err)
 		test.EqOp(t, int64(3_500), readProduct.AmountCents)
 
-		_, err = store.GetProduct(t.Context(), testScope, withdrawn.ID)
+		_, err = store.GetProduct(t.Context(), env.reader(), testScope, withdrawn.ID)
 		test.ErrorIs(t, err, ErrProductNotFound)
 
-		readSubscription, err := store.GetSubscription(t.Context(), testScope, opened.ID)
+		readSubscription, err := store.GetSubscription(t.Context(), env.reader(), testScope, opened.ID)
 		must.NoError(t, err)
 		test.EqOp(t, stocked.ID, readSubscription.ProductID)
 
-		readSubscription, err = store.GetSubscription(t.Context(), testScope, synced.ID)
+		readSubscription, err = store.GetSubscription(t.Context(), env.reader(), testScope, synced.ID)
 		must.NoError(t, err)
 		test.EqOp(t, capitalism.SubscriptionStatusPastDue, readSubscription.Status)
 
-		readSubscription, err = store.GetSubscription(t.Context(), testScope, moved.ID)
+		readSubscription, err = store.GetSubscription(t.Context(), env.reader(), testScope, moved.ID)
 		must.NoError(t, err)
 		test.EqOp(t, capitalism.SubscriptionStatusCanceled, readSubscription.Status)
 
-		_, err = store.GetSubscription(t.Context(), testScope, retiredSubscription.ID)
+		_, err = store.GetSubscription(t.Context(), env.reader(), testScope, retiredSubscription.ID)
 		test.ErrorIs(t, err, ErrSubscriptionNotFound)
 
-		readPurchase, err := store.GetPurchase(t.Context(), testScope, sold.ID)
+		readPurchase, err := store.GetPurchase(t.Context(), env.reader(), testScope, sold.ID)
 		must.NoError(t, err)
 		test.False(t, readPurchase.Complete())
 
-		readPurchase, err = store.GetPurchase(t.Context(), testScope, settling.ID)
+		readPurchase, err = store.GetPurchase(t.Context(), env.reader(), testScope, settling.ID)
 		must.NoError(t, err)
 		must.NotNil(t, readPurchase.CompletedAt)
 		test.True(t, settledAt.Equal(readPurchase.CompletedAt.UTC()))
 
-		_, err = store.GetPurchase(t.Context(), testScope, retiredPurchase.ID)
+		_, err = store.GetPurchase(t.Context(), env.reader(), testScope, retiredPurchase.ID)
 		test.ErrorIs(t, err, ErrPurchaseNotFound)
 
-		readLedgerRow, err := store.GetTransaction(t.Context(), testScope, charged.ID)
+		readLedgerRow, err := store.GetTransaction(t.Context(), env.reader(), testScope, charged.ID)
 		must.NoError(t, err)
 		test.EqOp(t, sold.ID, readLedgerRow.PurchaseID)
 
-		readLedgerRow, err = store.GetTransaction(t.Context(), testScope, succeeding.ID)
+		readLedgerRow, err = store.GetTransaction(t.Context(), env.reader(), testScope, succeeding.ID)
 		must.NoError(t, err)
 		test.EqOp(t, TransactionSucceeded, readLedgerRow.Status)
 
-		_, err = store.GetTransaction(t.Context(), testScope, retiredLedgerRow.ID)
+		_, err = store.GetTransaction(t.Context(), env.reader(), testScope, retiredLedgerRow.ID)
 		test.ErrorIs(t, err, ErrTransactionNotFound)
 	})
 
 	t.Run("a rolled back transaction takes every write with it", func(t *testing.T) {
 		t.Parallel()
 
-		// The whole point of the variants, seen from the side that matters: the
+		// The whole point of the shape, seen from the side that matters: the
 		// consumer's audit entry fails, and the ledger row goes back with it
 		// rather than surviving in a transaction it was never part of.
 		store := env.newStore(t)
 
-		catalog := mustCreateProduct(t, store, testScope, recurringProduct("catalog"))
-		subscription := mustCreateSubscription(t, store, testScope,
+		catalog := mustCreateProduct(t, env, store, testScope, recurringProduct("catalog"))
+		subscription := mustCreateSubscription(t, env, store, testScope,
 			currentSubscription(catalog.ID, testAccount))
-		purchase := mustCreatePurchase(t, store, testScope, outstandingPurchase(catalog.ID, testAccount))
-		ledgerRow := mustRecordTransaction(t, store, testScope, pendingTransaction(testAccount))
+		purchase := mustCreatePurchase(t, env, store, testScope, outstandingPurchase(catalog.ID, testAccount))
+		ledgerRow := mustRecordTransaction(t, env, store, testScope, pendingTransaction(testAccount))
 
 		var (
 			stocked *Product
 			charged *Transaction
 		)
 
-		err := store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+		err := env.client.WithTransaction(t.Context(), func(tx database.Tx) error {
 			var txErr error
 
-			if stocked, txErr = store.CreateProductTx(t.Context(), tx, testScope,
+			if stocked, txErr = store.CreateProduct(t.Context(), tx, testScope,
 				recurringProduct("pro")); txErr != nil {
 				return txErr
 			}
 
-			if charged, txErr = store.RecordTransactionTx(t.Context(), tx, testScope,
+			if charged, txErr = store.RecordTransaction(t.Context(), tx, testScope,
 				pendingTransaction(otherAccount)); txErr != nil {
 				return txErr
 			}
 
-			if txErr = store.SetSubscriptionStatusTx(t.Context(), tx, testScope, subscription.ID,
+			if txErr = store.SetSubscriptionStatus(t.Context(), tx, testScope, subscription.ID,
 				capitalism.SubscriptionStatusCanceled); txErr != nil {
 				return txErr
 			}
 
-			if txErr = store.CompletePurchaseTx(t.Context(), tx, testScope, purchase.ID, testNow); txErr != nil {
+			if txErr = store.CompletePurchase(t.Context(), tx, testScope, purchase.ID, testNow); txErr != nil {
 				return txErr
 			}
 
-			if txErr = store.ArchiveTransactionTx(t.Context(), tx, testScope, ledgerRow.ID); txErr != nil {
+			if txErr = store.ArchiveTransaction(t.Context(), tx, testScope, ledgerRow.ID); txErr != nil {
 				return txErr
 			}
 
@@ -244,21 +244,21 @@ func runCallerTransactionSuite(t *testing.T, env *storeEnv) {
 		test.NotEqOp(t, "", stocked.ID)
 		test.NotEqOp(t, "", charged.ID)
 
-		_, err = store.GetProduct(t.Context(), testScope, stocked.ID)
+		_, err = store.GetProduct(t.Context(), env.reader(), testScope, stocked.ID)
 		test.ErrorIs(t, err, ErrProductNotFound)
 
-		_, err = store.GetTransaction(t.Context(), testScope, charged.ID)
+		_, err = store.GetTransaction(t.Context(), env.reader(), testScope, charged.ID)
 		test.ErrorIs(t, err, ErrTransactionNotFound)
 
-		readSubscription, err := store.GetSubscription(t.Context(), testScope, subscription.ID)
+		readSubscription, err := store.GetSubscription(t.Context(), env.reader(), testScope, subscription.ID)
 		must.NoError(t, err)
 		test.EqOp(t, capitalism.SubscriptionStatusActive, readSubscription.Status)
 
-		readPurchase, err := store.GetPurchase(t.Context(), testScope, purchase.ID)
+		readPurchase, err := store.GetPurchase(t.Context(), env.reader(), testScope, purchase.ID)
 		must.NoError(t, err)
 		test.False(t, readPurchase.Complete())
 
-		readLedgerRow, err := store.GetTransaction(t.Context(), testScope, ledgerRow.ID)
+		readLedgerRow, err := store.GetTransaction(t.Context(), env.reader(), testScope, ledgerRow.ID)
 		must.NoError(t, err)
 		test.Nil(t, readLedgerRow.ArchivedAt)
 	})
@@ -279,51 +279,51 @@ func runCallerTransactionSuite(t *testing.T, env *storeEnv) {
 			ledgerReplay       error
 		)
 
-		must.NoError(t, store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(tx database.Tx) error {
 			first := recurringProduct("pro")
 			first.ExternalProductID = "prod_stripe_1"
 
-			stocked, txErr := store.CreateProductTx(t.Context(), tx, testScope, first)
+			stocked, txErr := store.CreateProduct(t.Context(), tx, testScope, first)
 			if txErr != nil {
 				return txErr
 			}
 
 			second := recurringProduct("pro")
 			second.ExternalProductID = "prod_stripe_1"
-			_, productReplay = store.CreateProductTx(t.Context(), tx, testScope, second)
+			_, productReplay = store.CreateProduct(t.Context(), tx, testScope, second)
 
 			opening := currentSubscription(stocked.ID, testAccount)
 			opening.ExternalSubscriptionID = "sub_stripe_1"
 
-			if _, txErr = store.CreateSubscriptionTx(t.Context(), tx, testScope, opening); txErr != nil {
+			if _, txErr = store.CreateSubscription(t.Context(), tx, testScope, opening); txErr != nil {
 				return txErr
 			}
 
 			reopening := currentSubscription(stocked.ID, testAccount)
 			reopening.ExternalSubscriptionID = "sub_stripe_1"
-			_, subscriptionReplay = store.CreateSubscriptionTx(t.Context(), tx, testScope, reopening)
+			_, subscriptionReplay = store.CreateSubscription(t.Context(), tx, testScope, reopening)
 
 			selling := outstandingPurchase(stocked.ID, testAccount)
 			selling.ExternalTransactionID = "pi_stripe_1"
 
-			if _, txErr = store.CreatePurchaseTx(t.Context(), tx, testScope, selling); txErr != nil {
+			if _, txErr = store.CreatePurchase(t.Context(), tx, testScope, selling); txErr != nil {
 				return txErr
 			}
 
 			reselling := outstandingPurchase(stocked.ID, testAccount)
 			reselling.ExternalTransactionID = "pi_stripe_1"
-			_, purchaseReplay = store.CreatePurchaseTx(t.Context(), tx, testScope, reselling)
+			_, purchaseReplay = store.CreatePurchase(t.Context(), tx, testScope, reselling)
 
 			charge := pendingTransaction(testAccount)
 			charge.ExternalTransactionID = "ch_stripe_1"
 
-			if _, txErr = store.RecordTransactionTx(t.Context(), tx, testScope, charge); txErr != nil {
+			if _, txErr = store.RecordTransaction(t.Context(), tx, testScope, charge); txErr != nil {
 				return txErr
 			}
 
 			recharge := pendingTransaction(testAccount)
 			recharge.ExternalTransactionID = "ch_stripe_1"
-			_, ledgerReplay = store.RecordTransactionTx(t.Context(), tx, testScope, recharge)
+			_, ledgerReplay = store.RecordTransaction(t.Context(), tx, testScope, recharge)
 
 			return nil
 		}))
@@ -334,15 +334,15 @@ func runCallerTransactionSuite(t *testing.T, env *storeEnv) {
 		test.ErrorIs(t, ledgerReplay, ErrTransactionExists)
 
 		// One of each went in, and the redeliveries wrote nothing.
-		ledger, err := store.ListTransactions(t.Context(), testScope, nil)
+		ledger, err := store.ListTransactions(t.Context(), env.reader(), testScope, nil)
 		must.NoError(t, err)
 		test.SliceLen(t, 1, ledger.Data)
 
-		purchases, err := store.ListPurchases(t.Context(), testScope, nil)
+		purchases, err := store.ListPurchases(t.Context(), env.reader(), testScope, nil)
 		must.NoError(t, err)
 		test.SliceLen(t, 1, purchases.Data)
 
-		subscriptions, err := store.ListSubscriptions(t.Context(), testScope, nil)
+		subscriptions, err := store.ListSubscriptions(t.Context(), env.reader(), testScope, nil)
 		must.NoError(t, err)
 		test.SliceLen(t, 1, subscriptions.Data)
 	})
@@ -362,13 +362,13 @@ func runCallerTransactionSuite(t *testing.T, env *storeEnv) {
 			unchangedLedgerRow    error
 		)
 
-		must.NoError(t, store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
-			stocked, txErr := store.CreateProductTx(t.Context(), tx, testScope, recurringProduct("pro"))
+		must.NoError(t, env.inTx(t, func(tx database.Tx) error {
+			stocked, txErr := store.CreateProduct(t.Context(), tx, testScope, recurringProduct("pro"))
 			if txErr != nil {
 				return txErr
 			}
 
-			opened, txErr := store.CreateSubscriptionTx(t.Context(), tx, testScope,
+			opened, txErr := store.CreateSubscription(t.Context(), tx, testScope,
 				currentSubscription(stocked.ID, testAccount))
 			if txErr != nil {
 				return txErr
@@ -376,28 +376,28 @@ func runCallerTransactionSuite(t *testing.T, env *storeEnv) {
 
 			// The status it was opened at, which is the redelivery a webhook
 			// handler acknowledges rather than retries.
-			unchangedSubscription = store.SetSubscriptionStatusTx(t.Context(), tx, testScope, opened.ID,
+			unchangedSubscription = store.SetSubscriptionStatus(t.Context(), tx, testScope, opened.ID,
 				capitalism.SubscriptionStatusActive)
 
-			sold, txErr := store.CreatePurchaseTx(t.Context(), tx, testScope,
+			sold, txErr := store.CreatePurchase(t.Context(), tx, testScope,
 				outstandingPurchase(stocked.ID, testAccount))
 			if txErr != nil {
 				return txErr
 			}
 
-			if txErr = store.CompletePurchaseTx(t.Context(), tx, testScope, sold.ID, testNow); txErr != nil {
+			if txErr = store.CompletePurchase(t.Context(), tx, testScope, sold.ID, testNow); txErr != nil {
 				return txErr
 			}
 
-			alreadyCompleted = store.CompletePurchaseTx(t.Context(), tx, testScope, sold.ID, testNow)
+			alreadyCompleted = store.CompletePurchase(t.Context(), tx, testScope, sold.ID, testNow)
 
-			charged, txErr := store.RecordTransactionTx(t.Context(), tx, testScope,
+			charged, txErr := store.RecordTransaction(t.Context(), tx, testScope,
 				pendingTransaction(testAccount))
 			if txErr != nil {
 				return txErr
 			}
 
-			unchangedLedgerRow = store.SetTransactionStatusTx(t.Context(), tx, testScope, charged.ID,
+			unchangedLedgerRow = store.SetTransactionStatus(t.Context(), tx, testScope, charged.ID,
 				TransactionPending)
 
 			return nil
@@ -408,63 +408,173 @@ func runCallerTransactionSuite(t *testing.T, env *storeEnv) {
 		test.ErrorIs(t, unchangedLedgerRow, ErrStatusUnchanged)
 	})
 
-	t.Run("a transactional write refuses a nil executor", func(t *testing.T) {
+	t.Run("every method refuses a nil executor", func(t *testing.T) {
 		t.Parallel()
 
-		// Every one of the thirteen, not a representative one: a variant that
-		// reached for the store's own writer when handed nothing would be a
-		// write outside the transaction its caller believes it is in.
+		// All thirty, not a representative one. There is no connection of this
+		// store's own to fall back to, so a method that quietly found one when
+		// handed nothing would be running outside the transaction its caller
+		// believes it is in.
 		store := env.newStore(t)
 
-		_, err := store.CreateProductTx(t.Context(), nil, testScope, recurringProduct("pro"))
+		_, err := store.CreateProduct(t.Context(), nil, testScope, recurringProduct("pro"))
 		test.ErrorIs(t, err, ErrNilExecutor)
 
-		test.ErrorIs(t, store.UpdateProductTx(t.Context(), nil, testScope, recurringProduct("pro")), ErrNilExecutor)
-		test.ErrorIs(t, store.ArchiveProductTx(t.Context(), nil, testScope, "whatever"), ErrNilExecutor)
+		test.ErrorIs(t, store.UpdateProduct(t.Context(), nil, testScope, recurringProduct("pro")), ErrNilExecutor)
+		test.ErrorIs(t, store.ArchiveProduct(t.Context(), nil, testScope, "whatever"), ErrNilExecutor)
 
-		_, err = store.CreateSubscriptionTx(t.Context(), nil, testScope, currentSubscription("p", testAccount))
+		_, err = store.CreateSubscription(t.Context(), nil, testScope, currentSubscription("p", testAccount))
 		test.ErrorIs(t, err, ErrNilExecutor)
 
 		test.ErrorIs(t,
-			store.UpdateSubscriptionTx(t.Context(), nil, testScope, currentSubscription("p", testAccount)),
+			store.UpdateSubscription(t.Context(), nil, testScope, currentSubscription("p", testAccount)),
 			ErrNilExecutor)
 		test.ErrorIs(t,
-			store.SetSubscriptionStatusTx(t.Context(), nil, testScope, "whatever",
+			store.SetSubscriptionStatus(t.Context(), nil, testScope, "whatever",
 				capitalism.SubscriptionStatusActive),
 			ErrNilExecutor)
-		test.ErrorIs(t, store.ArchiveSubscriptionTx(t.Context(), nil, testScope, "whatever"), ErrNilExecutor)
+		test.ErrorIs(t, store.ArchiveSubscription(t.Context(), nil, testScope, "whatever"), ErrNilExecutor)
 
-		_, err = store.CreatePurchaseTx(t.Context(), nil, testScope, outstandingPurchase("p", testAccount))
+		_, err = store.CreatePurchase(t.Context(), nil, testScope, outstandingPurchase("p", testAccount))
 		test.ErrorIs(t, err, ErrNilExecutor)
 
-		test.ErrorIs(t, store.CompletePurchaseTx(t.Context(), nil, testScope, "whatever", testNow), ErrNilExecutor)
-		test.ErrorIs(t, store.ArchivePurchaseTx(t.Context(), nil, testScope, "whatever"), ErrNilExecutor)
+		test.ErrorIs(t, store.CompletePurchase(t.Context(), nil, testScope, "whatever", testNow), ErrNilExecutor)
+		test.ErrorIs(t, store.ArchivePurchase(t.Context(), nil, testScope, "whatever"), ErrNilExecutor)
 
-		_, err = store.RecordTransactionTx(t.Context(), nil, testScope, pendingTransaction(testAccount))
+		_, err = store.RecordTransaction(t.Context(), nil, testScope, pendingTransaction(testAccount))
 		test.ErrorIs(t, err, ErrNilExecutor)
 
 		test.ErrorIs(t,
-			store.SetTransactionStatusTx(t.Context(), nil, testScope, "whatever", TransactionSucceeded),
+			store.SetTransactionStatus(t.Context(), nil, testScope, "whatever", TransactionSucceeded),
 			ErrNilExecutor)
-		test.ErrorIs(t, store.ArchiveTransactionTx(t.Context(), nil, testScope, "whatever"), ErrNilExecutor)
+		test.ErrorIs(t, store.ArchiveTransaction(t.Context(), nil, testScope, "whatever"), ErrNilExecutor)
+
+		// And the seventeen reads, which have the same nothing to fall back to.
+		_, err = store.GetProduct(t.Context(), nil, testScope, "whatever")
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.GetProductByExternalID(t.Context(), nil, testScope, "prod_abc")
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.ProductExists(t.Context(), nil, testScope, "whatever")
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.ListProducts(t.Context(), nil, testScope, nil)
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.GetSubscription(t.Context(), nil, testScope, "whatever")
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.GetSubscriptionByExternalID(t.Context(), nil, testScope, "sub_abc")
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.ListSubscriptions(t.Context(), nil, testScope, nil)
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.ListSubscriptionsForAccount(t.Context(), nil, testScope, testAccount, nil)
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.ListCurrentSubscriptions(t.Context(), nil, testScope, testAccount, nil)
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.GetPurchase(t.Context(), nil, testScope, "whatever")
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.GetPurchaseByExternalID(t.Context(), nil, testScope, "pi_abc")
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.ListPurchases(t.Context(), nil, testScope, nil)
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.ListPurchasesForAccount(t.Context(), nil, testScope, testAccount, nil)
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.GetTransaction(t.Context(), nil, testScope, "whatever")
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.GetTransactionByExternalID(t.Context(), nil, testScope, "ch_abc")
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.ListTransactions(t.Context(), nil, testScope, nil)
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.ListTransactionsForAccount(t.Context(), nil, testScope, testAccount, nil)
+		test.ErrorIs(t, err, ErrNilExecutor)
 
 		// And nothing was written on the way to refusing.
-		products, err := store.ListProducts(t.Context(), testScope, nil)
+		products, err := store.ListProducts(t.Context(), env.reader(), testScope, nil)
 		must.NoError(t, err)
 		test.SliceEmpty(t, products.Data)
 
-		ledger, err := store.ListTransactions(t.Context(), testScope, nil)
+		ledger, err := store.ListTransactions(t.Context(), env.reader(), testScope, nil)
 		must.NoError(t, err)
 		test.SliceEmpty(t, ledger.Data)
 	})
 
-	t.Run("the transactional writes refuse what their own path refuses", func(t *testing.T) {
+	t.Run("a read on the transaction sees its writes and one outside does not", func(t *testing.T) {
+		t.Parallel()
+
+		// The property the reads were widened for. A caller that has just
+		// written a row and re-reads it inside the same transaction gets the row
+		// it wrote; anybody reading from outside gets the database as it was
+		// until the commit.
+		store := env.newStore(t)
+
+		must.NoError(t, env.inTx(t, func(tx database.Tx) error {
+			stocked, txErr := store.CreateProduct(t.Context(), tx, testScope, recurringProduct("pro"))
+			if txErr != nil {
+				return txErr
+			}
+
+			// On tx: the row this transaction wrote.
+			read, txErr := store.GetProduct(t.Context(), tx, testScope, stocked.ID)
+			if txErr != nil {
+				return txErr
+			}
+
+			test.EqOp(t, "pro", read.Name)
+
+			exists, txErr := store.ProductExists(t.Context(), tx, testScope, stocked.ID)
+			if txErr != nil {
+				return txErr
+			}
+
+			test.True(t, exists)
+
+			page, txErr := store.ListProducts(t.Context(), tx, testScope, nil)
+			if txErr != nil {
+				return txErr
+			}
+
+			test.SliceLen(t, 1, page.Data)
+
+			// And the same reads, on the client, cannot see it: the
+			// transaction has not committed, so this is the other half of the
+			// same fact rather than a second one.
+			outside, txErr := store.ListProducts(t.Context(), env.reader(), testScope, nil)
+			if txErr != nil {
+				return txErr
+			}
+
+			test.SliceEmpty(t, outside.Data)
+
+			return nil
+		}))
+
+		// After the commit both executors agree, which is what makes the reading
+		// above about visibility rather than about two different rows.
+		committed, err := store.ListProducts(t.Context(), env.reader(), testScope, nil)
+		must.NoError(t, err)
+		test.SliceLen(t, 1, committed.Data)
+	})
+
+	t.Run("the writes refuse what this package will not store", func(t *testing.T) {
 		t.Parallel()
 
 		store := env.newStore(t)
 
-		catalog := mustCreateProduct(t, store, testScope, recurringProduct("catalog"))
-		subscription := mustCreateSubscription(t, store, testScope,
+		catalog := mustCreateProduct(t, env, store, testScope, recurringProduct("catalog"))
+		subscription := mustCreateSubscription(t, env, store, testScope,
 			currentSubscription(catalog.ID, testAccount))
 
 		var unset tenancy.Scope
@@ -472,7 +582,9 @@ func runCallerTransactionSuite(t *testing.T, env *storeEnv) {
 		// Collected inside one transaction and asserted outside it, so a failed
 		// check does not abort the transaction the next one needs. None of
 		// these reaches a statement the database refuses: each is a check this
-		// package makes, or a read that finds nothing.
+		// package makes, or a read that finds nothing. Every one of them is
+		// refused inside the caller's transaction, which is the only place a
+		// write can be refused now.
 		var (
 			nilProduct, unscopedProduct, unnamedProduct           error
 			unidentifiedProductEdit, absentProductEdit            error
@@ -487,70 +599,70 @@ func runCallerTransactionSuite(t *testing.T, env *storeEnv) {
 			absentLedgerStatus, invalidLedgerStatus, absentLedger error
 		)
 
-		must.NoError(t, store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
-			_, nilProduct = store.CreateProductTx(t.Context(), tx, testScope, nil)
-			_, unscopedProduct = store.CreateProductTx(t.Context(), tx, unset, recurringProduct("pro"))
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+			_, nilProduct = store.CreateProduct(t.Context(), tx, testScope, nil)
+			_, unscopedProduct = store.CreateProduct(t.Context(), tx, unset, recurringProduct("pro"))
 
 			unnamed := recurringProduct("pro")
 			unnamed.Name = ""
-			_, unnamedProduct = store.CreateProductTx(t.Context(), tx, testScope, unnamed)
+			_, unnamedProduct = store.CreateProduct(t.Context(), tx, testScope, unnamed)
 
-			unidentifiedProductEdit = store.UpdateProductTx(t.Context(), tx, testScope, recurringProduct("pro"))
+			unidentifiedProductEdit = store.UpdateProduct(t.Context(), tx, testScope, recurringProduct("pro"))
 
 			absent := recurringProduct("pro")
 			absent.ID = "prod_never_written"
-			absentProductEdit = store.UpdateProductTx(t.Context(), tx, testScope, absent)
+			absentProductEdit = store.UpdateProduct(t.Context(), tx, testScope, absent)
 
-			absentProductArchive = store.ArchiveProductTx(t.Context(), tx, testScope, "prod_never_written")
-			foreignProductArchive = store.ArchiveProductTx(t.Context(), tx, otherScope, catalog.ID)
+			absentProductArchive = store.ArchiveProduct(t.Context(), tx, testScope, "prod_never_written")
+			foreignProductArchive = store.ArchiveProduct(t.Context(), tx, otherScope, catalog.ID)
 
-			_, nilSubscription = store.CreateSubscriptionTx(t.Context(), tx, testScope, nil)
+			_, nilSubscription = store.CreateSubscription(t.Context(), tx, testScope, nil)
 
 			accountless := currentSubscription(catalog.ID, "")
-			_, accountlessSubscription = store.CreateSubscriptionTx(t.Context(), tx, testScope, accountless)
+			_, accountlessSubscription = store.CreateSubscription(t.Context(), tx, testScope, accountless)
 
-			_, unstockedSubscription = store.CreateSubscriptionTx(t.Context(), tx, testScope,
+			_, unstockedSubscription = store.CreateSubscription(t.Context(), tx, testScope,
 				currentSubscription("prod_never_written", testAccount))
 
 			backwards := currentSubscription(catalog.ID, testAccount)
 			backwards.CurrentPeriodEnd = backwards.CurrentPeriodStart.Add(-time.Hour)
-			_, backwardsSubscription = store.CreateSubscriptionTx(t.Context(), tx, testScope, backwards)
+			_, backwardsSubscription = store.CreateSubscription(t.Context(), tx, testScope, backwards)
 
 			absentEdit := currentSubscription(catalog.ID, testAccount)
 			absentEdit.ID = "sub_never_written"
-			absentSubscriptionEdit = store.UpdateSubscriptionTx(t.Context(), tx, testScope, absentEdit)
+			absentSubscriptionEdit = store.UpdateSubscription(t.Context(), tx, testScope, absentEdit)
 
-			unknownStatus = store.SetSubscriptionStatusTx(t.Context(), tx, testScope, subscription.ID,
+			unknownStatus = store.SetSubscriptionStatus(t.Context(), tx, testScope, subscription.ID,
 				capitalism.SubscriptionStatus("whatever"))
-			absentStatus = store.SetSubscriptionStatusTx(t.Context(), tx, testScope, "sub_never_written",
+			absentStatus = store.SetSubscriptionStatus(t.Context(), tx, testScope, "sub_never_written",
 				capitalism.SubscriptionStatusCanceled)
 
-			absentSubscriptionArchive = store.ArchiveSubscriptionTx(t.Context(), tx, testScope,
+			absentSubscriptionArchive = store.ArchiveSubscription(t.Context(), tx, testScope,
 				"sub_never_written")
 
-			_, nilPurchase = store.CreatePurchaseTx(t.Context(), tx, testScope, nil)
-			_, unstockedPurchase = store.CreatePurchaseTx(t.Context(), tx, testScope,
+			_, nilPurchase = store.CreatePurchase(t.Context(), tx, testScope, nil)
+			_, unstockedPurchase = store.CreatePurchase(t.Context(), tx, testScope,
 				outstandingPurchase("prod_never_written", testAccount))
 
-			absentCompletion = store.CompletePurchaseTx(t.Context(), tx, testScope, "pur_never_written", testNow)
-			absentPurchaseArchive = store.ArchivePurchaseTx(t.Context(), tx, testScope, "pur_never_written")
+			absentCompletion = store.CompletePurchase(t.Context(), tx, testScope, "pur_never_written", testNow)
+			absentPurchaseArchive = store.ArchivePurchase(t.Context(), tx, testScope, "pur_never_written")
 
-			_, nilLedgerRow = store.RecordTransactionTx(t.Context(), tx, testScope, nil)
+			_, nilLedgerRow = store.RecordTransaction(t.Context(), tx, testScope, nil)
 
 			ambiguous := pendingTransaction(testAccount)
 			ambiguous.SubscriptionID = subscription.ID
 			ambiguous.PurchaseID = "pur_never_written"
-			_, ambiguousLedgerRow = store.RecordTransactionTx(t.Context(), tx, testScope, ambiguous)
+			_, ambiguousLedgerRow = store.RecordTransaction(t.Context(), tx, testScope, ambiguous)
 
 			unpriced := pendingTransaction(testAccount)
 			unpriced.Currency = ""
-			_, unpricedLedgerRow = store.RecordTransactionTx(t.Context(), tx, testScope, unpriced)
+			_, unpricedLedgerRow = store.RecordTransaction(t.Context(), tx, testScope, unpriced)
 
-			invalidLedgerStatus = store.SetTransactionStatusTx(t.Context(), tx, testScope, "txn_never_written",
+			invalidLedgerStatus = store.SetTransactionStatus(t.Context(), tx, testScope, "txn_never_written",
 				TransactionStatus("whatever"))
-			absentLedgerStatus = store.SetTransactionStatusTx(t.Context(), tx, testScope, "txn_never_written",
+			absentLedgerStatus = store.SetTransactionStatus(t.Context(), tx, testScope, "txn_never_written",
 				TransactionSucceeded)
-			absentLedger = store.ArchiveTransactionTx(t.Context(), tx, testScope, "txn_never_written")
+			absentLedger = store.ArchiveTransaction(t.Context(), tx, testScope, "txn_never_written")
 
 			return nil
 		}))
@@ -586,19 +698,19 @@ func runCallerTransactionSuite(t *testing.T, env *storeEnv) {
 
 		// The transaction committed with nothing in it: every refusal was
 		// refused before a row changed.
-		products, err := store.ListProducts(t.Context(), testScope, nil)
+		products, err := store.ListProducts(t.Context(), env.reader(), testScope, nil)
 		must.NoError(t, err)
 		test.SliceLen(t, 1, products.Data)
 
-		subscriptions, err := store.ListSubscriptions(t.Context(), testScope, nil)
+		subscriptions, err := store.ListSubscriptions(t.Context(), env.reader(), testScope, nil)
 		must.NoError(t, err)
 		test.SliceLen(t, 1, subscriptions.Data)
 
-		read, err := store.GetSubscription(t.Context(), testScope, subscription.ID)
+		read, err := store.GetSubscription(t.Context(), env.reader(), testScope, subscription.ID)
 		must.NoError(t, err)
 		test.EqOp(t, capitalism.SubscriptionStatusActive, read.Status)
 
-		ledger, err := store.ListTransactions(t.Context(), testScope, nil)
+		ledger, err := store.ListTransactions(t.Context(), env.reader(), testScope, nil)
 		must.NoError(t, err)
 		test.SliceEmpty(t, ledger.Data)
 	})

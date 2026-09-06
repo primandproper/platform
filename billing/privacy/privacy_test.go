@@ -2,11 +2,13 @@ package privacy
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"testing"
 
 	"github.com/primandproper/platform-go/v14/billing"
 	billingmock "github.com/primandproper/platform-go/v14/billing/mock"
+	"github.com/primandproper/platform-go/v14/database"
 	"github.com/primandproper/platform-go/v14/dataprivacy"
 	platformerrors "github.com/primandproper/platform-go/v14/errors"
 	"github.com/primandproper/platform-go/v14/filtering"
@@ -22,15 +24,42 @@ const testAccount = "account-1"
 
 var testSubject = dataprivacy.Subject{ID: testAccount}
 
+// testReader is the executor a collector is built over.
+//
+// Nothing executes through it: the store beneath the collector is a mock, and
+// what these tests assert is that the executor the collector was built with is
+// the one it passes down. database.SQLQueryExecutor is an interface with no
+// unexported methods, so unlike database.Tx a test can stand in for it.
+type testReader struct{}
+
+var _ database.SQLQueryExecutor = (*testReader)(nil)
+
+func (*testReader) ExecContext(context.Context, string, ...any) (sql.Result, error) {
+	panic("the collector's store is a mock; nothing runs on this")
+}
+
+func (*testReader) PrepareContext(context.Context, string) (*sql.Stmt, error) {
+	panic("the collector's store is a mock; nothing runs on this")
+}
+
+func (*testReader) QueryContext(context.Context, string, ...any) (*sql.Rows, error) {
+	panic("the collector's store is a mock; nothing runs on this")
+}
+
+func (*testReader) QueryRowContext(context.Context, string, ...any) *sql.Row {
+	panic("the collector's store is a mock; nothing runs on this")
+}
+
 // pageOf answers one read with these rows and then with nothing, which is what
 // makes the collector's cursor walk terminate.
 func pageOf[T any](rows []*T, id func(*T) string) func(
-	context.Context, tenancy.Scope, string, *filtering.QueryFilter,
+	context.Context, database.SQLQueryExecutor, tenancy.Scope, string, *filtering.QueryFilter,
 ) (*filtering.QueryFilteredResult[T], error) {
 	served := false
 
 	return func(
 		_ context.Context,
+		_ database.SQLQueryExecutor,
 		_ tenancy.Scope,
 		_ string,
 		filter *filtering.QueryFilter,
@@ -66,8 +95,18 @@ func TestNewCollector_Refusals(T *testing.T) {
 	T.Run("refuses a nil store", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewCollector(nil, FixedAccounts(testScope))
+		_, err := NewCollector(nil, &testReader{}, FixedAccounts(testScope))
 		test.ErrorIs(t, err, ErrNilStore)
+	})
+
+	T.Run("refuses a nil executor", func(t *testing.T) {
+		t.Parallel()
+
+		// It is a constructor argument because Collect has nowhere to put one,
+		// so an absent executor has to be refused here or every collection fails
+		// at the store instead.
+		_, err := NewCollector(fullStore(), nil, FixedAccounts(testScope))
+		test.ErrorIs(t, err, ErrNilExecutor)
 	})
 
 	T.Run("refuses a nil resolver", func(t *testing.T) {
@@ -76,7 +115,7 @@ func TestNewCollector_Refusals(T *testing.T) {
 		// There is no default: a resolver that answered "the account whose id
 		// equals the subject id" would export nothing for most deployments and
 		// report success doing it.
-		_, err := NewCollector(fullStore(), nil)
+		_, err := NewCollector(fullStore(), &testReader{}, nil)
 		test.ErrorIs(t, err, ErrNilAccountResolver)
 	})
 }
@@ -87,7 +126,7 @@ func TestCollector_Collect(T *testing.T) {
 	T.Run("exports all three tables for the resolved account", func(t *testing.T) {
 		t.Parallel()
 
-		collector, err := NewCollector(fullStore(), FixedAccounts(testScope))
+		collector, err := NewCollector(fullStore(), &testReader{}, FixedAccounts(testScope))
 		must.NoError(t, err)
 
 		body, err := collector.Collect(t.Context(), testSubject)
@@ -104,6 +143,39 @@ func TestCollector_Collect(T *testing.T) {
 		test.SliceLen(t, 1, exports[0].Transactions)
 	})
 
+	T.Run("reads through the executor it was built with", func(t *testing.T) {
+		t.Parallel()
+
+		var (
+			reader database.SQLQueryExecutor = &testReader{}
+			seen   database.SQLQueryExecutor
+		)
+
+		store := fullStore()
+		store.ListTransactionsForAccountFunc = func(
+			_ context.Context,
+			q database.SQLQueryExecutor,
+			_ tenancy.Scope,
+			_ string,
+			filter *filtering.QueryFilter,
+		) (*filtering.QueryFilteredResult[billing.Transaction], error) {
+			seen = q
+
+			return filtering.NewQueryFilteredResultWithoutCounts[billing.Transaction](nil,
+				func(tr *billing.Transaction) string { return tr.ID }, filter), nil
+		}
+
+		collector, err := NewCollector(store, reader, FixedAccounts(testScope))
+		must.NoError(t, err)
+
+		_, err = collector.Collect(t.Context(), testSubject)
+		must.NoError(t, err)
+
+		// The executor the collector was built with is the one that reaches the
+		// store, which is the whole of what the constructor argument buys.
+		test.EqOp(t, reader, seen)
+	})
+
 	T.Run("asks for archived rows", func(t *testing.T) {
 		t.Parallel()
 
@@ -112,6 +184,7 @@ func TestCollector_Collect(T *testing.T) {
 		store := fullStore()
 		store.ListSubscriptionsForAccountFunc = func(
 			_ context.Context,
+			_ database.SQLQueryExecutor,
 			_ tenancy.Scope,
 			_ string,
 			filter *filtering.QueryFilter,
@@ -122,7 +195,7 @@ func TestCollector_Collect(T *testing.T) {
 				func(s *billing.Subscription) string { return s.ID }, filter), nil
 		}
 
-		collector, err := NewCollector(store, FixedAccounts(testScope))
+		collector, err := NewCollector(store, &testReader{}, FixedAccounts(testScope))
 		must.NoError(t, err)
 
 		_, err = collector.Collect(t.Context(), testSubject)
@@ -144,7 +217,7 @@ func TestCollector_Collect(T *testing.T) {
 			}, nil
 		}
 
-		collector, err := NewCollector(fullStore(), resolve)
+		collector, err := NewCollector(fullStore(), &testReader{}, resolve)
 		must.NoError(t, err)
 
 		body, err := collector.Collect(t.Context(), testSubject)
@@ -162,7 +235,7 @@ func TestCollector_Collect(T *testing.T) {
 			return nil, nil
 		}
 
-		collector, err := NewCollector(fullStore(), resolve)
+		collector, err := NewCollector(fullStore(), &testReader{}, resolve)
 		must.NoError(t, err)
 
 		body, err := collector.Collect(t.Context(), testSubject)
@@ -178,7 +251,7 @@ func TestCollector_Collect(T *testing.T) {
 
 		boom := platformerrors.New("no directory")
 
-		collector, err := NewCollector(fullStore(),
+		collector, err := NewCollector(fullStore(), &testReader{},
 			func(context.Context, dataprivacy.Subject) ([]Account, error) { return nil, boom })
 		must.NoError(t, err)
 
@@ -193,12 +266,12 @@ func TestCollector_Collect(T *testing.T) {
 
 		store := fullStore()
 		store.ListPurchasesForAccountFunc = func(
-			context.Context, tenancy.Scope, string, *filtering.QueryFilter,
+			context.Context, database.SQLQueryExecutor, tenancy.Scope, string, *filtering.QueryFilter,
 		) (*filtering.QueryFilteredResult[billing.Purchase], error) {
 			return nil, boom
 		}
 
-		collector, err := NewCollector(store, FixedAccounts(testScope))
+		collector, err := NewCollector(store, &testReader{}, FixedAccounts(testScope))
 		must.NoError(t, err)
 
 		_, err = collector.Collect(t.Context(), testSubject)
