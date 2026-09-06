@@ -891,7 +891,7 @@ func (s *Service) UpdateProfile(
 	defer op.End()
 
 	if update == nil {
-		return nil, op.Error(ErrNilUser, "updating identity user profile")
+		return nil, op.Error(ErrNilProfileUpdate, "updating identity user profile")
 	}
 
 	var updated *User
@@ -948,7 +948,7 @@ func (s *Service) UpdateAccount(
 	defer op.End()
 
 	if update == nil {
-		return nil, op.Error(ErrNilAccount, "updating identity account")
+		return nil, op.Error(ErrNilAccountUpdate, "updating identity account")
 	}
 
 	var updated *Account

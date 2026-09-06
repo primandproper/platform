@@ -36,10 +36,12 @@ is the shorter of the two mounts below.
 # The shape
 
 Twenty-eight RPCs. Fifteen writes, each exactly one call into identity.Service,
-which is one transaction with the consumer's hooks inside it. Thirteen reads,
-each exactly one call into identity.Store on the client's reader. No method here
-orchestrates anything: it converts, calls one thing, and converts back. Anything
-that had to happen atomically happened a layer down, where the transaction is.
+which is one transaction with the consumer's hooks inside it. Thirteen reads on
+identity.Store, on the client's reader — twelve of them one call, and the one
+that lists what the caller has been sent reading the caller's row first for the
+address it will not take from the request. No method here orchestrates
+anything: it converts, calls one thing, and converts back. Anything that had to
+happen atomically happened a layer down, where the transaction is.
 
 # Mounting it
 

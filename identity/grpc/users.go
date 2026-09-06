@@ -78,7 +78,7 @@ func (s *Server) UpdateProfile(
 
 	update := profileUpdateFromProto(request.GetInput())
 	if update == nil {
-		err = fail(op, identity.ErrNilUser, codes.InvalidArgument, "updating a profile")
+		err = fail(op, identity.ErrNilProfileUpdate, codes.InvalidArgument, "updating a profile")
 
 		return nil, err
 	}

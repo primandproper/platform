@@ -31,13 +31,17 @@ func Register() {
 	httperrors.RegisterHTTPErrorMapper(links.HTTPMapper)
 	grpcerrors.RegisterGRPCErrorMapper(links.GRPCMapper)
 
-	// The redemption outcomes are the one set in this module whose own wording
-	// is meant for the person reading it, so gRPC is told it may send it rather
-	// than rendering "FailedPrecondition" four times.
+	// The redemption outcomes' own wording is meant for the person reading it,
+	// so gRPC is told it may send it rather than rendering "FailedPrecondition"
+	// four times.
 	grpcerrors.RegisterClientSafeSentinels(links.ClientSafeSentinels...)
 
 	httperrors.RegisterHTTPErrorMapper(identity.HTTPMapper)
 	grpcerrors.RegisterGRPCErrorMapper(identity.GRPCMapper)
+
+	// The same reading for the directory: its codes collide too, and a client
+	// told "AlreadyExists" cannot tell which of two fields to change.
+	grpcerrors.RegisterClientSafeSentinels(identity.ClientSafeSentinels...)
 
 	httperrors.RegisterHTTPErrorMapper(operations.HTTPMapper)
 	grpcerrors.RegisterGRPCErrorMapper(operations.GRPCMapper)

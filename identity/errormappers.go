@@ -40,6 +40,37 @@ var (
 	GRPCMapper grpcerrors.GRPCErrorMapper = grpcMapper{}
 )
 
+// ClientSafeSentinels are the sentinels whose own text a gRPC server may return
+// to a caller verbatim, handed to errors/grpc.RegisterClientSafeSentinels by
+// errormappers.Register alongside the five mappers.
+//
+// They are the ten the mappers claim, and the list is the same ten on purpose:
+// each was given a status because a client acts on it, and a client acting on
+// it needs to know which one it got. gRPC derives its message from the code,
+// and the codes collide — the two collisions are both AlreadyExists, and an
+// expired invitation, a last owner and a missing default account are all
+// FailedPrecondition — so without this a client in a language with no access
+// to the encoded details is told the code's name three times for three
+// different remedies. None of the ten names a table, a key or a policy: what
+// each says is the whole of what the caller needs and the whole of what this
+// package knows.
+//
+// The nil-argument and malformed-input sentinels are not here. They wrap
+// platform sentinels that are already on errors/grpc's own list, so the
+// platform's words reach the client for those without a second registration.
+var ClientSafeSentinels = []error{
+	ErrUserNotFound,
+	ErrAccountNotFound,
+	ErrMembershipNotFound,
+	ErrInvitationNotFound,
+	ErrUsernameTaken,
+	ErrEmailAddressTaken,
+	ErrLastAccountOwner,
+	ErrNoDefaultAccount,
+	ErrInvitationExpired,
+	ErrScopeMismatch,
+}
+
 type (
 	httpMapper struct{}
 	grpcMapper struct{}

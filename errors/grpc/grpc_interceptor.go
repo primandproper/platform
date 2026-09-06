@@ -78,11 +78,35 @@ func encodeErrorToDetails(ctx context.Context, err error) *anypb.Any {
 // an interceptor-wrapped server directly to untrusted clients without stripping
 // it at the edge.
 func clientMessage(code codes.Code, err error) string {
+	if msg, ok := ClientSafeMessage(err); ok {
+		return msg
+	}
+
+	return code.String()
+}
+
+// ClientSafeMessage reports the words a client may be told for err: the text of
+// the first client-safe sentinel in its chain, and false when there is none.
+//
+// The interceptors consult it for an error a handler returned bare. It is
+// exported for the handler that shapes its own status — carrying a code the
+// mappers would not pick, or a description of what it was doing — and so
+// takes the message decision away from the interceptor. Such a handler still
+// wants a registered sentinel's own words to win over its description, since
+// the sentinel is more specific and was registered precisely to be quoted;
+// identity/grpc is the worked example. Without this a handler either
+// re-implements the two lists or its clients read "FailedPrecondition" where a
+// sentinel had something better to say.
+func ClientSafeMessage(err error) (string, bool) {
+	if err == nil {
+		return "", false
+	}
+
 	// Platform sentinels are written to be client-safe, so their own text is
 	// better than a generic string — it tells the caller what to do differently.
 	for _, sentinel := range clientSafeSentinels {
 		if stderrors.Is(err, sentinel) {
-			return sentinel.Error()
+			return sentinel.Error(), true
 		}
 	}
 
@@ -92,11 +116,11 @@ func clientMessage(code codes.Code, err error) string {
 
 	for _, sentinel := range registered {
 		if stderrors.Is(err, sentinel) {
-			return sentinel.Error()
+			return sentinel.Error(), true
 		}
 	}
 
-	return code.String()
+	return "", false
 }
 
 // clientSafeSentinels are the platform errors whose messages are documented as
@@ -144,9 +168,10 @@ var (
 // — and a sentinel whose text names a table, a key, or a policy must not be
 // registered here at all.
 //
-// This module's own set is links.ClientSafeSentinels, and errormappers.Register
-// hands it over alongside the four mappers, so a consumer registering the domain
-// tier gets both halves in one call.
+// This module's own sets are links.ClientSafeSentinels and
+// identity.ClientSafeSentinels, and errormappers.Register hands both over
+// alongside the five mappers, so a consumer registering the domain tier gets
+// both halves in one call.
 //
 // It is additive and safe to call from more than one goroutine, and a sentinel
 // registered twice costs a second comparison and nothing else.

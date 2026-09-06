@@ -279,6 +279,23 @@ func TestClientMessage_registeredSentinels(T *testing.T) {
 
 		test.EqOp(t, codes.Internal.String(), clientMessage(codes.Internal, unsafe))
 	})
+
+	T.Run("the exported lookup says which it was", func(t *testing.T) {
+		t.Parallel()
+
+		// A handler shaping its own status asks this rather than the code, so
+		// it has to be able to tell "the sentinel's words" from "no answer".
+		msg, ok := ClientSafeMessage(platformerrors.Wrap(safe, "redeeming action link"))
+		test.True(t, ok)
+		test.EqOp(t, safe.Error(), msg)
+
+		msg, ok = ClientSafeMessage(unsafe)
+		test.False(t, ok)
+		test.EqOp(t, "", msg)
+
+		_, ok = ClientSafeMessage(nil)
+		test.False(t, ok)
+	})
 }
 
 // TestUnaryErrorDecodingInterceptorKeepsBothIdioms is the property the

@@ -34,6 +34,12 @@ var (
 	// ErrNilInvitation indicates a nil *Invitation where one was required.
 	ErrNilInvitation = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil invitation")
 
+	// ErrNilProfileUpdate indicates a nil *ProfileUpdate where one was required.
+	ErrNilProfileUpdate = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil profile update")
+
+	// ErrNilAccountUpdate indicates a nil *AccountUpdate where one was required.
+	ErrNilAccountUpdate = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil account update")
+
 	// ErrScopeMismatch indicates a write whose entity names a different tenant
 	// than the scope the call named.
 	//

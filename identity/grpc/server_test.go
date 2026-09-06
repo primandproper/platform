@@ -186,6 +186,14 @@ func TestRegisterSurfacesACollisionAsAlreadyExists(T *testing.T) {
 	// reach for this matcher and not another one.
 	test.True(T, errors.Is(err, identity.ErrUsernameTaken), test.Sprintf(
 		"the username collision did not survive the wire as its sentinel: %v", err))
+
+	// And the status message is the sentinel's own words, not the handler's
+	// description and not the code's name. This is what a client with no access
+	// to the encoded details reads, and AlreadyExists alone cannot tell a
+	// username collision from an email one.
+	st, ok := status.FromError(err)
+	must.True(T, ok)
+	test.EqOp(T, identity.ErrUsernameTaken.Error(), st.Message())
 }
 
 func TestGetUserSurfacesAnAbsenceAsNotFound(T *testing.T) {

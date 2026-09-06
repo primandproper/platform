@@ -199,10 +199,12 @@ var Matrix = map[string]map[string]Decision{
 		// Wrap errors.ErrNilInputParameter, so the platform mappers answer them.
 		// They are wiring failures rather than anything a client sent.
 		"ErrNilAccount":        {Err: identity.ErrNilAccount, Is: Platform},
+		"ErrNilAccountUpdate":  {Err: identity.ErrNilAccountUpdate, Is: Platform},
 		"ErrNilDatabaseClient": {Err: identity.ErrNilDatabaseClient, Is: Platform},
 		"ErrNilExecutor":       {Err: identity.ErrNilExecutor, Is: Platform},
 		"ErrNilInvitation":     {Err: identity.ErrNilInvitation, Is: Platform},
 		"ErrNilMembership":     {Err: identity.ErrNilMembership, Is: Platform},
+		"ErrNilProfileUpdate":  {Err: identity.ErrNilProfileUpdate, Is: Platform},
 		"ErrNilStore":          {Err: identity.ErrNilStore, Is: Platform},
 		"ErrNilUser":           {Err: identity.ErrNilUser, Is: Platform},
 

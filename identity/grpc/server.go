@@ -76,11 +76,14 @@ var (
 //
 // Twenty-eight RPCs. Fifteen are writes, and each is exactly one call into
 // identity.Service — which means each is one transaction with the consumer's
-// own Hooks running inside it. Thirteen are reads, and each is exactly one call
-// into identity.Store on the client's reader. There is no orchestration here:
-// a method on this type converts, calls one thing, and converts back. That is
-// deliberate, and it is what makes this file reviewable — anything that had to
-// happen in a transaction happened one layer down, where the transaction is.
+// own Hooks running inside it. Thirteen are reads on identity.Store, on the
+// client's reader, and twelve of them are one call; the thirteenth,
+// ListInvitationsForEmailAddress, reads the caller's user row first to learn
+// the address, which is the price of not taking one from the request. There is
+// no orchestration here: a method on this type converts, calls one thing, and
+// converts back. That is deliberate, and it is what makes this file reviewable
+// — anything that had to happen in a transaction happened one layer down, where
+// the transaction is.
 //
 // # What it is not
 //
@@ -277,7 +280,8 @@ func (s *Server) caller(ctx context.Context, method string) (
 // The message is the description the handler chose, not the chain: that is what
 // the encoding interceptor means by "a message the handler chose to expose", and
 // the chain contains table names and identifiers a client has no business
-// seeing.
+// seeing. The one thing that outranks the description is a registered
+// client-safe sentinel's own words — see fail.
 type rpcError struct {
 	err  error
 	msg  string
@@ -299,6 +303,14 @@ func (e *rpcError) GRPCStatus() *status.Status { return status.New(e.code, e.msg
 // mapper claims the error. That is also why every read below passes
 // codes.Internal and does not switch on sentinels — deciding that a missing user
 // is a 404 is identity.GRPCMapper's job, in one place.
+//
+// The status message is the same shape. The description is what a client is
+// told when nothing better is registered, and a client-safe sentinel's own
+// words are better: the interceptor would have quoted them for a bare error,
+// and returning a shaped status must not cost a client that. It matters most
+// where the codes collide — a taken username and a taken email address are
+// both AlreadyExists — and for a client in a language that cannot read the
+// encoded details, where the message is all it has.
 func fail(
 	op observability.Operation,
 	err error,
@@ -306,12 +318,17 @@ func fail(
 	descriptionFmt string,
 	descriptionArgs ...any,
 ) error {
-	msg := fmt.Sprintf(descriptionFmt, descriptionArgs...)
+	description := fmt.Sprintf(descriptionFmt, descriptionArgs...)
 
-	op.Acknowledge(err, "%s", msg)
+	op.Acknowledge(err, "%s", description)
+
+	msg := description
+	if safe, ok := grpcerrors.ClientSafeMessage(err); ok {
+		msg = safe
+	}
 
 	return &rpcError{
-		err:  platformerrors.Wrap(err, msg),
+		err:  platformerrors.Wrap(err, description),
 		msg:  msg,
 		code: grpcerrors.MapToGRPC(err, defaultCode),
 	}

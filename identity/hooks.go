@@ -190,8 +190,9 @@ type Hooks interface {
 	// The membership is read before the write because it cannot be read after:
 	// an ended membership is returned by no read here, and a consumer keeping a
 	// roster or a per-account projection needs to know which one to strike. The
-	// destination is empty when the removal did not move a default, which is
-	// every removal but the one that took the user's landing account away.
+	// destination is empty when the removal did not move a default — the
+	// membership was not the user's landing account, or it was and there was
+	// no other live one to land on.
 	AfterRemoveMembership(
 		ctx context.Context,
 		tx database.Tx,
