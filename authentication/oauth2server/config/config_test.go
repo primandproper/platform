@@ -147,7 +147,7 @@ func TestNewStore(T *testing.T) {
 }
 
 // The store this half builds sweeps too, which is why SweepInterval stayed here
-// rather than travelling with the provider string.
+// rather than traveling with the provider string.
 func TestConfig_SweepInterval(T *testing.T) {
 	T.Parallel()
 
