@@ -17,15 +17,16 @@ import (
 	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
-// Example_registration shows the flow this package exists for: a user, an
-// account, and a membership, written in one transaction.
+// Example_registration shows the flow this package exists for, written against
+// the store: a user, an account, and a membership, in one transaction.
 //
-// Three writes rather than one method, because which of them a given
-// application performs is application judgement — a registration by invitation
-// joins somebody else's account instead of creating one, and one behind an SSO
-// provider may create neither. What the package guarantees is that they commit
-// together, so a user without an account or an account without an owner is
-// never left behind.
+// This is the shape [identity.Service.Register] performs, and it is spelled out
+// here because a registration is not always these three writes — one by
+// invitation joins somebody else's account instead of creating one, and one
+// behind an SSO provider may create neither. What the store guarantees either
+// way is that whichever writes a flow makes commit together, so a user without
+// an account or an account without an owner is never left behind. See
+// Example_service for the same registration through the service layer.
 func Example_registration() {
 	ctx := context.Background()
 	client, store := exampleWiring()
@@ -111,6 +112,82 @@ func Example_registration() {
 	// Output:
 	// registered ada
 	// true
+}
+
+// auditHooks is what a consumer hangs off the service's operations: a write of
+// its own, on the transaction the operation is running in.
+//
+// Embedding NoopHooks is what lets it implement one method out of ten — and
+// what keeps an operation added to identity.Hooks later from breaking it.
+type auditHooks struct {
+	identity.NoopHooks
+}
+
+func (h *auditHooks) AfterRegister(
+	_ context.Context, _ database.Tx, _ tenancy.Scope, registration *identity.Registration,
+) error {
+	// A real one writes its audit entry, data change event or outbox row on the
+	// tx it was handed, so that row and the registration commit together. What
+	// does not belong here is the welcome email: a hook runs with a write
+	// transaction open, and a mail provider being down would fail the
+	// registration.
+	fmt.Println("recorded the registration of", registration.User.Username,
+		"into", registration.Account.Name)
+
+	return nil
+}
+
+// Example_service shows the layer above the store: the operations that are more
+// than one write, each run as one transaction, with the consumer's own writes
+// joining through a hook.
+func Example_service() {
+	ctx := context.Background()
+	client, store := exampleWiring()
+
+	scope := tenancy.Global()
+
+	service, err := identity.NewService(client, store, identity.WithHooks(&auditHooks{}))
+	if err != nil {
+		panic(err)
+	}
+
+	// Policy stays the caller's: this flow decided that a password is required
+	// and hashed it, and that the first account is named after its owner.
+	registration, err := service.Register(ctx, scope,
+		&identity.User{
+			Username:       "ada",
+			EmailAddress:   "ada@example.com",
+			HashedPassword: "argon2id$v=19$m=65536,t=3,p=2$...",
+			AccountStatus:  identity.StatusUnverified,
+		},
+		&identity.Account{Name: "Ada's account"},
+		[]string{"account_admin"},
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	// The user, the account and the owner membership, all committed, and the
+	// membership is where Ada lands because it is the only one she holds.
+	fmt.Println(registration.User.Username, "owns", registration.Account.Name)
+	fmt.Println("default account:", registration.Membership.DefaultAccount)
+
+	// A hook that returns an error rolls its operation back. Nothing here is a
+	// veto on policy — whether Ada may be banned at all was decided before the
+	// call — but the record of the ban commits with the ban or neither does.
+	banned, err := service.UpdateUserAccountStatus(ctx, scope,
+		registration.User.ID, identity.StatusBanned, "spam")
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("status:", banned.AccountStatus)
+
+	// Output:
+	// recorded the registration of ada into Ada's account
+	// ada owns Ada's account
+	// default account: true
+	// status: banned
 }
 
 // Example_authenticatedRequest shows the read every authenticated request makes.

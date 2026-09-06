@@ -142,10 +142,11 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	return s, nil
 }
 
-// storeOpAttr labels an unmatched write with the operation it happened in,
-// since the places it can happen mean different things.
-func storeOpAttr(operation string) metric.MeasurementOption {
-	return metric.WithAttributes(attribute.String(storeOpKey, operation))
+// operationAttr labels an instrument with the operation it was recorded in,
+// since the places a measurement can be taken mean different things. Both
+// layers of this package record through it — see operationKey.
+func operationAttr(operation string) metric.MeasurementOption {
+	return metric.WithAttributes(attribute.String(operationKey, operation))
 }
 
 // now is the one clock read every write in this package goes through, in UTC —
@@ -838,7 +839,7 @@ func (s *SQLStore) guardCount(ctx context.Context, count int64, err, missing err
 	}
 
 	if count == 0 {
-		s.unmatchedWritesCounter.Add(ctx, 1, storeOpAttr(operation))
+		s.unmatchedWritesCounter.Add(ctx, 1, operationAttr(operation))
 
 		return missing
 	}

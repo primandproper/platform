@@ -12,6 +12,10 @@ var (
 	// errors.ErrNilInputParameter, so a caller may check either.
 	ErrNilDatabaseClient = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil database client")
 
+	// ErrNilStore indicates a nil Store where one was required. It wraps
+	// errors.ErrNilInputParameter, so a caller may check either.
+	ErrNilStore = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil identity store")
+
 	// ErrNilExecutor indicates a nil executor. Every method here runs on one the
 	// caller supplies — a database.Tx for a write, a database.SQLQueryExecutor
 	// for a read — so there is no method that can fall back to a connection of
