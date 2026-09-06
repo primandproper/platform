@@ -239,7 +239,7 @@ func TestNilOptionsAreSkipped(T *testing.T) {
 			absentStore      SQLStoreOption
 		)
 
-		_, err := NewDispatcher(&fakeStore{}, absentDispatcher)
+		_, err := NewDispatcher(&fakeStore{}, &stubExecutor{}, absentDispatcher)
 		test.NoError(t, err)
 
 		_, err = NewWorker(t.Context(), &WorkerConfig{}, &fakeStore{}, absentWorker)

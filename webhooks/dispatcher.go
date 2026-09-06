@@ -16,24 +16,32 @@ import (
 
 // Dispatcher is the write side: it turns an application event into per-endpoint
 // work, and re-drives that work when an operator asks.
+//
+// Every method here writes, and every one of them but Replay takes the caller's
+// database.Tx — a registration, a subscription and the event that fans out are
+// all things an application does beside something else of its own, and the
+// transaction argument is what lets the two commit together. Replay is the
+// exception and says why on its own doc comment.
 type Dispatcher interface {
 	// Dispatch fans an event out to every endpoint in the delivery's scope that is
 	// subscribed to it, writing through the caller's transaction so the deliveries
 	// commit with the state change that caused them.
-	Dispatch(ctx context.Context, q database.Tx, delivery *Delivery) error
+	Dispatch(ctx context.Context, tx database.Tx, delivery *Delivery) error
 	// Replay re-drives a specific past delivery to a specific one of the scope's
-	// endpoints, for operator recovery.
+	// endpoints, for operator recovery. It takes no transaction; see
+	// StoreDispatcher.Replay.
 	Replay(ctx context.Context, scope tenancy.Scope, deliveryID, endpointID string) error
-	// Register validates and stores an endpoint, under the scope the endpoint
-	// carries. Validation is not optional and not separable: an unvalidated
+	// Register validates and stores an endpoint in scope, through the caller's
+	// transaction. Validation is not optional and not separable: an unvalidated
 	// endpoint is an SSRF target.
-	Register(ctx context.Context, endpoint *Endpoint) error
+	Register(ctx context.Context, tx database.Tx, scope tenancy.Scope, endpoint *Endpoint) error
 	// Subscribe adds one event type to one of the scope's endpoints, gating on the
-	// catalog, and returns the subscription.
-	Subscribe(ctx context.Context, scope tenancy.Scope, endpointID string, eventType EventType) (*Subscription, error)
-	// Unsubscribe retires one of the scope's subscriptions by ID, leaving the
-	// endpoint and its other subscriptions alone.
-	Unsubscribe(ctx context.Context, scope tenancy.Scope, subscriptionID string) error
+	// catalog, and returns the subscription — through the caller's transaction.
+	Subscribe(ctx context.Context, tx database.Tx, scope tenancy.Scope, endpointID string, eventType EventType) (*Subscription, error)
+	// Unsubscribe retires one of the scope's subscriptions by ID, through the
+	// caller's transaction, leaving the endpoint and its other subscriptions
+	// alone.
+	Unsubscribe(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscriptionID string) error
 }
 
 var _ Dispatcher = (*StoreDispatcher)(nil)
@@ -43,6 +51,7 @@ var _ Dispatcher = (*StoreDispatcher)(nil)
 // rather than on the Dispatcher seam.
 type StoreDispatcher struct {
 	store    Store
+	reader   database.SQLQueryExecutor
 	clock    clock.Clock
 	o11y     observability.Observer
 	catalog  Catalog
@@ -61,13 +70,28 @@ type StoreDispatcher struct {
 }
 
 // NewDispatcher builds a Dispatcher over the given Store.
-func NewDispatcher(store Store, opts ...DispatcherOption) (*StoreDispatcher, error) {
+//
+// reader is the executor Replay's precondition read runs on, and it is the one
+// thing here a caller cannot leave out. Every other read this package performs
+// belongs to somebody: a consumer's, on the executor they name, or the worker's,
+// on the handle the store was built with. Replay's is neither — it is an
+// operator asking the queue to move, with no transaction of their own — and it
+// has to see committed state, because the requeue that follows commits on its
+// own whatever the caller does next. Pass Client.Reader(); a deployment that
+// wants that check against the primary passes Client.Writer(), and that is now a
+// visible wiring decision rather than a choice this constructor made quietly.
+func NewDispatcher(store Store, reader database.SQLQueryExecutor, opts ...DispatcherOption) (*StoreDispatcher, error) {
 	if store == nil {
 		return nil, ErrNilStore
 	}
 
+	if reader == nil {
+		return nil, ErrNilExecutor
+	}
+
 	d := &StoreDispatcher{
 		store:    store,
+		reader:   reader,
 		clock:    clock.NewClock(),
 		catalog:  Catalog{},
 		checkURL: CheckEndpointURL,
@@ -97,18 +121,39 @@ func NewDispatcher(store Store, opts ...DispatcherOption) (*StoreDispatcher, err
 }
 
 // Register validates an endpoint against the catalog and the SSRF rules, then
-// stores it.
+// stores it in scope, through the caller's transaction.
 //
 // Validation happens here rather than being left to the caller because the
 // consequence of skipping it is not a bad row — it is a server that will make
 // authenticated requests to whatever URL was submitted. There is no variant of
 // this that stores without checking.
-func (d *StoreDispatcher) Register(ctx context.Context, endpoint *Endpoint) error {
-	ctx, op := d.o11y.Begin(ctx)
+//
+// The transaction is the caller's because registering a subscriber is rarely the
+// only thing that happens: the audit entry naming who registered it, and the
+// account row that now has one, belong in the same commit. An endpoint that
+// names no scope adopts the argument; one naming a different tenant is
+// ErrScopeMismatch, and is refused before anything is validated or written.
+func (d *StoreDispatcher) Register(ctx context.Context, tx database.Tx, scope tenancy.Scope, endpoint *Endpoint) error {
+	ctx, op := d.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
+
+	if tx == nil {
+		return op.Error(ErrNilExecutor, "registering webhook endpoint")
+	}
 
 	if endpoint == nil {
 		return op.Error(ErrNilEndpoint, "registering webhook endpoint")
+	}
+
+	if err := scope.Validate(); err != nil {
+		return op.Error(err, "registering webhook endpoint")
+	}
+
+	// The scope is settled before Validate rather than after, so that an endpoint
+	// carrying somebody else's is refused as the mix-up it is instead of being
+	// validated as though it were this caller's.
+	if err := adoptEndpointScope(scope, endpoint); err != nil {
+		return op.Error(err, "registering webhook endpoint")
 	}
 
 	endpoint.EnsureDefaults()
@@ -118,14 +163,13 @@ func (d *StoreDispatcher) Register(ctx context.Context, endpoint *Endpoint) erro
 	}
 
 	op.Set(endpointIDKey, endpoint.ID).
-		Set(scopeKey, endpoint.Scope.String()).
 		SpanOnly(endpointURLKey, endpoint.URL)
 
 	if err := endpoint.Validate(ctx, d.catalog, d.checkURL); err != nil {
 		return op.Error(err, "validating webhook endpoint")
 	}
 
-	if err := d.store.SaveEndpoint(ctx, endpoint); err != nil {
+	if err := d.store.SaveEndpoint(ctx, tx, scope, endpoint); err != nil {
 		return op.Error(err, "saving webhook endpoint")
 	}
 
@@ -145,13 +189,17 @@ func (d *StoreDispatcher) Register(ctx context.Context, endpoint *Endpoint) erro
 // It is idempotent on the (endpoint, event type) pair. Subscribing to something
 // the endpoint already receives returns the existing subscription, and
 // re-subscribing to one that was archived revives it, keeping its ID.
-func (d *StoreDispatcher) Subscribe(ctx context.Context, scope tenancy.Scope, endpointID string, eventType EventType) (*Subscription, error) {
+func (d *StoreDispatcher) Subscribe(ctx context.Context, tx database.Tx, scope tenancy.Scope, endpointID string, eventType EventType) (*Subscription, error) {
 	ctx, op := d.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(endpointIDKey, endpointID),
 		observability.WithValue(eventTypeKey, eventType.String()),
 	)
 	defer op.End()
+
+	if tx == nil {
+		return nil, op.Error(ErrNilExecutor, "subscribing webhook endpoint %q", endpointID)
+	}
 
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "subscribing webhook endpoint %q", endpointID)
@@ -172,7 +220,7 @@ func (d *StoreDispatcher) Subscribe(ctx context.Context, scope tenancy.Scope, en
 		)
 	}
 
-	subscription, err := d.store.AddSubscription(ctx, scope, endpointID, eventType)
+	subscription, err := d.store.AddSubscription(ctx, tx, scope, endpointID, eventType)
 	if err != nil {
 		return nil, op.Error(err, "subscribing webhook endpoint %q to %q", endpointID, eventType)
 	}
@@ -192,12 +240,16 @@ func (d *StoreDispatcher) Subscribe(ctx context.Context, scope tenancy.Scope, en
 // There is no catalog gate here, and there should not be: an event type can be
 // removed from an application's catalog, and the subscriptions to it are exactly
 // what somebody then needs to be able to retire.
-func (d *StoreDispatcher) Unsubscribe(ctx context.Context, scope tenancy.Scope, subscriptionID string) error {
+func (d *StoreDispatcher) Unsubscribe(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscriptionID string) error {
 	ctx, op := d.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(subscriptionIDKey, subscriptionID),
 	)
 	defer op.End()
+
+	if tx == nil {
+		return op.Error(ErrNilExecutor, "unsubscribing webhook subscription %q", subscriptionID)
+	}
 
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "unsubscribing webhook subscription %q", subscriptionID)
@@ -207,7 +259,7 @@ func (d *StoreDispatcher) Unsubscribe(ctx context.Context, scope tenancy.Scope, 
 		return op.Error(platformerrors.ErrInvalidIDProvided, "unsubscribing webhook subscription")
 	}
 
-	if err := d.store.ArchiveSubscription(ctx, scope, subscriptionID); err != nil {
+	if err := d.store.ArchiveSubscription(ctx, tx, scope, subscriptionID); err != nil {
 		return op.Error(err, "unsubscribing webhook subscription %q", subscriptionID)
 	}
 
@@ -220,12 +272,12 @@ func (d *StoreDispatcher) Unsubscribe(ctx context.Context, scope tenancy.Scope, 
 // Taking the executor rather than opening its own is the entire transactional
 // guarantee, and it is the same seam outbox.Enqueue uses:
 //
-//	err := client.WithTransaction(ctx, func(q database.Tx) error {
-//		if err := updateOrder(ctx, q, order); err != nil {
+//	err := client.WithTransaction(ctx, func(tx database.Tx) error {
+//		if err := updateOrder(ctx, tx, order); err != nil {
 //			return err
 //		}
 //
-//		return dispatcher.Dispatch(ctx, q, &webhooks.Delivery{
+//		return dispatcher.Dispatch(ctx, tx, &webhooks.Delivery{
 //			EventType:   OrderUpdated,
 //			OrderingKey: order.ID,
 //			Payload:     body,
@@ -245,11 +297,11 @@ func (d *StoreDispatcher) Unsubscribe(ctx context.Context, scope tenancy.Scope, 
 // copy of the same event type. A delivery with no scope is refused rather than
 // fanned out to everybody — see Delivery.Scope. An application whose events are
 // global says tenancy.Global() and gets what it had before the dimension existed.
-func (d *StoreDispatcher) Dispatch(ctx context.Context, q database.Tx, delivery *Delivery) error {
+func (d *StoreDispatcher) Dispatch(ctx context.Context, tx database.Tx, delivery *Delivery) error {
 	ctx, op := d.o11y.Begin(ctx)
 	defer op.End()
 
-	if q == nil {
+	if tx == nil {
 		return op.Error(ErrNilExecutor, "dispatching webhook delivery")
 	}
 
@@ -287,7 +339,7 @@ func (d *StoreDispatcher) Dispatch(ctx context.Context, q database.Tx, delivery 
 		op.Set(orderingKeyKey, delivery.OrderingKey)
 	}
 
-	endpoints, err := d.store.EndpointsForEvent(ctx, q, delivery.Scope, delivery.EventType)
+	endpoints, err := d.store.EndpointsForEvent(ctx, tx, delivery.Scope, delivery.EventType)
 	if err != nil {
 		return op.Error(err, "resolving webhook endpoints for event %q", delivery.EventType)
 	}
@@ -306,7 +358,7 @@ func (d *StoreDispatcher) Dispatch(ctx context.Context, q database.Tx, delivery 
 
 	now := d.clock.Now().UTC()
 
-	if err = d.store.Enqueue(ctx, q, delivery, endpointIDs, now); err != nil {
+	if err = d.store.Enqueue(ctx, tx, delivery, endpointIDs, now); err != nil {
 		return op.Error(err, "enqueuing webhook delivery")
 	}
 
@@ -334,6 +386,15 @@ func (d *StoreDispatcher) Dispatch(ctx context.Context, q database.Tx, delivery 
 // endpoint in another scope reads as absent, and the requeue that follows names a
 // (delivery, endpoint) pair, which exists only where a fan-out in that scope put
 // it.
+//
+// It is the one method on this type that takes no transaction, and the reason is
+// Store.Requeue's: making a dispatch claimable again is a write to the queue's
+// own state, committed on the store's handle the moment it is asked for. A
+// caller who could hand this a transaction would be told the replay had happened
+// and could then roll back around it — the requeue would stand and their record
+// of it would not. The endpoint check ahead of it runs on the executor
+// NewDispatcher was given, for the same reason: it has to be a fact about
+// committed state, since the requeue does not wait for the caller.
 func (d *StoreDispatcher) Replay(ctx context.Context, scope tenancy.Scope, deliveryID, endpointID string) error {
 	ctx, op := d.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
@@ -353,7 +414,7 @@ func (d *StoreDispatcher) Replay(ctx context.Context, scope tenancy.Scope, deliv
 	// The endpoint is checked before the requeue rather than left to the worker,
 	// so an operator replaying to a disabled endpoint is told why nothing
 	// happened instead of watching a row sit claimable and never delivered.
-	endpoint, err := d.store.GetEndpoint(ctx, scope, endpointID)
+	endpoint, err := d.store.GetEndpoint(ctx, d.reader, scope, endpointID)
 	if err != nil {
 		return op.Error(err, "reading webhook endpoint %q", endpointID)
 	}

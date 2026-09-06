@@ -75,26 +75,72 @@ type ClaimedDispatch struct {
 // or one storing endpoints somewhere that is not a SQL database — should not
 // have to fork the package to keep them.
 //
-// Methods taking a database.SQLQueryExecutor run inside the caller's
-// transaction and must use it rather than a handle of their own; that is what
-// makes Dispatch atomic with the state change that caused it. The rest own
-// their own statements.
+// # A consumer write takes a Tx, a consumer read takes an executor
 //
-// Every method reaching an endpoint, a subscription, or a delivery takes a
-// tenancy.Scope, or reads one off the value it was handed, and none of them
-// offers an unscoped variant — an implementation must filter on it rather than
-// treat it as a hint. A subscription carries no scope of its own; its owner is
-// its endpoint's, and the scope is reached through that, the same way the
-// delivery log reaches it through the delivery.
+// Every method an application calls on its own behalf reads
+// (ctx, tx database.Tx, scope tenancy.Scope, ...) if it writes, and
+// (ctx, q database.SQLQueryExecutor, scope tenancy.Scope, ...) if it reads. A
+// database.Tx is producible only by database.RunInTransaction, so a write's
+// signature is a compile-time claim that the caller is already inside a
+// transaction — which is the point, because a consumer's write almost never
+// travels alone: registering an endpoint and the audit entry that records who
+// registered it are one fact, and a store that opened its own transaction would
+// commit the first while the second was still refusable.
 //
-// The exceptions are the worker's own machinery below Enqueue: Claim, Backlog,
-// and Reap deliberately span every scope, because one worker drains one queue
-// for the whole deployment, and MarkDelivered, RecordFailure, RecordAttempt, and
-// Requeue address a dispatch the worker or an operator is already holding. Those
-// are the component servicing itself, not a consumer read.
+// Enqueue is the proof that the shape works rather than an exception to it. An
+// outbound event enqueued in the same transaction as the row that caused it is
+// the entire reason that method takes a Tx, and it has taken one since this
+// package shipped; the four endpoint and subscription writes now say the same
+// thing about the transaction they belong to.
+//
+// The read takes the wider type deliberately. EndpointsForEvent is the
+// precedent: a Tx satisfies database.SQLQueryExecutor, so one signature serves
+// both a caller holding Client.Reader() and a caller inside a transaction, and
+// the second sees that transaction's own uncommitted writes — an endpoint
+// registered and then listed back within one transaction is there. A read
+// narrowed to a reader would be reading a database that does not yet contain
+// the row its caller just wrote.
+//
+// # The delivery machinery takes neither
+//
+// Claim, MarkDelivered, RecordFailure, RecordAttempt, Requeue, Backlog and Reap
+// take no executor at all, and run on the handle the implementation was built
+// with. They are the component servicing itself: there is no consumer
+// transaction for them to join, and the queue protocol's correctness is that a
+// claim commits before the request goes out — a caller supplying a transaction
+// would be choosing when that commit happens, which is the one thing the
+// protocol cannot let them choose. A lease held open for the duration of
+// somebody else's transaction is a dispatch nobody else may claim and this
+// worker may never send.
+//
+// That is the same decision metering took for its flush protocol, and the two
+// are the same case: a worker draining a queue on a timer, not a request being
+// served.
+//
+// # The scope is an argument, on every consumer method
+//
+// Every method reaching an endpoint, a subscription, or a delivery on a
+// consumer's behalf takes a tenancy.Scope, and none of them offers a variant
+// that omits it — an implementation must filter on it rather than treat it as a
+// hint. A subscription carries no scope of its own; its owner is its endpoint's,
+// and the scope is reached through that, the same way the delivery log reaches
+// it through the delivery.
+//
+// That includes SaveEndpoint, which takes a whole Endpoint that already carries
+// one. It binds the argument rather than Endpoint.Scope, because a scope derived
+// from a field is the derivation the column rule exists to rule out: it makes
+// "which tenant is this write for" answerable only by reading a struct the
+// caller assembled somewhere else. An endpoint whose scope disagrees with the
+// argument is ErrScopeMismatch rather than either value quietly winning; one
+// that names none adopts the argument.
+//
+// The exceptions are the machinery above. Claim, Backlog and Reap deliberately
+// span every scope, because one worker drains one queue for the whole
+// deployment, and MarkDelivered, RecordFailure, RecordAttempt and Requeue
+// address a dispatch the worker or an operator is already holding.
 type Store interface {
-	// SaveEndpoint creates or replaces an endpoint, under the scope the endpoint
-	// carries, and reconciles its subscriptions against the set it names.
+	// SaveEndpoint creates or replaces an endpoint in scope, through the caller's
+	// transaction, and reconciles its subscriptions against the set it names.
 	//
 	// Reconciles rather than replaces: a subscription the endpoint already has is
 	// kept, with its identity and its creation time; one it names for the first
@@ -102,26 +148,32 @@ type Store interface {
 	// that a subscription an endpoint has ended is still something the delivery
 	// log can be read against. It fills the endpoint's Subscriptions with the rows
 	// that are live afterwards, IDs included.
-	SaveEndpoint(ctx context.Context, endpoint *Endpoint) error
-	// GetEndpoint reads one of scope's endpoints, secrets included. It returns an
-	// error wrapping database/sql.ErrNoRows when the endpoint does not exist —
-	// including when it exists in another scope, which is the same answer as far
-	// as this scope is concerned.
-	GetEndpoint(ctx context.Context, scope tenancy.Scope, endpointID string) (*Endpoint, error)
-	// ListEndpoints pages through the endpoints registered in scope.
-	ListEndpoints(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Endpoint], error)
-	// ArchiveEndpoint retires one of scope's endpoints. Its delivery history is
-	// retained: the attempts log outlives the endpoint, because "what did we send
-	// them" is asked most often after someone has been removed.
+	//
+	// The endpoint adopts scope where it names none, and an endpoint naming a
+	// different one is ErrScopeMismatch. A nil tx is an error wrapping
+	// ErrNilExecutor.
+	SaveEndpoint(ctx context.Context, tx database.Tx, scope tenancy.Scope, endpoint *Endpoint) error
+	// GetEndpoint reads one of scope's endpoints, secrets included, on the
+	// caller's executor. It returns an error wrapping database/sql.ErrNoRows when
+	// the endpoint does not exist — including when it exists in another scope,
+	// which is the same answer as far as this scope is concerned.
+	GetEndpoint(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, endpointID string) (*Endpoint, error)
+	// ListEndpoints pages through the endpoints registered in scope, on the
+	// caller's executor.
+	ListEndpoints(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Endpoint], error)
+	// ArchiveEndpoint retires one of scope's endpoints, through the caller's
+	// transaction. Its delivery history is retained: the attempts log outlives the
+	// endpoint, because "what did we send them" is asked most often after someone
+	// has been removed.
 	//
 	// Its subscriptions are left as they are. An archived endpoint is excluded
 	// from fan-out by its own archived_at, so archiving them too would buy
 	// nothing and would lose which event types it was subscribed to if it is ever
 	// re-registered.
-	ArchiveEndpoint(ctx context.Context, scope tenancy.Scope, endpointID string) error
+	ArchiveEndpoint(ctx context.Context, tx database.Tx, scope tenancy.Scope, endpointID string) error
 
-	// AddSubscription subscribes one of scope's endpoints to eventType and
-	// returns the resulting row.
+	// AddSubscription subscribes one of scope's endpoints to eventType, through
+	// the caller's transaction, and returns the resulting row.
 	//
 	// It is idempotent on the (endpoint, event type) pair: subscribing to
 	// something the endpoint already subscribes to returns the existing row, and
@@ -134,23 +186,25 @@ type Store interface {
 	// call, for the reason Register exists rather than SaveEndpoint being public
 	// API: an accepted subscription to an event type nothing publishes is an
 	// endpoint that never fires and no signal explaining why.
-	AddSubscription(ctx context.Context, scope tenancy.Scope, endpointID string, eventType EventType) (*Subscription, error)
-	// GetSubscription reads one of scope's subscriptions, archived ones included —
-	// "when did they stop receiving this" is a question about an archived row. It
-	// returns an error wrapping database/sql.ErrNoRows when the subscription does
-	// not exist under one of scope's endpoints.
-	GetSubscription(ctx context.Context, scope tenancy.Scope, subscriptionID string) (*Subscription, error)
-	// ListSubscriptions pages the live subscriptions of one of scope's endpoints.
-	ListSubscriptions(ctx context.Context, scope tenancy.Scope, endpointID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Subscription], error)
-	// ArchiveSubscription retires one of scope's subscriptions, so the endpoint
-	// stops receiving that event type without its other subscriptions, its
-	// delivery history, or its identity being touched.
+	AddSubscription(ctx context.Context, tx database.Tx, scope tenancy.Scope, endpointID string, eventType EventType) (*Subscription, error)
+	// GetSubscription reads one of scope's subscriptions on the caller's executor,
+	// archived ones included — "when did they stop receiving this" is a question
+	// about an archived row. It returns an error wrapping database/sql.ErrNoRows
+	// when the subscription does not exist under one of scope's endpoints.
+	GetSubscription(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subscriptionID string) (*Subscription, error)
+	// ListSubscriptions pages the live subscriptions of one of scope's endpoints,
+	// on the caller's executor.
+	ListSubscriptions(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, endpointID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Subscription], error)
+	// ArchiveSubscription retires one of scope's subscriptions, through the
+	// caller's transaction, so the endpoint stops receiving that event type
+	// without its other subscriptions, its delivery history, or its identity being
+	// touched.
 	//
 	// This is the method a flat event list cannot offer. Against one, "stop
 	// sending me order.created" can only be expressed as a rewrite of the whole
 	// set, which loses when it happened and races any concurrent edit of the same
 	// endpoint.
-	ArchiveSubscription(ctx context.Context, scope tenancy.Scope, subscriptionID string) error
+	ArchiveSubscription(ctx context.Context, tx database.Tx, scope tenancy.Scope, subscriptionID string) error
 
 	// EndpointsForEvent returns the enabled, unarchived endpoints in scope that
 	// are subscribed to eventType, using the caller's executor.
@@ -161,31 +215,42 @@ type Store interface {
 	// Enqueue writes a delivery and one dispatch per endpoint, in the caller's
 	// transaction, so both commit with whatever else that transaction did.
 	// The delivery's scope is stored with it.
-	Enqueue(ctx context.Context, q database.Tx, delivery *Delivery, endpointIDs []string, now time.Time) error
+	Enqueue(ctx context.Context, tx database.Tx, delivery *Delivery, endpointIDs []string, now time.Time) error
 
 	// Claim leases the next batch of due dispatches, incrementing their attempt
 	// counts, and returns them ready to send.
+	//
+	// It takes no executor: the lease has to be committed before the request goes
+	// out, or a second worker claims the same row while the first is mid-flight,
+	// and a caller supplying a transaction would be choosing when that commit
+	// happens.
 	//
 	// It spans every scope, deliberately: a worker delivers the whole
 	// deployment's backlog, and a per-scope claim would need a list of scopes
 	// nothing maintains. What it returns is scoped — each ClaimedDispatch says
 	// which scope it came from.
 	Claim(ctx context.Context, now time.Time, limit int, leaseUntil time.Time) ([]ClaimedDispatch, error)
-	// MarkDelivered retires a dispatch that was accepted.
+	// MarkDelivered retires a dispatch that was accepted. Like Claim it takes no
+	// executor: it releases a lease Claim committed, and the request it is
+	// reporting on has already happened.
 	MarkDelivered(ctx context.Context, dispatchID string, at time.Time) error
 	// RecordFailure releases the lease, schedules the retry, and sets dead once
-	// the dispatch has exhausted its attempts.
+	// the dispatch has exhausted its attempts. Like MarkDelivered it takes no
+	// executor.
 	//
 	// attempts is persisted as given rather than left as Claim incremented it,
 	// so the caller can decline to charge an attempt for a failure the
 	// subscriber never saw — an open circuit being the case that matters.
 	RecordFailure(ctx context.Context, dispatchID string, attempts int, nextAttempt time.Time, lastErr string, dead bool) error
-	// RecordAttempt appends to the delivery log.
+	// RecordAttempt appends to the delivery log. It takes no executor for the same
+	// reason: the attempt it records is one the worker has already made, and a log
+	// line that rolls back with somebody else's transaction is a delivery nothing
+	// remembers.
 	RecordAttempt(ctx context.Context, attempt *Attempt) error
 	// ListAttempts pages through the attempts recorded for one of scope's
-	// deliveries. A delivery in another scope reads as one with no attempts,
-	// which is what it is from here.
-	ListAttempts(ctx context.Context, scope tenancy.Scope, deliveryID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Attempt], error)
+	// deliveries, on the caller's executor. A delivery in another scope reads as
+	// one with no attempts, which is what it is from here.
+	ListAttempts(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, deliveryID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Attempt], error)
 
 	// Requeue makes a delivery/endpoint pair claimable again, clearing its dead
 	// flag and attempt count. It returns an error wrapping ErrDeliveryNotFound
@@ -195,12 +260,20 @@ type Store interface {
 	// where a delivery fanned out to an endpoint, and Dispatch resolves those
 	// within one scope. StoreDispatcher.Replay is the scoped entry point, and it
 	// establishes the scope by reading the endpoint in it first.
+	//
+	// It takes no executor because it writes the same column Claim and
+	// RecordFailure write, and a row made claimable inside a caller's transaction
+	// is a row the worker cannot see until that transaction ends. An operator
+	// replaying a delivery is asking the queue to move, not asking for a row that
+	// commits with something else of theirs.
 	Requeue(ctx context.Context, deliveryID, endpointID string, at time.Time) error
 
 	// Backlog reports how many dispatches are waiting and when the oldest was
-	// created, for the worker's health gauges. Like Claim, it spans every scope.
+	// created, for the worker's health gauges. Like Claim, it spans every scope
+	// and takes no executor.
 	Backlog(ctx context.Context) (depth int64, oldest time.Time, err error)
 	// Reap deletes delivered dispatches, their deliveries, and their attempts
-	// once they age past the retention window, up to limit rows.
+	// once they age past the retention window, up to limit rows. Like Claim it
+	// runs on the implementation's own handle: it answers no request.
 	Reap(ctx context.Context, before time.Time, limit int) (int64, error)
 }

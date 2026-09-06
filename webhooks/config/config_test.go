@@ -180,7 +180,7 @@ func TestNewDispatcher(T *testing.T) {
 		store, err := NewStore(t.Context(), cfg, client)
 		must.NoError(t, err)
 
-		dispatcher, err := NewDispatcher(t.Context(), cfg, store, testCatalog)
+		dispatcher, err := NewDispatcher(t.Context(), cfg, client, store, testCatalog)
 		must.NoError(t, err)
 		must.NotNil(t, dispatcher)
 
@@ -200,14 +200,21 @@ func TestNewDispatcher(T *testing.T) {
 	T.Run("nil config", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewDispatcher(t.Context(), nil, nil, testCatalog)
+		_, err := NewDispatcher(t.Context(), nil, nil, nil, testCatalog)
 		test.ErrorIs(t, err, errors.ErrNilInputParameter)
+	})
+
+	T.Run("nil client", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := NewDispatcher(t.Context(), validConfig(), nil, nil, testCatalog)
+		test.ErrorIs(t, err, webhooks.ErrNilDatabaseClient)
 	})
 
 	T.Run("nil store", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := NewDispatcher(t.Context(), validConfig(), nil, testCatalog)
+		_, err := NewDispatcher(t.Context(), validConfig(), newTestClient(t), nil, testCatalog)
 		test.ErrorIs(t, err, webhooks.ErrNilStore)
 	})
 }

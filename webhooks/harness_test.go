@@ -137,6 +137,27 @@ func clientOf(t *testing.T, store Store) database.Client {
 	return backed.client
 }
 
+// inTx runs fn inside a transaction on the database a store is running against.
+//
+// database.Tx carries an unexported method, so it is producible only by the
+// database package — which is the point of the type, and which means a test that
+// wants one opens a database rather than standing in for it. Every consumer
+// write on a Store goes through here, which is the suite saying the same thing
+// the signature does.
+func inTx(t *testing.T, store Store, fn func(tx database.Tx) error) error {
+	t.Helper()
+
+	return clientOf(t, store).WithTransaction(t.Context(), fn)
+}
+
+// readerOf is the executor the suite runs a consumer read on when it has no
+// transaction of its own — the ordinary case for a read outside a write.
+func readerOf(t *testing.T, store Store) database.SQLQueryExecutor {
+	t.Helper()
+
+	return clientOf(t, store).Reader()
+}
+
 // newSQLiteEnv builds a SQLite-backed environment. SQLite exercises the real
 // SQL — placeholder rendering, the ordering predicate, the lease arithmetic,
 // the join projections — without a container.
@@ -164,6 +185,53 @@ func newSQLiteClient(t *testing.T) database.Client {
 	return client
 }
 
+// The four consumer writes, each run in a transaction of its own.
+//
+// They exist because the suite calls them constantly and a database.Tx is
+// producible only by opening a transaction — see inTx. This keeps that one line
+// out of thirty call sites; the cases that are about the transaction itself — a
+// write and a read sharing one, a write the caller unwinds — open theirs
+// explicitly and call the Store directly.
+
+func saveEndpoint(t *testing.T, store Store, scope tenancy.Scope, endpoint *Endpoint) error {
+	t.Helper()
+
+	return inTx(t, store, func(tx database.Tx) error {
+		return store.SaveEndpoint(t.Context(), tx, scope, endpoint)
+	})
+}
+
+func archiveEndpoint(t *testing.T, store Store, scope tenancy.Scope, endpointID string) error {
+	t.Helper()
+
+	return inTx(t, store, func(tx database.Tx) error {
+		return store.ArchiveEndpoint(t.Context(), tx, scope, endpointID)
+	})
+}
+
+func addSubscription(t *testing.T, store Store, scope tenancy.Scope, endpointID string, eventType EventType) (*Subscription, error) {
+	t.Helper()
+
+	var subscription *Subscription
+
+	err := inTx(t, store, func(tx database.Tx) error {
+		var addErr error
+		subscription, addErr = store.AddSubscription(t.Context(), tx, scope, endpointID, eventType)
+
+		return addErr
+	})
+
+	return subscription, err
+}
+
+func archiveSubscription(t *testing.T, store Store, scope tenancy.Scope, subscriptionID string) error {
+	t.Helper()
+
+	return inTx(t, store, func(tx database.Tx) error {
+		return store.ArchiveSubscription(t.Context(), tx, scope, subscriptionID)
+	})
+}
+
 // registerEndpoint saves an endpoint in testScope, subscribed to the given
 // events.
 func registerEndpoint(t *testing.T, store Store, id string, events ...EventType) *Endpoint {
@@ -186,7 +254,7 @@ func registerScopedEndpoint(t *testing.T, store Store, scope tenancy.Scope, id s
 		Subscriptions: SubscribeTo(events...),
 	}
 
-	must.NoError(t, store.SaveEndpoint(t.Context(), endpoint))
+	must.NoError(t, saveEndpoint(t, store, scope, endpoint))
 
 	return endpoint
 }
@@ -204,8 +272,8 @@ func dispatchTo(t *testing.T, store Store, delivery *Delivery, at time.Time, end
 		delivery.Scope = testScope
 	}
 
-	must.NoError(t, clientOf(t, store).WithTransaction(t.Context(), func(q database.Tx) error {
-		return store.Enqueue(t.Context(), q, delivery, endpointIDs, at)
+	must.NoError(t, inTx(t, store, func(tx database.Tx) error {
+		return store.Enqueue(t.Context(), tx, delivery, endpointIDs, at)
 	}))
 
 	return delivery
@@ -236,9 +304,9 @@ func scopedEndpointsFor(t *testing.T, store Store, scope tenancy.Scope, eventTyp
 
 	var endpoints []*Endpoint
 
-	must.NoError(t, clientOf(t, store).WithTransaction(t.Context(), func(q database.Tx) error {
+	must.NoError(t, inTx(t, store, func(tx database.Tx) error {
 		var err error
-		endpoints, err = store.EndpointsForEvent(t.Context(), q, scope, eventType)
+		endpoints, err = store.EndpointsForEvent(t.Context(), tx, scope, eventType)
 
 		return err
 	}))

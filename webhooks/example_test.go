@@ -51,10 +51,10 @@ func ExampleDispatcher_Dispatch() {
 		panic(err)
 	}
 
-	err = client.WithTransaction(ctx, func(q database.Tx) error {
+	err = client.WithTransaction(ctx, func(tx database.Tx) error {
 		// ... the state change that produced the event ...
 
-		return dispatcher.Dispatch(ctx, q, &webhooks.Delivery{
+		return dispatcher.Dispatch(ctx, tx, &webhooks.Delivery{
 			// Whose event this is. The fan-out is bounded by it, so only this
 			// account's endpoints are resolved. An application whose events are
 			// global says tenancy.Global().
@@ -89,13 +89,18 @@ func ExampleDispatcher_Register() {
 		"endpoint-for-nobody": tenancy.Global(),
 	}
 
+	// Registering takes the caller's transaction, like every other write here:
+	// whatever else signing a subscriber up entails — the audit entry, the
+	// account row that now has one — commits with the endpoint or not at all.
+	// The scope is the argument rather than a field on the endpoint.
 	for id, scope := range subscribers {
-		if err := dispatcher.Register(ctx, &webhooks.Endpoint{
-			ID:            id,
-			Scope:         scope,
-			URL:           "https://93.184.216.34/hooks/" + id,
-			Secret:        secret,
-			Subscriptions: webhooks.SubscribeTo(OrderUpdated),
+		if err := client.WithTransaction(ctx, func(tx database.Tx) error {
+			return dispatcher.Register(ctx, tx, scope, &webhooks.Endpoint{
+				ID:            id,
+				URL:           "https://93.184.216.34/hooks/" + id,
+				Secret:        secret,
+				Subscriptions: webhooks.SubscribeTo(OrderUpdated),
+			})
 		}); err != nil {
 			panic(err)
 		}
@@ -103,9 +108,9 @@ func ExampleDispatcher_Register() {
 
 	// Who order.updated reaches, per scope. Nothing here can return the other
 	// account's endpoint: the scope is a predicate on the query.
-	err := client.WithTransaction(ctx, func(q database.Tx) error {
+	err := client.WithTransaction(ctx, func(tx database.Tx) error {
 		for _, scope := range []tenancy.Scope{tenancy.Of("acct_1"), tenancy.Global()} {
-			endpoints, resolveErr := store.EndpointsForEvent(ctx, q, scope, OrderUpdated)
+			endpoints, resolveErr := store.EndpointsForEvent(ctx, tx, scope, OrderUpdated)
 			if resolveErr != nil {
 				return resolveErr
 			}
@@ -224,7 +229,7 @@ func exampleWiring() (database.Client, webhooks.Store, webhooks.Dispatcher) {
 
 	// The catalog is the application's: what its events mean is not the
 	// library's opinion, and an event outside it is rejected at both ends.
-	dispatcher, err := webhooks.NewDispatcher(store, webhooks.WithCatalog(webhooks.Catalog{
+	dispatcher, err := webhooks.NewDispatcher(store, client.Reader(), webhooks.WithCatalog(webhooks.Catalog{
 		OrderCreated: {Description: "an order was created"},
 		OrderUpdated: {Description: "an order was updated"},
 	}))

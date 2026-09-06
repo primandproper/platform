@@ -32,10 +32,11 @@ func RegisterStore(i do.Injector) {
 
 // RegisterDispatcher registers a webhooks.Dispatcher with the injector.
 //
-// Prerequisites: *Config, webhooks.Store (see RegisterStore), and
-// webhooks.Catalog must be registered in the injector before the Dispatcher is
-// invoked. The Catalog is the application's declaration of which event types
-// exist, so it has no environment-driven construction here.
+// Prerequisites: *Config, database.Client, webhooks.Store (see RegisterStore),
+// and webhooks.Catalog must be registered in the injector before the Dispatcher
+// is invoked. The Catalog is the application's declaration of which event types
+// exist, so it has no environment-driven construction here. The client is the
+// one NewDispatcher takes a reader off; see there for the single read it serves.
 func RegisterDispatcher(i do.Injector) {
 	do.Provide(i, func(i do.Injector) (webhooks.Dispatcher, error) {
 		pillars, err := observability.InvokePillars(i)
@@ -46,6 +47,7 @@ func RegisterDispatcher(i do.Injector) {
 		return NewDispatcher(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
+			do.MustInvoke[database.Client](i),
 			do.MustInvoke[webhooks.Store](i),
 			do.MustInvoke[webhooks.Catalog](i),
 			WithPillars(pillars),

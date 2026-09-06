@@ -95,6 +95,15 @@ func newFailingStore(t *testing.T) Store {
 	return store
 }
 
+// failingTx presents a failing client's writer as the transaction a consumer
+// write runs on. The point of these cases is what the statement does when the
+// pool is gone, and a real transaction cannot be opened on a closed one.
+func failingTx(t *testing.T) database.Tx {
+	t.Helper()
+
+	return database.NewTxForTesting(newFailingClient(t).Writer())
+}
+
 // Every one of these asserts the same contract: a store failure is reported, not
 // swallowed. The specific error matters less than that something non-nil comes
 // back, so that the worker treats the dispatch as unfinished and retries it.
@@ -108,28 +117,30 @@ func TestSQLStore_PropagatesFailures(T *testing.T) {
 		// through QueryRowContext and so reports the closed pool's own error.
 		// What matters is that the failure surfaces rather than the upsert
 		// running against an unverified row.
-		err := newFailingStore(t).SaveEndpoint(t.Context(), &Endpoint{ID: "e", Scope: testScope, Subscriptions: SubscribeTo(orderCreated)})
+		err := newFailingStore(t).SaveEndpoint(t.Context(), failingTx(t), testScope,
+			&Endpoint{ID: "e", Subscriptions: SubscribeTo(orderCreated)})
 		test.Error(t, err)
 	})
 
 	T.Run("GetEndpoint", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := newFailingStore(t).GetEndpoint(t.Context(), testScope, "e")
+		_, err := newFailingStore(t).GetEndpoint(t.Context(), newFailingClient(t).Reader(), testScope, "e")
 		test.Error(t, err)
 	})
 
 	T.Run("ListEndpoints", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := newFailingStore(t).ListEndpoints(t.Context(), testScope, filtering.DefaultQueryFilter())
+		_, err := newFailingStore(t).ListEndpoints(t.Context(), newFailingClient(t).Reader(), testScope,
+			filtering.DefaultQueryFilter())
 		test.ErrorIs(t, err, errDatabase)
 	})
 
 	T.Run("ArchiveEndpoint", func(t *testing.T) {
 		t.Parallel()
 
-		test.ErrorIs(t, newFailingStore(t).ArchiveEndpoint(t.Context(), testScope, "e"), errDatabase)
+		test.ErrorIs(t, newFailingStore(t).ArchiveEndpoint(t.Context(), failingTx(t), testScope, "e"), errDatabase)
 	})
 
 	T.Run("EndpointsForEvent", func(t *testing.T) {
@@ -180,7 +191,8 @@ func TestSQLStore_PropagatesFailures(T *testing.T) {
 	T.Run("ListAttempts", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := newFailingStore(t).ListAttempts(t.Context(), testScope, "d", filtering.DefaultQueryFilter())
+		_, err := newFailingStore(t).ListAttempts(t.Context(), newFailingClient(t).Reader(), testScope, "d",
+			filtering.DefaultQueryFilter())
 		test.ErrorIs(t, err, errDatabase)
 	})
 
