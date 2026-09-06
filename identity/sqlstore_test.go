@@ -205,22 +205,22 @@ func runClockSuite(t *testing.T, env *storeEnv) {
 		store, err := NewSQLStore(env.client, WithTablePrefix(env.migrate(t)), WithClock(clk))
 		must.NoError(t, err)
 
-		user := createUser(t, store, newUser("ada"))
+		user := seedUser(t, env, store, newUser("ada"))
 
 		// The database assigned it and the create read it back, so the caller's
 		// copy is not the zero time — which is what a service serializes into a
 		// response straight after creating a user.
 		test.False(t, user.CreatedAt.IsZero())
 
-		read, err := store.GetUser(t.Context(), testScope, user.ID)
+		read, err := store.GetUser(t.Context(), env.reader(), testScope, user.ID)
 		must.NoError(t, err)
 		test.EqOp(t, time.UTC, read.CreatedAt.Location())
 		test.EqOp(t, user.CreatedAt, read.CreatedAt)
 
 		clk.advance(time.Hour)
-		must.NoError(t, store.SetUserRequiresPasswordChange(t.Context(), testScope, user.ID, true))
+		must.NoError(t, env.setUserRequiresPasswordChange(t, store, testScope, user.ID, true))
 
-		updated, err := store.GetUser(t.Context(), testScope, user.ID)
+		updated, err := store.GetUser(t.Context(), env.reader(), testScope, user.ID)
 		must.NoError(t, err)
 		must.NotNil(t, updated.LastUpdatedAt)
 		test.EqOp(t, time.UTC, updated.LastUpdatedAt.Location())
@@ -235,12 +235,12 @@ func runClockSuite(t *testing.T, env *storeEnv) {
 		store, err := NewSQLStore(env.client, WithTablePrefix(env.migrate(t)), WithClock(clk))
 		must.NoError(t, err)
 
-		owner := createUser(t, store, newUser("ada"))
-		account := createAccountFor(t, store, owner, "Acme")
+		owner := seedUser(t, env, store, newUser("ada"))
+		account := seedAccountFor(t, env, store, owner, "Acme")
 
 		test.False(t, account.CreatedAt.IsZero())
 
-		read, err := store.GetAccount(t.Context(), testScope, account.ID)
+		read, err := store.GetAccount(t.Context(), env.reader(), testScope, account.ID)
 		must.NoError(t, err)
 		test.EqOp(t, time.UTC, read.CreatedAt.Location())
 		test.EqOp(t, account.CreatedAt, read.CreatedAt)

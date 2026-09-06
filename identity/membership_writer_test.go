@@ -1,7 +1,6 @@
 package identity
 
 import (
-	"context"
 	"testing"
 
 	"github.com/primandproper/platform-go/v14/database"
@@ -20,13 +19,13 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		owner := createUser(t, store, newUser("ada"))
-		first := createAccountFor(t, store, owner, "First")
-		second := createAccountFor(t, store, owner, "Second")
+		owner := seedUser(t, env, store, newUser("ada"))
+		first := seedAccountFor(t, env, store, owner, "First")
+		second := seedAccountFor(t, env, store, owner, "Second")
 
-		must.NoError(t, store.SetDefaultAccount(t.Context(), testScope, owner.ID, second.ID))
+		must.NoError(t, env.setDefaultAccount(t, store, testScope, owner.ID, second.ID))
 
-		memberships, err := store.ListMembershipsForUser(t.Context(), testScope, owner.ID)
+		memberships, err := store.ListMembershipsForUser(t.Context(), env.reader(), testScope, owner.ID)
 		must.NoError(t, err)
 		must.SliceLen(t, 2, memberships)
 
@@ -46,7 +45,7 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 		test.EqOp(t, 1, defaults)
 		test.EqOp(t, first.ID, memberships[1].BelongsToAccount)
 
-		err = store.SetDefaultAccount(t.Context(), testScope, owner.ID, "not-an-account")
+		err = env.setDefaultAccount(t, store, testScope, owner.ID, "not-an-account")
 		must.ErrorIs(t, err, ErrMembershipNotFound)
 
 		// Setting the default a second time is not the membership going
@@ -54,9 +53,9 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 		// rather than rows matched — the statement stamps last_updated_at from
 		// the server's clock, so a write that assigns the flag it already held
 		// still changes the row and still counts.
-		must.NoError(t, store.SetDefaultAccount(t.Context(), testScope, owner.ID, second.ID))
+		must.NoError(t, env.setDefaultAccount(t, store, testScope, owner.ID, second.ID))
 
-		again, err := store.ListMembershipsForUser(t.Context(), testScope, owner.ID)
+		again, err := store.ListMembershipsForUser(t.Context(), env.reader(), testScope, owner.ID)
 		must.NoError(t, err)
 		must.SliceLen(t, 2, again)
 		test.EqOp(t, second.ID, again[0].BelongsToAccount)
@@ -68,30 +67,30 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		owner := createUser(t, store, newUser("ada"))
-		account := createAccountFor(t, store, owner, "Acme")
-		member := registerInto(t, store, newUser("brian"), account.ID, "account_member", "billing_admin")
+		owner := seedUser(t, env, store, newUser("ada"))
+		account := seedAccountFor(t, env, store, owner, "Acme")
+		member := seedUserInto(t, env, store, newUser("brian"), account.ID, "account_member", "billing_admin")
 
-		before, err := store.GetMembership(t.Context(), testScope, member.ID, account.ID)
+		before, err := store.GetMembership(t.Context(), env.reader(), testScope, member.ID, account.ID)
 		must.NoError(t, err)
 		test.Eq(t, []string{"account_member", "billing_admin"}, before.Roles)
 
 		// Revocation is the operation that matters, and a merging setter cannot
 		// express it.
-		must.NoError(t, store.SetMembershipRoles(t.Context(), testScope, member.ID, account.ID,
+		must.NoError(t, env.setMembershipRoles(t, store, testScope, member.ID, account.ID,
 			[]string{"account_member"}))
 
-		after, err := store.GetMembership(t.Context(), testScope, member.ID, account.ID)
+		after, err := store.GetMembership(t.Context(), env.reader(), testScope, member.ID, account.ID)
 		must.NoError(t, err)
 		test.Eq(t, []string{"account_member"}, after.Roles)
 
 		must.ErrorIs(t,
-			store.SetMembershipRoles(t.Context(), testScope, member.ID, account.ID, nil),
+			env.setMembershipRoles(t, store, testScope, member.ID, account.ID, nil),
 			platformerrors.ErrEmptyInputParameter,
 		)
 
 		must.ErrorIs(t,
-			store.SetMembershipRoles(t.Context(), testScope, member.ID, "not-an-account", []string{"x"}),
+			env.setMembershipRoles(t, store, testScope, member.ID, "not-an-account", []string{"x"}),
 			ErrMembershipNotFound,
 		)
 	})
@@ -100,28 +99,28 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		owner := createUser(t, store, newUser("ada"))
-		account := createAccountFor(t, store, owner, "Acme", "account_admin", "billing_admin")
-		member := registerInto(t, store, newUser("brian"), account.ID)
+		owner := seedUser(t, env, store, newUser("ada"))
+		account := seedAccountFor(t, env, store, owner, "Acme", "account_admin", "billing_admin")
+		member := seedUserInto(t, env, store, newUser("brian"), account.ID)
 
 		// The owner's standing is the ownership, so stripping their roles
 		// leaves them able to administer the account rather than belonging to
 		// it and able to do nothing in it. It is also the state
 		// TransferAccountOwnership mints, which is why this door has to open on
 		// it too.
-		must.NoError(t, store.SetMembershipRoles(t.Context(), testScope, owner.ID, account.ID, nil))
+		must.NoError(t, env.setMembershipRoles(t, store, testScope, owner.ID, account.ID, nil))
 
-		stripped, err := store.GetMembership(t.Context(), testScope, owner.ID, account.ID)
+		stripped, err := store.GetMembership(t.Context(), env.reader(), testScope, owner.ID, account.ID)
 		must.NoError(t, err)
 		test.SliceEmpty(t, stripped.Roles)
 
 		// Everybody else keeps the refusal, which is the reason it exists.
 		must.ErrorIs(t,
-			store.SetMembershipRoles(t.Context(), testScope, member.ID, account.ID, nil),
+			env.setMembershipRoles(t, store, testScope, member.ID, account.ID, nil),
 			platformerrors.ErrEmptyInputParameter,
 		)
 
-		unchanged, err := store.GetMembership(t.Context(), testScope, member.ID, account.ID)
+		unchanged, err := store.GetMembership(t.Context(), env.reader(), testScope, member.ID, account.ID)
 		must.NoError(t, err)
 		test.Eq(t, []string{"account_member"}, unchanged.Roles)
 
@@ -129,7 +128,7 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 		// not there reports as much rather than as an empty slice somebody
 		// passed.
 		must.ErrorIs(t,
-			store.SetMembershipRoles(t.Context(), testScope, owner.ID, "not-an-account", nil),
+			env.setMembershipRoles(t, store, testScope, owner.ID, "not-an-account", nil),
 			ErrAccountNotFound,
 		)
 	})
@@ -138,17 +137,17 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		owner := createUser(t, store, newUser("ada"))
-		account := createAccountFor(t, store, owner, "Acme")
+		owner := seedUser(t, env, store, newUser("ada"))
+		account := seedAccountFor(t, env, store, owner, "Acme")
 
 		// An ownerless account fails every permission check that resolves
 		// through its owner, far from the removal that caused it.
 		must.ErrorIs(t,
-			store.RemoveMembership(t.Context(), testScope, owner.ID, account.ID),
+			env.removeMembership(t, store, testScope, owner.ID, account.ID),
 			ErrLastAccountOwner,
 		)
 
-		still, err := store.GetMembership(t.Context(), testScope, owner.ID, account.ID)
+		still, err := store.GetMembership(t.Context(), env.reader(), testScope, owner.ID, account.ID)
 		must.NoError(t, err)
 		test.False(t, still.Archived())
 	})
@@ -157,16 +156,15 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		owner := createUser(t, store, newUser("ada"))
-		member := createUser(t, store, newUser("brian"))
+		owner := seedUser(t, env, store, newUser("ada"))
+		member := seedUser(t, env, store, newUser("brian"))
 
-		first := createAccountFor(t, store, owner, "First")
-		second := createAccountFor(t, store, owner, "Second")
+		first := seedAccountFor(t, env, store, owner, "First")
+		second := seedAccountFor(t, env, store, owner, "Second")
 
-		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
+		must.NoError(t, env.inTx(t, func(tx database.Tx) error {
 			for _, accountID := range []string{first.ID, second.ID} {
-				if err := store.CreateMembership(ctx, q, &Membership{
-					Scope:            testScope,
+				if err := store.CreateMembership(t.Context(), tx, testScope, &Membership{
 					BelongsToUser:    member.ID,
 					BelongsToAccount: accountID,
 					Roles:            []string{"account_member"},
@@ -178,24 +176,24 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 			return nil
 		}))
 
-		memberships, err := store.ListMembershipsForUser(t.Context(), testScope, member.ID)
+		memberships, err := store.ListMembershipsForUser(t.Context(), env.reader(), testScope, member.ID)
 		must.NoError(t, err)
 		must.SliceLen(t, 2, memberships)
 
 		defaultAccountID := memberships[0].BelongsToAccount
 		test.True(t, memberships[0].DefaultAccount)
 
-		must.NoError(t, store.RemoveMembership(t.Context(), testScope, member.ID, defaultAccountID))
+		must.NoError(t, env.removeMembership(t, store, testScope, member.ID, defaultAccountID))
 
 		// A user left with memberships and no default cannot build a Principal,
 		// and the failure would surface at their next request rather than here.
-		remaining, err := store.ListMembershipsForUser(t.Context(), testScope, member.ID)
+		remaining, err := store.ListMembershipsForUser(t.Context(), env.reader(), testScope, member.ID)
 		must.NoError(t, err)
 		must.SliceLen(t, 1, remaining)
 		test.True(t, remaining[0].DefaultAccount)
 
 		must.ErrorIs(t,
-			store.RemoveMembership(t.Context(), testScope, member.ID, defaultAccountID),
+			env.removeMembership(t, store, testScope, member.ID, defaultAccountID),
 			ErrMembershipNotFound,
 		)
 	})
@@ -209,31 +207,30 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 		// rejoin makes the revived membership their default again because it
 		// is once more their first live one.
 		store := env.newStore(t)
-		owner := createUser(t, store, newUser("ada"))
-		account := createAccountFor(t, store, owner, "Acme")
-		member := registerInto(t, store, newUser("brian"), account.ID)
+		owner := seedUser(t, env, store, newUser("ada"))
+		account := seedAccountFor(t, env, store, owner, "Acme")
+		member := seedUserInto(t, env, store, newUser("brian"), account.ID)
 
-		must.NoError(t, store.RemoveMembership(t.Context(), testScope, member.ID, account.ID))
+		must.NoError(t, env.removeMembership(t, store, testScope, member.ID, account.ID))
 
-		memberships, err := store.ListMembershipsForUser(t.Context(), testScope, member.ID)
+		memberships, err := store.ListMembershipsForUser(t.Context(), env.reader(), testScope, member.ID)
 		must.NoError(t, err)
 		test.SliceEmpty(t, memberships)
 
-		_, err = store.GetPrincipal(t.Context(), testScope, member.ID, "")
+		_, err = store.GetPrincipal(t.Context(), env.reader(), testScope, member.ID, "")
 		must.ErrorIs(t, err, ErrNoDefaultAccount)
 
 		// Rejoining converges onto the archived row rather than inserting a
 		// second one, and it is their first live membership again.
-		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
-			return store.CreateMembership(ctx, q, &Membership{
-				Scope:            testScope,
+		must.NoError(t, env.inTx(t, func(tx database.Tx) error {
+			return store.CreateMembership(t.Context(), tx, testScope, &Membership{
 				BelongsToUser:    member.ID,
 				BelongsToAccount: account.ID,
 				Roles:            []string{"account_member"},
 			})
 		}))
 
-		rejoined, err := store.ListMembershipsForUser(t.Context(), testScope, member.ID)
+		rejoined, err := store.ListMembershipsForUser(t.Context(), env.reader(), testScope, member.ID)
 		must.NoError(t, err)
 		must.SliceLen(t, 1, rejoined)
 		test.True(t, rejoined[0].DefaultAccount)
@@ -243,19 +240,19 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		owner := createUser(t, store, newUser("ada"))
-		account := createAccountFor(t, store, owner, "Acme")
-		successor := createUser(t, store, newUser("grace"))
+		owner := seedUser(t, env, store, newUser("ada"))
+		account := seedAccountFor(t, env, store, owner, "Acme")
+		successor := seedUser(t, env, store, newUser("grace"))
 
 		// The successor is not yet a member. An owner who is not on the roster
 		// is refused by every roster-driven permission check.
-		must.NoError(t, store.TransferAccountOwnership(t.Context(), testScope, account.ID, successor.ID))
+		must.NoError(t, env.transferAccountOwnership(t, store, testScope, account.ID, successor.ID))
 
-		read, err := store.GetAccount(t.Context(), testScope, account.ID)
+		read, err := store.GetAccount(t.Context(), env.reader(), testScope, account.ID)
 		must.NoError(t, err)
 		test.EqOp(t, successor.ID, read.OwnerUserID)
 
-		minted, err := store.GetMembership(t.Context(), testScope, successor.ID, account.ID)
+		minted, err := store.GetMembership(t.Context(), env.reader(), testScope, successor.ID, account.ID)
 		must.NoError(t, err)
 
 		// It carries no roles, which is the state rather than a gap in it: the
@@ -263,7 +260,7 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 		// this package does not define written into somebody's authorization.
 		// SetMembershipRoles admits the same set for the same reason.
 		test.SliceEmpty(t, minted.Roles)
-		must.NoError(t, store.SetMembershipRoles(t.Context(), testScope, successor.ID, account.ID, nil))
+		must.NoError(t, env.setMembershipRoles(t, store, testScope, successor.ID, account.ID, nil))
 
 		// It is the successor's first membership anywhere, so it is their
 		// default — the rule the other two doors that mint one apply. A minted
@@ -272,23 +269,23 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 		// user with memberships and no default has nowhere to go.
 		test.True(t, minted.DefaultAccount)
 
-		landing, err := store.GetPrincipal(t.Context(), testScope, successor.ID, "")
+		landing, err := store.GetPrincipal(t.Context(), env.reader(), testScope, successor.ID, "")
 		must.NoError(t, err)
 		test.EqOp(t, account.ID, landing.ActiveAccountID)
 
 		// Transferring and ejecting are different acts; handing over and staying
 		// on is the common case.
-		_, err = store.GetMembership(t.Context(), testScope, owner.ID, account.ID)
+		_, err = store.GetMembership(t.Context(), env.reader(), testScope, owner.ID, account.ID)
 		must.NoError(t, err)
 
 		// The former owner can now be removed, which they could not be before.
-		must.NoError(t, store.RemoveMembership(t.Context(), testScope, owner.ID, account.ID))
+		must.NoError(t, env.removeMembership(t, store, testScope, owner.ID, account.ID))
 
 		// Transferring to the current owner is a no-op rather than an error.
-		must.NoError(t, store.TransferAccountOwnership(t.Context(), testScope, account.ID, successor.ID))
+		must.NoError(t, env.transferAccountOwnership(t, store, testScope, account.ID, successor.ID))
 
 		must.ErrorIs(t,
-			store.TransferAccountOwnership(t.Context(), testScope, account.ID, ""),
+			env.transferAccountOwnership(t, store, testScope, account.ID, ""),
 			platformerrors.ErrEmptyInputParameter,
 		)
 	})
@@ -297,24 +294,24 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		owner := createUser(t, store, newUser("ada"))
-		account := createAccountFor(t, store, owner, "Acme")
+		owner := seedUser(t, env, store, newUser("ada"))
+		account := seedAccountFor(t, env, store, owner, "Acme")
 
 		// The successor already belongs somewhere and already lands there. The
 		// membership the transfer mints is not their first, so it does not
 		// become their default: handing somebody an account is not choosing
 		// where they sign in, and the rule is "a first membership defaults"
 		// rather than "the newest one wins".
-		successor := createUser(t, store, newUser("grace"))
-		home := createAccountFor(t, store, successor, "Home")
+		successor := seedUser(t, env, store, newUser("grace"))
+		home := seedAccountFor(t, env, store, successor, "Home")
 
-		must.NoError(t, store.TransferAccountOwnership(t.Context(), testScope, account.ID, successor.ID))
+		must.NoError(t, env.transferAccountOwnership(t, store, testScope, account.ID, successor.ID))
 
-		minted, err := store.GetMembership(t.Context(), testScope, successor.ID, account.ID)
+		minted, err := store.GetMembership(t.Context(), env.reader(), testScope, successor.ID, account.ID)
 		must.NoError(t, err)
 		test.False(t, minted.DefaultAccount)
 
-		landing, err := store.GetPrincipal(t.Context(), testScope, successor.ID, "")
+		landing, err := store.GetPrincipal(t.Context(), env.reader(), testScope, successor.ID, "")
 		must.NoError(t, err)
 		test.EqOp(t, home.ID, landing.ActiveAccountID)
 	})
@@ -323,8 +320,8 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		owner := createUser(t, store, newUser("ada"))
-		account := createAccountFor(t, store, owner, "Acme")
+		owner := seedUser(t, env, store, newUser("ada"))
+		account := seedAccountFor(t, env, store, owner, "Acme")
 
 		// A neighbor whose id is perfectly real and whose directory is not this
 		// one. owner_user_id carries no foreign key at all and the membership's
@@ -332,23 +329,23 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 		// between this id and the account it would come to own.
 		neighbor := newUser("eve")
 		neighbor.Scope = otherScope
-		createUser(t, store, neighbor)
+		seedUser(t, env, store, neighbor)
 
 		must.ErrorIs(t,
-			store.TransferAccountOwnership(t.Context(), testScope, account.ID, neighbor.ID),
+			env.transferAccountOwnership(t, store, testScope, account.ID, neighbor.ID),
 			ErrUserNotFound,
 		)
 
 		// Neither half of the transfer landed: the account keeps the owner it
 		// had, and the roster gains no stranger.
-		read, err := store.GetAccount(t.Context(), testScope, account.ID)
+		read, err := store.GetAccount(t.Context(), env.reader(), testScope, account.ID)
 		must.NoError(t, err)
 		test.EqOp(t, owner.ID, read.OwnerUserID)
 
-		_, err = store.GetMembership(t.Context(), testScope, neighbor.ID, account.ID)
+		_, err = store.GetMembership(t.Context(), env.reader(), testScope, neighbor.ID, account.ID)
 		must.ErrorIs(t, err, ErrMembershipNotFound)
 
-		members, err := store.ListAccountMembers(t.Context(), testScope, account.ID, nil)
+		members, err := store.ListAccountMembers(t.Context(), env.reader(), testScope, account.ID, nil)
 		must.NoError(t, err)
 		must.SliceLen(t, 1, members.Data)
 		test.EqOp(t, owner.ID, members.Data[0].User.ID)
@@ -358,13 +355,13 @@ func runMembershipWriterSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		owner := createUser(t, store, newUser("ada"))
-		account := createAccountFor(t, store, owner, "Acme")
-		successor := registerInto(t, store, newUser("grace"), account.ID, "billing_admin")
+		owner := seedUser(t, env, store, newUser("ada"))
+		account := seedAccountFor(t, env, store, owner, "Acme")
+		successor := seedUserInto(t, env, store, newUser("grace"), account.ID, "billing_admin")
 
-		must.NoError(t, store.TransferAccountOwnership(t.Context(), testScope, account.ID, successor.ID))
+		must.NoError(t, env.transferAccountOwnership(t, store, testScope, account.ID, successor.ID))
 
-		membership, err := store.GetMembership(t.Context(), testScope, successor.ID, account.ID)
+		membership, err := store.GetMembership(t.Context(), env.reader(), testScope, successor.ID, account.ID)
 		must.NoError(t, err)
 		test.Eq(t, []string{"billing_admin"}, membership.Roles)
 	})

@@ -5,6 +5,8 @@ import (
 
 	"github.com/primandproper/platform-go/v14/database"
 	"github.com/primandproper/platform-go/v14/identity/internal/identitydb"
+	"github.com/primandproper/platform-go/v14/observability"
+	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
 // The SQLStore's Registrar: the three writes that make a registration, each
@@ -12,16 +14,27 @@ import (
 var _ Registrar = (*SQLStore)(nil)
 
 // CreateUser writes a new user through the caller's transaction.
-func (s *SQLStore) CreateUser(ctx context.Context, q database.Tx, user *User) error {
-	ctx, op := s.o11y.Begin(ctx)
+func (s *SQLStore) CreateUser(ctx context.Context, tx database.Tx, scope tenancy.Scope, user *User) error {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
-	if err := requireExecutor(q); err != nil {
+	if err := requireExecutor(tx); err != nil {
 		return op.Error(err, "creating identity user")
 	}
 
 	if user == nil {
 		return op.Error(ErrNilUser, "creating identity user")
+	}
+
+	if err := scope.Validate(); err != nil {
+		return op.Error(err, "creating identity user")
+	}
+
+	// Before EnsureDefaults and the validation, because both read the scope: a
+	// user that named none is not yet valid, and one that named another
+	// directory is refused rather than defaulted into this one.
+	if err := adoptScope(scope, &user.Scope, "user"); err != nil {
+		return op.Error(err, "creating identity user")
 	}
 
 	user.EnsureDefaults()
@@ -32,26 +45,24 @@ func (s *SQLStore) CreateUser(ctx context.Context, q database.Tx, user *User) er
 
 	user.ID = newID(user.ID)
 
-	op.Set(userIDKey, user.ID).
-		Set(scopeKey, user.Scope.String()).
-		Set(usernameKey, user.Username)
+	op.Set(userIDKey, user.ID).Set(usernameKey, user.Username)
 
-	if err := s.ensureUsernameFree(ctx, q, user.Scope, user.Username, ""); err != nil {
+	if err := s.ensureUsernameFree(ctx, tx, scope, user.Username, ""); err != nil {
 		return op.Error(err, "creating identity user")
 	}
 
-	if err := s.ensureEmailAddressFree(ctx, q, user.Scope, user.EmailAddress, ""); err != nil {
+	if err := s.ensureEmailAddressFree(ctx, tx, scope, user.EmailAddress, ""); err != nil {
 		return op.Error(err, "creating identity user")
 	}
 
-	if err := s.q.CreateUser(ctx, q, createUserParams(user)); err != nil {
+	if err := s.q.CreateUser(ctx, tx, createUserParams(user)); err != nil {
 		return op.Error(err, "creating identity user")
 	}
 
 	// The creation time is the database's, and it is read back so the caller's
 	// copy agrees with the row rather than holding the zero time — see
 	// stampCreatedAt.
-	created, readErr := s.q.GetUserCreatedAt(ctx, q, identitydb.GetUserCreatedAtParams{ID: user.ID})
+	created, readErr := s.q.GetUserCreatedAt(ctx, tx, identitydb.GetUserCreatedAtParams{ID: user.ID})
 	if err := stampCreatedAt(&user.CreatedAt, created.CreatedAt, readErr); err != nil {
 		return op.Error(err, "creating identity user")
 	}
@@ -61,7 +72,7 @@ func (s *SQLStore) CreateUser(ctx context.Context, q database.Tx, user *User) er
 	// That holds because the parameter is a database.Tx: the sentence used to
 	// be true only of a caller who had opened one, and nothing stopped a caller
 	// who had not.
-	if err := s.replaceRoles(ctx, q, s.userRoleWrites(), user.ID, user.ServiceRoles); err != nil {
+	if err := s.replaceRoles(ctx, tx, s.userRoleWrites(), user.ID, user.ServiceRoles); err != nil {
 		return op.Error(err, "creating identity user")
 	}
 
@@ -69,16 +80,24 @@ func (s *SQLStore) CreateUser(ctx context.Context, q database.Tx, user *User) er
 }
 
 // CreateAccount writes a new account through the caller's transaction.
-func (s *SQLStore) CreateAccount(ctx context.Context, q database.Tx, account *Account) error {
-	ctx, op := s.o11y.Begin(ctx)
+func (s *SQLStore) CreateAccount(ctx context.Context, tx database.Tx, scope tenancy.Scope, account *Account) error {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
-	if err := requireExecutor(q); err != nil {
+	if err := requireExecutor(tx); err != nil {
 		return op.Error(err, "creating identity account")
 	}
 
 	if account == nil {
 		return op.Error(ErrNilAccount, "creating identity account")
+	}
+
+	if err := scope.Validate(); err != nil {
+		return op.Error(err, "creating identity account")
+	}
+
+	if err := adoptScope(scope, &account.Scope, "account"); err != nil {
+		return op.Error(err, "creating identity account")
 	}
 
 	account.EnsureDefaults()
@@ -89,13 +108,13 @@ func (s *SQLStore) CreateAccount(ctx context.Context, q database.Tx, account *Ac
 
 	account.ID = newID(account.ID)
 
-	op.Set(accountIDKey, account.ID).Set(scopeKey, account.Scope.String())
+	op.Set(accountIDKey, account.ID)
 
-	if err := s.q.CreateAccount(ctx, q, createAccountParams(account)); err != nil {
+	if err := s.q.CreateAccount(ctx, tx, createAccountParams(account)); err != nil {
 		return op.Error(err, "creating identity account")
 	}
 
-	created, readErr := s.q.GetAccountCreatedAt(ctx, q, identitydb.GetAccountCreatedAtParams{ID: account.ID})
+	created, readErr := s.q.GetAccountCreatedAt(ctx, tx, identitydb.GetAccountCreatedAtParams{ID: account.ID})
 	if err := stampCreatedAt(&account.CreatedAt, created.CreatedAt, readErr); err != nil {
 		return op.Error(err, "creating identity account")
 	}
@@ -104,16 +123,29 @@ func (s *SQLStore) CreateAccount(ctx context.Context, q database.Tx, account *Ac
 }
 
 // CreateMembership puts a user in an account through the caller's transaction.
-func (s *SQLStore) CreateMembership(ctx context.Context, q database.Tx, membership *Membership) error {
-	ctx, op := s.o11y.Begin(ctx)
+func (s *SQLStore) CreateMembership(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	membership *Membership,
+) error {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
-	if err := requireExecutor(q); err != nil {
+	if err := requireExecutor(tx); err != nil {
 		return op.Error(err, "creating identity membership")
 	}
 
 	if membership == nil {
 		return op.Error(ErrNilMembership, "creating identity membership")
+	}
+
+	if err := scope.Validate(); err != nil {
+		return op.Error(err, "creating identity membership")
+	}
+
+	if err := adoptScope(scope, &membership.Scope, "membership"); err != nil {
+		return op.Error(err, "creating identity membership")
 	}
 
 	if err := membership.ValidateWithContext(ctx); err != nil {
@@ -123,14 +155,13 @@ func (s *SQLStore) CreateMembership(ctx context.Context, q database.Tx, membersh
 	membership.ID = newID(membership.ID)
 
 	op.Set(userIDKey, membership.BelongsToUser).
-		Set(accountIDKey, membership.BelongsToAccount).
-		Set(scopeKey, membership.Scope.String())
+		Set(accountIDKey, membership.BelongsToAccount)
 
 	// A user's first live membership is their default whatever the value says.
 	// A user with memberships and no default has nowhere to land, and it is a
 	// state that is easy to write and confusing to debug — GetPrincipal reports
 	// ErrNoDefaultAccount and the caller has no obvious way to have caused it.
-	existing, err := s.hasLiveMembership(ctx, q, membership.Scope, membership.BelongsToUser)
+	existing, err := s.hasLiveMembership(ctx, tx, scope, membership.BelongsToUser)
 	if err != nil {
 		return op.Error(err, "creating identity membership")
 	}
@@ -139,7 +170,7 @@ func (s *SQLStore) CreateMembership(ctx context.Context, q database.Tx, membersh
 		membership.DefaultAccount = true
 	}
 
-	if err = s.writeMembership(ctx, q, membership); err != nil {
+	if err = s.writeMembership(ctx, tx, membership); err != nil {
 		return op.Error(err, "creating identity membership")
 	}
 

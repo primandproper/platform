@@ -54,12 +54,29 @@ func answerInvitationParams(
 }
 
 // CreateInvitation writes an invitation and the roles it promises.
-func (s *SQLStore) CreateInvitation(ctx context.Context, invitation *Invitation) error {
-	ctx, op := s.o11y.Begin(ctx)
+func (s *SQLStore) CreateInvitation(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	invitation *Invitation,
+) error {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
+
+	if err := requireExecutor(tx); err != nil {
+		return op.Error(err, "creating identity invitation")
+	}
 
 	if invitation == nil {
 		return op.Error(ErrNilInvitation, "creating identity invitation")
+	}
+
+	if err := scope.Validate(); err != nil {
+		return op.Error(err, "creating identity invitation")
+	}
+
+	if err := adoptScope(scope, &invitation.Scope, "invitation"); err != nil {
+		return op.Error(err, "creating identity invitation")
 	}
 
 	invitation.EnsureDefaults()
@@ -91,29 +108,25 @@ func (s *SQLStore) CreateInvitation(ctx context.Context, invitation *Invitation)
 
 	invitation.ID = newID(invitation.ID)
 
-	op.Set(invitationIDKey, invitation.ID).
-		Set(accountIDKey, invitation.BelongsToAccount).
-		Set(scopeKey, invitation.Scope.String())
+	op.Set(invitationIDKey, invitation.ID).Set(accountIDKey, invitation.BelongsToAccount)
 
-	// The invitation and its roles are one transaction: an invitation promising
-	// no roles produces a membership that may do nothing, which is discovered
-	// only once somebody has accepted it.
-	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		if err := s.q.CreateInvitation(ctx, q, createInvitationParams(invitation)); err != nil {
-			return platformerrors.Wrap(err, "writing identity invitation")
-		}
+	// The invitation and its roles are the caller's one transaction: an
+	// invitation promising no roles produces a membership that may do nothing,
+	// which is discovered only once somebody has accepted it.
+	if err := s.q.CreateInvitation(ctx, tx, createInvitationParams(invitation)); err != nil {
+		return op.Error(platformerrors.Wrap(err, "writing identity invitation"), "creating identity invitation")
+	}
 
-		// Read back for the reason CreateUser and CreateAccount read theirs
-		// back — see stampCreatedAt.
-		created, readErr := s.q.GetInvitationCreatedAt(ctx, q, identitydb.GetInvitationCreatedAtParams{
-			ID: invitation.ID,
-		})
-		if err := stampCreatedAt(&invitation.CreatedAt, created.CreatedAt, readErr); err != nil {
-			return err
-		}
+	// Read back for the reason CreateUser and CreateAccount read theirs back —
+	// see stampCreatedAt.
+	created, readErr := s.q.GetInvitationCreatedAt(ctx, tx, identitydb.GetInvitationCreatedAtParams{
+		ID: invitation.ID,
+	})
+	if err := stampCreatedAt(&invitation.CreatedAt, created.CreatedAt, readErr); err != nil {
+		return op.Error(err, "creating identity invitation")
+	}
 
-		return s.replaceRoles(ctx, q, s.invitationRoleWrites(), invitation.ID, invitation.Roles)
-	}); err != nil {
+	if err := s.replaceRoles(ctx, tx, s.invitationRoleWrites(), invitation.ID, invitation.Roles); err != nil {
 		return op.Error(err, "creating identity invitation")
 	}
 
@@ -121,18 +134,27 @@ func (s *SQLStore) CreateInvitation(ctx context.Context, invitation *Invitation)
 }
 
 // GetInvitation reads one of the scope's invitations by ID.
-func (s *SQLStore) GetInvitation(ctx context.Context, scope tenancy.Scope, invitationID string) (*Invitation, error) {
+func (s *SQLStore) GetInvitation(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	invitationID string,
+) (*Invitation, error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(invitationIDKey, invitationID),
 	)
 	defer op.End()
 
+	if err := requireExecutor(q); err != nil {
+		return nil, op.Error(err, "reading identity invitation %q", invitationID)
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "reading identity invitation %q", invitationID)
 	}
 
-	invitation, err := s.readInvitation(ctx, s.client.Reader(), scope, invitationID)
+	invitation, err := s.readInvitation(ctx, q, scope, invitationID)
 	if err != nil {
 		return nil, op.Error(err, "reading identity invitation %q", invitationID)
 	}
@@ -187,18 +209,27 @@ func (s *SQLStore) invitationRoles(
 }
 
 // GetInvitationByToken reads the invitation a link names, comparing the token.
-func (s *SQLStore) GetInvitationByToken(ctx context.Context, scope tenancy.Scope, invitationID, token string) (*Invitation, error) {
+func (s *SQLStore) GetInvitationByToken(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	invitationID, token string,
+) (*Invitation, error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(invitationIDKey, invitationID),
 	)
 	defer op.End()
 
+	if err := requireExecutor(q); err != nil {
+		return nil, op.Error(err, "reading identity invitation by token")
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "reading identity invitation by token")
 	}
 
-	invitation, err := s.readInvitation(ctx, s.client.Reader(), scope, invitationID)
+	invitation, err := s.readInvitation(ctx, q, scope, invitationID)
 	if err != nil {
 		return nil, op.Error(err, "reading identity invitation by token")
 	}
@@ -239,14 +270,28 @@ func (s *SQLStore) checkInvitationToken(invitation *Invitation, token string) er
 
 // ListInvitationsFromUser pages the pending invitations a user has sent, in the
 // direction the filter names.
-func (s *SQLStore) ListInvitationsFromUser(ctx context.Context, scope tenancy.Scope, userID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Invitation], error) {
-	return s.pageInvitations(ctx, invitationFromUserColumn, scope, userID, filter, "listing identity invitations from user")
+func (s *SQLStore) ListInvitationsFromUser(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	userID string,
+	filter *filtering.QueryFilter,
+) (*filtering.QueryFilteredResult[Invitation], error) {
+	return s.pageInvitations(ctx, q, invitationFromUserColumn, scope, userID, filter,
+		"listing identity invitations from user")
 }
 
 // ListInvitationsForEmailAddress pages the pending invitations addressed to an
 // email address, in the direction the filter names.
-func (s *SQLStore) ListInvitationsForEmailAddress(ctx context.Context, scope tenancy.Scope, emailAddress string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Invitation], error) {
-	return s.pageInvitations(ctx, invitationToEmailColumn, scope, emailAddress, filter, "listing identity invitations for email address")
+func (s *SQLStore) ListInvitationsForEmailAddress(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	emailAddress string,
+	filter *filtering.QueryFilter,
+) (*filtering.QueryFilteredResult[Invitation], error) {
+	return s.pageInvitations(ctx, q, invitationToEmailColumn, scope, emailAddress, filter,
+		"listing identity invitations for email address")
 }
 
 // pageInvitations is the one implementation behind both paged invitation reads.
@@ -254,6 +299,7 @@ func (s *SQLStore) ListInvitationsForEmailAddress(ctx context.Context, scope ten
 // predicate, the pending clause, and the redaction — are written once here.
 func (s *SQLStore) pageInvitations(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	column string,
 	scope tenancy.Scope,
 	value string,
@@ -263,13 +309,17 @@ func (s *SQLStore) pageInvitations(
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
+	if err := requireExecutor(q); err != nil {
+		return nil, op.Error(err, "%s", description)
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "%s", description)
 	}
 
 	filter = pageFilter(filter)
 
-	rows, err := s.listInvitationRows(ctx, column, scope, value, filter)
+	rows, err := s.listInvitationRows(ctx, q, column, scope, value, filter)
 	if err != nil {
 		return nil, op.Error(err, "%s", description)
 	}
@@ -281,7 +331,7 @@ func (s *SQLStore) pageInvitations(
 		ids = append(ids, invitation.ID)
 	}
 
-	byInvitation, err := s.invitationRoles(ctx, s.client.Reader(), ids)
+	byInvitation, err := s.invitationRoles(ctx, q, ids)
 	if err != nil {
 		return nil, op.Error(err, "%s", description)
 	}
@@ -318,6 +368,7 @@ func (s *SQLStore) pageInvitations(
 // cursor comparison and its ORDER BY and in nothing a caller binds.
 func (s *SQLStore) listInvitationRows(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	column string,
 	scope tenancy.Scope,
 	value string,
@@ -342,10 +393,10 @@ func (s *SQLStore) listInvitationRows(
 
 		got, err := sortedRows(filter,
 			func() ([]identitydb.ListInvitationsByFromUserRow, error) {
-				return s.q.ListInvitationsByFromUser(ctx, s.client.Reader(), params)
+				return s.q.ListInvitationsByFromUser(ctx, q, params)
 			},
 			func() ([]identitydb.ListInvitationsByFromUserDescendingRow, error) {
-				return s.q.ListInvitationsByFromUserDescending(ctx, s.client.Reader(),
+				return s.q.ListInvitationsByFromUserDescending(ctx, q,
 					identitydb.ListInvitationsByFromUserDescendingParams(params))
 			},
 			func(r identitydb.ListInvitationsByFromUserDescendingRow) identitydb.ListInvitationsByFromUserRow {
@@ -378,10 +429,10 @@ func (s *SQLStore) listInvitationRows(
 
 		got, err := sortedRows(filter,
 			func() ([]identitydb.ListInvitationsByToEmailRow, error) {
-				return s.q.ListInvitationsByToEmail(ctx, s.client.Reader(), params)
+				return s.q.ListInvitationsByToEmail(ctx, q, params)
 			},
 			func() ([]identitydb.ListInvitationsByToEmailDescendingRow, error) {
-				return s.q.ListInvitationsByToEmailDescending(ctx, s.client.Reader(),
+				return s.q.ListInvitationsByToEmailDescending(ctx, q,
 					identitydb.ListInvitationsByToEmailDescendingParams(params))
 			},
 			func(r identitydb.ListInvitationsByToEmailDescendingRow) identitydb.ListInvitationsByToEmailRow {
@@ -407,7 +458,7 @@ func (s *SQLStore) listInvitationRows(
 // promised, through the caller's transaction.
 func (s *SQLStore) AcceptInvitation(
 	ctx context.Context,
-	q database.Tx,
+	tx database.Tx,
 	scope tenancy.Scope,
 	invitationID, token, acceptingUserID, statusNote string,
 ) (*Membership, error) {
@@ -418,7 +469,7 @@ func (s *SQLStore) AcceptInvitation(
 	)
 	defer op.End()
 
-	if err := requireExecutor(q); err != nil {
+	if err := requireExecutor(tx); err != nil {
 		return nil, op.Error(err, "accepting identity invitation")
 	}
 
@@ -433,7 +484,7 @@ func (s *SQLStore) AcceptInvitation(
 		)
 	}
 
-	invitation, err := s.readInvitation(ctx, q, scope, invitationID)
+	invitation, err := s.readInvitation(ctx, tx, scope, invitationID)
 	if err != nil {
 		return nil, op.Error(err, "accepting identity invitation")
 	}
@@ -447,7 +498,7 @@ func (s *SQLStore) AcceptInvitation(
 	// The answer carries the same pending predicate every other answer does, so
 	// two clicks on one link produce one membership: the second finds nothing
 	// pending and stops here.
-	count, err := s.q.AnswerInvitation(ctx, q,
+	count, err := s.q.AnswerInvitation(ctx, tx,
 		answerInvitationParams(scope, invitationID, InvitationAccepted, statusNote, &acceptingUserID))
 	if err = s.guardCount(ctx, count, err, ErrInvitationNotFound, "accepting identity invitation"); err != nil {
 		return nil, op.Error(err, "accepting identity invitation")
@@ -465,7 +516,7 @@ func (s *SQLStore) AcceptInvitation(
 		CreatedAt: now,
 	}
 
-	existing, err := s.hasLiveMembership(ctx, q, scope, acceptingUserID)
+	existing, err := s.hasLiveMembership(ctx, tx, scope, acceptingUserID)
 	if err != nil {
 		return nil, op.Error(err, "accepting identity invitation")
 	}
@@ -476,7 +527,7 @@ func (s *SQLStore) AcceptInvitation(
 		membership.DefaultAccount = true
 	}
 
-	if err = s.writeMembership(ctx, q, membership); err != nil {
+	if err = s.writeMembership(ctx, tx, membership); err != nil {
 		return nil, op.Error(err, "accepting identity invitation")
 	}
 
@@ -484,12 +535,23 @@ func (s *SQLStore) AcceptInvitation(
 }
 
 // SetInvitationStatus answers an invitation without producing a membership.
-func (s *SQLStore) SetInvitationStatus(ctx context.Context, scope tenancy.Scope, invitationID string, status InvitationStatus, statusNote string) error {
+func (s *SQLStore) SetInvitationStatus(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	invitationID string,
+	status InvitationStatus,
+	statusNote string,
+) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(invitationIDKey, invitationID),
 	)
 	defer op.End()
+
+	if err := requireExecutor(tx); err != nil {
+		return op.Error(err, "setting identity invitation status")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "setting identity invitation status")
@@ -513,7 +575,7 @@ func (s *SQLStore) SetInvitationStatus(ctx context.Context, scope tenancy.Scope,
 		)
 	}
 
-	count, err := s.q.AnswerInvitation(ctx, s.client.Writer(),
+	count, err := s.q.AnswerInvitation(ctx, tx,
 		answerInvitationParams(scope, invitationID, status, statusNote, nil))
 	if err = s.guardCount(ctx, count, err, ErrInvitationNotFound, "setting identity invitation status"); err != nil {
 		return op.Error(err, "setting identity invitation status")

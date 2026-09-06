@@ -16,18 +16,27 @@ import (
 var _ DirectoryReader = (*SQLStore)(nil)
 
 // GetUser reads one of the scope's live users.
-func (s *SQLStore) GetUser(ctx context.Context, scope tenancy.Scope, userID string) (*User, error) {
+func (s *SQLStore) GetUser(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	userID string,
+) (*User, error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(userIDKey, userID),
 	)
 	defer op.End()
 
+	if err := requireExecutor(q); err != nil {
+		return nil, op.Error(err, "reading identity user %q", userID)
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "reading identity user %q", userID)
 	}
 
-	user, err := s.readUser(ctx, s.client.Reader(), scope, userID)
+	user, err := s.readUser(ctx, q, scope, userID)
 	if err != nil {
 		return nil, op.Error(err, "reading identity user %q", userID)
 	}
@@ -68,9 +77,18 @@ func (s *SQLStore) readUser(
 // argument either of them binds — see sortedRows — so what this method does
 // with filter.SortBy is pick the one whose ORDER BY and cursor comparison agree
 // with it.
-func (s *SQLStore) ListUsers(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[User], error) {
+func (s *SQLStore) ListUsers(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	filter *filtering.QueryFilter,
+) (*filtering.QueryFilteredResult[User], error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
+
+	if err := requireExecutor(q); err != nil {
+		return nil, op.Error(err, "listing identity users")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "listing identity users")
@@ -80,10 +98,10 @@ func (s *SQLStore) ListUsers(ctx context.Context, scope tenancy.Scope, filter *f
 
 	listRows, err := sortedRows(filter,
 		func() ([]identitydb.ListUsersRow, error) {
-			return s.q.ListUsers(ctx, s.client.Reader(), listUsersParams(scope, filter))
+			return s.q.ListUsers(ctx, q, listUsersParams(scope, filter))
 		},
 		func() ([]identitydb.ListUsersDescendingRow, error) {
-			return s.q.ListUsersDescending(ctx, s.client.Reader(),
+			return s.q.ListUsersDescending(ctx, q,
 				identitydb.ListUsersDescendingParams(listUsersParams(scope, filter)))
 		},
 		func(r identitydb.ListUsersDescendingRow) identitydb.ListUsersRow {
@@ -98,7 +116,7 @@ func (s *SQLStore) ListUsers(ctx context.Context, scope tenancy.Scope, filter *f
 		rows = append(rows, userPageRow(&listRows[i]))
 	}
 
-	if err = s.hydrateUsers(ctx, s.client.Reader(), pageValues(rows)); err != nil {
+	if err = s.hydrateUsers(ctx, q, pageValues(rows)); err != nil {
 		return nil, op.Error(err, "listing identity users")
 	}
 
@@ -119,9 +137,18 @@ func (s *SQLStore) ListUsers(ctx context.Context, scope tenancy.Scope, filter *f
 // colleague" into "created by nobody". The statement says so by being rendered
 // from a column list without archived_at in it, while still projecting the
 // column — see identity/internal/queries.
-func (s *SQLStore) ListUsersByIDs(ctx context.Context, scope tenancy.Scope, userIDs []string) ([]*User, error) {
+func (s *SQLStore) ListUsersByIDs(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	userIDs []string,
+) ([]*User, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
+
+	if err := requireExecutor(q); err != nil {
+		return nil, op.Error(err, "reading identity users by ID")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "reading identity users by ID")
@@ -135,7 +162,7 @@ func (s *SQLStore) ListUsersByIDs(ctx context.Context, scope tenancy.Scope, user
 		return []*User{}, nil
 	}
 
-	rows, err := s.q.ListUsersByIDs(ctx, s.client.Reader(), identitydb.ListUsersByIDsParams{
+	rows, err := s.q.ListUsersByIDs(ctx, q, identitydb.ListUsersByIDsParams{
 		Scope: scope,
 		IDs:   userIDs,
 	})
@@ -148,7 +175,7 @@ func (s *SQLStore) ListUsersByIDs(ctx context.Context, scope tenancy.Scope, user
 		users = append(users, userFromBatchRow(&rows[i]))
 	}
 
-	if err = s.hydrateUsers(ctx, s.client.Reader(), users); err != nil {
+	if err = s.hydrateUsers(ctx, q, users); err != nil {
 		return nil, op.Error(err, "reading identity user service roles")
 	}
 
@@ -180,9 +207,19 @@ func (s *SQLStore) ListUsersByIDs(ctx context.Context, scope tenancy.Scope, user
 // direction nobody asked for would be the same silent wrong order a list would
 // have. The count is one statement either way, since a count does not depend on
 // the order its rows would have arrived in.
-func (s *SQLStore) SearchUsersByUsername(ctx context.Context, scope tenancy.Scope, prefix string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[User], error) {
+func (s *SQLStore) SearchUsersByUsername(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	prefix string,
+	filter *filtering.QueryFilter,
+) (*filtering.QueryFilteredResult[User], error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
+
+	if err := requireExecutor(q); err != nil {
+		return nil, op.Error(err, "searching identity users")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "searching identity users")
@@ -196,10 +233,10 @@ func (s *SQLStore) SearchUsersByUsername(ctx context.Context, scope tenancy.Scop
 
 	searchRows, err := sortedRows(filter,
 		func() ([]identitydb.SearchUsersByUsernameRow, error) {
-			return s.q.SearchUsersByUsername(ctx, s.client.Reader(), searchUsersParams(scope, pattern, filter))
+			return s.q.SearchUsersByUsername(ctx, q, searchUsersParams(scope, pattern, filter))
 		},
 		func() ([]identitydb.SearchUsersByUsernameDescendingRow, error) {
-			return s.q.SearchUsersByUsernameDescending(ctx, s.client.Reader(),
+			return s.q.SearchUsersByUsernameDescending(ctx, q,
 				identitydb.SearchUsersByUsernameDescendingParams(searchUsersParams(scope, pattern, filter)))
 		},
 		func(r identitydb.SearchUsersByUsernameDescendingRow) identitydb.SearchUsersByUsernameRow {
@@ -214,11 +251,11 @@ func (s *SQLStore) SearchUsersByUsername(ctx context.Context, scope tenancy.Scop
 		users = append(users, userFromSearchRow(&searchRows[i]))
 	}
 
-	if err = s.hydrateUsers(ctx, s.client.Reader(), users); err != nil {
+	if err = s.hydrateUsers(ctx, q, users); err != nil {
 		return nil, op.Error(err, "searching identity user service roles")
 	}
 
-	count, err := s.q.CountSearchUsersByUsername(ctx, s.client.Reader(), countSearchUsersParams(scope, pattern))
+	count, err := s.q.CountSearchUsersByUsername(ctx, q, countSearchUsersParams(scope, pattern))
 	if err != nil {
 		return nil, op.Error(err, "counting identity users")
 	}
@@ -261,18 +298,27 @@ func (s *SQLStore) hydrateUsers(ctx context.Context, q database.SQLQueryExecutor
 }
 
 // GetAccount reads one of the scope's live accounts.
-func (s *SQLStore) GetAccount(ctx context.Context, scope tenancy.Scope, accountID string) (*Account, error) {
+func (s *SQLStore) GetAccount(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	accountID string,
+) (*Account, error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(accountIDKey, accountID),
 	)
 	defer op.End()
 
+	if err := requireExecutor(q); err != nil {
+		return nil, op.Error(err, "reading identity account %q", accountID)
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "reading identity account %q", accountID)
 	}
 
-	account, err := s.readAccount(ctx, s.client.Reader(), scope, accountID)
+	account, err := s.readAccount(ctx, q, scope, accountID)
 	if err != nil {
 		return nil, op.Error(err, "reading identity account %q", accountID)
 	}
@@ -300,9 +346,18 @@ func (s *SQLStore) readAccount(
 }
 
 // ListAccounts pages the scope's accounts, in the direction the filter names.
-func (s *SQLStore) ListAccounts(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Account], error) {
+func (s *SQLStore) ListAccounts(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	filter *filtering.QueryFilter,
+) (*filtering.QueryFilteredResult[Account], error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
+
+	if err := requireExecutor(q); err != nil {
+		return nil, op.Error(err, "listing identity accounts")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "listing identity accounts")
@@ -312,10 +367,10 @@ func (s *SQLStore) ListAccounts(ctx context.Context, scope tenancy.Scope, filter
 
 	listRows, err := sortedRows(filter,
 		func() ([]identitydb.ListAccountsRow, error) {
-			return s.q.ListAccounts(ctx, s.client.Reader(), listAccountsParams(scope, filter))
+			return s.q.ListAccounts(ctx, q, listAccountsParams(scope, filter))
 		},
 		func() ([]identitydb.ListAccountsDescendingRow, error) {
-			return s.q.ListAccountsDescending(ctx, s.client.Reader(),
+			return s.q.ListAccountsDescending(ctx, q,
 				identitydb.ListAccountsDescendingParams(listAccountsParams(scope, filter)))
 		},
 		func(r identitydb.ListAccountsDescendingRow) identitydb.ListAccountsRow {
@@ -338,12 +393,22 @@ func (s *SQLStore) ListAccounts(ctx context.Context, scope tenancy.Scope, filter
 
 // ListAccountsForUser pages the accounts a user is a live member of, in the
 // direction the filter names.
-func (s *SQLStore) ListAccountsForUser(ctx context.Context, scope tenancy.Scope, userID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Account], error) {
+func (s *SQLStore) ListAccountsForUser(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	userID string,
+	filter *filtering.QueryFilter,
+) (*filtering.QueryFilteredResult[Account], error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(userIDKey, userID),
 	)
 	defer op.End()
+
+	if err := requireExecutor(q); err != nil {
+		return nil, op.Error(err, "listing identity accounts for user")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "listing identity accounts for user")
@@ -353,10 +418,10 @@ func (s *SQLStore) ListAccountsForUser(ctx context.Context, scope tenancy.Scope,
 
 	listRows, err := sortedRows(filter,
 		func() ([]identitydb.ListAccountsForUserRow, error) {
-			return s.q.ListAccountsForUser(ctx, s.client.Reader(), listAccountsForUserParams(scope, userID, filter))
+			return s.q.ListAccountsForUser(ctx, q, listAccountsForUserParams(scope, userID, filter))
 		},
 		func() ([]identitydb.ListAccountsForUserDescendingRow, error) {
-			return s.q.ListAccountsForUserDescending(ctx, s.client.Reader(),
+			return s.q.ListAccountsForUserDescending(ctx, q,
 				identitydb.ListAccountsForUserDescendingParams(listAccountsForUserParams(scope, userID, filter)))
 		},
 		func(r identitydb.ListAccountsForUserDescendingRow) identitydb.ListAccountsForUserRow {
@@ -378,7 +443,13 @@ func (s *SQLStore) ListAccountsForUser(ctx context.Context, scope tenancy.Scope,
 }
 
 // GetMembership reads the live membership between a user and an account.
-func (s *SQLStore) GetMembership(ctx context.Context, scope tenancy.Scope, userID, accountID string) (*Membership, error) {
+func (s *SQLStore) GetMembership(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	userID,
+	accountID string,
+) (*Membership, error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(userIDKey, userID),
@@ -386,16 +457,20 @@ func (s *SQLStore) GetMembership(ctx context.Context, scope tenancy.Scope, userI
 	)
 	defer op.End()
 
+	if err := requireExecutor(q); err != nil {
+		return nil, op.Error(err, "reading identity membership")
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "reading identity membership")
 	}
 
-	membership, err := s.readMembership(ctx, s.client.Reader(), scope, userID, accountID)
+	membership, err := s.readMembership(ctx, q, scope, userID, accountID)
 	if err != nil {
 		return nil, op.Error(err, "reading identity membership")
 	}
 
-	if err = s.attachMembershipRoles(ctx, s.client.Reader(), []*Membership{membership}); err != nil {
+	if err = s.attachMembershipRoles(ctx, q, []*Membership{membership}); err != nil {
 		return nil, op.Error(err, "reading identity membership roles")
 	}
 
@@ -404,18 +479,27 @@ func (s *SQLStore) GetMembership(ctx context.Context, scope tenancy.Scope, userI
 
 // ListMembershipsForUser returns every live membership a user holds, default
 // account first.
-func (s *SQLStore) ListMembershipsForUser(ctx context.Context, scope tenancy.Scope, userID string) ([]*Membership, error) {
+func (s *SQLStore) ListMembershipsForUser(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	userID string,
+) ([]*Membership, error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(userIDKey, userID),
 	)
 	defer op.End()
 
+	if err := requireExecutor(q); err != nil {
+		return nil, op.Error(err, "listing identity memberships")
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "listing identity memberships")
 	}
 
-	memberships, err := s.readMembershipsForUser(ctx, s.client.Reader(), scope, userID)
+	memberships, err := s.readMembershipsForUser(ctx, q, scope, userID)
 	if err != nil {
 		return nil, op.Error(err, "listing identity memberships")
 	}
@@ -431,12 +515,22 @@ func (s *SQLStore) ListMembershipsForUser(ctx context.Context, scope tenancy.Sco
 // The roster is a page of memberships with the member attached, so the
 // direction reverses the memberships — the cursor walks their ids, and the
 // user's columns arrive beside whichever page that produces.
-func (s *SQLStore) ListAccountMembers(ctx context.Context, scope tenancy.Scope, accountID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[MembershipWithUser], error) {
+func (s *SQLStore) ListAccountMembers(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	accountID string,
+	filter *filtering.QueryFilter,
+) (*filtering.QueryFilteredResult[MembershipWithUser], error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(accountIDKey, accountID),
 	)
 	defer op.End()
+
+	if err := requireExecutor(q); err != nil {
+		return nil, op.Error(err, "listing identity account members")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "listing identity account members")
@@ -446,10 +540,10 @@ func (s *SQLStore) ListAccountMembers(ctx context.Context, scope tenancy.Scope, 
 
 	listRows, err := sortedRows(filter,
 		func() ([]identitydb.ListAccountMembersRow, error) {
-			return s.q.ListAccountMembers(ctx, s.client.Reader(), listAccountMembersParams(scope, accountID, filter))
+			return s.q.ListAccountMembers(ctx, q, listAccountMembersParams(scope, accountID, filter))
 		},
 		func() ([]identitydb.ListAccountMembersDescendingRow, error) {
-			return s.q.ListAccountMembersDescending(ctx, s.client.Reader(),
+			return s.q.ListAccountMembersDescending(ctx, q,
 				identitydb.ListAccountMembersDescendingParams(listAccountMembersParams(scope, accountID, filter)))
 		},
 		func(r identitydb.ListAccountMembersDescendingRow) identitydb.ListAccountMembersRow {
@@ -471,7 +565,7 @@ func (s *SQLStore) ListAccountMembers(ctx context.Context, scope tenancy.Scope, 
 		memberships = append(memberships, &member.Membership)
 	}
 
-	if err = s.attachMembershipRoles(ctx, s.client.Reader(), memberships); err != nil {
+	if err = s.attachMembershipRoles(ctx, q, memberships); err != nil {
 		return nil, op.Error(err, "listing identity account member roles")
 	}
 

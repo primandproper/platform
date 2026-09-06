@@ -1,7 +1,6 @@
 package identity
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -25,9 +24,9 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		user := createUser(t, store, newUser("ada"))
+		user := seedUser(t, env, store, newUser("ada"))
 
-		_, err := store.GetUser(t.Context(), otherScope, user.ID)
+		_, err := store.GetUser(t.Context(), env.reader(), otherScope, user.ID)
 		must.ErrorIs(t, err, ErrUserNotFound)
 	})
 
@@ -36,7 +35,7 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 
-		_, err := store.GetUser(t.Context(), tenancy.Scope{}, "whatever")
+		_, err := store.GetUser(t.Context(), env.reader(), tenancy.Scope{}, "whatever")
 		must.ErrorIs(t, err, tenancy.ErrNoScope)
 	})
 
@@ -51,14 +50,14 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 		for i, name := range []string{"ada", "brian", "carol", "dennis"} {
 			user := newUser(name)
 			user.ID = fmt.Sprintf("u_%02d", i)
-			created = append(created, createUser(t, store, user))
+			created = append(created, seedUser(t, env, store, user))
 		}
 
 		neighbor := newUser("eve")
 		neighbor.Scope = otherScope
-		createUser(t, store, neighbor)
+		seedUser(t, env, store, neighbor)
 
-		page, err := store.ListUsers(t.Context(), testScope, &filtering.QueryFilter{
+		page, err := store.ListUsers(t.Context(), env.reader(), testScope, &filtering.QueryFilter{
 			MaxResponseSize: pointer.To(uint16(2)),
 		})
 		must.NoError(t, err)
@@ -79,7 +78,7 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 		test.EqOp(t, uint64(4), total)
 		test.EqOp(t, uint64(4), filtered)
 
-		next, err := store.ListUsers(t.Context(), testScope, &filtering.QueryFilter{
+		next, err := store.ListUsers(t.Context(), env.reader(), testScope, &filtering.QueryFilter{
 			MaxResponseSize: pointer.To(uint16(2)),
 			Cursor:          pointer.To(created[1].ID),
 		})
@@ -109,12 +108,12 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 		for i, name := range []string{"ada", "brian", "carol", "dennis"} {
 			user := newUser(name)
 			user.ID = fmt.Sprintf("u_%02d", i)
-			created = append(created, createUser(t, store, user))
+			created = append(created, seedUser(t, env, store, user))
 		}
 
 		neighbor := newUser("eve")
 		neighbor.Scope = otherScope
-		createUser(t, store, neighbor)
+		seedUser(t, env, store, neighbor)
 
 		descending := func(cursor *string) *filtering.QueryFilter {
 			return &filtering.QueryFilter{
@@ -128,7 +127,7 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 		// has no sentinel for: it coalesces to the row's own key rather than to
 		// a string that would be above every id in one collation and below some
 		// of them in another.
-		first, err := store.ListUsers(t.Context(), testScope, descending(nil))
+		first, err := store.ListUsers(t.Context(), env.reader(), testScope, descending(nil))
 		must.NoError(t, err)
 		must.SliceLen(t, 2, first.Data)
 		test.EqOp(t, "dennis", first.Data[0].Username)
@@ -149,7 +148,7 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 			test.EqOp(t, "", user.TwoFactorSecret)
 		}
 
-		second, err := store.ListUsers(t.Context(), testScope, descending(pointer.To(first.Cursor)))
+		second, err := store.ListUsers(t.Context(), env.reader(), testScope, descending(pointer.To(first.Cursor)))
 		must.NoError(t, err)
 		must.SliceLen(t, 2, second.Data)
 		test.EqOp(t, "brian", second.Data[0].Username)
@@ -157,14 +156,14 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 
 		// The walk ends rather than repeating its last page, which is what a
 		// cursor comparison pointing the wrong way would do.
-		last, err := store.ListUsers(t.Context(), testScope, descending(pointer.To(second.Cursor)))
+		last, err := store.ListUsers(t.Context(), env.reader(), testScope, descending(pointer.To(second.Cursor)))
 		must.NoError(t, err)
 		test.SliceEmpty(t, last.Data)
 
 		// The ascending page over the same filter is the same four users the
 		// other way round: the window, the archived toggle and the scope are
 		// one text on both statements.
-		ascending, err := store.ListUsers(t.Context(), testScope, nil)
+		ascending, err := store.ListUsers(t.Context(), env.reader(), testScope, nil)
 		must.NoError(t, err)
 		must.SliceLen(t, 4, ascending.Data)
 
@@ -180,34 +179,34 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 		// direction honored by the directory and dropped by the roster would be
 		// the same silent wrong order in a different response body.
 		store := env.newStore(t)
-		owner := createUser(t, store, newUser("ada"))
+		owner := seedUser(t, env, store, newUser("ada"))
 
-		first := createAccountFor(t, store, owner, "First")
-		second := createAccountFor(t, store, owner, "Second")
+		first := seedAccountFor(t, env, store, owner, "First")
+		second := seedAccountFor(t, env, store, owner, "Second")
 
 		for _, name := range []string{"brian", "carol"} {
-			registerInto(t, store, newUser(name), first.ID)
+			seedUserInto(t, env, store, newUser(name), first.ID)
 		}
 
 		newestFirst := &filtering.QueryFilter{SortBy: filtering.SortDescending}
 
-		accounts, err := store.ListAccounts(t.Context(), testScope, newestFirst)
+		accounts, err := store.ListAccounts(t.Context(), env.reader(), testScope, newestFirst)
 		must.NoError(t, err)
 		must.SliceLen(t, 2, accounts.Data)
 		test.EqOp(t, second.ID, accounts.Data[0].ID)
 		test.EqOp(t, first.ID, accounts.Data[1].ID)
 
-		mine, err := store.ListAccountsForUser(t.Context(), testScope, owner.ID, newestFirst)
+		mine, err := store.ListAccountsForUser(t.Context(), env.reader(), testScope, owner.ID, newestFirst)
 		must.NoError(t, err)
 		must.SliceLen(t, 2, mine.Data)
 		test.EqOp(t, second.ID, mine.Data[0].ID)
 		test.EqOp(t, first.ID, mine.Data[1].ID)
 
-		roster, err := store.ListAccountMembers(t.Context(), testScope, first.ID, newestFirst)
+		roster, err := store.ListAccountMembers(t.Context(), env.reader(), testScope, first.ID, newestFirst)
 		must.NoError(t, err)
 		must.SliceLen(t, 3, roster.Data)
 
-		ascendingRoster, err := store.ListAccountMembers(t.Context(), testScope, first.ID, nil)
+		ascendingRoster, err := store.ListAccountMembers(t.Context(), env.reader(), testScope, first.ID, nil)
 		must.NoError(t, err)
 		must.SliceLen(t, 3, ascendingRoster.Data)
 
@@ -230,10 +229,10 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 		// page of a one-page result, which is why this one pages.
 		store := env.newStore(t)
 		for _, name := range []string{"ada", "adam", "adele", "brian"} {
-			createUser(t, store, newUser(name))
+			seedUser(t, env, store, newUser(name))
 		}
 
-		page, err := store.SearchUsersByUsername(t.Context(), testScope, "ad",
+		page, err := store.SearchUsersByUsername(t.Context(), env.reader(), testScope, "ad",
 			&filtering.QueryFilter{SortBy: filtering.SortDescending, MaxResponseSize: pointer.To(uint16(2))})
 		must.NoError(t, err)
 		must.SliceLen(t, 2, page.Data)
@@ -246,7 +245,7 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 		test.EqOp(t, uint64(3), total)
 
 		// The cursor is the username, so the next page resumes below it.
-		next, err := store.SearchUsersByUsername(t.Context(), testScope, "ad",
+		next, err := store.SearchUsersByUsername(t.Context(), env.reader(), testScope, "ad",
 			&filtering.QueryFilter{
 				SortBy:          filtering.SortDescending,
 				MaxResponseSize: pointer.To(uint16(2)),
@@ -263,7 +262,7 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		early := createUser(t, store, newUser("ada"))
+		early := seedUser(t, env, store, newUser("ada"))
 
 		// A whole second, not a millisecond: SQLite has no timestamp type, so
 		// its created_at holds the text CURRENT_TIMESTAMP wrote and compares
@@ -271,13 +270,13 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 		// is the same string as the row's own stamp and excludes it.
 		cutoff := early.CreatedAt.Add(time.Second)
 
-		before, err := store.ListUsers(t.Context(), testScope, &filtering.QueryFilter{
+		before, err := store.ListUsers(t.Context(), env.reader(), testScope, &filtering.QueryFilter{
 			CreatedBefore: pointer.To(cutoff),
 		})
 		must.NoError(t, err)
 		must.SliceLen(t, 1, before.Data)
 
-		after, err := store.ListUsers(t.Context(), testScope, &filtering.QueryFilter{
+		after, err := store.ListUsers(t.Context(), env.reader(), testScope, &filtering.QueryFilter{
 			CreatedAfter: pointer.To(cutoff),
 		})
 		must.NoError(t, err)
@@ -295,17 +294,17 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 		for _, name := range []string{"ada", "adam", "brian", "a%wildcard"} {
-			createUser(t, store, newUser(name))
+			seedUser(t, env, store, newUser(name))
 		}
 
-		page, err := store.SearchUsersByUsername(t.Context(), testScope, "ad", nil)
+		page, err := store.SearchUsersByUsername(t.Context(), env.reader(), testScope, "ad", nil)
 		must.NoError(t, err)
 		must.SliceLen(t, 2, page.Data)
 
 		// The escape is what keeps the typed % a character: without it the
 		// pattern widens past the prefix and takes ada and adam with it, which
 		// reads as a working search returning too much rather than as a bug.
-		wildcard, err := store.SearchUsersByUsername(t.Context(), testScope, "a%", nil)
+		wildcard, err := store.SearchUsersByUsername(t.Context(), env.reader(), testScope, "a%", nil)
 		must.NoError(t, err)
 		must.SliceLen(t, 1, wildcard.Data)
 		test.EqOp(t, "a%wildcard", wildcard.Data[0].Username)
@@ -316,15 +315,15 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 
 		store := env.newStore(t)
 		for _, name := range []string{"ada", "adam", "adele", "brian"} {
-			createUser(t, store, newUser(name))
+			seedUser(t, env, store, newUser(name))
 		}
 
 		// Archived after it was written, so what the search leaves out is a
 		// user the prefix matched rather than one it never did.
-		gone := createUser(t, store, newUser("adrian"))
-		must.NoError(t, store.ArchiveUser(t.Context(), testScope, gone.ID))
+		gone := seedUser(t, env, store, newUser("adrian"))
+		must.NoError(t, env.archiveUser(t, store, testScope, gone.ID))
 
-		first, err := store.SearchUsersByUsername(t.Context(), testScope, "ad",
+		first, err := store.SearchUsersByUsername(t.Context(), env.reader(), testScope, "ad",
 			&filtering.QueryFilter{MaxResponseSize: pointer.To(uint16(2))})
 		must.NoError(t, err)
 		must.SliceLen(t, 2, first.Data)
@@ -343,7 +342,7 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 		// use is a page that skips rows and repeats others.
 		test.EqOp(t, "adam", first.Cursor)
 
-		second, err := store.SearchUsersByUsername(t.Context(), testScope, "ad",
+		second, err := store.SearchUsersByUsername(t.Context(), env.reader(), testScope, "ad",
 			&filtering.QueryFilter{MaxResponseSize: pointer.To(uint16(2)), Cursor: pointer.To(first.Cursor)})
 		must.NoError(t, err)
 		must.SliceLen(t, 1, second.Data)
@@ -358,14 +357,14 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		ada := createUser(t, store, newUser("ada"))
-		brian := createUser(t, store, newUser("brian"))
+		ada := seedUser(t, env, store, newUser("ada"))
+		brian := seedUser(t, env, store, newUser("brian"))
 
 		neighbor := newUser("eve")
 		neighbor.Scope = otherScope
-		createUser(t, store, neighbor)
+		seedUser(t, env, store, neighbor)
 
-		users, err := store.ListUsersByIDs(t.Context(), testScope,
+		users, err := store.ListUsersByIDs(t.Context(), env.reader(), testScope,
 			[]string{ada.ID, brian.ID, neighbor.ID, identifiers.New()})
 		must.NoError(t, err)
 
@@ -378,7 +377,7 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 			test.EqOp(t, "", user.HashedPassword)
 		}
 
-		empty, err := store.ListUsersByIDs(t.Context(), testScope, nil)
+		empty, err := store.ListUsersByIDs(t.Context(), env.reader(), testScope, nil)
 		must.NoError(t, err)
 		test.SliceEmpty(t, empty)
 	})
@@ -387,10 +386,10 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		ada := createUser(t, store, newUser("ada"))
-		gone := createUser(t, store, newUser("brian"))
+		ada := seedUser(t, env, store, newUser("ada"))
+		gone := seedUser(t, env, store, newUser("brian"))
 
-		must.NoError(t, store.ArchiveUser(t.Context(), testScope, gone.ID))
+		must.NoError(t, env.archiveUser(t, store, testScope, gone.ID))
 
 		// The batch read is what a caller hydrates "created by" references
 		// through, so a soft-deleted author comes back rather than being
@@ -398,7 +397,7 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 		// colleague" into "created by nobody". Every other read of a user
 		// excludes them, so this is the one place the statement is rendered
 		// from a column list without archived_at in it.
-		users, err := store.ListUsersByIDs(t.Context(), testScope, []string{ada.ID, gone.ID})
+		users, err := store.ListUsersByIDs(t.Context(), env.reader(), testScope, []string{ada.ID, gone.ID})
 		must.NoError(t, err)
 		must.SliceLen(t, 2, users)
 
@@ -416,10 +415,10 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		owner := createUser(t, store, newUser("ada"))
-		account := createAccountFor(t, store, owner, "Acme")
+		owner := seedUser(t, env, store, newUser("ada"))
+		account := seedAccountFor(t, env, store, owner, "Acme")
 
-		_, err := store.GetAccount(t.Context(), otherScope, account.ID)
+		_, err := store.GetAccount(t.Context(), env.reader(), otherScope, account.ID)
 		must.ErrorIs(t, err, ErrAccountNotFound)
 	})
 
@@ -427,37 +426,36 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		owner := createUser(t, store, newUser("ada"))
-		member := createUser(t, store, newUser("brian"))
+		owner := seedUser(t, env, store, newUser("ada"))
+		member := seedUser(t, env, store, newUser("brian"))
 
-		first := createAccountFor(t, store, owner, "First")
-		second := createAccountFor(t, store, owner, "Second")
+		first := seedAccountFor(t, env, store, owner, "First")
+		second := seedAccountFor(t, env, store, owner, "Second")
 
-		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
-			return store.CreateMembership(ctx, q, &Membership{
-				Scope:            testScope,
+		must.NoError(t, env.inTx(t, func(tx database.Tx) error {
+			return store.CreateMembership(t.Context(), tx, testScope, &Membership{
 				BelongsToUser:    member.ID,
 				BelongsToAccount: second.ID,
 				Roles:            []string{"account_member"},
 			})
 		}))
 
-		all, err := store.ListAccounts(t.Context(), testScope, nil)
+		all, err := store.ListAccounts(t.Context(), env.reader(), testScope, nil)
 		must.NoError(t, err)
 		must.SliceLen(t, 2, all.Data)
 
-		mine, err := store.ListAccountsForUser(t.Context(), testScope, member.ID, nil)
+		mine, err := store.ListAccountsForUser(t.Context(), env.reader(), testScope, member.ID, nil)
 		must.NoError(t, err)
 		must.SliceLen(t, 1, mine.Data)
 		test.EqOp(t, second.ID, mine.Data[0].ID)
 
-		theirs, err := store.ListAccountsForUser(t.Context(), testScope, owner.ID, nil)
+		theirs, err := store.ListAccountsForUser(t.Context(), env.reader(), testScope, owner.ID, nil)
 		must.NoError(t, err)
 		must.SliceLen(t, 2, theirs.Data)
 
 		_ = first
 
-		page, err := store.ListAccounts(t.Context(), testScope, &filtering.QueryFilter{
+		page, err := store.ListAccounts(t.Context(), env.reader(), testScope, &filtering.QueryFilter{
 			MaxResponseSize: pointer.To(uint16(1)),
 		})
 		must.NoError(t, err)
@@ -468,14 +466,14 @@ func runDirectoryReaderSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		owner := createUser(t, store, newUser("ada"))
-		account := createAccountFor(t, store, owner, "Acme")
+		owner := seedUser(t, env, store, newUser("ada"))
+		account := seedAccountFor(t, env, store, owner, "Acme")
 
 		for _, name := range []string{"brian", "carol", "dennis"} {
-			registerInto(t, store, newUser(name), account.ID)
+			seedUserInto(t, env, store, newUser(name), account.ID)
 		}
 
-		roster, err := store.ListAccountMembers(t.Context(), testScope, account.ID, nil)
+		roster, err := store.ListAccountMembers(t.Context(), env.reader(), testScope, account.ID, nil)
 		must.NoError(t, err)
 		must.SliceLen(t, 4, roster.Data)
 
