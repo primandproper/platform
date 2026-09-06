@@ -1,4 +1,4 @@
-package authentication_test
+package identity_test
 
 import (
 	"context"
@@ -15,10 +15,11 @@ import (
 	"github.com/shoenig/test/must"
 )
 
-// The flow in example_test.go is the package documentation's ruling made
-// executable, so the four mistakes that ruling names are asserted here rather
-// than described. A change to the example that reintroduces one of them fails a
-// test instead of passing review.
+// The flow in loginflow_example_test.go is the ruling in the package
+// documentation of [github.com/primandproper/platform-go/v14/authentication]
+// made executable, so the four mistakes that ruling names are asserted here
+// rather than described. A change to the example that reintroduces one of them
+// fails a test instead of passing review.
 
 const examplePassword = "correct horse battery staple"
 

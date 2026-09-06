@@ -70,6 +70,9 @@ remembered about, and this one cannot be forgotten.
 	// ... store credential against the user.
 
 authentication/webauthn/config assembles all of that from environment
-configuration, and registers it with a do.Injector.
+configuration, and registers it with a do.Injector — over a cache. The provider
+string that chooses between a cache and the SQL table above lives one level down
+from the table, in authentication/webauthn/database/config, and that package's
+doc.go says why.
 */
 package webauthn

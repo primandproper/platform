@@ -3,7 +3,6 @@ package webauthncfg
 import (
 	"github.com/primandproper/platform-go/v14/authentication/webauthn"
 	webauthncache "github.com/primandproper/platform-go/v14/authentication/webauthn/cache"
-	webauthndatabase "github.com/primandproper/platform-go/v14/authentication/webauthn/database"
 	"github.com/primandproper/platform-go/v14/observability"
 	"github.com/primandproper/platform-go/v14/observability/logging"
 	"github.com/primandproper/platform-go/v14/observability/metrics"
@@ -20,18 +19,17 @@ import (
 // the three name all three anyway, usually as noops.
 type Option func(*options)
 
-// options collects what the options set. The three pass-through slices exist
-// because Go allows one variadic per function and that slot belongs to this
-// package's own Option; anything bound for a component this constructor builds
-// arrives through a WithXOptions instead.
+// options collects what the options set. The pass-through slices exist because
+// Go allows one variadic per function and that slot belongs to this package's
+// own Option; anything bound for a component this constructor builds arrives
+// through a WithXOptions instead.
 type options struct {
 	logger          logging.Logger
 	tracerProvider  tracing.Provider
 	metricsProvider metrics.Provider
 
-	relyingParty  []webauthn.Option
-	databaseStore []webauthndatabase.Option
-	cacheStore    []webauthncache.Option
+	relyingParty []webauthn.Option
+	cacheStore   []webauthncache.Option
 }
 
 // newOptions applies opts, ignoring nil entries.
@@ -85,15 +83,8 @@ func WithRelyingPartyOptions(opts ...webauthn.Option) Option {
 	return func(o *options) { o.relyingParty = append(o.relyingParty, opts...) }
 }
 
-// WithDatabaseStoreOptions passes options through to the database store —
-// WithCodec and WithClock, most usefully. They are ignored under any other
-// provider.
-func WithDatabaseStoreOptions(opts ...webauthndatabase.Option) Option {
-	return func(o *options) { o.databaseStore = append(o.databaseStore, opts...) }
-}
-
-// WithCacheStoreOptions passes options through to the cache store. They are
-// ignored under any other provider.
+// WithCacheStoreOptions passes options through to the cache store.
+// NewRelyingParty ignores them, having been handed a store already.
 func WithCacheStoreOptions(opts ...webauthncache.Option) Option {
 	return func(o *options) { o.cacheStore = append(o.cacheStore, opts...) }
 }

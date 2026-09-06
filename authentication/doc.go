@@ -57,7 +57,8 @@ points at an example that makes them executable.
 This is a ruling and not a law. What would overturn it is evidence rather than
 appetite: two consumers whose flows differ only in the event vocabulary and the
 principal's shape are a shape written twice rather than a policy written twice,
-and that is the case a manager would be built from. Example_loginFlow is what it
+and that is the case a manager would be built from.
+[github.com/primandproper/platform-go/v14/identity]'s Example_loginFlow is what it
 would have to be specified against.
 
 # The order, and what each step's mistake costs
@@ -218,5 +219,17 @@ to ship. It is a test rather than prose so that what it demonstrates is
 checked — the enumeration parity, the status check landing after the comparison,
 the required-code answer minting nothing, and the identifier changing across a
 re-login are assertions in the file beside it.
+
+It lives in [github.com/primandproper/platform-go/v14/identity] rather than here,
+and the reason is the module's tier split. This package hashes passwords and
+issues tokens and is a primitive; identity owns the users table and is not, and
+a primitive may not import a domain package even from a test file, because a
+test file is compiled by the module that ships it. The example's whole subject
+is a sign-in against a real user store — the account status, the unproven
+second-factor secret, the enumeration parity across a miss — so rewriting it
+against a local fake would have left it asserting that its own fixture behaves
+as its own fixture was written. Moving it kept every assertion; only the
+directory changed. The module README's "Primitives and Domains" section states
+the rule it is an instance of.
 */
 package authentication

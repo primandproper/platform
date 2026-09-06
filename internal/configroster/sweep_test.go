@@ -1,4 +1,4 @@
-package cfgnorm_test
+package configroster_test
 
 import (
 	"context"
@@ -8,8 +8,8 @@ import (
 	analyticscfg "github.com/primandproper/platform-go/v14/analytics/config"
 	analyticsposthog "github.com/primandproper/platform-go/v14/analytics/posthog"
 	analyticssegment "github.com/primandproper/platform-go/v14/analytics/segment"
-	authorizationcfg "github.com/primandproper/platform-go/v14/authorization/config"
 	authzdb "github.com/primandproper/platform-go/v14/authorization/database"
+	authzdbcfg "github.com/primandproper/platform-go/v14/authorization/database/config"
 	cachecfg "github.com/primandproper/platform-go/v14/cache/config"
 	cacheredis "github.com/primandproper/platform-go/v14/cache/redis"
 	capitalismcfg "github.com/primandproper/platform-go/v14/capitalism/config"
@@ -133,7 +133,7 @@ func TestSelectedProviderMustBeConfigured(T *testing.T) {
 	}{
 		{name: "analytics/segment", provider: analyticscfg.ProviderSegment, cfg: &analyticscfg.Config{Provider: analyticscfg.ProviderSegment}},
 		{name: "analytics/posthog", provider: analyticscfg.ProviderPostHog, cfg: &analyticscfg.Config{Provider: analyticscfg.ProviderPostHog}},
-		{name: "authorization/database", provider: authorizationcfg.ProviderDatabase, cfg: &authorizationcfg.Config{Provider: authorizationcfg.ProviderDatabase}},
+		{name: "authorization/database", provider: authzdbcfg.ProviderDatabase, cfg: &authzdbcfg.Config{Provider: authzdbcfg.ProviderDatabase}},
 		{name: "cache/redis", provider: cachecfg.ProviderRedis, cfg: &cachecfg.Config{Provider: cachecfg.ProviderRedis}},
 		{name: "capitalism/stripe", provider: capitalismcfg.StripeProvider, cfg: &capitalismcfg.Config{Provider: capitalismcfg.StripeProvider}},
 		{name: "capitalism/revenuecat", provider: capitalismcfg.RevenueCatProvider, cfg: &capitalismcfg.Config{Provider: capitalismcfg.RevenueCatProvider}},
@@ -236,16 +236,16 @@ func TestUnselectedProvidersAreNotEnforced(T *testing.T) {
 		// authorization
 		{
 			name: "authorization/unset",
-			cfg:  &authorizationcfg.Config{},
+			cfg:  &authzdbcfg.Config{},
 		},
 		{
 			name: "authorization/static",
-			cfg:  &authorizationcfg.Config{Provider: authorizationcfg.ProviderStatic},
+			cfg:  &authzdbcfg.Config{Provider: authzdbcfg.ProviderStatic},
 		},
 		{
 			name: "authorization/database",
-			cfg: &authorizationcfg.Config{
-				Provider: authorizationcfg.ProviderDatabase,
+			cfg: &authzdbcfg.Config{
+				Provider: authzdbcfg.ProviderDatabase,
 				Database: &authzdb.Config{Dialect: dialect.Postgres},
 			},
 		},

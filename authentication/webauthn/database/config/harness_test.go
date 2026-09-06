@@ -1,4 +1,4 @@
-package webauthncfg
+package webauthndbcfg
 
 import (
 	"path/filepath"
@@ -27,7 +27,10 @@ func relyingParty() webauthn.Config {
 
 // databaseConfig is a Config for the default provider.
 func databaseConfig() *Config {
-	return &Config{Provider: ProviderDatabase, RelyingParty: relyingParty()}
+	return &Config{
+		Provider:     ProviderDatabase,
+		RelyingParty: relyingParty(),
+	}
 }
 
 // cacheConfig is a Config for the cache provider, backed by the memory cache

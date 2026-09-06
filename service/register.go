@@ -4,7 +4,7 @@ import (
 	analyticscfg "github.com/primandproper/platform-go/v14/analytics/config"
 	auditcfg "github.com/primandproper/platform-go/v14/audit/config"
 	tokenscfg "github.com/primandproper/platform-go/v14/authentication/tokens/config"
-	authorizationcfg "github.com/primandproper/platform-go/v14/authorization/config"
+	authzdbcfg "github.com/primandproper/platform-go/v14/authorization/database/config"
 	billingcfg "github.com/primandproper/platform-go/v14/billing/config"
 	capitalismcfg "github.com/primandproper/platform-go/v14/capitalism/config"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v14/circuitbreaking/config"
@@ -202,7 +202,7 @@ func registerPlatformServices(i do.Injector, cfg *Config) {
 
 	if cfg.Authorization != nil {
 		do.ProvideValue(i, cfg.Authorization)
-		authorizationcfg.RegisterPolicyResolver(i)
+		authzdbcfg.RegisterPolicyResolver(i)
 	}
 
 	if cfg.Capitalism != nil {

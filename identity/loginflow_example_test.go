@@ -1,4 +1,4 @@
-package authentication_test
+package identity_test
 
 import (
 	"context"
@@ -25,12 +25,17 @@ import (
 )
 
 // Example_loginFlow is the sign-in this module declines to ship, written the way
-// the package documentation says to write it.
+// [github.com/primandproper/platform-go/v14/authentication]'s package
+// documentation says to write it.
 //
 // Everything it calls is a package beside this one. What is written here — the
 // order, the decoy comparison, the single refusal, the second-factor gate, the
-// fresh identifier — is the part the package documentation rules is the
-// consumer's, and the part a second copy can get wrong.
+// fresh identifier — is the part that ruling leaves to the consumer, and the
+// part a second copy can get wrong.
+//
+// It is in this package rather than in authentication because it signs in
+// against a real user store, and authentication is a primitive that may not
+// import one — see that package's documentation for the whole reason.
 func Example_loginFlow() {
 	ctx := context.Background()
 	flow, scope := exampleFlow()
@@ -399,14 +404,5 @@ func exampleBan(ctx context.Context, flow *exampleDeployment, scope tenancy.Scop
 	}
 }
 
-type exampleClientConfig struct {
-	connectionString string
-}
-
-func (c *exampleClientConfig) GetReadConnectionString() string   { return c.connectionString }
-func (c *exampleClientConfig) GetWriteConnectionString() string  { return c.connectionString }
-func (c *exampleClientConfig) GetMaxPingAttempts() uint64        { return 1 }
-func (c *exampleClientConfig) GetPingWaitPeriod() time.Duration  { return time.Millisecond }
-func (c *exampleClientConfig) GetMaxIdleConns() int              { return 2 }
-func (c *exampleClientConfig) GetMaxOpenConns() int              { return 1 }
-func (c *exampleClientConfig) GetConnMaxLifetime() time.Duration { return time.Minute }
+// The database.ClientConfig this uses is exampleClientConfig, declared once in
+// example_test.go beside this package's other executable example.

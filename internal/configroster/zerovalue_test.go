@@ -1,4 +1,4 @@
-package cfgnorm_test
+package configroster_test
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	analyticscfg "github.com/primandproper/platform-go/v14/analytics/config"
 	auditcfg "github.com/primandproper/platform-go/v14/audit/config"
 	tokenscfg "github.com/primandproper/platform-go/v14/authentication/tokens/config"
-	authorizationcfg "github.com/primandproper/platform-go/v14/authorization/config"
+	authzdbcfg "github.com/primandproper/platform-go/v14/authorization/database/config"
 	cachecfg "github.com/primandproper/platform-go/v14/cache/config"
 	capitalismcfg "github.com/primandproper/platform-go/v14/capitalism/config"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v14/circuitbreaking/config"
@@ -100,7 +100,7 @@ func TestZeroValueConfigIsDecisive(T *testing.T) {
 		{name: "analytics", cfg: &analyticscfg.Config{}, needs: "provider"},
 		{name: "audit", cfg: &auditcfg.Config{}, needs: "dialect"},
 		{name: "authentication/tokens", cfg: &tokenscfg.Config{}, needs: "provider"},
-		{name: "authorization", cfg: &authorizationcfg.Config{}, why: "the static resolver needs no infrastructure and grants nothing"},
+		{name: "authorization", cfg: &authzdbcfg.Config{}, why: "the static resolver needs no infrastructure and grants nothing"},
 		{name: "cache", cfg: &cachecfg.Config{}, needs: "provider"},
 		{name: "capitalism", cfg: &capitalismcfg.Config{}, needs: "provider"},
 		{name: "circuitbreaking", cfg: &circuitbreakingcfg.Config{}, why: "every threshold has a default"},

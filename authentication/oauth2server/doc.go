@@ -267,8 +267,10 @@ oauth2server/oauth2servertest, including the two cases that separate them: a
 code redeemed twice concurrently, and a record that expires between a read and
 the write that follows it.
 
-oauth2server/config assembles either from environment configuration, with a
-do.Provide registration.
+oauth2server/config assembles the server and the memory store from environment
+configuration, with a do.Provide registration. The provider string that chooses
+between memory and the tables lives one level down from the tables, in
+oauth2server/database/config, and that package's doc.go says why.
 
 # Watching it
 

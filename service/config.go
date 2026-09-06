@@ -55,7 +55,7 @@ import (
 	analyticscfg "github.com/primandproper/platform-go/v14/analytics/config"
 	auditcfg "github.com/primandproper/platform-go/v14/audit/config"
 	tokenscfg "github.com/primandproper/platform-go/v14/authentication/tokens/config"
-	authorizationcfg "github.com/primandproper/platform-go/v14/authorization/config"
+	authzdbcfg "github.com/primandproper/platform-go/v14/authorization/database/config"
 	billingcfg "github.com/primandproper/platform-go/v14/billing/config"
 	capitalismcfg "github.com/primandproper/platform-go/v14/capitalism/config"
 	circuitbreakingcfg "github.com/primandproper/platform-go/v14/circuitbreaking/config"
@@ -130,7 +130,7 @@ type Config struct {
 	Analytics            *analyticscfg.Config       `env:",init" envPrefix:"ANALYTICS_"              json:"analytics,omitempty"            yaml:"analytics,omitempty"`
 	AsyncNotifications   *asyncnotifcfg.Config      `env:",init" envPrefix:"ASYNC_NOTIFICATIONS_"    json:"asyncNotifications,omitempty"   yaml:"asyncNotifications,omitempty"`
 	Audit                *auditcfg.Config           `env:",init" envPrefix:"AUDIT_"                  json:"audit,omitempty"                yaml:"audit,omitempty"`
-	Authorization        *authorizationcfg.Config   `env:",init" envPrefix:"AUTHORIZATION_"          json:"authorization,omitempty"        yaml:"authorization,omitempty"`
+	Authorization        *authzdbcfg.Config         `env:",init" envPrefix:"AUTHORIZATION_"          json:"authorization,omitempty"        yaml:"authorization,omitempty"`
 	Billing              *billingcfg.Config         `env:",init" envPrefix:"BILLING_"                json:"billing,omitempty"              yaml:"billing,omitempty"`
 	Capitalism           *capitalismcfg.Config      `env:",init" envPrefix:"CAPITALISM_"             json:"capitalism,omitempty"           yaml:"capitalism,omitempty"`
 	CircuitBreaking      *circuitbreakingcfg.Config `env:",init" envPrefix:"CIRCUIT_BREAKING_"       json:"circuitBreaking,omitempty"      yaml:"circuitBreaking,omitempty"`

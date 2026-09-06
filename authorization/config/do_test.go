@@ -19,7 +19,7 @@ func TestRegisterPolicyResolver(T *testing.T) {
 
 		i := do.New()
 		do.ProvideValue[context.Context](i, t.Context())
-		do.ProvideValue(i, &Config{Provider: ProviderStatic})
+		do.ProvideValue(i, &Config{})
 
 		RegisterPolicyResolver(i)
 
@@ -28,12 +28,14 @@ func TestRegisterPolicyResolver(T *testing.T) {
 		test.NotNil(t, resolver)
 	})
 
-	T.Run("errors when the provider is database but no database.Client is registered", func(t *testing.T) {
+	// The registration resolves no database.Client, which is the whole reason a
+	// container running declared policy can be built from this half alone.
+	T.Run("a config that cannot validate fails the container", func(t *testing.T) {
 		t.Parallel()
 
 		i := do.New()
 		do.ProvideValue[context.Context](i, t.Context())
-		do.ProvideValue(i, &Config{Provider: ProviderDatabase})
+		do.ProvideValue(i, &Config{CacheTTL: -1})
 
 		RegisterPolicyResolver(i)
 

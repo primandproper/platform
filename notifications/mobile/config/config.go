@@ -1,14 +1,3 @@
-// Package mobilecfg selects and builds a mobile.PushSender from configuration:
-// APNs for iOS, FCM for Android, apns_fcm for both, or noop.
-//
-// The provider names which platforms are on, and nothing else does. Presence of
-// a sub-config decides nothing, which is what lets an empty FCM block mean "use
-// Application Default Credentials" rather than "Android is off" — and what makes
-// the provider, not the credentials, the thing to read when a platform stops
-// receiving pushes.
-//
-// The sub-configs are the leaf packages' own structs rather than parallel copies
-// of them, so a field added to apns.Config is configurable the moment it exists.
 package mobilecfg
 
 import (

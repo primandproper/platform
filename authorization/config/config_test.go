@@ -6,10 +6,8 @@ import (
 
 	"github.com/primandproper/platform-go/v14/authorization"
 	"github.com/primandproper/platform-go/v14/authorization/cached"
-	authzdb "github.com/primandproper/platform-go/v14/authorization/database"
 	"github.com/primandproper/platform-go/v14/cache"
 	"github.com/primandproper/platform-go/v14/cache/memory"
-	"github.com/primandproper/platform-go/v14/database/dialect"
 
 	"github.com/shoenig/test"
 	"github.com/shoenig/test/must"
@@ -27,8 +25,16 @@ func build(t *testing.T, cfg *Config) (authorization.PolicyResolver, error) {
 		t.Context(),
 		cfg,
 		nil,
-		nil,
 	)
+}
+
+func newCache(t *testing.T) cache.Cache[authorization.PermissionSet] {
+	t.Helper()
+
+	c, err := memory.NewInMemoryCache[authorization.PermissionSet](0)
+	must.NoError(t, err)
+
+	return c
 }
 
 // The default is what most users get, so "runs with no infrastructure" and
@@ -67,20 +73,6 @@ func TestNewPolicyResolver_Default(T *testing.T) {
 		test.True(t, set.IsEmpty())
 		test.False(t, authorization.NewGrants(set).Has(permRead))
 	})
-
-	T.Run("an empty provider selects static", func(t *testing.T) {
-		t.Parallel()
-
-		resolver, err := build(t, &Config{
-			Roles: []authorization.Role{{Name: "member", Permissions: []authorization.Permission{permRead}}},
-		})
-		must.NoError(t, err)
-
-		set, err := resolver.PermissionsForRoles(t.Context(), "member")
-		must.NoError(t, err)
-
-		test.True(t, set.Has(permRead))
-	})
 }
 
 func TestNewPolicyResolver_Static(T *testing.T) {
@@ -90,7 +82,6 @@ func TestNewPolicyResolver_Static(T *testing.T) {
 		t.Parallel()
 
 		resolver, err := build(t, &Config{
-			Provider: ProviderStatic,
 			Roles: []authorization.Role{
 				{Name: "member", Permissions: []authorization.Permission{permRead}},
 				{Name: "admin", Permissions: []authorization.Permission{permWrite}, Inherits: []string{"member"}},
@@ -108,60 +99,27 @@ func TestNewPolicyResolver_Static(T *testing.T) {
 		t.Parallel()
 
 		_, err := build(t, &Config{
-			Provider: ProviderStatic,
-			Roles:    []authorization.Role{{Name: "a", Inherits: []string{"a"}}},
+			Roles: []authorization.Role{{Name: "a", Inherits: []string{"a"}}},
 		})
 
 		test.Error(t, err)
 	})
 
-	T.Run("tolerates whitespace and case in the provider", func(t *testing.T) {
+	T.Run("passes static options through", func(t *testing.T) {
 		t.Parallel()
 
-		resolver, err := build(t, &Config{Provider: "  STATIC "})
+		resolver, err := NewPolicyResolver(t.Context(), &Config{}, nil, WithStaticOptions(nil))
 
 		must.NoError(t, err)
 		test.NotNil(t, resolver)
 	})
 }
 
-func TestNewPolicyResolver_Database(T *testing.T) {
-	T.Parallel()
-
-	T.Run("rejects a database provider with no config", func(t *testing.T) {
-		t.Parallel()
-
-		_, err := build(t, &Config{Provider: ProviderDatabase})
-
-		test.Error(t, err)
-	})
-
-	T.Run("rejects a database provider with no executor", func(t *testing.T) {
-		t.Parallel()
-
-		_, err := build(t, &Config{
-			Provider: ProviderDatabase,
-			Database: &authzdb.Config{Dialect: dialect.SQLite},
-		})
-
-		test.Error(t, err)
-	})
-}
-
-// Supplying a cache is what turns the database provider from a query per
-// session build into a query per policy change, so the wrapping is worth
-// asserting rather than assuming.
+// Supplying a cache is what turns a resolution from a lookup per call into a
+// lookup per policy change, so the wrapping is worth asserting rather than
+// assuming.
 func TestNewPolicyResolver_Cached(T *testing.T) {
 	T.Parallel()
-
-	newCache := func(t *testing.T) cache.Cache[authorization.PermissionSet] {
-		t.Helper()
-
-		c, err := memory.NewInMemoryCache[authorization.PermissionSet](0)
-		must.NoError(t, err)
-
-		return c
-	}
 
 	T.Run("wraps the resolver when a cache is supplied", func(t *testing.T) {
 		t.Parallel()
@@ -171,7 +129,6 @@ func TestNewPolicyResolver_Cached(T *testing.T) {
 			&Config{Roles: []authorization.Role{
 				{Name: "member", Permissions: []authorization.Permission{permRead}},
 			}},
-			nil,
 			newCache(t),
 		)
 		must.NoError(t, err)
@@ -190,7 +147,6 @@ func TestNewPolicyResolver_Cached(T *testing.T) {
 		resolver, err := NewPolicyResolver(
 			t.Context(),
 			&Config{CacheTTL: 90 * time.Second},
-			nil,
 			newCache(t),
 		)
 
@@ -219,7 +175,6 @@ func TestNewPolicyResolver_Cached(T *testing.T) {
 			&Config{Roles: []authorization.Role{
 				{Name: "member", Permissions: []authorization.Permission{permRead}},
 			}},
-			nil,
 			newCache(t),
 		)
 		must.NoError(t, err)
@@ -249,15 +204,52 @@ func TestNewPolicyResolver_Cached(T *testing.T) {
 	})
 }
 
-func TestNewPolicyResolver_UnknownProvider(T *testing.T) {
+// NewCachedResolver is the seam authzdbcfg calls, so its two behaviors are
+// asserted here rather than only through the other half.
+func TestNewCachedResolver(T *testing.T) {
 	T.Parallel()
 
-	T.Run("rejects an unrecognized provider", func(t *testing.T) {
+	T.Run("hands the resolver back untouched when no cache is supplied", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := build(t, &Config{Provider: "openfga"})
+		bare, err := build(t, &Config{})
+		must.NoError(t, err)
 
-		test.Error(t, err)
+		wrapped, err := NewCachedResolver(&Config{}, bare, nil)
+		must.NoError(t, err)
+
+		test.True(t, wrapped == bare)
+	})
+
+	T.Run("wraps whatever it is handed", func(t *testing.T) {
+		t.Parallel()
+
+		bare, err := build(t, &Config{Roles: []authorization.Role{
+			{Name: "member", Permissions: []authorization.Permission{permRead}},
+		}})
+		must.NoError(t, err)
+
+		wrapped, err := NewCachedResolver(&Config{CacheTTL: time.Minute}, bare, newCache(t))
+		must.NoError(t, err)
+
+		_, isCached := wrapped.(*cached.Resolver)
+		test.True(t, isCached)
+
+		set, err := wrapped.PermissionsForRoles(t.Context(), "member")
+		must.NoError(t, err)
+		test.True(t, set.Has(permRead))
+	})
+
+	T.Run("a nil config is the zero config", func(t *testing.T) {
+		t.Parallel()
+
+		bare, err := build(t, &Config{})
+		must.NoError(t, err)
+
+		wrapped, err := NewCachedResolver(nil, bare, newCache(t))
+
+		must.NoError(t, err)
+		test.NotNil(t, wrapped)
 	})
 }
 
@@ -270,38 +262,25 @@ func TestConfig_ValidateWithContext(T *testing.T) {
 		test.NoError(t, (&Config{}).ValidateWithContext(t.Context()))
 	})
 
-	T.Run("static is valid", func(t *testing.T) {
+	T.Run("a positive TTL is valid", func(t *testing.T) {
 		t.Parallel()
 
-		test.NoError(t, (&Config{Provider: ProviderStatic}).ValidateWithContext(t.Context()))
+		test.NoError(t, (&Config{CacheTTL: time.Minute}).ValidateWithContext(t.Context()))
 	})
 
-	T.Run("database requires its config", func(t *testing.T) {
+	// cached.WithTTL folds anything not positive into "leave the default", so a
+	// negative is a deployment asking for something it would silently not get.
+	T.Run("rejects a negative TTL", func(t *testing.T) {
 		t.Parallel()
 
-		test.Error(t, (&Config{Provider: ProviderDatabase}).ValidateWithContext(t.Context()))
-
-		test.NoError(t, (&Config{
-			Provider: ProviderDatabase,
-			Database: &authzdb.Config{Dialect: dialect.SQLite},
-		}).ValidateWithContext(t.Context()))
+		test.Error(t, (&Config{CacheTTL: -time.Second}).ValidateWithContext(t.Context()))
 	})
 
-	// Mutual exclusion catches the half-migrated config: a database block left
-	// behind after switching back to static would otherwise sit there looking
-	// authoritative while doing nothing.
-	T.Run("static rejects a stray database config", func(t *testing.T) {
+	T.Run("a negative TTL fails construction rather than defaulting", func(t *testing.T) {
 		t.Parallel()
 
-		test.Error(t, (&Config{
-			Provider: ProviderStatic,
-			Database: &authzdb.Config{Dialect: dialect.SQLite},
-		}).ValidateWithContext(t.Context()))
-	})
+		_, err := build(t, &Config{CacheTTL: -time.Second})
 
-	T.Run("rejects an unknown provider", func(t *testing.T) {
-		t.Parallel()
-
-		test.Error(t, (&Config{Provider: "openfga"}).ValidateWithContext(t.Context()))
+		test.Error(t, err)
 	})
 }
