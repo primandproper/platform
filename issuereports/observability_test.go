@@ -71,13 +71,13 @@ func TestSQLStore_GuardMissCounter(T *testing.T) {
 		env := newSQLiteEnv(t)
 		store, counter := newCountingStore(t, env)
 
-		r := filed(t, store, newReport(testReporter, "bug", "details"))
+		r := filed(t, env, store, newReport(testReporter, "bug", "details"))
 
-		_, err := store.TransitionReport(t.Context(), testScope, r.ID, StatusOpen, StatusResolved, "fixed")
+		_, err := env.transition(t, store, testScope, r.ID, StatusOpen, StatusResolved, "fixed")
 		must.NoError(t, err)
 		test.SliceEmpty(t, counter.observed())
 
-		_, err = store.TransitionReport(t.Context(), testScope, r.ID, StatusOpen, StatusDeclined, "duplicate")
+		_, err = env.transition(t, store, testScope, r.ID, StatusOpen, StatusDeclined, "duplicate")
 		must.ErrorIs(t, err, ErrStatusConflict)
 
 		test.Eq(t, []int64{1}, counter.observed())
@@ -92,7 +92,7 @@ func TestSQLStore_GuardMissCounter(T *testing.T) {
 		env := newSQLiteEnv(t)
 		store, counter := newCountingStore(t, env)
 
-		_, err := store.TransitionReport(t.Context(), testScope, "nonesuch",
+		_, err := env.transition(t, store, testScope, "nonesuch",
 			StatusOpen, StatusResolved, "fixed")
 		must.ErrorIs(t, err, ErrReportNotFound)
 
@@ -107,9 +107,9 @@ func TestSQLStore_GuardMissCounter(T *testing.T) {
 		env := newSQLiteEnv(t)
 		store, counter := newCountingStore(t, env)
 
-		r := filed(t, store, newReport(testReporter, "bug", "details"))
+		r := filed(t, env, store, newReport(testReporter, "bug", "details"))
 
-		_, err := store.TransitionReport(t.Context(), testScope, r.ID,
+		_, err := env.transition(t, store, testScope, r.ID,
 			StatusResolved, StatusAcknowledged, "")
 		must.ErrorIs(t, err, ErrInvalidStatusTransition)
 

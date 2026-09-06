@@ -17,10 +17,16 @@ import (
 
 // Taking a report is one write, and working the queue is one read plus one
 // guarded move.
+//
+// The writes take the caller's transaction and the reads take an executor, so a
+// caller with nothing to commit alongside opens one with Client.WithTransaction
+// and reads afterwards on the client.
 func Example() {
 	ctx := context.Background()
 
-	store, err := issuereports.NewSQLStore(exampleClient(ctx))
+	client := exampleClient(ctx)
+
+	store, err := issuereports.NewSQLStore(client)
 	if err != nil {
 		panic(err)
 	}
@@ -31,14 +37,16 @@ func Example() {
 	// stores it and never interprets it, and the subject is how the application
 	// names the thing being reported on.
 	report := &issuereports.Report{
-		Scope:       scope,
 		Reporter:    "user_1",
 		Kind:        "bug",
 		Details:     "the save button does nothing on the recipe editor",
 		SubjectType: "recipes",
 		SubjectID:   "recipe_1",
 	}
-	if err = store.CreateReport(ctx, report); err != nil {
+
+	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		return store.CreateReport(ctx, tx, scope, report)
+	}); err != nil {
 		panic(err)
 	}
 
@@ -47,7 +55,7 @@ func Example() {
 	// The triage queue. The count beside the page is of everything open rather
 	// than of the page, so a console asking for ten reports still knows how many
 	// there are.
-	queue, err := store.ListReportsByStatus(ctx, scope, issuereports.StatusOpen, nil)
+	queue, err := store.ListReportsByStatus(ctx, client.Reader(), scope, issuereports.StatusOpen, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -57,9 +65,15 @@ func Example() {
 	// Working it. The status the triager read goes over with the one they are
 	// moving to, so a second triager holding the same view loses rather than
 	// silently overwriting this note.
-	resolved, err := store.TransitionReport(ctx, scope, report.ID,
-		issuereports.StatusOpen, issuereports.StatusResolved, "fixed in 1.4")
-	if err != nil {
+	var resolved *issuereports.Report
+
+	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		var txErr error
+		resolved, txErr = store.TransitionReport(ctx, tx, scope, report.ID,
+			issuereports.StatusOpen, issuereports.StatusResolved, "fixed in 1.4")
+
+		return txErr
+	}); err != nil {
 		panic(err)
 	}
 
@@ -73,11 +87,14 @@ func Example() {
 
 // The guard is what makes the queue safe for more than one triager. The second
 // of two people acting on the same view of a report is told so rather than
-// overwriting the first one's decision.
+// overwriting the first one's decision — and each of them is in their own
+// transaction, which is where the entry naming who decided it goes.
 func ExampleStore_TransitionReport() {
 	ctx := context.Background()
 
-	store, err := issuereports.NewSQLStore(exampleClient(ctx))
+	client := exampleClient(ctx)
+
+	store, err := issuereports.NewSQLStore(client)
 	if err != nil {
 		panic(err)
 	}
@@ -85,27 +102,37 @@ func ExampleStore_TransitionReport() {
 	scope := tenancy.Of("acct_1")
 
 	report := &issuereports.Report{
-		Scope:    scope,
 		Reporter: "user_1",
 		Kind:     "billing",
 		Details:  "charged twice for one order",
 	}
-	if err = store.CreateReport(ctx, report); err != nil {
+
+	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		return store.CreateReport(ctx, tx, scope, report)
+	}); err != nil {
 		panic(err)
 	}
 
 	// Both triagers read the report while it was open.
-	if _, err = store.TransitionReport(ctx, scope, report.ID,
-		issuereports.StatusOpen, issuereports.StatusResolved, "refunded"); err != nil {
+	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		_, txErr := store.TransitionReport(ctx, tx, scope, report.ID,
+			issuereports.StatusOpen, issuereports.StatusResolved, "refunded")
+
+		return txErr
+	}); err != nil {
 		panic(err)
 	}
 
-	_, err = store.TransitionReport(ctx, scope, report.ID,
-		issuereports.StatusOpen, issuereports.StatusDeclined, "duplicate")
+	err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		_, txErr := store.TransitionReport(ctx, tx, scope, report.ID,
+			issuereports.StatusOpen, issuereports.StatusDeclined, "duplicate")
+
+		return txErr
+	})
 
 	fmt.Println("second triager:", err != nil)
 
-	current, err := store.GetReport(ctx, scope, report.ID)
+	current, err := store.GetReport(ctx, client.Reader(), scope, report.ID)
 	if err != nil {
 		panic(err)
 	}
@@ -117,10 +144,11 @@ func ExampleStore_TransitionReport() {
 	// still says: resolved - refunded
 }
 
-// A decision on a report is rarely the only row it produces. TransitionReportTx
-// puts the move in the transaction that carries its companions — here an audit
-// entry naming who decided it — so neither can land without the other.
-func ExampleStore_TransitionReportTx() {
+// A decision on a report is rarely the only row it produces, and this is what
+// the transaction argument is for: the move and its companions — here an audit
+// entry naming who decided it — are one transaction, so neither can land without
+// the other.
+func ExampleStore_TransitionReport_withAnAuditEntry() {
 	ctx := context.Background()
 
 	client := exampleClient(ctx)
@@ -140,17 +168,19 @@ func ExampleStore_TransitionReportTx() {
 	scope := tenancy.Of("acct_1")
 
 	report := &issuereports.Report{
-		Scope:    scope,
 		Reporter: "user_1",
 		Kind:     "billing",
 		Details:  "charged twice for one order",
 	}
-	if err = store.CreateReport(ctx, report); err != nil {
+
+	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		return store.CreateReport(ctx, tx, scope, report)
+	}); err != nil {
 		panic(err)
 	}
 
 	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
-		resolved, txErr := store.TransitionReportTx(ctx, tx, scope, report.ID,
+		resolved, txErr := store.TransitionReport(ctx, tx, scope, report.ID,
 			issuereports.StatusOpen, issuereports.StatusResolved, "refunded")
 		if txErr != nil {
 			return txErr
