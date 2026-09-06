@@ -64,7 +64,7 @@ func RegisterRecorder(i do.Injector) {
 // totals cache is optional: absent, the enforcer reads the store on every
 // decision, which is metering.NewEnforcer's documented uncached behavior.
 //
-// Prerequisites: *Config, metering.Store (see RegisterStore),
+// Prerequisites: *Config, database.Client, metering.Store (see RegisterStore),
 // *metering.Registry, metering.PeriodResolver, and metering.QuotaSource must
 // be registered in the injector before the Enforcer is invoked.
 // metering.NewRegistryQuotaSource adapts the Registry where quotas live in
@@ -88,6 +88,7 @@ func RegisterEnforcer(i do.Injector) {
 		enforcer, err := NewEnforcer(
 			do.MustInvoke[context.Context](i),
 			do.MustInvoke[*Config](i),
+			do.MustInvoke[database.Client](i),
 			do.MustInvoke[metering.Store](i),
 			do.MustInvoke[*metering.Registry](i),
 			do.MustInvoke[metering.PeriodResolver](i),

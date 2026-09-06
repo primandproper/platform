@@ -394,7 +394,8 @@ func TestPlanLimitSource_AgainstAnEnforcer(T *testing.T) {
 	newEnv := func(t *testing.T, product string) *enforcerEnv {
 		t.Helper()
 
-		store := newSQLiteEnv(t).newStore(t)
+		db := newSQLiteEnv(t)
+		store := db.newStore(t)
 		c := newStubClock()
 
 		var calls int
@@ -408,12 +409,12 @@ func TestPlanLimitSource_AgainstAnEnforcer(T *testing.T) {
 		}, entitling(product, &calls))
 		must.NoError(t, err)
 
-		enforcer, err := NewQuotaEnforcer(t.Context(), &EnforcerConfig{}, store,
+		enforcer, err := db.newEnforcer(t, &EnforcerConfig{}, store,
 			newTestRegistry(t, BehaviorBlock, 10),
 			WithEnforcerClock(c), WithEnforcerQuotaSource(source))
 		must.NoError(t, err)
 
-		return &enforcerEnv{enforcer: enforcer, store: store, clock: c}
+		return &enforcerEnv{enforcer: enforcer, db: db, store: store, clock: c}
 	}
 
 	T.Run("the product's limit is the one enforced", func(t *testing.T) {
@@ -437,7 +438,7 @@ func TestPlanLimitSource_AgainstAnEnforcer(T *testing.T) {
 
 		env := newEnv(t, "prod_enterprise")
 
-		decision, err := env.enforcer.Consume(t.Context(), testSubject, testMeter, 2)
+		decision, err := env.consume(t, testSubject, testMeter, 2)
 		must.NoError(t, err)
 
 		test.False(t, decision.Allowed)

@@ -24,7 +24,7 @@ import (
 // than that it handles the error a real driver actually produces; the two differ
 // in whether a failure surfaces at Exec, at Query, or at Scan, and this package
 // has all three.
-func newBrokenStore(t *testing.T) Store {
+func newBrokenStore(t *testing.T) (*storeEnv, Store) {
 	t.Helper()
 
 	env := newSQLiteEnv(t)
@@ -38,7 +38,7 @@ func newBrokenStore(t *testing.T) Store {
 		WithStoreMetricsProvider(metrics.EnsureMetricsProvider(nil)))
 	must.NoError(t, err)
 
-	return store
+	return env, store
 }
 
 func TestSQLStore_DatabaseFaults(T *testing.T) {
@@ -47,22 +47,11 @@ func TestSQLStore_DatabaseFaults(T *testing.T) {
 	T.Run("Record reports a failed ledger write", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := newBrokenStore(t).Record(t.Context(),
-			[]Entry{newEntry("req-1", 1, AggregationSum)}, baseTime)
+		env, store := newBrokenStore(t)
+
+		_, err := env.record(t, store, []Entry{newEntry("req-1", 1, AggregationSum)}, baseTime)
 
 		test.Error(t, err)
-	})
-
-	T.Run("RecordTx reports a failed ledger write", func(t *testing.T) {
-		t.Parallel()
-
-		store := newBrokenStore(t)
-
-		test.Error(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
-			_, err := store.RecordTx(t.Context(), q, []Entry{newEntry("req-1", 1, AggregationSum)}, baseTime)
-
-			return err
-		}))
 	})
 
 	T.Run("Total reports a failed read", func(t *testing.T) {
@@ -70,7 +59,9 @@ func TestSQLStore_DatabaseFaults(T *testing.T) {
 
 		// Distinct from the no-rows case, which is not an error: an absent row is
 		// a total of zero, and a missing table is a misconfiguration.
-		_, err := newBrokenStore(t).Total(t.Context(), testSubject, testMeter, monthBounds)
+		env, store := newBrokenStore(t)
+
+		_, err := env.total(t, store, testSubject, testMeter, monthBounds)
 
 		test.Error(t, err)
 	})
@@ -78,8 +69,9 @@ func TestSQLStore_DatabaseFaults(T *testing.T) {
 	T.Run("Consume reports a failure opening the total", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := newBrokenStore(t).Consume(t.Context(),
-			newEntry("req-1", 1, AggregationSum), 100, BehaviorBlock, baseTime)
+		env, store := newBrokenStore(t)
+
+		_, err := env.consume(t, store, newEntry("req-1", 1, AggregationSum), 100, BehaviorBlock, baseTime)
 
 		test.Error(t, err)
 	})
@@ -87,7 +79,9 @@ func TestSQLStore_DatabaseFaults(T *testing.T) {
 	T.Run("ClaimFlushable reports a failed select", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := newBrokenStore(t).ClaimFlushable(t.Context(), baseTime, 10, 5, baseTime.Add(time.Minute))
+		_, store := newBrokenStore(t)
+
+		_, err := store.ClaimFlushable(t.Context(), baseTime, 10, 5, baseTime.Add(time.Minute))
 
 		test.Error(t, err)
 	})
@@ -95,7 +89,7 @@ func TestSQLStore_DatabaseFaults(T *testing.T) {
 	T.Run("MarkFlushed and ReleaseFlush report a failed update", func(t *testing.T) {
 		t.Parallel()
 
-		store := newBrokenStore(t)
+		_, store := newBrokenStore(t)
 		total := &Total{Subject: testSubject, Meter: testMeter, PeriodStart: monthBounds.Start}
 
 		test.Error(t, store.MarkFlushed(t.Context(), total, 1, baseTime))
@@ -105,7 +99,9 @@ func TestSQLStore_DatabaseFaults(T *testing.T) {
 	T.Run("ReapEvents reports a failed delete", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := newBrokenStore(t).ReapEvents(t.Context(), baseTime, 100)
+		_, store := newBrokenStore(t)
+
+		_, err := store.ReapEvents(t.Context(), baseTime, 100)
 
 		test.Error(t, err)
 	})
@@ -123,13 +119,13 @@ func TestSQLStore_PartialFaults(T *testing.T) {
 		// The zero row and the lock succeed; the fold that follows does not. The
 		// three are separate statements inside one transaction, and only breaking
 		// the table between them reaches the last one's error path.
-		_, err := store.Consume(t.Context(), newEntry("req-1", 1, AggregationSum), 100, BehaviorBlock, baseTime)
+		_, err := env.consume(t, store, newEntry("req-1", 1, AggregationSum), 100, BehaviorBlock, baseTime)
 		must.NoError(t, err)
 
 		_, err = env.client.Writer().ExecContext(t.Context(), "DROP TABLE "+prefix+"_metering_events")
 		must.NoError(t, err)
 
-		_, err = store.Consume(t.Context(), newEntry("req-2", 1, AggregationSum), 100, BehaviorBlock, baseTime)
+		_, err = env.consume(t, store, newEntry("req-2", 1, AggregationSum), 100, BehaviorBlock, baseTime)
 		test.Error(t, err)
 	})
 
@@ -143,7 +139,7 @@ func TestSQLStore_PartialFaults(T *testing.T) {
 		_, err := env.client.Writer().ExecContext(t.Context(), "DROP TABLE "+prefix+"_metering_totals")
 		must.NoError(t, err)
 
-		_, err = store.Record(t.Context(), []Entry{newEntry("req-1", 1, AggregationSum)}, baseTime)
+		_, err = env.record(t, store, []Entry{newEntry("req-1", 1, AggregationSum)}, baseTime)
 		test.Error(t, err)
 	})
 
@@ -153,7 +149,7 @@ func TestSQLStore_PartialFaults(T *testing.T) {
 		env := newSQLiteEnv(t)
 		store, prefix := env.newStoreWithPrefix(t)
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-1", 42, AggregationSum)))
 
 		// The lease this pass takes is what claimed_until records, and the
 		// select that chooses the batch is what reads it: a total nobody holds
@@ -173,7 +169,7 @@ func TestSQLStore_PartialFaults(T *testing.T) {
 		env := newSQLiteEnv(t)
 		store, prefix := env.newStoreWithPrefix(t)
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-1", 42, AggregationSum)))
 
 		// The claim reads whole rows rather than keys, so a column the
 		// projection names and the table no longer has fails the read. It reads
@@ -201,7 +197,7 @@ func TestSQLStore_PartialFaults(T *testing.T) {
 			"ALTER TABLE "+prefix+"_metering_totals RENAME COLUMN last_error TO last_error_renamed")
 		must.NoError(t, err)
 
-		_, err = store.Consume(t.Context(), newEntry("req-1", 1, AggregationSum), 100, BehaviorBlock, baseTime)
+		_, err = env.consume(t, store, newEntry("req-1", 1, AggregationSum), 100, BehaviorBlock, baseTime)
 		test.Error(t, err)
 	})
 }
@@ -215,7 +211,7 @@ func TestSQLStore_ScanFaults(T *testing.T) {
 		env := newSQLiteEnv(t)
 		store, prefix := env.newStoreWithPrefix(t)
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-1", 42, AggregationSum)))
 
 		// A timestamp column holding something that is not a timestamp. SQLite is
 		// happy to store it; the driver is not happy to scan it into a time.Time,
@@ -224,7 +220,7 @@ func TestSQLStore_ScanFaults(T *testing.T) {
 			"UPDATE "+prefix+"_metering_totals SET period_end = 'not a timestamp'")
 		must.NoError(t, err)
 
-		_, err = store.Total(t.Context(), testSubject, testMeter, monthBounds)
+		_, err = env.total(t, store, testSubject, testMeter, monthBounds)
 		test.Error(t, err)
 
 		_, err = store.ClaimFlushable(t.Context(), baseTime, 10, 5, baseTime.Add(time.Minute))
@@ -237,7 +233,7 @@ func TestSQLStore_ScanFaults(T *testing.T) {
 		env := newSQLiteEnv(t)
 		store, prefix := env.newStoreWithPrefix(t)
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-1", 42, AggregationSum)))
 
 		_, err := env.client.Writer().ExecContext(t.Context(),
 			"UPDATE "+prefix+"_metering_totals SET period_start = 'not a timestamp'")
@@ -284,13 +280,14 @@ func TestSQLStore_GuardMisses(T *testing.T) {
 func TestFlusher_SkipsASettledClaim(T *testing.T) {
 	T.Parallel()
 
-	store := newSQLiteEnv(T).newStore(T)
+	db := newSQLiteEnv(T)
+	store := db.newStore(T)
 
 	// Claimed on a predicate that said it owed the provider something, settled by
 	// somebody else between the select and the read. Settling it again would
 	// advance the sequence for a post that never happened, which would make the
 	// next genuine post's key distinct from the one a retry would use.
-	env := newTestFlusherOver(T, &settledClaimStore{Store: store}, staticMapper("si_123"))
+	env := newTestFlusherOver(T, db, &settledClaimStore{Store: store}, staticMapper("si_123"))
 
 	result, err := env.flusher.Flush(T.Context())
 	must.NoError(T, err)
@@ -351,7 +348,7 @@ func TestSQLStore_WriteFaults(T *testing.T) {
 				"_metering_totals BEGIN SELECT RAISE(ABORT, 'no updates'); END")
 		must.NoError(t, err)
 
-		_, err = store.Consume(t.Context(), newEntry("req-1", 1, AggregationSum), 100, BehaviorBlock, baseTime)
+		_, err = env.consume(t, store, newEntry("req-1", 1, AggregationSum), 100, BehaviorBlock, baseTime)
 		test.Error(t, err)
 	})
 
@@ -361,7 +358,7 @@ func TestSQLStore_WriteFaults(T *testing.T) {
 		env := newSQLiteEnv(t)
 		store, prefix := env.newStoreWithPrefix(t)
 
-		must.NoError(t, mustRecord(t, store, newEntry("req-1", 42, AggregationSum)))
+		must.NoError(t, mustRecord(t, env, store, newEntry("req-1", 42, AggregationSum)))
 
 		// The select finds the total and the UPDATE that leases it does not land.
 		// Reported rather than swallowed: a claim that reports totals it never
@@ -379,18 +376,18 @@ func TestSQLStore_WriteFaults(T *testing.T) {
 func TestDurableRecorder_DropsEveryRecord(T *testing.T) {
 	T.Parallel()
 
-	recorder, store, _ := newTestRecorder(T)
+	recorder, env, store, _ := newTestRecorder(T)
 
 	// Every record named an unregistered meter, so nothing survives preparation
 	// and there is nothing to hand the store. Reported as success, because the
 	// record that named an unknown meter is not the caller's to fix — see
 	// RecorderConfig.RejectUnknownMeters.
-	must.NoError(T, recorder.Record(T.Context(),
+	must.NoError(T, recordThrough(T, env, recorder,
 		Usage{Subject: testSubject, Meter: "not_registered", Quantity: 1, IdempotencyKey: "req-1"},
 		Usage{Subject: testSubject, Meter: "also_not_registered", Quantity: 2, IdempotencyKey: "req-2"},
 	))
 
-	test.EqOp(T, int64(0), totalOf(T, store))
+	test.EqOp(T, int64(0), totalOf(T, env, store))
 }
 
 // unreadableResult is a sql.Result that cannot say how many rows it touched.
@@ -449,16 +446,18 @@ func (c *unreadableClient) WithTransaction(
 
 // newUnreadableStore migrates a table pair and returns a store whose writes
 // report results that cannot be read.
-func newUnreadableStore(t *testing.T) Store {
+func newUnreadableStore(t *testing.T) (database.Client, Store) {
 	t.Helper()
 
 	env := newSQLiteEnv(t)
 	_, prefix := env.newStoreWithPrefix(t)
 
-	store, err := NewSQLStore(&unreadableClient{Client: env.client}, WithTablePrefix(prefix))
+	client := &unreadableClient{Client: env.client}
+
+	store, err := NewSQLStore(client, WithTablePrefix(prefix))
 	must.NoError(t, err)
 
-	return store
+	return client, store
 }
 
 func TestSQLStore_UnreadableResults(T *testing.T) {
@@ -469,8 +468,11 @@ func TestSQLStore_UnreadableResults(T *testing.T) {
 
 		// The failure mode this guards: read as zero rows affected, the insert
 		// looks like a duplicate key and the record is silently discarded.
-		_, err := newUnreadableStore(t).Record(t.Context(),
-			[]Entry{newEntry("req-1", 1, AggregationSum)}, baseTime)
+		client, store := newUnreadableStore(t)
+
+		_, err := inTx(t, client, func(tx database.Tx) (RecordResult, error) {
+			return store.Record(t.Context(), tx, []Entry{newEntry("req-1", 1, AggregationSum)}, baseTime)
+		})
 
 		test.ErrorIs(t, err, errArbitrary)
 	})
@@ -478,7 +480,9 @@ func TestSQLStore_UnreadableResults(T *testing.T) {
 	T.Run("ReapEvents reports rather than reporting a count", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := newUnreadableStore(t).ReapEvents(t.Context(), baseTime, 100)
+		_, store := newUnreadableStore(t)
+
+		_, err := store.ReapEvents(t.Context(), baseTime, 100)
 
 		test.ErrorIs(t, err, errArbitrary)
 	})
@@ -488,7 +492,9 @@ func TestSQLStore_UnreadableResults(T *testing.T) {
 
 		// Read as zero rows, a settle would look like a lapsed lease and the
 		// flusher would leave the sequence unadvanced against a post that landed.
-		err := newUnreadableStore(t).MarkFlushed(t.Context(), &Total{
+		_, store := newUnreadableStore(t)
+
+		err := store.MarkFlushed(t.Context(), &Total{
 			Subject: testSubject, Meter: testMeter, PeriodStart: monthBounds.Start,
 		}, 1, baseTime)
 

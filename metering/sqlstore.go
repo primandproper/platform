@@ -43,6 +43,13 @@ var _ Store = (*SQLStore)(nil)
 // storage can depend on that choice rather than on the Store seam every backing
 // shares.
 type SQLStore struct {
+	// client is not what Record, Consume or Total run on — those are handed the
+	// caller's transaction or executor. It is here for the three things a
+	// Client answers that a caller's Tx cannot: the dialect the generated
+	// statements are rendered for, read once at construction; the executor the
+	// flush settlements and the reaper run on, which belong to nobody's request
+	// and so can join nobody's transaction; and the transaction ClaimFlushable
+	// opens for itself, which has to commit before the provider is posted to.
 	client database.Client
 	q      meteringdb.Querier
 	o11y   observability.Observer
@@ -71,6 +78,12 @@ type SQLStore struct {
 }
 
 // NewSQLStore builds a Store over the given database.
+//
+// The client is not what the consumer-facing methods execute on. Record and
+// Consume take the caller's database.Tx and Total takes an executor; what this
+// one supplies is the dialect, the connection the flush loop and the reaper run
+// on, and the transaction ClaimFlushable opens for itself. See SQLStore's
+// fields, and Store for why those four take no executor.
 //
 // The dialect comes from the client, so the two cannot disagree. The prefix must
 // still match the one the migrations were rendered with — nothing here can check
@@ -166,44 +179,16 @@ func meteringdbDialect(d dialect.Dialect) (meteringdb.Dialect, error) {
 	}
 }
 
-func (s *SQLStore) Record(ctx context.Context, entries []Entry, at time.Time) (RecordResult, error) {
-	ctx, op := s.o11y.Begin(ctx, observability.WithValue(batchSizeKey, len(entries)))
-	defer op.End()
-
-	if len(entries) == 0 {
-		return RecordResult{}, nil
-	}
-
-	var result RecordResult
-
-	// One transaction for the whole batch, so a crash mid-batch leaves neither
-	// half-counted events nor a total folded from records whose ledger rows never
-	// landed. The ledger and the aggregate it feeds are one fact.
-	err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		var txErr error
-		result, txErr = s.record(ctx, op, q, entries, at)
-
-		return txErr
-	})
-	if err != nil {
-		return RecordResult{}, err
-	}
-
-	op.Set(acceptedKey, result.Accepted).Set(duplicateKey, result.Duplicates)
-
-	return result, nil
-}
-
-func (s *SQLStore) RecordTx(
+func (s *SQLStore) Record(
 	ctx context.Context,
-	q database.Tx,
+	tx database.Tx,
 	entries []Entry,
 	at time.Time,
 ) (RecordResult, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(batchSizeKey, len(entries)))
 	defer op.End()
 
-	if q == nil {
+	if tx == nil {
 		return RecordResult{}, op.Error(ErrNilExecutor, "recording metering usage")
 	}
 
@@ -211,7 +196,7 @@ func (s *SQLStore) RecordTx(
 		return RecordResult{}, nil
 	}
 
-	result, err := s.record(ctx, op, q, entries, at)
+	result, err := s.record(ctx, op, tx, entries, at)
 	if err != nil {
 		return RecordResult{}, err
 	}
@@ -221,8 +206,14 @@ func (s *SQLStore) RecordTx(
 	return result, nil
 }
 
-// record is the shared body of Record and RecordTx: dedupe every entry against
-// the ledger, then fold what survived into its period's total.
+// record dedupes every entry against the ledger, then folds what survived into
+// its period's total.
+//
+// It runs entirely inside the transaction it is given. The ledger row and the
+// aggregate it feeds are one fact, and one transaction for the batch is what
+// keeps a crash from leaving half-counted events or a total folded from records
+// whose ledger rows never landed. That transaction is the caller's, so it also
+// covers whatever else they are writing.
 func (s *SQLStore) record(
 	ctx context.Context,
 	op observability.Operation,
@@ -407,7 +398,12 @@ func (s *SQLStore) insertEvent(
 	return affected > 0, nil
 }
 
-func (s *SQLStore) Total(ctx context.Context, subject, meter string, bounds Bounds) (*Total, error) {
+func (s *SQLStore) Total(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	subject, meter string,
+	bounds Bounds,
+) (*Total, error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValues(map[string]any{
 		subjectKey:     subject,
 		meterKey:       meter,
@@ -416,7 +412,11 @@ func (s *SQLStore) Total(ctx context.Context, subject, meter string, bounds Boun
 	}))
 	defer op.End()
 
-	row, err := s.q.GetMeteringTotal(ctx, s.client.Reader(), meteringdb.GetMeteringTotalParams{
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "reading metering total")
+	}
+
+	row, err := s.q.GetMeteringTotal(ctx, q, meteringdb.GetMeteringTotalParams{
 		Subject:     subject,
 		Meter:       meter,
 		PeriodStart: bounds.Start.UTC(),
@@ -447,6 +447,7 @@ func (s *SQLStore) Total(ctx context.Context, subject, meter string, bounds Boun
 //nolint:gocritic // hugeParam: Entry is taken by value to match Store.Consume's interface
 func (s *SQLStore) Consume(
 	ctx context.Context,
+	tx database.Tx,
 	entry Entry,
 	limit int64,
 	behavior QuotaBehavior,
@@ -464,14 +465,11 @@ func (s *SQLStore) Consume(
 	}))
 	defer op.End()
 
-	var decision *Decision
+	if tx == nil {
+		return nil, op.Error(ErrNilExecutor, "consuming metering quota")
+	}
 
-	err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		var txErr error
-		decision, txErr = s.consume(ctx, op, q, &entry, limit, behavior, at)
-
-		return txErr
-	})
+	decision, err := s.consume(ctx, op, tx, &entry, limit, behavior, at)
 	if err != nil {
 		return nil, err
 	}
@@ -488,6 +486,11 @@ func (s *SQLStore) Consume(
 
 // consume is the serialized decide-then-record that makes Enforcer.Consume
 // exact.
+//
+// The lock it takes lives as long as the transaction it is given, which is the
+// caller's. That is what makes the decision a reservation rather than an
+// observation: nothing else can consume that subject's meter between this
+// decision and the commit of the work it authorized.
 //
 // The order is load-bearing. The row is opened first so there is something to
 // lock; the lock is taken before the total is read, so the number decided
@@ -797,13 +800,6 @@ func (s *SQLStore) ReapEvents(ctx context.Context, horizon time.Time, limit int)
 	op.Set(reapedKey, reaped)
 
 	return reaped, nil
-}
-
-// WithTransaction delegates to the client, which begins its own span for the
-// transaction. Wrapping it here would nest a second span around the first and say
-// nothing the client's does not.
-func (s *SQLStore) WithTransaction(ctx context.Context, fn func(q database.Tx) error) error {
-	return s.client.WithTransaction(ctx, fn)
 }
 
 // entryGroup is one period's worth of accepted records for one subject and meter,

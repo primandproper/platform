@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/primandproper/platform-go/v14/authorization"
+	"github.com/primandproper/platform-go/v14/database"
 	"github.com/primandproper/platform-go/v14/entitlements"
 	"github.com/primandproper/platform-go/v14/metering"
 )
@@ -130,10 +131,10 @@ func (noopEnforcer) Check(context.Context, string, string, int64) (*metering.Dec
 	return &metering.Decision{}, nil
 }
 
-func (noopEnforcer) Consume(context.Context, string, string, int64) (*metering.Decision, error) {
+func (noopEnforcer) Consume(context.Context, database.Tx, string, string, int64) (*metering.Decision, error) {
 	return &metering.Decision{}, nil
 }
 
-func (noopEnforcer) ConsumeUsage(context.Context, metering.Usage) (*metering.Decision, error) {
+func (noopEnforcer) ConsumeUsage(context.Context, database.Tx, metering.Usage) (*metering.Decision, error) {
 	return &metering.Decision{}, nil
 }

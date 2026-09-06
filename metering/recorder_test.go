@@ -16,10 +16,11 @@ import (
 )
 
 // newTestRecorder builds a recorder over a fresh store, with a stub clock.
-func newTestRecorder(tb testing.TB, opts ...RecorderOption) (*DurableRecorder, Store, *stubClock) {
+func newTestRecorder(tb testing.TB, opts ...RecorderOption) (*DurableRecorder, *storeEnv, Store, *stubClock) {
 	tb.Helper()
 
-	store := newSQLiteEnv(tb).newStore(tb)
+	env := newSQLiteEnv(tb)
+	store := env.newStore(tb)
 	c := newStubClock()
 
 	recorder, err := NewDurableRecorder(tb.Context(), &RecorderConfig{},
@@ -27,13 +28,26 @@ func newTestRecorder(tb testing.TB, opts ...RecorderOption) (*DurableRecorder, S
 		append([]RecorderOption{WithRecorderClock(c)}, opts...)...)
 	must.NoError(tb, err)
 
-	return recorder, store, c
+	return recorder, env, store, c
+}
+
+// recordThrough runs one Record through the recorder in a transaction of its
+// own, which is what a caller with nothing else to write does.
+func recordThrough(tb testing.TB, env *storeEnv, recorder *DurableRecorder, u ...Usage) error {
+	tb.Helper()
+
+	_, err := inTx(tb, env.client, func(tx database.Tx) (struct{}, error) {
+		return struct{}{}, recorder.Record(tb.Context(), tx, u...)
+	})
+
+	return err
 }
 
 func TestNewDurableRecorder(T *testing.T) {
 	T.Parallel()
 
-	store := newSQLiteEnv(T).newStore(T)
+	env := newSQLiteEnv(T)
+	store := env.newStore(T)
 
 	T.Run("refuses a nil config, store, or registry", func(t *testing.T) {
 		t.Parallel()
@@ -81,25 +95,25 @@ func TestDurableRecorder_Record(T *testing.T) {
 	T.Run("records and folds", func(t *testing.T) {
 		t.Parallel()
 
-		recorder, store, _ := newTestRecorder(t)
+		recorder, env, store, _ := newTestRecorder(t)
 
-		must.NoError(t, recorder.Record(t.Context(),
+		must.NoError(t, recordThrough(t, env, recorder,
 			Usage{Subject: testSubject, Meter: testMeter, Quantity: 3, IdempotencyKey: "req-1"},
 			Usage{Subject: testSubject, Meter: testMeter, Quantity: 4, IdempotencyKey: "req-2"},
 		))
 
-		test.EqOp(t, int64(7), totalOf(t, store))
+		test.EqOp(t, int64(7), totalOf(t, env, store))
 	})
 
 	T.Run("stamps an absent event time from the clock", func(t *testing.T) {
 		t.Parallel()
 
-		recorder, store, _ := newTestRecorder(t)
+		recorder, env, store, _ := newTestRecorder(t)
 
-		must.NoError(t, recorder.Record(t.Context(),
+		must.NoError(t, recordThrough(t, env, recorder,
 			Usage{Subject: testSubject, Meter: testMeter, Quantity: 3, IdempotencyKey: "req-1"}))
 
-		total, err := store.Total(t.Context(), testSubject, testMeter, monthBounds)
+		total, err := env.total(t, store, testSubject, testMeter, monthBounds)
 		must.NoError(t, err)
 
 		test.EqOp(t, baseTime, total.LastOccurredAt)
@@ -108,7 +122,7 @@ func TestDurableRecorder_Record(T *testing.T) {
 	T.Run("files usage in the period it happened in", func(t *testing.T) {
 		t.Parallel()
 
-		recorder, store, c := newTestRecorder(t)
+		recorder, env, store, c := newTestRecorder(t)
 
 		// The event's time, not the ingest time. A queue that redelivers an hour
 		// later must still file usage in the period it happened in, or the last
@@ -116,15 +130,15 @@ func TestDurableRecorder_Record(T *testing.T) {
 		lastMonth := baseTime.AddDate(0, -1, 0)
 		c.advance(time.Hour)
 
-		must.NoError(t, recorder.Record(t.Context(),
+		must.NoError(t, recordThrough(t, env, recorder,
 			Usage{
 				Subject: testSubject, Meter: testMeter, Quantity: 5,
 				IdempotencyKey: "req-1", OccurredAt: lastMonth,
 			}))
 
-		test.EqOp(t, int64(0), totalOf(t, store))
+		test.EqOp(t, int64(0), totalOf(t, env, store))
 
-		previous, err := store.Total(t.Context(), testSubject, testMeter, Bounds{
+		previous, err := env.total(t, store, testSubject, testMeter, Bounds{
 			Start: time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC),
 			End:   monthBounds.Start,
 		})
@@ -135,50 +149,51 @@ func TestDurableRecorder_Record(T *testing.T) {
 	T.Run("does nothing for an empty batch", func(t *testing.T) {
 		t.Parallel()
 
-		recorder, _, _ := newTestRecorder(t)
+		recorder, env, _, _ := newTestRecorder(t)
 
-		must.NoError(t, recorder.Record(t.Context()))
+		must.NoError(t, recordThrough(t, env, recorder))
 	})
 
 	T.Run("propagates validation failures", func(t *testing.T) {
 		t.Parallel()
 
-		recorder, store, _ := newTestRecorder(t)
+		recorder, env, store, _ := newTestRecorder(t)
 
 		// The caller's own bug, and the same on every retry — so it fails the
 		// batch rather than being dropped and counted.
-		test.ErrorIs(t, recorder.Record(t.Context(),
+		test.ErrorIs(t, recordThrough(t, env, recorder,
 			Usage{Subject: testSubject, Meter: testMeter, Quantity: 1}), ErrEmptyIdempotencyKey)
 
-		test.EqOp(t, int64(0), totalOf(t, store))
+		test.EqOp(t, int64(0), totalOf(t, env, store))
 	})
 
 	T.Run("drops usage for an unregistered meter by default", func(t *testing.T) {
 		t.Parallel()
 
-		recorder, store, _ := newTestRecorder(t)
+		recorder, env, store, _ := newTestRecorder(t)
 
 		// A deploy that adds a meter reaches the ingest path before it reaches
 		// the wiring on some replica somewhere, and failing here would turn a
 		// rollout into an outage on the path that was supposed to be cheap.
-		must.NoError(t, recorder.Record(t.Context(),
+		must.NoError(t, recordThrough(t, env, recorder,
 			Usage{Subject: testSubject, Meter: "not_registered", Quantity: 5, IdempotencyKey: "req-1"},
 			Usage{Subject: testSubject, Meter: testMeter, Quantity: 3, IdempotencyKey: "req-2"},
 		))
 
-		test.EqOp(t, int64(3), totalOf(t, store))
+		test.EqOp(t, int64(3), totalOf(t, env, store))
 	})
 
 	T.Run("refuses an unregistered meter when configured to", func(t *testing.T) {
 		t.Parallel()
 
-		store := newSQLiteEnv(t).newStore(t)
+		env := newSQLiteEnv(t)
+		store := env.newStore(t)
 
 		recorder, err := NewDurableRecorder(t.Context(),
 			&RecorderConfig{RejectUnknownMeters: true}, store, newTestRegistry(t, BehaviorBlock, 10))
 		must.NoError(t, err)
 
-		test.ErrorIs(t, recorder.Record(t.Context(),
+		test.ErrorIs(t, recordThrough(t, env, recorder,
 			Usage{Subject: testSubject, Meter: "not_registered", Quantity: 5, IdempotencyKey: "req-1"}),
 			ErrUnknownMeter)
 	})
@@ -186,12 +201,12 @@ func TestDurableRecorder_Record(T *testing.T) {
 	T.Run("propagates a period resolution failure", func(t *testing.T) {
 		t.Parallel()
 
-		recorder, _, _ := newTestRecorder(t, WithRecorderPeriodResolver(PeriodResolverFunc(
+		recorder, env, _, _ := newTestRecorder(t, WithRecorderPeriodResolver(PeriodResolverFunc(
 			func(context.Context, string, Period, time.Time) (Bounds, error) {
 				return Bounds{}, errArbitrary
 			})))
 
-		test.ErrorIs(t, recorder.Record(t.Context(),
+		test.ErrorIs(t, recordThrough(t, env, recorder,
 			Usage{Subject: testSubject, Meter: testMeter, Quantity: 1, IdempotencyKey: "req-1"}),
 			errArbitrary)
 	})
@@ -199,13 +214,14 @@ func TestDurableRecorder_Record(T *testing.T) {
 	T.Run("propagates a store failure", func(t *testing.T) {
 		t.Parallel()
 
-		store := newSQLiteEnv(t).newStore(t)
+		env := newSQLiteEnv(t)
+		store := env.newStore(t)
 
 		recorder, err := NewDurableRecorder(t.Context(), &RecorderConfig{},
 			&recordFailingStore{Store: store}, newTestRegistry(t, BehaviorBlock, 10))
 		must.NoError(t, err)
 
-		test.ErrorIs(t, recorder.Record(t.Context(),
+		test.ErrorIs(t, recordThrough(t, env, recorder,
 			Usage{Subject: testSubject, Meter: testMeter, Quantity: 1, IdempotencyKey: "req-1"}),
 			errArbitrary)
 	})
@@ -213,7 +229,8 @@ func TestDurableRecorder_Record(T *testing.T) {
 	T.Run("chunks a batch larger than the configured size", func(t *testing.T) {
 		t.Parallel()
 
-		store := newSQLiteEnv(t).newStore(t)
+		env := newSQLiteEnv(t)
+		store := env.newStore(t)
 
 		// Chunked so one Record call cannot exceed a driver's bind-parameter
 		// ceiling or hold one transaction open across an unbounded batch.
@@ -229,51 +246,57 @@ func TestDurableRecorder_Record(T *testing.T) {
 			})
 		}
 
-		must.NoError(t, recorder.Record(t.Context(), usages...))
+		must.NoError(t, recordThrough(t, env, recorder, usages...))
 
-		test.EqOp(t, int64(5), totalOf(t, store))
+		test.EqOp(t, int64(5), totalOf(t, env, store))
 	})
 }
 
-func TestDurableRecorder_RecordTx(T *testing.T) {
+func TestDurableRecorder_CallerTransaction(T *testing.T) {
 	T.Parallel()
 
-	T.Run("records in the caller's transaction", func(t *testing.T) {
+	T.Run("commits with whatever else the transaction wrote", func(t *testing.T) {
 		t.Parallel()
 
-		recorder, store, _ := newTestRecorder(t)
+		recorder, env, store, _ := newTestRecorder(t)
 
-		must.NoError(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
-			return recorder.RecordTx(t.Context(), q,
+		must.NoError(t, env.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+			// The consumer's own statement, in the transaction the usage is
+			// recorded in. This is the shape the whole port exists for.
+			if _, err := tx.ExecContext(t.Context(), "SELECT 1"); err != nil {
+				return err
+			}
+
+			return recorder.Record(t.Context(), tx,
 				Usage{Subject: testSubject, Meter: testMeter, Quantity: 6, IdempotencyKey: "req-1"})
 		}))
 
-		test.EqOp(t, int64(6), totalOf(t, store))
+		test.EqOp(t, int64(6), totalOf(t, env, store))
 	})
 
 	T.Run("rolls back with the caller's transaction", func(t *testing.T) {
 		t.Parallel()
 
-		recorder, store, _ := newTestRecorder(t)
+		recorder, env, store, _ := newTestRecorder(t)
 
 		// The usage and the work it describes are one fact: a crash between them
 		// leaves work committed that nobody was billed for.
-		test.ErrorIs(t, store.WithTransaction(t.Context(), func(q database.Tx) error {
-			must.NoError(t, recorder.RecordTx(t.Context(), q,
+		test.ErrorIs(t, env.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+			must.NoError(t, recorder.Record(t.Context(), tx,
 				Usage{Subject: testSubject, Meter: testMeter, Quantity: 6, IdempotencyKey: "req-1"}))
 
 			return errArbitrary
 		}), errArbitrary)
 
-		test.EqOp(t, int64(0), totalOf(t, store))
+		test.EqOp(t, int64(0), totalOf(t, env, store))
 	})
 
 	T.Run("refuses a nil executor", func(t *testing.T) {
 		t.Parallel()
 
-		recorder, _, _ := newTestRecorder(t)
+		recorder, _, _, _ := newTestRecorder(t)
 
-		test.ErrorIs(t, recorder.RecordTx(t.Context(), nil,
+		test.ErrorIs(t, recorder.Record(t.Context(), nil,
 			Usage{Subject: testSubject, Meter: testMeter, Quantity: 1, IdempotencyKey: "req-1"}),
 			ErrNilExecutor)
 	})
@@ -301,9 +324,9 @@ func TestDurableRecorder_Analytics(T *testing.T) {
 			},
 		}
 
-		recorder, _, _ := newTestRecorder(t, WithRecorderAnalytics(reporter))
+		recorder, env, _, _ := newTestRecorder(t, WithRecorderAnalytics(reporter))
 
-		must.NoError(t, recorder.Record(t.Context(), Usage{
+		must.NoError(t, recordThrough(t, env, recorder, Usage{
 			Subject: testSubject, Meter: testMeter, Quantity: 3, IdempotencyKey: "req-1",
 			Dimensions: map[string]string{"model": "opus"},
 		}))
@@ -326,15 +349,15 @@ func TestDurableRecorder_Analytics(T *testing.T) {
 		}
 
 		logger := newRecordingLogger()
-		recorder, store, _ := newTestRecorder(t, WithRecorderAnalytics(reporter), WithRecorderLogger(logger))
+		recorder, env, store, _ := newTestRecorder(t, WithRecorderAnalytics(reporter), WithRecorderLogger(logger))
 
 		// Analytics is a side channel: an ingest path that failed because a
 		// warehouse was unreachable would be a metering outage caused by a system
 		// nobody bills from.
-		must.NoError(t, recorder.Record(t.Context(),
+		must.NoError(t, recordThrough(t, env, recorder,
 			Usage{Subject: testSubject, Meter: testMeter, Quantity: 3, IdempotencyKey: "req-1"}))
 
-		test.EqOp(t, int64(3), totalOf(t, store))
+		test.EqOp(t, int64(3), totalOf(t, env, store))
 
 		// Swallowed is not the same as unreported. A warehouse that has stopped
 		// receiving events is invisible from the warehouse's end — nothing there
@@ -356,9 +379,9 @@ func TestDurableRecorder_Analytics(T *testing.T) {
 		}
 
 		logger := newRecordingLogger()
-		recorder, _, _ := newTestRecorder(t, WithRecorderAnalytics(reporter), WithRecorderLogger(logger))
+		recorder, env, _, _ := newTestRecorder(t, WithRecorderAnalytics(reporter), WithRecorderLogger(logger))
 
-		must.NoError(t, recorder.Record(t.Context(),
+		must.NoError(t, recordThrough(t, env, recorder,
 			Usage{Subject: testSubject, Meter: testMeter, Quantity: 3, IdempotencyKey: "req-1"}))
 
 		test.SliceEmpty(t, logger.at(logging.ErrorLevel))
@@ -377,12 +400,12 @@ func TestDurableRecorder_Analytics(T *testing.T) {
 			},
 		}
 
-		recorder, _, _ := newTestRecorder(t, WithRecorderAnalytics(reporter))
+		recorder, env, _, _ := newTestRecorder(t, WithRecorderAnalytics(reporter))
 
 		usage := Usage{Subject: testSubject, Meter: testMeter, Quantity: 3, IdempotencyKey: "req-1"}
 
-		must.NoError(t, recorder.Record(t.Context(), usage))
-		must.NoError(t, recorder.Record(t.Context(), usage))
+		must.NoError(t, recordThrough(t, env, recorder, usage))
+		must.NoError(t, recordThrough(t, env, recorder, usage))
 
 		test.EqOp(t, 1, calls)
 	})
@@ -391,17 +414,17 @@ func TestDurableRecorder_Analytics(T *testing.T) {
 		t.Parallel()
 
 		instruments := newRecordingInstruments()
-		recorder, _, _ := newTestRecorder(t, WithRecorderMetricsProvider(instruments.provider()))
+		recorder, env, _, _ := newTestRecorder(t, WithRecorderMetricsProvider(instruments.provider()))
 
 		usage := Usage{Subject: testSubject, Meter: testMeter, Quantity: 3, IdempotencyKey: "req-1"}
 
-		must.NoError(t, recorder.Record(t.Context(), usage))
+		must.NoError(t, recordThrough(t, env, recorder, usage))
 
 		// The first pass is all new: one record accepted, nothing seen before.
 		test.Eq(t, []int64{1}, instruments.recorded("_usage_recorded"))
 		test.SliceEmpty(t, instruments.recorded("_usage_duplicates"))
 
-		must.NoError(t, recorder.Record(t.Context(), usage))
+		must.NoError(t, recordThrough(t, env, recorder, usage))
 
 		// The redelivery is all duplicate, and reports itself as such. Reporting
 		// a zero on the other counter instead would be worse than reporting
@@ -418,12 +441,12 @@ func TestDurableRecorder_Analytics(T *testing.T) {
 	T.Run("ignores a nil reporter", func(t *testing.T) {
 		t.Parallel()
 
-		recorder, store, _ := newTestRecorder(t, WithRecorderAnalytics(nil))
+		recorder, env, store, _ := newTestRecorder(t, WithRecorderAnalytics(nil))
 
-		must.NoError(t, recorder.Record(t.Context(),
+		must.NoError(t, recordThrough(t, env, recorder,
 			Usage{Subject: testSubject, Meter: testMeter, Quantity: 3, IdempotencyKey: "req-1"}))
 
-		test.EqOp(t, int64(3), totalOf(t, store))
+		test.EqOp(t, int64(3), totalOf(t, env, store))
 		test.Nil(t, recorder.analytics)
 	})
 
@@ -440,9 +463,9 @@ func TestDurableRecorder_Analytics(T *testing.T) {
 			},
 		}
 
-		recorder, _, _ := newTestRecorder(t, WithRecorderAnalytics(reporter))
+		recorder, env, _, _ := newTestRecorder(t, WithRecorderAnalytics(reporter))
 
-		must.NoError(t, recorder.Record(t.Context(),
+		must.NoError(t, recordThrough(t, env, recorder,
 			Usage{Subject: testSubject, Meter: testMeter, Quantity: 1, IdempotencyKey: "req-1"}))
 
 		test.EqOp(t, AnalyticsEvent, saw)
@@ -452,7 +475,8 @@ func TestDurableRecorder_Analytics(T *testing.T) {
 func TestRecorderOptions(T *testing.T) {
 	T.Parallel()
 
-	store := newSQLiteEnv(T).newStore(T)
+	env := newSQLiteEnv(T)
+	store := env.newStore(T)
 	registry := newTestRegistry(T, BehaviorBlock, 10)
 
 	T.Run("ignores nil dependencies", func(t *testing.T) {

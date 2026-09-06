@@ -182,6 +182,17 @@ func NewRecorder(
 
 // NewEnforcer builds the read path.
 //
+// client must be the database holding the metering tables — the same one
+// NewStore was given. What the enforcer takes from it is one thing: the reader
+// Check falls back to when the cache cannot answer. Its writes are the caller's
+// to open, because metering.Enforcer.Consume records usage in the transaction
+// that did the work it authorized.
+//
+// It is Reader() rather than Writer(), which preserves what this package did
+// internally before the executor became the caller's to choose. A deployment
+// whose replica lag is long enough for a subject to spend the same quota twice
+// wants metering.NewQuotaEnforcer directly, with Writer().
+//
 // totals may be nil, at the cost of a durable read on every Check — see
 // metering.WithEnforcerCache. quotas may be nil, in which case the Registry's
 // static quotas serve every subject.
@@ -194,6 +205,7 @@ func NewRecorder(
 func NewEnforcer(
 	ctx context.Context,
 	cfg *Config,
+	client database.Client,
 	store metering.Store,
 	registry *metering.Registry,
 	resolver metering.PeriodResolver,
@@ -206,6 +218,10 @@ func NewEnforcer(
 
 	if err := cfg.prepare(ctx); err != nil {
 		return nil, err
+	}
+
+	if client == nil {
+		return nil, errors.ErrNilInputParameter
 	}
 
 	var base []metering.EnforcerOption
@@ -228,7 +244,9 @@ func NewEnforcer(
 		base = append(base, metering.WithEnforcerMetricsProvider(metricsProvider))
 	}
 
-	return metering.NewQuotaEnforcer(ctx, &cfg.Enforcer, store, registry, append(base, o.enforcer...)...)
+	return metering.NewQuotaEnforcer(
+		ctx, &cfg.Enforcer, store, registry, client.Reader(), append(base, o.enforcer...)...,
+	)
 }
 
 // NewFlusher builds the provider push. Register its Job with a jobs.Scheduler;

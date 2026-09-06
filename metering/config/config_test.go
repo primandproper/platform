@@ -191,6 +191,7 @@ func TestConstructors(T *testing.T) {
 		enforcer, err := NewEnforcer(
 			t.Context(),
 			cfg,
+			client,
 			store,
 			registry,
 			metering.NewCalendarPeriodResolver(nil),
@@ -221,8 +222,10 @@ func TestConstructors(T *testing.T) {
 
 		// The assembled pieces agree about the tables, which is the whole reason
 		// they read one config.
-		must.NoError(t, recorder.Record(t.Context(), metering.Usage{
-			Subject: "account-1", Meter: "api_requests", Quantity: 5, IdempotencyKey: "req-1",
+		must.NoError(t, client.WithTransaction(t.Context(), func(tx database.Tx) error {
+			return recorder.Record(t.Context(), tx, metering.Usage{
+				Subject: "account-1", Meter: "api_requests", Quantity: 5, IdempotencyKey: "req-1",
+			})
 		}))
 
 		decision, err := enforcer.Check(t.Context(), "account-1", "api_requests", 1)
@@ -247,8 +250,13 @@ func TestConstructors(T *testing.T) {
 		_, err = NewRecorder(t.Context(), cfg, store, registry, nil, nil)
 		must.NoError(t, err)
 
-		_, err = NewEnforcer(t.Context(), cfg, store, registry, nil, nil, nil)
+		_, err = NewEnforcer(t.Context(), cfg, client, store, registry, nil, nil, nil)
 		must.NoError(t, err)
+
+		// The client is not optional the way the resolver and the cache are: it
+		// is where Check reads the durable total when the cache cannot answer.
+		_, err = NewEnforcer(t.Context(), cfg, nil, store, registry, nil, nil, nil)
+		test.ErrorIs(t, err, errors.ErrNilInputParameter)
 
 		_, err = NewFlusher(
 			t.Context(),
@@ -278,7 +286,7 @@ func TestConstructors(T *testing.T) {
 		_, err = NewRecorder(t.Context(), nil, nil, registry, nil, nil)
 		test.ErrorIs(t, err, errors.ErrNilInputParameter)
 
-		_, err = NewEnforcer(t.Context(), nil, nil, registry, nil, nil, nil)
+		_, err = NewEnforcer(t.Context(), nil, nil, nil, registry, nil, nil, nil)
 		test.ErrorIs(t, err, errors.ErrNilInputParameter)
 
 		_, err = NewFlusher(t.Context(), nil, nil, mapper, capitalismnoop.NewUsageReporter())
@@ -306,7 +314,7 @@ func TestConstructors(T *testing.T) {
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), "must exceed flush timeout")
 
-		_, err = NewEnforcer(t.Context(), bad, nil, registry, nil, nil, nil)
+		_, err = NewEnforcer(t.Context(), bad, nil, nil, registry, nil, nil, nil)
 		must.Error(t, err)
 		test.StrContains(t, err.Error(), "must exceed flush timeout")
 
@@ -360,7 +368,7 @@ func TestConstructors(T *testing.T) {
 
 		// Reaching the custom tables at all is the assertion: a mismatch would
 		// surface as a missing table rather than a construction error.
-		_, err = store.Total(t.Context(), "account-1", "api_requests", metering.Bounds{
+		_, err = store.Total(t.Context(), client.Reader(), "account-1", "api_requests", metering.Bounds{
 			Start: time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC),
 			End:   time.Date(2026, time.September, 1, 0, 0, 0, 0, time.UTC),
 		})

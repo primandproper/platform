@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/primandproper/platform-go/v14/database"
 	"github.com/primandproper/platform-go/v14/entitlements"
 	platformerrors "github.com/primandproper/platform-go/v14/errors"
 	"github.com/primandproper/platform-go/v14/metering"
@@ -58,11 +59,11 @@ func (stubEnforcer) Check(context.Context, string, string, int64) (*metering.Dec
 	return &metering.Decision{Allowed: true}, nil
 }
 
-func (stubEnforcer) Consume(context.Context, string, string, int64) (*metering.Decision, error) {
+func (stubEnforcer) Consume(context.Context, database.Tx, string, string, int64) (*metering.Decision, error) {
 	return &metering.Decision{Allowed: true}, nil
 }
 
-func (stubEnforcer) ConsumeUsage(context.Context, metering.Usage) (*metering.Decision, error) {
+func (stubEnforcer) ConsumeUsage(context.Context, database.Tx, metering.Usage) (*metering.Decision, error) {
 	return &metering.Decision{Allowed: true}, nil
 }
 

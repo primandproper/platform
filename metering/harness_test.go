@@ -173,6 +173,130 @@ func (e *storeEnv) newStoreWithLogger(tb testing.TB, logger logging.Logger) Stor
 	return store
 }
 
+// inTx runs fn in a transaction on the environment's client and hands back what
+// it returned.
+//
+// Every store write takes the caller's database.Tx, and most of this suite has
+// nothing to join — it is testing the store, not a consumer — so it opens one
+// per call. That is exactly what a consumer with nothing to join writes, which
+// is why the helper wraps Client.WithTransaction rather than reaching for
+// database.RunInTransaction.
+//
+// An error from fn rolls the transaction back before it is returned, so a test
+// asserting a refusal is also asserting that the refusal wrote nothing.
+func inTx[T any](tb testing.TB, client database.Client, fn func(database.Tx) (T, error)) (T, error) {
+	tb.Helper()
+
+	var out T
+
+	err := client.WithTransaction(tb.Context(), func(tx database.Tx) error {
+		var fnErr error
+		out, fnErr = fn(tx)
+
+		return fnErr
+	})
+
+	return out, err
+}
+
+// mustInTx is inTx for the calls a test expects to succeed.
+func mustInTx[T any](tb testing.TB, client database.Client, fn func(database.Tx) (T, error)) T {
+	tb.Helper()
+
+	out, err := inTx(tb, client, fn)
+	must.NoError(tb, err)
+
+	return out
+}
+
+// record writes entries through the store in a transaction of its own.
+func (e *storeEnv) record(tb testing.TB, store Store, entries []Entry, at time.Time) (RecordResult, error) {
+	tb.Helper()
+
+	return inTx(tb, e.client, func(tx database.Tx) (RecordResult, error) {
+		return store.Record(tb.Context(), tx, entries, at)
+	})
+}
+
+// mustRecord is record for the batches a test expects to be accepted.
+func (e *storeEnv) mustRecord(tb testing.TB, store Store, entries []Entry, at time.Time) RecordResult {
+	tb.Helper()
+
+	result, err := e.record(tb, store, entries, at)
+	must.NoError(tb, err)
+
+	return result
+}
+
+// consume decides and records one entry in a transaction of its own.
+//
+//nolint:gocritic // hugeParam: Entry is taken by value to match Store.Consume
+func (e *storeEnv) consume(
+	tb testing.TB,
+	store Store,
+	entry Entry,
+	limit int64,
+	behavior QuotaBehavior,
+	at time.Time,
+) (*Decision, error) {
+	tb.Helper()
+
+	return inTx(tb, e.client, func(tx database.Tx) (*Decision, error) {
+		return store.Consume(tb.Context(), tx, entry, limit, behavior, at)
+	})
+}
+
+// total reads a period's total on the client's reader, which is what a caller
+// holding no transaction passes.
+func (e *storeEnv) total(tb testing.TB, store Store, subject, meter string, bounds Bounds) (*Total, error) {
+	tb.Helper()
+
+	return store.Total(tb.Context(), e.client.Reader(), subject, meter, bounds)
+}
+
+// mustTotal is total for the reads a test expects to succeed.
+func (e *storeEnv) mustTotal(tb testing.TB, store Store, subject, meter string, bounds Bounds) *Total {
+	tb.Helper()
+
+	got, err := e.total(tb, store, subject, meter, bounds)
+	must.NoError(tb, err)
+
+	return got
+}
+
+// newEnforcer builds a QuotaEnforcer reading on this environment's client.
+//
+// The reader is Reader(), which is what a caller with no transaction passes and
+// what this package used internally before the executor became the caller's to
+// name.
+func (e *storeEnv) newEnforcer(
+	tb testing.TB,
+	cfg *EnforcerConfig,
+	store Store,
+	registry *Registry,
+	opts ...EnforcerOption,
+) (*QuotaEnforcer, error) {
+	tb.Helper()
+
+	return NewQuotaEnforcer(tb.Context(), cfg, store, registry, e.client.Reader(), opts...)
+}
+
+// consumeIn decides and records through an enforcer in a transaction of its own,
+// which is what a caller with nothing else to write does.
+func consumeIn(
+	tb testing.TB,
+	env *storeEnv,
+	enforcer *QuotaEnforcer,
+	subject, meter string,
+	quantity int64,
+) (*Decision, error) {
+	tb.Helper()
+
+	return inTx(tb, env.client, func(tx database.Tx) (*Decision, error) {
+		return enforcer.Consume(tb.Context(), tx, subject, meter, quantity)
+	})
+}
+
 // testMeter is the meter most of this suite counts.
 const testMeter = "api_requests"
 
@@ -377,7 +501,9 @@ type failingTotalStore struct {
 	Store
 }
 
-func (s *failingTotalStore) Total(context.Context, string, string, Bounds) (*Total, error) {
+func (s *failingTotalStore) Total(
+	context.Context, database.SQLQueryExecutor, string, string, Bounds,
+) (*Total, error) {
 	return nil, errArbitrary
 }
 
@@ -386,7 +512,9 @@ type failingConsumeStore struct {
 	Store
 }
 
-func (s *failingConsumeStore) Consume(context.Context, Entry, int64, QuotaBehavior, time.Time) (*Decision, error) {
+func (s *failingConsumeStore) Consume(
+	context.Context, database.Tx, Entry, int64, QuotaBehavior, time.Time,
+) (*Decision, error) {
 	return nil, errArbitrary
 }
 
@@ -436,11 +564,7 @@ type recordFailingStore struct {
 	Store
 }
 
-func (s *recordFailingStore) Record(context.Context, []Entry, time.Time) (RecordResult, error) {
-	return RecordResult{}, errArbitrary
-}
-
-func (s *recordFailingStore) RecordTx(
+func (s *recordFailingStore) Record(
 	context.Context,
 	database.Tx,
 	[]Entry,

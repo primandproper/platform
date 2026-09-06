@@ -131,37 +131,97 @@ func (t *Total) Delta() int64 {
 // the write that follows must be one serialized unit per (subject, meter,
 // period), or two concurrent consumers both see room under the limit and both
 // take it.
+//
+// # The transaction is the caller's, except where there is no caller
+//
+// Record and Consume take a database.Tx, and Total takes the wider
+// database.SQLQueryExecutor. That is the module's store convention rather than
+// anything this package invented, and here it is what the package is for: usage
+// recorded in the transaction that produced the work means a rolled-back
+// operation does not bill for itself. A caller with genuinely nothing to join
+// opens a transaction with Client.WithTransaction and passes the Tx it is
+// handed; there is deliberately no WithTransaction on this interface, because a
+// store that hands out transactions is a second way in for a caller who should
+// be looking at their own client.
+//
+// The other four — ClaimFlushable, MarkFlushed, ReleaseFlush and ReapEvents —
+// take no executor at all, and the asymmetry is deliberate rather than an
+// oversight. They are the flush loop and the reaper servicing themselves: there
+// is no consumer request behind them and so no transaction of anybody's to join,
+// and the correctness the flush protocol depends on is that the claim commits
+// *before* the provider is posted to, which a caller holding the transaction
+// open across that round trip would destroy. Each says so on its own doc.
+//
+// A Store that is not a SQL store still takes these types. That is the cost of
+// the seam being one signature rather than one per backend, and it is a small
+// one: an implementation with no transaction of its own ignores the executor,
+// while an application keeping its usage in the same database as the work that
+// incurred it — the case this package is written for — gets the guarantee from
+// the type.
 type Store interface {
-	// Record durably ingests usage, deduping on idempotency key and folding each
-	// new record into its period's total.
+	// Record durably ingests usage in the caller's transaction, deduping on
+	// idempotency key and folding each new record into its period's total.
 	//
-	// It is not atomic across entries; see RecordResult.
-	Record(ctx context.Context, entries []Entry, at time.Time) (RecordResult, error)
-
-	// RecordTx is Record inside the caller's transaction, so usage commits with
-	// whatever produced it.
+	// It exists for the call site where the usage and the work are the same
+	// fact: a row inserted and the storage it consumes, a message sent and the
+	// credit it spends. Recording those separately means a crash between them
+	// leaves usage counted for work that rolled back, or work committed that
+	// nobody was billed for.
 	//
-	// It exists for the call site where the usage and the work are the same fact:
-	// a row inserted and the storage it consumes, a message sent and the credit it
-	// spends. Recording those separately means a crash between them leaves usage
-	// counted for work that rolled back, or work committed that nobody was billed
-	// for.
-	RecordTx(ctx context.Context, q database.Tx, entries []Entry, at time.Time) (RecordResult, error)
+	// It is not atomic across entries in the sense RecordResult describes — an
+	// entry whose idempotency key has been seen is skipped rather than failing
+	// the batch. It is entirely atomic in the sense the transaction describes:
+	// an error returned from here is an error the caller unwinds, and nothing
+	// this call wrote survives it.
+	Record(ctx context.Context, tx database.Tx, entries []Entry, at time.Time) (RecordResult, error)
 
 	// Total reads one subject's total for a meter and period. It returns a zero
 	// Total, and no error, for a period nothing has been recorded against — an
 	// absent row means no usage, which is a number rather than a missing value.
-	Total(ctx context.Context, subject, meter string, bounds Bounds) (*Total, error)
+	//
+	// It takes the wider executor so that one method serves both of its callers.
+	// A dashboard or a quota check holding no transaction passes Client.Reader();
+	// a caller that has just recorded usage passes the Tx it recorded in, and
+	// reads a total that includes what that transaction has not yet committed.
+	Total(ctx context.Context, q database.SQLQueryExecutor, subject, meter string, bounds Bounds) (*Total, error)
 
 	// Consume atomically decides whether entry may be recorded against a limit,
-	// records it if so, and returns the decision.
+	// records it if so, and returns the decision, all in the caller's
+	// transaction.
 	//
 	// The limit and behavior are passed in rather than looked up, because whose
 	// limit applies is a QuotaSource's answer and may differ per subject.
-	Consume(ctx context.Context, entry Entry, limit int64, behavior QuotaBehavior, at time.Time) (*Decision, error)
+	//
+	// The transaction is the caller's for the same reason Record's is, and the
+	// stakes are higher: a nil error here is permission to do the work, and work
+	// that commits separately from the permission is work that can be done
+	// without being counted, or counted without being done. Write the work in
+	// this transaction.
+	//
+	// The consequence is that the row lock this takes is held until the caller
+	// commits rather than until the store does, so every other consumer of that
+	// subject's meter waits behind whatever else the transaction is doing. That
+	// is the price of an exact reservation, and it is the reason Check exists:
+	// the cheap path takes no lock at all.
+	Consume(
+		ctx context.Context,
+		tx database.Tx,
+		entry Entry,
+		limit int64,
+		behavior QuotaBehavior,
+		at time.Time,
+	) (*Decision, error)
 
 	// ClaimFlushable leases the next batch of totals with usage the provider has
 	// not been told about, incrementing their attempt counts.
+	//
+	// It takes no executor. A lease exists so that the provider round trip that
+	// follows it happens outside a transaction — the claim has to be committed
+	// and visible to every other flusher before the first byte goes out, or two
+	// flushers post the same delta. A caller supplying a transaction would be
+	// choosing when that commit happens, which is the one thing the protocol
+	// cannot let them choose. An implementation runs this on its own connection,
+	// and the select and the leases within it are one transaction of its own.
 	ClaimFlushable(ctx context.Context, now time.Time, limit, maxAttempts int, leaseUntil time.Time) ([]*Total, error)
 
 	// MarkFlushed records a successful post: the flushed quantity advances to
@@ -171,10 +231,21 @@ type Store interface {
 	// lapsed while it was posting cannot advance a sequence a second flusher has
 	// already moved. Losing that race is how the same delta gets posted twice
 	// under two different keys, which no idempotency key can undo.
+	//
+	// It takes no executor, and the guard is why. What settles this row is the
+	// flush sequence read at claim time matching the one in the row now — a
+	// comparison whose whole value is that it is evaluated against committed
+	// state by a single statement. There is no caller transaction for it to
+	// join: the flusher is servicing itself, and the thing it would be joining
+	// is a network call to a billing provider.
 	MarkFlushed(ctx context.Context, total *Total, flushed int64, at time.Time) error
 
 	// ReleaseFlush returns a total to the flushable set after a failed post,
 	// recording why and when it may be retried.
+	//
+	// It takes no executor, for MarkFlushed's reason: it is the other half of
+	// the same guarded settlement, reached down the failure path of the same
+	// loop.
 	ReleaseFlush(ctx context.Context, total *Total, lastErr string, nextFlush time.Time) error
 
 	// ReapEvents deletes usage event rows recorded at or before horizon, up to
@@ -189,9 +260,10 @@ type Store interface {
 	// removed while its period still owes the provider usage would take the
 	// evidence for an invoice line with it, and would let a redelivery of that
 	// same event be counted a second time.
+	//
+	// It takes no executor. Retention spans every subject and answers no
+	// consumer read — it returns a count, not rows — and it runs from a
+	// scheduler tick rather than from anybody's request, so there is no
+	// transaction for it to join and no caller who would want it in theirs.
 	ReapEvents(ctx context.Context, horizon time.Time, limit int) (int64, error)
-
-	// WithTransaction runs fn against the store's database, for callers using
-	// RecordTx.
-	WithTransaction(ctx context.Context, fn func(q database.Tx) error) error
 }

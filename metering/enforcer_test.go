@@ -9,6 +9,7 @@ import (
 
 	"github.com/primandproper/platform-go/v14/cache"
 	cachemock "github.com/primandproper/platform-go/v14/cache/mock"
+	"github.com/primandproper/platform-go/v14/database"
 	"github.com/primandproper/platform-go/v14/observability/logging"
 
 	"github.com/shoenig/test"
@@ -18,6 +19,7 @@ import (
 // enforcerEnv is one enforcer with the pieces a test needs to reach around it.
 type enforcerEnv struct {
 	enforcer *QuotaEnforcer
+	db       *storeEnv
 	store    Store
 	totals   cache.Cache[CachedTotal]
 	clock    *stubClock
@@ -27,43 +29,68 @@ type enforcerEnv struct {
 func newTestEnforcer(tb testing.TB, behavior QuotaBehavior, limit int64, opts ...EnforcerOption) *enforcerEnv {
 	tb.Helper()
 
-	store := newSQLiteEnv(tb).newStore(tb)
+	db := newSQLiteEnv(tb)
+	store := db.newStore(tb)
 	c := newStubClock()
 
 	totals := newStubCache(c)
 
-	enforcer, err := NewQuotaEnforcer(tb.Context(), &EnforcerConfig{},
+	enforcer, err := db.newEnforcer(tb, &EnforcerConfig{},
 		store, newTestRegistry(tb, behavior, limit),
 		append([]EnforcerOption{WithEnforcerClock(c), WithEnforcerCache(totals)}, opts...)...)
 	must.NoError(tb, err)
 
-	return &enforcerEnv{enforcer: enforcer, store: store, totals: totals, clock: c}
+	return &enforcerEnv{enforcer: enforcer, db: db, store: store, totals: totals, clock: c}
+}
+
+// consume decides and records in a transaction of its own.
+func (e *enforcerEnv) consume(tb testing.TB, subject, meter string, quantity int64) (*Decision, error) {
+	tb.Helper()
+
+	return consumeIn(tb, e.db, e.enforcer, subject, meter, quantity)
+}
+
+// consumeUsage is consume over a full Usage record.
+//
+//nolint:gocritic // hugeParam: Usage is taken by value to match ConsumeUsage
+func (e *enforcerEnv) consumeUsage(tb testing.TB, u Usage) (*Decision, error) {
+	tb.Helper()
+
+	return inTx(tb, e.db.client, func(tx database.Tx) (*Decision, error) {
+		return e.enforcer.ConsumeUsage(tb.Context(), tx, u)
+	})
 }
 
 func TestNewQuotaEnforcer(T *testing.T) {
 	T.Parallel()
 
-	store := newSQLiteEnv(T).newStore(T)
+	db := newSQLiteEnv(T)
+	store := db.newStore(T)
 
 	T.Run("refuses a nil config, store, or registry", func(t *testing.T) {
 		t.Parallel()
 
 		registry := newTestRegistry(t, BehaviorBlock, 10)
 
-		_, err := NewQuotaEnforcer(t.Context(), nil, store, registry)
+		_, err := db.newEnforcer(t, nil, store, registry)
 		test.Error(t, err)
 
-		_, err = NewQuotaEnforcer(t.Context(), &EnforcerConfig{}, nil, registry)
+		_, err = db.newEnforcer(t, &EnforcerConfig{}, nil, registry)
 		test.ErrorIs(t, err, ErrNilStore)
 
-		_, err = NewQuotaEnforcer(t.Context(), &EnforcerConfig{}, store, nil)
+		_, err = db.newEnforcer(t, &EnforcerConfig{}, store, nil)
 		test.ErrorIs(t, err, ErrNilRegistry)
+
+		// The reader is not optional the way the cache is. An enforcer that
+		// cannot read the durable total answers a cache miss with nothing.
+		_, err = NewQuotaEnforcer(t.Context(), &EnforcerConfig{}, store, registry, nil)
+		test.ErrorIs(t, err, ErrNilExecutor)
 	})
 
 	T.Run("fills defaults and ignores nil options", func(t *testing.T) {
 		t.Parallel()
 
-		enforcer, err := NewQuotaEnforcer(t.Context(), &EnforcerConfig{}, store,
+		enforcer, err := db.newEnforcer(t, &EnforcerConfig{}, store,
 			newTestRegistry(t, BehaviorBlock, 10), nil,
 			WithEnforcerClock(nil), WithEnforcerCache(nil),
 			WithEnforcerQuotaSource(nil), WithEnforcerPeriodResolver(nil),
@@ -98,7 +125,7 @@ func TestQuotaEnforcer_Check(T *testing.T) {
 		test.EqOp(t, monthBounds.End, decision.ResetsAt)
 		// A Check that recorded would be a Consume, and every read path would pay
 		// for a durable write.
-		test.EqOp(t, int64(0), totalOf(t, env.store))
+		test.EqOp(t, int64(0), totalOf(t, env.db, env.store))
 	})
 
 	T.Run("counts the caller's quantity against the total", func(t *testing.T) {
@@ -106,7 +133,7 @@ func TestQuotaEnforcer_Check(T *testing.T) {
 
 		env := newTestEnforcer(t, BehaviorBlock, 100)
 
-		must.NoError(t, mustRecord(t, env.store, newEntry("seed", 95, AggregationSum)))
+		must.NoError(t, mustRecord(t, env.db, env.store, newEntry("seed", 95, AggregationSum)))
 
 		decision, err := env.enforcer.Check(t.Context(), testSubject, testMeter, 10)
 		must.NoError(t, err)
@@ -123,7 +150,7 @@ func TestQuotaEnforcer_Check(T *testing.T) {
 
 		env := newTestEnforcer(t, BehaviorBlock, 100)
 
-		must.NoError(t, mustRecord(t, env.store, newEntry("seed", 40, AggregationSum)))
+		must.NoError(t, mustRecord(t, env.db, env.store, newEntry("seed", 40, AggregationSum)))
 
 		decision, err := env.enforcer.Check(t.Context(), testSubject, testMeter, 1)
 		must.NoError(t, err)
@@ -137,7 +164,7 @@ func TestQuotaEnforcer_Check(T *testing.T) {
 
 		env := newTestEnforcer(t, BehaviorBlock, 100)
 
-		must.NoError(t, mustRecord(t, env.store, newEntry("seed", 40, AggregationSum)))
+		must.NoError(t, mustRecord(t, env.db, env.store, newEntry("seed", 40, AggregationSum)))
 
 		_, err := env.enforcer.Check(t.Context(), testSubject, testMeter, 1)
 		must.NoError(t, err)
@@ -145,7 +172,7 @@ func TestQuotaEnforcer_Check(T *testing.T) {
 		// Usage the cache does not know about yet. The staleness budget is
 		// exactly this window, and Decision.Stale says so rather than pretending
 		// the number is fresh.
-		must.NoError(t, mustRecord(t, env.store, newEntry("more", 50, AggregationSum)))
+		must.NoError(t, mustRecord(t, env.db, env.store, newEntry("more", 50, AggregationSum)))
 
 		decision, err := env.enforcer.Check(t.Context(), testSubject, testMeter, 1)
 		must.NoError(t, err)
@@ -159,12 +186,12 @@ func TestQuotaEnforcer_Check(T *testing.T) {
 
 		env := newTestEnforcer(t, BehaviorBlock, 100)
 
-		must.NoError(t, mustRecord(t, env.store, newEntry("seed", 40, AggregationSum)))
+		must.NoError(t, mustRecord(t, env.db, env.store, newEntry("seed", 40, AggregationSum)))
 
 		_, err := env.enforcer.Check(t.Context(), testSubject, testMeter, 1)
 		must.NoError(t, err)
 
-		must.NoError(t, mustRecord(t, env.store, newEntry("more", 50, AggregationSum)))
+		must.NoError(t, mustRecord(t, env.db, env.store, newEntry("more", 50, AggregationSum)))
 
 		// The TTL is the whole staleness mechanism: an entry that expires is an
 		// entry re-read from the durable total, which bounds staleness by
@@ -181,7 +208,8 @@ func TestQuotaEnforcer_Check(T *testing.T) {
 	T.Run("honors a per-meter staleness budget", func(t *testing.T) {
 		t.Parallel()
 
-		store := newSQLiteEnv(t).newStore(t)
+		db := newSQLiteEnv(t)
+		store := db.newStore(t)
 		c := newStubClock()
 
 		totals := newStubCache(c)
@@ -197,16 +225,16 @@ func TestQuotaEnforcer_Check(T *testing.T) {
 			Meter: testMeter, Limit: 100, Behavior: BehaviorBlock, Period: PeriodMonth,
 		}))
 
-		enforcer, err := NewQuotaEnforcer(t.Context(), &EnforcerConfig{}, store, registry,
+		enforcer, err := db.newEnforcer(t, &EnforcerConfig{}, store, registry,
 			WithEnforcerClock(c), WithEnforcerCache(totals))
 		must.NoError(t, err)
 
-		must.NoError(t, mustRecord(t, store, newEntry("seed", 40, AggregationSum)))
+		must.NoError(t, mustRecord(t, db, store, newEntry("seed", 40, AggregationSum)))
 
 		_, err = enforcer.Check(t.Context(), testSubject, testMeter, 1)
 		must.NoError(t, err)
 
-		must.NoError(t, mustRecord(t, store, newEntry("more", 50, AggregationSum)))
+		must.NoError(t, mustRecord(t, db, store, newEntry("more", 50, AggregationSum)))
 
 		c.advance(2 * time.Second)
 
@@ -222,7 +250,7 @@ func TestQuotaEnforcer_Check(T *testing.T) {
 
 		env := newTestEnforcer(t, BehaviorBlock, 100)
 
-		must.NoError(t, mustRecord(t, env.store, newEntry("seed", 40, AggregationSum)))
+		must.NoError(t, mustRecord(t, env.db, env.store, newEntry("seed", 40, AggregationSum)))
 
 		// Five seconds before the month ends, with a ten-second budget. An entry
 		// that outlived its window would answer the next period's first Check
@@ -244,13 +272,14 @@ func TestQuotaEnforcer_Check(T *testing.T) {
 	T.Run("works with no cache at all", func(t *testing.T) {
 		t.Parallel()
 
-		store := newSQLiteEnv(t).newStore(t)
+		db := newSQLiteEnv(t)
+		store := db.newStore(t)
 
-		enforcer, err := NewQuotaEnforcer(t.Context(), &EnforcerConfig{}, store,
+		enforcer, err := db.newEnforcer(t, &EnforcerConfig{}, store,
 			newTestRegistry(t, BehaviorBlock, 100), WithEnforcerClock(newStubClock()))
 		must.NoError(t, err)
 
-		must.NoError(t, mustRecord(t, store, newEntry("seed", 40, AggregationSum)))
+		must.NoError(t, mustRecord(t, db, store, newEntry("seed", 40, AggregationSum)))
 
 		decision, err := enforcer.Check(t.Context(), testSubject, testMeter, 1)
 		must.NoError(t, err)
@@ -267,10 +296,11 @@ func TestQuotaEnforcer_Check(T *testing.T) {
 	T.Run("says so at construction when it has no cache", func(t *testing.T) {
 		t.Parallel()
 
-		store := newSQLiteEnv(t).newStore(t)
+		db := newSQLiteEnv(t)
+		store := db.newStore(t)
 		logger := newRecordingLogger()
 
-		_, err := NewQuotaEnforcer(t.Context(), &EnforcerConfig{}, store,
+		_, err := db.newEnforcer(t, &EnforcerConfig{}, store,
 			newTestRegistry(t, BehaviorBlock, 100),
 			WithEnforcerClock(newStubClock()), WithEnforcerLogger(logger))
 		must.NoError(t, err)
@@ -282,11 +312,12 @@ func TestQuotaEnforcer_Check(T *testing.T) {
 	T.Run("says nothing at construction when it has one", func(t *testing.T) {
 		t.Parallel()
 
-		store := newSQLiteEnv(t).newStore(t)
+		db := newSQLiteEnv(t)
+		store := db.newStore(t)
 		logger := newRecordingLogger()
 		c := newStubClock()
 
-		_, err := NewQuotaEnforcer(t.Context(), &EnforcerConfig{}, store,
+		_, err := db.newEnforcer(t, &EnforcerConfig{}, store,
 			newTestRegistry(t, BehaviorBlock, 100),
 			WithEnforcerClock(c), WithEnforcerCache(newStubCache(c)), WithEnforcerLogger(logger))
 		must.NoError(t, err)
@@ -297,7 +328,8 @@ func TestQuotaEnforcer_Check(T *testing.T) {
 	T.Run("carries on through a broken cache", func(t *testing.T) {
 		t.Parallel()
 
-		store := newSQLiteEnv(t).newStore(t)
+		db := newSQLiteEnv(t)
+		store := db.newStore(t)
 
 		broken := &cachemock.CacheMock[CachedTotal]{
 			GetFunc: func(context.Context, string) (*CachedTotal, error) { return nil, errArbitrary },
@@ -306,13 +338,13 @@ func TestQuotaEnforcer_Check(T *testing.T) {
 
 		instruments := newRecordingInstruments()
 
-		enforcer, err := NewQuotaEnforcer(t.Context(), &EnforcerConfig{}, store,
+		enforcer, err := db.newEnforcer(t, &EnforcerConfig{}, store,
 			newTestRegistry(t, BehaviorBlock, 100),
 			WithEnforcerClock(newStubClock()), WithEnforcerCache(broken),
 			WithEnforcerMetricsProvider(instruments.provider()))
 		must.NoError(t, err)
 
-		must.NoError(t, mustRecord(t, store, newEntry("seed", 40, AggregationSum)))
+		must.NoError(t, mustRecord(t, db, store, newEntry("seed", 40, AggregationSum)))
 
 		// A cache that is down turns Check into a durable read, which is slow and
 		// correct. The wrong response to a degraded cache is to stop answering.
@@ -337,7 +369,7 @@ func TestQuotaEnforcer_Check(T *testing.T) {
 		instruments := newRecordingInstruments()
 		env := newTestEnforcer(t, BehaviorBlock, 100, WithEnforcerMetricsProvider(instruments.provider()))
 
-		must.NoError(t, mustRecord(t, env.store, newEntry("seed", 40, AggregationSum)))
+		must.NoError(t, mustRecord(t, env.db, env.store, newEntry("seed", 40, AggregationSum)))
 
 		_, err := env.enforcer.Check(t.Context(), testSubject, testMeter, 1)
 		must.NoError(t, err)
@@ -348,14 +380,15 @@ func TestQuotaEnforcer_Check(T *testing.T) {
 	T.Run("treats a cache miss as a miss, not a failure", func(t *testing.T) {
 		t.Parallel()
 
-		store := newSQLiteEnv(t).newStore(t)
+		db := newSQLiteEnv(t)
+		store := db.newStore(t)
 
 		missing := &cachemock.CacheMock[CachedTotal]{
 			GetFunc: func(context.Context, string) (*CachedTotal, error) { return nil, cache.ErrNotFound },
 			SetFunc: func(context.Context, string, *CachedTotal, ...cache.WriteOption) error { return nil },
 		}
 
-		enforcer, err := NewQuotaEnforcer(t.Context(), &EnforcerConfig{}, store,
+		enforcer, err := db.newEnforcer(t, &EnforcerConfig{}, store,
 			newTestRegistry(t, BehaviorBlock, 100),
 			WithEnforcerClock(newStubClock()), WithEnforcerCache(missing))
 		must.NoError(t, err)
@@ -379,14 +412,15 @@ func TestQuotaEnforcer_Check(T *testing.T) {
 	T.Run("reports a meter with no quota", func(t *testing.T) {
 		t.Parallel()
 
-		store := newSQLiteEnv(t).newStore(t)
+		db := newSQLiteEnv(t)
+		store := db.newStore(t)
 
 		registry := NewRegistry()
 		must.NoError(t, registry.RegisterMeter(Meter{
 			Name: testMeter, Aggregation: AggregationSum, Period: PeriodMonth,
 		}))
 
-		enforcer, err := NewQuotaEnforcer(t.Context(), &EnforcerConfig{}, store, registry,
+		enforcer, err := db.newEnforcer(t, &EnforcerConfig{}, store, registry,
 			WithEnforcerClock(newStubClock()))
 		must.NoError(t, err)
 
@@ -470,9 +504,10 @@ func TestQuotaEnforcer_CheckFailurePolicy(T *testing.T) {
 	newFailing := func(t *testing.T, failOpen bool) *QuotaEnforcer {
 		t.Helper()
 
-		store := newSQLiteEnv(t).newStore(t)
+		db := newSQLiteEnv(t)
+		store := db.newStore(t)
 
-		enforcer, err := NewQuotaEnforcer(t.Context(), &EnforcerConfig{FailOpen: failOpen},
+		enforcer, err := db.newEnforcer(t, &EnforcerConfig{FailOpen: failOpen},
 			&failingTotalStore{Store: store}, newTestRegistry(t, BehaviorBlock, 100),
 			WithEnforcerClock(newStubClock()))
 		must.NoError(t, err)
@@ -521,7 +556,7 @@ func TestQuotaEnforcer_observeDecision(T *testing.T) {
 		// quantity that separates a counter of excess units from a counter of
 		// decisions: an overage of zero posted to the same series would put an
 		// invoice line on every subject who used their allowance exactly.
-		decision, err := env.enforcer.Consume(t.Context(), testSubject, testMeter, 100)
+		decision, err := env.consume(t, testSubject, testMeter, 100)
 		must.NoError(t, err)
 
 		test.True(t, decision.Allowed)
@@ -531,7 +566,7 @@ func TestQuotaEnforcer_observeDecision(T *testing.T) {
 
 		// One unit past it is one unit of overage, in the meter's unit rather
 		// than in events.
-		decision, err = env.enforcer.Consume(t.Context(), testSubject, testMeter, 1)
+		decision, err = env.consume(t, testSubject, testMeter, 1)
 		must.NoError(t, err)
 
 		test.EqOp(t, int64(1), decision.Overage)
@@ -545,7 +580,7 @@ func TestQuotaEnforcer_observeDecision(T *testing.T) {
 		env := newTestEnforcer(t, BehaviorBlock, 100,
 			WithEnforcerMetricsProvider(instruments.provider()))
 
-		decision, err := env.enforcer.Consume(t.Context(), testSubject, testMeter, 101)
+		decision, err := env.consume(t, testSubject, testMeter, 101)
 		must.NoError(t, err)
 
 		test.False(t, decision.Allowed)
@@ -561,14 +596,14 @@ func TestQuotaEnforcer_Consume(T *testing.T) {
 
 		env := newTestEnforcer(t, BehaviorBlock, 100)
 
-		decision, err := env.enforcer.Consume(t.Context(), testSubject, testMeter, 30)
+		decision, err := env.consume(t, testSubject, testMeter, 30)
 		must.NoError(t, err)
 
 		test.True(t, decision.Allowed)
 		test.EqOp(t, int64(30), decision.Used)
 		// Never stale: an exact answer is the whole promise.
 		test.False(t, decision.Stale)
-		test.EqOp(t, int64(30), totalOf(t, env.store))
+		test.EqOp(t, int64(30), totalOf(t, env.db, env.store))
 	})
 
 	T.Run("counts a retried Consume twice", func(t *testing.T) {
@@ -579,11 +614,11 @@ func TestQuotaEnforcer_Consume(T *testing.T) {
 		// Documented and unavoidable: the signature has no key that could be
 		// stable across retries. Any path that can retry uses ConsumeUsage.
 		for range 2 {
-			_, err := env.enforcer.Consume(t.Context(), testSubject, testMeter, 30)
+			_, err := env.consume(t, testSubject, testMeter, 30)
 			must.NoError(t, err)
 		}
 
-		test.EqOp(t, int64(60), totalOf(t, env.store))
+		test.EqOp(t, int64(60), totalOf(t, env.db, env.store))
 	})
 
 	T.Run("blocks past the limit", func(t *testing.T) {
@@ -591,38 +626,70 @@ func TestQuotaEnforcer_Consume(T *testing.T) {
 
 		env := newTestEnforcer(t, BehaviorBlock, 100)
 
-		must.NoError(t, mustRecord(t, env.store, newEntry("seed", 95, AggregationSum)))
+		must.NoError(t, mustRecord(t, env.db, env.store, newEntry("seed", 95, AggregationSum)))
 
-		decision, err := env.enforcer.Consume(t.Context(), testSubject, testMeter, 10)
+		decision, err := env.consume(t, testSubject, testMeter, 10)
 		must.NoError(t, err)
 
 		test.False(t, decision.Allowed)
-		test.EqOp(t, int64(95), totalOf(t, env.store))
+		test.EqOp(t, int64(95), totalOf(t, env.db, env.store))
 	})
 
-	T.Run("refreshes the cache it just made stale", func(t *testing.T) {
+	T.Run("evicts the cache it just made stale", func(t *testing.T) {
 		t.Parallel()
 
 		env := newTestEnforcer(t, BehaviorBlock, 100)
 
-		// Written through rather than invalidated, which closes the window in
-		// which a Check right after a Consume reports the total from before it.
-		_, err := env.enforcer.Consume(t.Context(), testSubject, testMeter, 30)
+		_, err := env.consume(t, testSubject, testMeter, 30)
 		must.NoError(t, err)
 
+		// Evicted rather than written through, so the next Check pays a durable
+		// read and gets a number that is true rather than one that was true if
+		// the caller's transaction committed. It did here, and the durable read
+		// says so.
 		decision, err := env.enforcer.Check(t.Context(), testSubject, testMeter, 0)
 		must.NoError(t, err)
 
-		test.True(t, decision.Stale)
+		test.False(t, decision.Stale)
 		test.EqOp(t, int64(30), decision.Used)
+	})
+
+	T.Run("caches nothing for a consume the caller rolled back", func(t *testing.T) {
+		t.Parallel()
+
+		env := newTestEnforcer(t, BehaviorBlock, 100)
+
+		// Warm the cache, so there is an entry for the consume to invalidate and
+		// a hit for the Check afterwards to find if it does not.
+		_, err := env.enforcer.Check(t.Context(), testSubject, testMeter, 0)
+		must.NoError(t, err)
+
+		// The shape this port exists for, failing: the work the consume
+		// authorized did not commit, so neither did the usage.
+		test.ErrorIs(t, env.db.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+			decision, consumeErr := env.enforcer.Consume(t.Context(), tx, testSubject, testMeter, 30)
+			must.NoError(t, consumeErr)
+			test.True(t, decision.Allowed)
+
+			return errArbitrary
+		}), errArbitrary)
+
+		// A written-through total would report 30 here for the whole staleness
+		// budget — refusing requests against usage nobody incurred.
+		decision, err := env.enforcer.Check(t.Context(), testSubject, testMeter, 0)
+		must.NoError(t, err)
+
+		test.EqOp(t, int64(0), decision.Used)
+		test.EqOp(t, int64(0), totalOf(t, env.db, env.store))
 	})
 
 	T.Run("propagates a store failure with no fail-open", func(t *testing.T) {
 		t.Parallel()
 
-		store := newSQLiteEnv(t).newStore(t)
+		db := newSQLiteEnv(t)
+		store := db.newStore(t)
 
-		enforcer, err := NewQuotaEnforcer(t.Context(), &EnforcerConfig{FailOpen: true},
+		enforcer, err := db.newEnforcer(t, &EnforcerConfig{FailOpen: true},
 			&failingConsumeStore{Store: store}, newTestRegistry(t, BehaviorBlock, 100),
 			WithEnforcerClock(newStubClock()))
 		must.NoError(t, err)
@@ -630,7 +697,7 @@ func TestQuotaEnforcer_Consume(T *testing.T) {
 		// Even with FailOpen set. An exact answer has nowhere to fail open to:
 		// allowing usage the store could not record is allowing usage nobody will
 		// ever be billed for.
-		_, err = enforcer.Consume(t.Context(), testSubject, testMeter, 1)
+		_, err = consumeIn(t, db, enforcer, testSubject, testMeter, 1)
 
 		test.ErrorIs(t, err, errArbitrary)
 	})
@@ -648,7 +715,7 @@ func TestQuotaEnforcer_Consume(T *testing.T) {
 
 		for range 8 {
 			wg.Go(func() {
-				decision, err := env.enforcer.Consume(t.Context(), testSubject, testMeter, 1)
+				decision, err := env.consume(t, testSubject, testMeter, 1)
 				if err != nil || !decision.Allowed {
 					return
 				}
@@ -676,16 +743,16 @@ func TestQuotaEnforcer_ConsumeUsage(T *testing.T) {
 
 		usage := Usage{Subject: testSubject, Meter: testMeter, Quantity: 30, IdempotencyKey: "completion-1"}
 
-		first, err := env.enforcer.ConsumeUsage(t.Context(), usage)
+		first, err := env.consumeUsage(t, usage)
 		must.NoError(t, err)
 		must.False(t, first.Duplicate)
 
-		second, err := env.enforcer.ConsumeUsage(t.Context(), usage)
+		second, err := env.consumeUsage(t, usage)
 		must.NoError(t, err)
 
 		test.True(t, second.Duplicate)
 		test.EqOp(t, int64(30), second.Used)
-		test.EqOp(t, int64(30), totalOf(t, env.store))
+		test.EqOp(t, int64(30), totalOf(t, env.db, env.store))
 	})
 
 	T.Run("validates the usage", func(t *testing.T) {
@@ -693,10 +760,23 @@ func TestQuotaEnforcer_ConsumeUsage(T *testing.T) {
 
 		env := newTestEnforcer(t, BehaviorBlock, 100)
 
-		_, err := env.enforcer.ConsumeUsage(t.Context(),
-			Usage{Subject: testSubject, Meter: testMeter, Quantity: 1})
+		_, err := env.consumeUsage(t, Usage{Subject: testSubject, Meter: testMeter, Quantity: 1})
 
 		test.ErrorIs(t, err, ErrEmptyIdempotencyKey)
+	})
+
+	T.Run("refuses a nil transaction", func(t *testing.T) {
+		t.Parallel()
+
+		env := newTestEnforcer(t, BehaviorBlock, 100)
+
+		_, err := env.enforcer.Consume(t.Context(), nil, testSubject, testMeter, 1)
+		test.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = env.enforcer.ConsumeUsage(t.Context(), nil, Usage{
+			Subject: testSubject, Meter: testMeter, Quantity: 1, IdempotencyKey: "req-1",
+		})
+		test.ErrorIs(t, err, ErrNilExecutor)
 	})
 
 	T.Run("honors an explicit event time", func(t *testing.T) {
@@ -706,14 +786,14 @@ func TestQuotaEnforcer_ConsumeUsage(T *testing.T) {
 
 		lastMonth := baseTime.AddDate(0, -1, 0)
 
-		_, err := env.enforcer.ConsumeUsage(t.Context(), Usage{
+		_, err := env.consumeUsage(t, Usage{
 			Subject: testSubject, Meter: testMeter, Quantity: 30,
 			IdempotencyKey: "completion-1", OccurredAt: lastMonth,
 		})
 		must.NoError(t, err)
 
 		// Filed in the period it happened in, not the one it was ingested in.
-		test.EqOp(t, int64(0), totalOf(t, env.store))
+		test.EqOp(t, int64(0), totalOf(t, env.db, env.store))
 	})
 
 	T.Run("reports an unknown meter", func(t *testing.T) {
@@ -721,7 +801,7 @@ func TestQuotaEnforcer_ConsumeUsage(T *testing.T) {
 
 		env := newTestEnforcer(t, BehaviorBlock, 100)
 
-		_, err := env.enforcer.ConsumeUsage(t.Context(), Usage{
+		_, err := env.consumeUsage(t, Usage{
 			Subject: testSubject, Meter: "not_registered", Quantity: 1, IdempotencyKey: "k",
 		})
 
@@ -752,9 +832,10 @@ func TestQuotaEnforcer_writeThrough(T *testing.T) {
 	T.Run("does nothing without a cache", func(t *testing.T) {
 		t.Parallel()
 
-		store := newSQLiteEnv(t).newStore(t)
+		db := newSQLiteEnv(t)
+		store := db.newStore(t)
 
-		enforcer, err := NewQuotaEnforcer(t.Context(), &EnforcerConfig{}, store,
+		enforcer, err := db.newEnforcer(t, &EnforcerConfig{}, store,
 			newTestRegistry(t, BehaviorBlock, 100), WithEnforcerClock(newStubClock()))
 		must.NoError(t, err)
 

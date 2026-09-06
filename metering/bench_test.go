@@ -16,9 +16,7 @@ import (
 // it moves with batch size, which is the lever a caller actually has.
 
 func BenchmarkDurableRecorder_Record(b *testing.B) {
-	ctx := b.Context()
-
-	recorder, _, _ := newTestRecorder(b)
+	recorder, env, _, _ := newTestRecorder(b)
 
 	// A distinct idempotency key per iteration, since a repeated one is
 	// deduplicated at ingest and would measure the dedupe path instead.
@@ -26,7 +24,7 @@ func BenchmarkDurableRecorder_Record(b *testing.B) {
 		var i int
 		for b.Loop() {
 			i++
-			_ = recorder.Record(ctx, Usage{
+			_ = recordThrough(b, env, recorder, Usage{
 				Subject:        testSubject,
 				Meter:          testMeter,
 				Quantity:       1,
@@ -56,7 +54,7 @@ func BenchmarkDurableRecorder_Record(b *testing.B) {
 					}
 				}
 
-				_ = recorder.Record(ctx, usages...)
+				_ = recordThrough(b, env, recorder, usages...)
 			}
 
 			// Per-record rather than per-call, so the rows are comparable to
@@ -77,10 +75,10 @@ func BenchmarkDurableRecorder_Record(b *testing.B) {
 			IdempotencyKey: "bench-duplicate",
 		}
 
-		_ = recorder.Record(ctx, usage)
+		_ = recordThrough(b, env, recorder, usage)
 
 		for b.Loop() {
-			_ = recorder.Record(ctx, usage)
+			_ = recordThrough(b, env, recorder, usage)
 		}
 	})
 }
