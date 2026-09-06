@@ -16,69 +16,125 @@ import (
 // would not enqueue.
 var errCompanionWrite = platformerrors.New("the companion write failed")
 
-// runTransactionSuite is every write run inside a transaction the caller owns,
-// which is what the Tx variants exist for.
+// runTransactionSuite is the commit boundary, which is the whole of what this
+// store's signatures buy its caller.
 //
-// What is actually under test is the commit boundary: that a row written here
-// lands with the caller's own rows, and that a caller's failure takes the row
-// back with it. Everything else is parity — the transactional path must refuse
-// exactly what its own non-transactional twin refuses, or the two drift into
-// being two stores.
+// Every write takes the caller's transaction and every read takes an executor, so
+// what is under test here is not that the statements work — the list, signup and
+// withdrawal suites cover that — but which side of a commit each of them lands
+// on, and what a read handed the transaction can see. Those are the questions a
+// store that opened its own transaction answered for its caller, and answered
+// wrong.
 func runTransactionSuite(t *testing.T, env *storeEnv) {
 	t.Helper()
+
+	t.Run("a write and a read inside one transaction observe each other", func(t *testing.T) {
+		t.Parallel()
+
+		// The property the reads were widened for, and the one no auto-committing
+		// write could express: inside the transaction the signup is there, and
+		// from outside it is not there yet. A read narrowed to the client's
+		// reader would have been reading a database that does not hold the row
+		// its own caller just wrote.
+		store := env.newStore(t)
+
+		list := mustCreateList(t, env, store, testScope, openList("Launch"))
+
+		var joined *Signup
+
+		must.NoError(t, env.inTx(t, func(tx database.Tx) error {
+			var err error
+			if joined, err = store.Join(t.Context(), tx, testScope, list.ID,
+				&Signup{Contact: "ada@example.com"}); err != nil {
+				return err
+			}
+
+			read, err := store.GetSignup(t.Context(), tx, testScope, list.ID, joined.ID)
+			if err != nil {
+				return err
+			}
+
+			test.EqOp(t, "ada@example.com", read.Contact)
+
+			page, err := store.ListSignups(t.Context(), tx, testScope, list.ID, nil)
+			if err != nil {
+				return err
+			}
+
+			must.SliceLen(t, 1, page.Data)
+
+			// And the same read, on the client, cannot see it: the transaction
+			// has not committed, so this is the other half of the same fact
+			// rather than a second one.
+			outside, err := store.ListSignups(t.Context(), env.reader(), testScope, list.ID, nil)
+			if err != nil {
+				return err
+			}
+
+			test.SliceEmpty(t, outside.Data)
+
+			return nil
+		}))
+
+		// After the commit both executors agree, which is what makes the reading
+		// above about visibility rather than about two different rows.
+		read, err := store.GetSignup(t.Context(), env.reader(), testScope, list.ID, joined.ID)
+		must.NoError(t, err)
+		test.EqOp(t, joined.ID, read.ID)
+	})
 
 	t.Run("every write commits with the caller's transaction", func(t *testing.T) {
 		t.Parallel()
 
 		store := env.newStore(t)
 
-		renamed := mustCreateList(t, store, testScope, openList("before"))
-		doomed := mustCreateList(t, store, testScope, openList("on the way out"))
-		converted := mustJoin(t, store, testScope, renamed.ID, &Signup{Contact: "converted@example.com"})
-		withdrawn := mustJoin(t, store, testScope, renamed.ID, &Signup{Contact: "withdrawn@example.com"})
-		archived := mustJoin(t, store, testScope, renamed.ID, &Signup{Contact: "archived@example.com"})
+		renamed := mustCreateList(t, env, store, testScope, openList("before"))
+		doomed := mustCreateList(t, env, store, testScope, openList("on the way out"))
+		converted := mustJoin(t, env, store, testScope, renamed.ID, &Signup{Contact: "converted@example.com"})
+		withdrawn := mustJoin(t, env, store, testScope, renamed.ID, &Signup{Contact: "withdrawn@example.com"})
+		archived := mustJoin(t, env, store, testScope, renamed.ID, &Signup{Contact: "archived@example.com"})
 
 		var (
 			opened *List
 			joined *Signup
 		)
 
-		must.NoError(t, store.client.WithTransaction(t.Context(), func(tx database.Tx) (err error) {
-			if opened, err = store.CreateListTx(t.Context(), tx, testScope, openList("opened inside")); err != nil {
+		must.NoError(t, env.inTx(t, func(tx database.Tx) (err error) {
+			if opened, err = store.CreateList(t.Context(), tx, testScope, openList("opened inside")); err != nil {
 				return err
 			}
 
 			renamed.Name = "after"
-			if err = store.UpdateListTx(t.Context(), tx, testScope, renamed); err != nil {
+			if err = store.UpdateList(t.Context(), tx, testScope, renamed); err != nil {
 				return err
 			}
 
-			if err = store.ArchiveListTx(t.Context(), tx, testScope, doomed.ID); err != nil {
+			if err = store.ArchiveList(t.Context(), tx, testScope, doomed.ID); err != nil {
 				return err
 			}
 
-			if joined, err = store.JoinTx(t.Context(), tx, testScope, renamed.ID,
+			if joined, err = store.Join(t.Context(), tx, testScope, renamed.ID,
 				&Signup{Contact: "joined@example.com", Subject: testSubject}); err != nil {
 				return err
 			}
 
-			if err = store.UpdateSignupNotesTx(t.Context(), tx, testScope, renamed.ID, joined.ID, "noted"); err != nil {
+			if err = store.UpdateSignupNotes(t.Context(), tx, testScope, renamed.ID, joined.ID, "noted"); err != nil {
 				return err
 			}
 
-			if err = store.InviteTx(t.Context(), tx, testScope, renamed.ID, converted.ID); err != nil {
+			if err = store.Invite(t.Context(), tx, testScope, renamed.ID, converted.ID); err != nil {
 				return err
 			}
 
-			if err = store.ConvertTx(t.Context(), tx, testScope, renamed.ID, converted.ID); err != nil {
+			if err = store.Convert(t.Context(), tx, testScope, renamed.ID, converted.ID); err != nil {
 				return err
 			}
 
-			if err = store.WithdrawTx(t.Context(), tx, testScope, renamed.ID, withdrawn.ID); err != nil {
+			if err = store.Withdraw(t.Context(), tx, testScope, renamed.ID, withdrawn.ID); err != nil {
 				return err
 			}
 
-			return store.ArchiveSignupTx(t.Context(), tx, testScope, renamed.ID, archived.ID)
+			return store.ArchiveSignup(t.Context(), tx, testScope, renamed.ID, archived.ID)
 		}))
 
 		// The creates read their creation times back through the caller's
@@ -90,87 +146,88 @@ func runTransactionSuite(t *testing.T, env *storeEnv) {
 		must.NotNil(t, joined)
 		test.False(t, joined.CreatedAt.IsZero())
 
-		list, err := store.GetList(t.Context(), testScope, opened.ID)
+		list, err := store.GetList(t.Context(), env.reader(), testScope, opened.ID)
 		must.NoError(t, err)
 		test.EqOp(t, "opened inside", list.Name)
 
-		list, err = store.GetList(t.Context(), testScope, renamed.ID)
+		list, err = store.GetList(t.Context(), env.reader(), testScope, renamed.ID)
 		must.NoError(t, err)
 		test.EqOp(t, "after", list.Name)
 
-		_, err = store.GetList(t.Context(), testScope, doomed.ID)
+		_, err = store.GetList(t.Context(), env.reader(), testScope, doomed.ID)
 		must.ErrorIs(t, err, ErrListNotFound)
 
-		signup, err := store.GetSignup(t.Context(), testScope, renamed.ID, joined.ID)
+		signup, err := store.GetSignup(t.Context(), env.reader(), testScope, renamed.ID, joined.ID)
 		must.NoError(t, err)
 		test.EqOp(t, "noted", signup.Notes)
 		test.EqOp(t, StatusWaiting, signup.Status)
 
-		signup, err = store.GetSignup(t.Context(), testScope, renamed.ID, converted.ID)
+		signup, err = store.GetSignup(t.Context(), env.reader(), testScope, renamed.ID, converted.ID)
 		must.NoError(t, err)
 		test.EqOp(t, StatusConverted, signup.Status)
 
-		signup, err = store.GetSignup(t.Context(), testScope, renamed.ID, withdrawn.ID)
+		signup, err = store.GetSignup(t.Context(), env.reader(), testScope, renamed.ID, withdrawn.ID)
 		must.NoError(t, err)
 		test.EqOp(t, StatusWithdrawn, signup.Status)
 		test.EqOp(t, "", signup.Contact)
 
-		_, err = store.GetSignup(t.Context(), testScope, renamed.ID, archived.ID)
+		_, err = store.GetSignup(t.Context(), env.reader(), testScope, renamed.ID, archived.ID)
 		must.ErrorIs(t, err, ErrSignupNotFound)
 	})
 
 	t.Run("a rolled back transaction takes every write with it", func(t *testing.T) {
 		t.Parallel()
 
-		// This is the whole point of the variants, seen from the side that
+		// This is the whole point of the signatures, seen from the side that
 		// matters: the consumer's companion write fails, and the row goes back
 		// with it rather than surviving in a transaction it was never part of.
 		store := env.newStore(t)
 
-		kept := mustCreateList(t, store, testScope, openList("the original"))
-		spared := mustCreateList(t, store, testScope, openList("still here"))
-		waiting := mustJoin(t, store, testScope, kept.ID, &Signup{Contact: "waiting@example.com"})
-		staying := mustJoin(t, store, testScope, kept.ID, &Signup{Contact: "staying@example.com", Notes: "as written"})
-		visible := mustJoin(t, store, testScope, kept.ID, &Signup{Contact: "visible@example.com"})
+		kept := mustCreateList(t, env, store, testScope, openList("the original"))
+		spared := mustCreateList(t, env, store, testScope, openList("still here"))
+		waiting := mustJoin(t, env, store, testScope, kept.ID, &Signup{Contact: "waiting@example.com"})
+		staying := mustJoin(t, env, store, testScope, kept.ID,
+			&Signup{Contact: "staying@example.com", Notes: "as written"})
+		visible := mustJoin(t, env, store, testScope, kept.ID, &Signup{Contact: "visible@example.com"})
 
 		var (
 			opened *List
 			joined *Signup
 		)
 
-		err := store.client.WithTransaction(t.Context(), func(tx database.Tx) (err error) {
-			if opened, err = store.CreateListTx(t.Context(), tx, testScope, openList("never committed")); err != nil {
+		err := env.inTx(t, func(tx database.Tx) (err error) {
+			if opened, err = store.CreateList(t.Context(), tx, testScope, openList("never committed")); err != nil {
 				return err
 			}
 
 			edited := *kept
 			edited.Name = "the edit"
-			if err = store.UpdateListTx(t.Context(), tx, testScope, &edited); err != nil {
+			if err = store.UpdateList(t.Context(), tx, testScope, &edited); err != nil {
 				return err
 			}
 
-			if err = store.ArchiveListTx(t.Context(), tx, testScope, spared.ID); err != nil {
+			if err = store.ArchiveList(t.Context(), tx, testScope, spared.ID); err != nil {
 				return err
 			}
 
-			if joined, err = store.JoinTx(t.Context(), tx, testScope, kept.ID,
+			if joined, err = store.Join(t.Context(), tx, testScope, kept.ID,
 				&Signup{Contact: "joined@example.com"}); err != nil {
 				return err
 			}
 
-			if err = store.UpdateSignupNotesTx(t.Context(), tx, testScope, kept.ID, staying.ID, "the edit"); err != nil {
+			if err = store.UpdateSignupNotes(t.Context(), tx, testScope, kept.ID, staying.ID, "the edit"); err != nil {
 				return err
 			}
 
-			if err = store.InviteTx(t.Context(), tx, testScope, kept.ID, waiting.ID); err != nil {
+			if err = store.Invite(t.Context(), tx, testScope, kept.ID, waiting.ID); err != nil {
 				return err
 			}
 
-			if err = store.WithdrawTx(t.Context(), tx, testScope, kept.ID, staying.ID); err != nil {
+			if err = store.Withdraw(t.Context(), tx, testScope, kept.ID, staying.ID); err != nil {
 				return err
 			}
 
-			if err = store.ArchiveSignupTx(t.Context(), tx, testScope, kept.ID, visible.ID); err != nil {
+			if err = store.ArchiveSignup(t.Context(), tx, testScope, kept.ID, visible.ID); err != nil {
 				return err
 			}
 
@@ -183,31 +240,31 @@ func runTransactionSuite(t *testing.T, env *storeEnv) {
 		must.NotNil(t, opened)
 		must.NotNil(t, joined)
 
-		_, err = store.GetList(t.Context(), testScope, opened.ID)
+		_, err = store.GetList(t.Context(), env.reader(), testScope, opened.ID)
 		must.ErrorIs(t, err, ErrListNotFound)
 
-		list, err := store.GetList(t.Context(), testScope, kept.ID)
+		list, err := store.GetList(t.Context(), env.reader(), testScope, kept.ID)
 		must.NoError(t, err)
 		test.EqOp(t, "the original", list.Name)
 
-		list, err = store.GetList(t.Context(), testScope, spared.ID)
+		list, err = store.GetList(t.Context(), env.reader(), testScope, spared.ID)
 		must.NoError(t, err)
 		test.Nil(t, list.ArchivedAt)
 
-		_, err = store.GetSignup(t.Context(), testScope, kept.ID, joined.ID)
+		_, err = store.GetSignup(t.Context(), env.reader(), testScope, kept.ID, joined.ID)
 		must.ErrorIs(t, err, ErrSignupNotFound)
 
-		signup, err := store.GetSignup(t.Context(), testScope, kept.ID, waiting.ID)
+		signup, err := store.GetSignup(t.Context(), env.reader(), testScope, kept.ID, waiting.ID)
 		must.NoError(t, err)
 		test.EqOp(t, StatusWaiting, signup.Status)
 
-		signup, err = store.GetSignup(t.Context(), testScope, kept.ID, staying.ID)
+		signup, err = store.GetSignup(t.Context(), env.reader(), testScope, kept.ID, staying.ID)
 		must.NoError(t, err)
 		test.EqOp(t, StatusWaiting, signup.Status)
 		test.EqOp(t, "staying@example.com", signup.Contact)
 		test.EqOp(t, "as written", signup.Notes)
 
-		signup, err = store.GetSignup(t.Context(), testScope, kept.ID, visible.ID)
+		signup, err = store.GetSignup(t.Context(), env.reader(), testScope, kept.ID, visible.ID)
 		must.NoError(t, err)
 		test.Nil(t, signup.ArchivedAt)
 	})
@@ -226,19 +283,48 @@ func runTransactionSuite(t *testing.T, env *storeEnv) {
 			joined *Signup
 		)
 
-		must.NoError(t, store.client.WithTransaction(t.Context(), func(tx database.Tx) (err error) {
-			if opened, err = store.CreateListTx(t.Context(), tx, testScope, openList("Launch")); err != nil {
+		must.NoError(t, env.inTx(t, func(tx database.Tx) (err error) {
+			if opened, err = store.CreateList(t.Context(), tx, testScope, openList("Launch")); err != nil {
 				return err
 			}
 
-			joined, err = store.JoinTx(t.Context(), tx, testScope, opened.ID, &Signup{Contact: "ada@example.com"})
+			joined, err = store.Join(t.Context(), tx, testScope, opened.ID, &Signup{Contact: "ada@example.com"})
 
 			return err
 		}))
 
-		signup, err := store.GetSignup(t.Context(), testScope, opened.ID, joined.ID)
+		signup, err := store.GetSignup(t.Context(), env.reader(), testScope, opened.ID, joined.ID)
 		must.NoError(t, err)
 		test.EqOp(t, opened.ID, signup.ListID)
+	})
+
+	t.Run("the suppression check sees a signup this transaction just wrote", func(t *testing.T) {
+		t.Parallel()
+
+		// The refusal made inside the transaction and committed by it, which is
+		// the check that a read outside the transaction could not have made.
+		store := env.newStore(t)
+
+		list := mustCreateList(t, env, store, testScope, openList("Launch"))
+
+		var second error
+
+		must.NoError(t, env.inTx(t, func(tx database.Tx) error {
+			if _, err := store.Join(t.Context(), tx, testScope, list.ID,
+				&Signup{Contact: "taken@example.com"}); err != nil {
+				return err
+			}
+
+			_, second = store.Join(t.Context(), tx, testScope, list.ID, &Signup{Contact: "TAKEN@example.com"})
+
+			return nil
+		}))
+
+		must.ErrorIs(t, second, ErrAlreadySignedUp)
+
+		page, err := store.ListSignups(t.Context(), env.reader(), testScope, list.ID, nil)
+		must.NoError(t, err)
+		must.SliceLen(t, 1, page.Data)
 	})
 
 	t.Run("a lost transition explains itself against the transaction's own row", func(t *testing.T) {
@@ -250,29 +336,29 @@ func runTransactionSuite(t *testing.T, env *storeEnv) {
 		// on itself for the connection to do it with.
 		store := env.newStore(t)
 
-		list := mustCreateList(t, store, testScope, openList("Launch"))
+		list := mustCreateList(t, env, store, testScope, openList("Launch"))
 
 		var invitedTwice, convertedFirst, withdrawnTwice error
 
-		must.NoError(t, store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
-			joined, err := store.JoinTx(t.Context(), tx, testScope, list.ID, &Signup{Contact: "ada@example.com"})
+		must.NoError(t, env.inTx(t, func(tx database.Tx) error {
+			joined, err := store.Join(t.Context(), tx, testScope, list.ID, &Signup{Contact: "ada@example.com"})
 			if err != nil {
 				return err
 			}
 
-			convertedFirst = store.ConvertTx(t.Context(), tx, testScope, list.ID, joined.ID)
+			convertedFirst = store.Convert(t.Context(), tx, testScope, list.ID, joined.ID)
 
-			if err = store.InviteTx(t.Context(), tx, testScope, list.ID, joined.ID); err != nil {
+			if err = store.Invite(t.Context(), tx, testScope, list.ID, joined.ID); err != nil {
 				return err
 			}
 
-			invitedTwice = store.InviteTx(t.Context(), tx, testScope, list.ID, joined.ID)
+			invitedTwice = store.Invite(t.Context(), tx, testScope, list.ID, joined.ID)
 
-			if err = store.WithdrawTx(t.Context(), tx, testScope, list.ID, joined.ID); err != nil {
+			if err = store.Withdraw(t.Context(), tx, testScope, list.ID, joined.ID); err != nil {
 				return err
 			}
 
-			withdrawnTwice = store.WithdrawTx(t.Context(), tx, testScope, list.ID, joined.ID)
+			withdrawnTwice = store.Withdraw(t.Context(), tx, testScope, list.ID, joined.ID)
 
 			return nil
 		}))
@@ -282,26 +368,44 @@ func runTransactionSuite(t *testing.T, env *storeEnv) {
 		must.ErrorIs(t, withdrawnTwice, ErrAlreadyWithdrawn)
 	})
 
-	t.Run("a transactional write refuses a nil executor", func(t *testing.T) {
+	t.Run("every method refuses a nil executor", func(t *testing.T) {
 		t.Parallel()
 
-		// Every one of them, not a representative one: a variant that reached
-		// for the store's writer when handed nothing would be a write outside
-		// the transaction its caller believes it is in.
+		// Every one of the seventeen, not a representative one. There is no
+		// connection of the store's own to fall back to, so a method that did
+		// anything but refuse would be reaching for something that is not there
+		// — and for a write, would be writing outside the transaction its caller
+		// believes it is in.
 		store := env.newStore(t)
 
-		_, err := store.CreateListTx(t.Context(), nil, testScope, openList("Launch"))
+		_, err := store.CreateList(t.Context(), nil, testScope, openList("Launch"))
 		must.ErrorIs(t, err, ErrNilExecutor)
-		must.ErrorIs(t, store.UpdateListTx(t.Context(), nil, testScope, openList("Launch")), ErrNilExecutor)
-		must.ErrorIs(t, store.ArchiveListTx(t.Context(), nil, testScope, "wl_1"), ErrNilExecutor)
+		must.ErrorIs(t, store.UpdateList(t.Context(), nil, testScope, openList("Launch")), ErrNilExecutor)
+		must.ErrorIs(t, store.ArchiveList(t.Context(), nil, testScope, "wl_1"), ErrNilExecutor)
 
-		_, err = store.JoinTx(t.Context(), nil, testScope, "wl_1", &Signup{Contact: "ada@example.com"})
+		_, err = store.GetList(t.Context(), nil, testScope, "wl_1")
 		must.ErrorIs(t, err, ErrNilExecutor)
-		must.ErrorIs(t, store.UpdateSignupNotesTx(t.Context(), nil, testScope, "wl_1", "sg_1", "note"), ErrNilExecutor)
-		must.ErrorIs(t, store.InviteTx(t.Context(), nil, testScope, "wl_1", "sg_1"), ErrNilExecutor)
-		must.ErrorIs(t, store.ConvertTx(t.Context(), nil, testScope, "wl_1", "sg_1"), ErrNilExecutor)
-		must.ErrorIs(t, store.WithdrawTx(t.Context(), nil, testScope, "wl_1", "sg_1"), ErrNilExecutor)
-		must.ErrorIs(t, store.ArchiveSignupTx(t.Context(), nil, testScope, "wl_1", "sg_1"), ErrNilExecutor)
+		_, err = store.ListLists(t.Context(), nil, testScope, nil)
+		must.ErrorIs(t, err, ErrNilExecutor)
+		_, err = store.ListOpenLists(t.Context(), nil, testScope, nil)
+		must.ErrorIs(t, err, ErrNilExecutor)
+
+		_, err = store.Join(t.Context(), nil, testScope, "wl_1", &Signup{Contact: "ada@example.com"})
+		must.ErrorIs(t, err, ErrNilExecutor)
+		must.ErrorIs(t, store.UpdateSignupNotes(t.Context(), nil, testScope, "wl_1", "sg_1", "note"), ErrNilExecutor)
+		must.ErrorIs(t, store.Invite(t.Context(), nil, testScope, "wl_1", "sg_1"), ErrNilExecutor)
+		must.ErrorIs(t, store.Convert(t.Context(), nil, testScope, "wl_1", "sg_1"), ErrNilExecutor)
+		must.ErrorIs(t, store.Withdraw(t.Context(), nil, testScope, "wl_1", "sg_1"), ErrNilExecutor)
+		must.ErrorIs(t, store.ArchiveSignup(t.Context(), nil, testScope, "wl_1", "sg_1"), ErrNilExecutor)
+
+		_, err = store.GetSignup(t.Context(), nil, testScope, "wl_1", "sg_1")
+		must.ErrorIs(t, err, ErrNilExecutor)
+		_, err = store.GetSignupByContact(t.Context(), nil, testScope, "wl_1", "ada@example.com")
+		must.ErrorIs(t, err, ErrNilExecutor)
+		_, err = store.ListSignups(t.Context(), nil, testScope, "wl_1", nil)
+		must.ErrorIs(t, err, ErrNilExecutor)
+		_, err = store.ListSignupsForSubject(t.Context(), nil, testScope, testSubject, nil)
+		must.ErrorIs(t, err, ErrNilExecutor)
 
 		_, err = store.WithdrawSignupsForSubject(t.Context(), nil, testScope, testSubject)
 		must.ErrorIs(t, err, ErrNilExecutor)
@@ -311,84 +415,6 @@ func runTransactionSuite(t *testing.T, env *storeEnv) {
 		must.ErrorIs(t, err, platformerrors.ErrNilInputParameter)
 	})
 
-	t.Run("the transactional writes refuse what their own path refuses", func(t *testing.T) {
-		t.Parallel()
-
-		store := env.newStore(t)
-
-		closed := mustCreateList(t, store, testScope, closedList("closed"))
-		open := mustCreateList(t, store, testScope, openList("open"))
-		left := mustJoin(t, store, testScope, open.ID, &Signup{Contact: "left@example.com"})
-		must.NoError(t, store.Withdraw(t.Context(), testScope, open.ID, left.ID))
-
-		// Collected inside one transaction and asserted outside it, so a failed
-		// check does not abort the transaction the next one needs. None of
-		// these is a statement the database refuses — each is a check this
-		// package makes, or a statement that matched nothing.
-		var (
-			nilList, nameless, nilSignup, blankContact, halfSubject      error
-			closedJoin, missingJoin, withdrawnJoin, takenJoin            error
-			missingUpdate, missingArchiveList, missingNotes, missingMove error
-			missingWithdraw, missingArchiveSignup, anonymousErasure      error
-		)
-
-		must.NoError(t, store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
-			_, nilList = store.CreateListTx(t.Context(), tx, testScope, nil)
-			_, nameless = store.CreateListTx(t.Context(), tx, testScope, &List{ClosesAt: testNow})
-
-			_, nilSignup = store.JoinTx(t.Context(), tx, testScope, open.ID, nil)
-			_, blankContact = store.JoinTx(t.Context(), tx, testScope, open.ID, &Signup{Contact: "   "})
-			_, halfSubject = store.JoinTx(t.Context(), tx, testScope, open.ID,
-				&Signup{Contact: "half@example.com", Subject: Subject{Type: SubjectUser}})
-			_, closedJoin = store.JoinTx(t.Context(), tx, testScope, closed.ID, &Signup{Contact: "late@example.com"})
-			_, missingJoin = store.JoinTx(t.Context(), tx, testScope, "wl_never_written", &Signup{Contact: "lost@example.com"})
-			_, withdrawnJoin = store.JoinTx(t.Context(), tx, testScope, open.ID, &Signup{Contact: "Left@Example.com"})
-
-			if _, err := store.JoinTx(t.Context(), tx, testScope, open.ID, &Signup{Contact: "taken@example.com"}); err != nil {
-				return err
-			}
-
-			_, takenJoin = store.JoinTx(t.Context(), tx, testScope, open.ID, &Signup{Contact: "taken@example.com"})
-
-			absent := openList("an edit to nothing")
-			absent.ID = "wl_never_written"
-			missingUpdate = store.UpdateListTx(t.Context(), tx, testScope, absent)
-			missingArchiveList = store.ArchiveListTx(t.Context(), tx, testScope, "wl_never_written")
-
-			missingNotes = store.UpdateSignupNotesTx(t.Context(), tx, testScope, open.ID, "sg_never_written", "note")
-			missingMove = store.InviteTx(t.Context(), tx, testScope, open.ID, "sg_never_written")
-			missingWithdraw = store.WithdrawTx(t.Context(), tx, testScope, open.ID, "sg_never_written")
-			missingArchiveSignup = store.ArchiveSignupTx(t.Context(), tx, testScope, open.ID, "sg_never_written")
-
-			_, anonymousErasure = store.WithdrawSignupsForSubject(t.Context(), tx, testScope, Subject{})
-
-			return nil
-		}))
-
-		must.ErrorIs(t, nilList, ErrNilList)
-		must.ErrorIs(t, nameless, ErrEmptyListName)
-		must.ErrorIs(t, nilSignup, ErrNilSignup)
-		must.ErrorIs(t, blankContact, ErrEmptyContact)
-		must.ErrorIs(t, halfSubject, ErrEmptySubjectID)
-		must.ErrorIs(t, closedJoin, ErrListClosed)
-		must.ErrorIs(t, missingJoin, ErrListNotFound)
-		must.ErrorIs(t, withdrawnJoin, ErrContactWithdrawn)
-		must.ErrorIs(t, takenJoin, ErrAlreadySignedUp)
-		must.ErrorIs(t, missingUpdate, ErrListNotFound)
-		must.ErrorIs(t, missingArchiveList, ErrListNotFound)
-		must.ErrorIs(t, missingNotes, ErrSignupNotFound)
-		must.ErrorIs(t, missingMove, ErrSignupNotFound)
-		must.ErrorIs(t, missingWithdraw, ErrSignupNotFound)
-		must.ErrorIs(t, missingArchiveSignup, ErrSignupNotFound)
-		must.ErrorIs(t, anonymousErasure, ErrEmptySubjectType)
-
-		// The one refusal made inside the transaction and committed by it: the
-		// suppression check saw the row this transaction had just written.
-		page, err := store.ListSignups(t.Context(), testScope, open.ID, nil)
-		must.NoError(t, err)
-		must.SliceLen(t, 2, page.Data)
-	})
-
 	t.Run("the erasure and the writes it follows share the caller's transaction", func(t *testing.T) {
 		t.Parallel()
 
@@ -396,10 +422,11 @@ func runTransactionSuite(t *testing.T, env *storeEnv) {
 		// transaction, and this one's rows withdrawn or restored with the rest.
 		store := env.newStore(t)
 
-		list := mustCreateList(t, store, testScope, openList("Launch"))
-		mine := mustJoin(t, store, testScope, list.ID, &Signup{Contact: "ada@example.com", Subject: testSubject})
+		list := mustCreateList(t, env, store, testScope, openList("Launch"))
+		mine := mustJoin(t, env, store, testScope, list.ID,
+			&Signup{Contact: "ada@example.com", Subject: testSubject})
 
-		err := store.client.WithTransaction(t.Context(), func(tx database.Tx) error {
+		err := env.inTx(t, func(tx database.Tx) error {
 			withdrawn, txErr := store.WithdrawSignupsForSubject(t.Context(), tx, testScope, testSubject)
 			if txErr != nil {
 				return txErr
@@ -411,7 +438,7 @@ func runTransactionSuite(t *testing.T, env *storeEnv) {
 		})
 		must.ErrorIs(t, err, errCompanionWrite)
 
-		signup, err := store.GetSignup(t.Context(), testScope, list.ID, mine.ID)
+		signup, err := store.GetSignup(t.Context(), env.reader(), testScope, list.ID, mine.ID)
 		must.NoError(t, err)
 		test.EqOp(t, StatusWaiting, signup.Status)
 		test.EqOp(t, "ada@example.com", signup.Contact)
@@ -420,7 +447,7 @@ func runTransactionSuite(t *testing.T, env *storeEnv) {
 		everything := filtering.DefaultQueryFilter()
 		everything.IncludeArchived = new(true)
 
-		page, err := store.ListSignupsForSubject(t.Context(), testScope, testSubject, everything)
+		page, err := store.ListSignupsForSubject(t.Context(), env.reader(), testScope, testSubject, everything)
 		must.NoError(t, err)
 		must.SliceLen(t, 1, page.Data)
 	})

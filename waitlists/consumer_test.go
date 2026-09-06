@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/primandproper/platform-go/v14/database"
 	"github.com/primandproper/platform-go/v14/filtering"
 	"github.com/primandproper/platform-go/v14/tenancy"
 	"github.com/primandproper/platform-go/v14/waitlists"
@@ -51,9 +52,16 @@ type consumerRepository interface {
 // do, which is the point of writing it out. A method here that needed a second
 // query or a pass over a page would be a method the interface does not really
 // serve, and it would be visible as one.
+//
+// It holds the client as well as the store, and that is the port's one visible
+// cost: every write takes a database.Tx, so a repository method with nothing to
+// commit alongside opens a transaction of its own. It is also the port's
+// payoff — the consumer's own audit entry goes inside that closure, which is
+// where it could not go before.
 type consumerAdapter struct {
-	store waitlists.Store
-	scope tenancy.Scope
+	store  waitlists.Store
+	client database.Client
+	scope  tenancy.Scope
 }
 
 var _ consumerRepository = (*consumerAdapter)(nil)
@@ -62,7 +70,7 @@ var _ consumerRepository = (*consumerAdapter)(nil)
 // list has to be read to be reported on either way and List.OpenAt is the same
 // comparison ListOpenLists pages by.
 func (a *consumerAdapter) WaitlistIsNotExpired(ctx context.Context, waitlistID string) (bool, error) {
-	list, err := a.store.GetList(ctx, a.scope, waitlistID)
+	list, err := a.store.GetList(ctx, a.client.Reader(), a.scope, waitlistID)
 	if err != nil {
 		return false, err
 	}
@@ -71,21 +79,21 @@ func (a *consumerAdapter) WaitlistIsNotExpired(ctx context.Context, waitlistID s
 }
 
 func (a *consumerAdapter) GetWaitlist(ctx context.Context, waitlistID string) (*waitlists.List, error) {
-	return a.store.GetList(ctx, a.scope, waitlistID)
+	return a.store.GetList(ctx, a.client.Reader(), a.scope, waitlistID)
 }
 
 func (a *consumerAdapter) GetWaitlists(
 	ctx context.Context,
 	filter *filtering.QueryFilter,
 ) (*filtering.QueryFilteredResult[waitlists.List], error) {
-	return a.store.ListLists(ctx, a.scope, filter)
+	return a.store.ListLists(ctx, a.client.Reader(), a.scope, filter)
 }
 
 func (a *consumerAdapter) GetActiveWaitlists(
 	ctx context.Context,
 	filter *filtering.QueryFilter,
 ) (*filtering.QueryFilteredResult[waitlists.List], error) {
-	return a.store.ListOpenLists(ctx, a.scope, filter)
+	return a.store.ListOpenLists(ctx, a.client.Reader(), a.scope, filter)
 }
 
 // CreateWaitlist maps the consumer's valid_until onto ClosesAt. The consumer's
@@ -96,26 +104,38 @@ func (a *consumerAdapter) CreateWaitlist(
 	name, description string,
 	validUntil time.Time,
 ) (*waitlists.List, error) {
-	return a.store.CreateList(ctx, a.scope, &waitlists.List{
-		Name:        name,
-		Description: description,
-		ClosesAt:    validUntil,
+	var created *waitlists.List
+
+	err := a.client.WithTransaction(ctx, func(tx database.Tx) (createErr error) {
+		created, createErr = a.store.CreateList(ctx, tx, a.scope, &waitlists.List{
+			Name:        name,
+			Description: description,
+			ClosesAt:    validUntil,
+		})
+
+		return createErr
 	})
+
+	return created, err
 }
 
 func (a *consumerAdapter) UpdateWaitlist(ctx context.Context, waitlist *waitlists.List) error {
-	return a.store.UpdateList(ctx, a.scope, waitlist)
+	return a.client.WithTransaction(ctx, func(tx database.Tx) error {
+		return a.store.UpdateList(ctx, tx, a.scope, waitlist)
+	})
 }
 
 func (a *consumerAdapter) ArchiveWaitlist(ctx context.Context, waitlistID string) error {
-	return a.store.ArchiveList(ctx, a.scope, waitlistID)
+	return a.client.WithTransaction(ctx, func(tx database.Tx) error {
+		return a.store.ArchiveList(ctx, tx, a.scope, waitlistID)
+	})
 }
 
 func (a *consumerAdapter) GetWaitlistSignup(
 	ctx context.Context,
 	waitlistSignupID, waitlistID string,
 ) (*waitlists.Signup, error) {
-	return a.store.GetSignup(ctx, a.scope, waitlistID, waitlistSignupID)
+	return a.store.GetSignup(ctx, a.client.Reader(), a.scope, waitlistID, waitlistSignupID)
 }
 
 func (a *consumerAdapter) GetWaitlistSignupsForWaitlist(
@@ -123,7 +143,7 @@ func (a *consumerAdapter) GetWaitlistSignupsForWaitlist(
 	waitlistID string,
 	filter *filtering.QueryFilter,
 ) (*filtering.QueryFilteredResult[waitlists.Signup], error) {
-	return a.store.ListSignups(ctx, a.scope, waitlistID, filter)
+	return a.store.ListSignups(ctx, a.client.Reader(), a.scope, waitlistID, filter)
 }
 
 func (a *consumerAdapter) GetWaitlistSignupsForUser(
@@ -131,7 +151,7 @@ func (a *consumerAdapter) GetWaitlistSignupsForUser(
 	userID string,
 	filter *filtering.QueryFilter,
 ) (*filtering.QueryFilteredResult[waitlists.Signup], error) {
-	return a.store.ListSignupsForSubject(ctx, a.scope,
+	return a.store.ListSignupsForSubject(ctx, a.client.Reader(), a.scope,
 		waitlists.Subject{Type: waitlists.SubjectUser, ID: userID}, filter)
 }
 
@@ -143,19 +163,31 @@ func (a *consumerAdapter) CreateWaitlistSignup(
 	ctx context.Context,
 	waitlistID, contact, notes, userID string,
 ) (*waitlists.Signup, error) {
-	return a.store.Join(ctx, a.scope, waitlistID, &waitlists.Signup{
-		Contact: contact,
-		Notes:   notes,
-		Subject: waitlists.Subject{Type: waitlists.SubjectUser, ID: userID},
+	var joined *waitlists.Signup
+
+	err := a.client.WithTransaction(ctx, func(tx database.Tx) (joinErr error) {
+		joined, joinErr = a.store.Join(ctx, tx, a.scope, waitlistID, &waitlists.Signup{
+			Contact: contact,
+			Notes:   notes,
+			Subject: waitlists.Subject{Type: waitlists.SubjectUser, ID: userID},
+		})
+
+		return joinErr
 	})
+
+	return joined, err
 }
 
 func (a *consumerAdapter) UpdateWaitlistSignup(ctx context.Context, waitlistID, waitlistSignupID, notes string) error {
-	return a.store.UpdateSignupNotes(ctx, a.scope, waitlistID, waitlistSignupID, notes)
+	return a.client.WithTransaction(ctx, func(tx database.Tx) error {
+		return a.store.UpdateSignupNotes(ctx, tx, a.scope, waitlistID, waitlistSignupID, notes)
+	})
 }
 
 func (a *consumerAdapter) ArchiveWaitlistSignup(ctx context.Context, waitlistID, waitlistSignupID string) error {
-	return a.store.ArchiveSignup(ctx, a.scope, waitlistID, waitlistSignupID)
+	return a.client.WithTransaction(ctx, func(tx database.Tx) error {
+		return a.store.ArchiveSignup(ctx, tx, a.scope, waitlistID, waitlistSignupID)
+	})
 }
 
 // TestConsumerOperationsAreExpressible runs the transcribed repository end to
@@ -168,7 +200,8 @@ func TestConsumerOperationsAreExpressible(t *testing.T) {
 
 	// The consumer is single-tenant and its belongs_to_account is the scope, so
 	// a port names one and passes it everywhere.
-	repo := &consumerAdapter{store: exampleWiring(), scope: tenancy.Of("account-1")}
+	store, client := exampleWiring()
+	repo := &consumerAdapter{store: store, client: client, scope: tenancy.Of("account-1")}
 
 	list, err := repo.CreateWaitlist(ctx, "Launch", "early access", time.Now().Add(24*time.Hour))
 	must.NoError(t, err)
@@ -221,7 +254,15 @@ func TestConsumerOperationsAreExpressible(t *testing.T) {
 	joined, err := repo.CreateWaitlistSignup(ctx, second.ID, "grace@example.com", "", "user-2")
 	must.NoError(t, err)
 
-	must.NoError(t, repo.store.Invite(ctx, repo.scope, second.ID, joined.ID))
-	must.NoError(t, repo.store.Convert(ctx, repo.scope, second.ID, joined.ID))
-	must.NoError(t, repo.store.Withdraw(ctx, repo.scope, second.ID, joined.ID))
+	must.NoError(t, repo.client.WithTransaction(ctx, func(tx database.Tx) error {
+		if err = repo.store.Invite(ctx, tx, repo.scope, second.ID, joined.ID); err != nil {
+			return err
+		}
+
+		if err = repo.store.Convert(ctx, tx, repo.scope, second.ID, joined.ID); err != nil {
+			return err
+		}
+
+		return repo.store.Withdraw(ctx, tx, repo.scope, second.ID, joined.ID)
+	}))
 }

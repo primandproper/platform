@@ -3,22 +3,43 @@ Package waitlists stores the queue people join before the thing they are
 queueing for exists: named lists with a closing time, and the signups against
 them with a lifecycle of their own.
 
-	list, err := store.CreateList(ctx, tenancy.Global(), &waitlists.List{
-		Name:        "Launch",
-		Description: "early access to the beta",
-		ClosesAt:    launchDay,
+	// Every write runs in a transaction the caller owns, so the row commits with
+	// whatever the caller writes beside it — see [Store]. A caller with nothing
+	// to commit alongside opens one anyway, and it is one line.
+	var list *waitlists.List
+
+	err := client.WithTransaction(ctx, func(tx database.Tx) (err error) {
+		list, err = store.CreateList(ctx, tx, tenancy.Global(), &waitlists.List{
+			Name:        "Launch",
+			Description: "early access to the beta",
+			ClosesAt:    launchDay,
+		})
+
+		return err
 	})
 
-	// On the request path, from a form somebody filled in.
-	signup, err := store.Join(ctx, tenancy.Global(), list.ID, &waitlists.Signup{
-		Contact: "Ada@example.com",
+	// On the request path, from a form somebody filled in — beside whatever the
+	// consumer records about it, in the transaction that carries both.
+	err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		signup, joinErr := store.Join(ctx, tx, tenancy.Global(), list.ID, &waitlists.Signup{
+			Contact: "Ada@example.com",
+		})
+		if joinErr != nil {
+			return joinErr
+		}
+
+		// When it is their turn, and when they ask to come off it, in the
+		// transaction that records who did either.
+		if err = store.Invite(ctx, tx, tenancy.Global(), list.ID, signup.ID); err != nil {
+			return err
+		}
+
+		return store.Withdraw(ctx, tx, tenancy.Global(), list.ID, signup.ID)
 	})
 
-	// When it is their turn.
-	err = store.Invite(ctx, tenancy.Global(), list.ID, signup.ID)
-
-	// When they ask to come off it.
-	err = store.Withdraw(ctx, tenancy.Global(), list.ID, signup.ID)
+	// Reads take the wider executor: an ordinary one runs off the client, and
+	// one handed a Tx sees that transaction's own uncommitted writes.
+	page, err := store.ListOpenLists(ctx, client.Reader(), tenancy.Global(), nil)
 
 # Why this is in the platform at all
 
@@ -96,16 +117,28 @@ about them and keeps the suppression. Somebody clicking "unsubscribe" wants this
 one, and a consumer that reaches for the archive instead has written the bug this
 package exists to prevent.
 
-# Every write has a transactional twin
+# Every write takes the caller's transaction, and every read an executor
 
 A row in a consumer's schema is rarely written alone. An audit entry naming who
 did what and a data change event on an outbox somebody fans out are the ordinary
 companions of a signup, and a companion is worth what its atomicity with the row
 is worth. So every write here — [ListStore.CreateList] through
-[SignupStore.ArchiveSignup] — has a variant suffixed Tx that runs on a
-database.Tx the caller is holding, sharing one body with its twin so the two
-cannot drift into refusing different things. See [Store] for the argument in
-full.
+[SignupStore.ArchiveSignup] — takes a database.Tx the caller is holding, and
+there is no form that opens a transaction of its own. [SignupStore.Invite] and
+[SignupStore.Convert] are the moments this matters most: they are exactly when an
+application sends an email and writes an audit entry, and a store that committed
+on its own behalf would put the two in different transactions.
+
+Every read takes the wider database.SQLQueryExecutor, so one read serves a caller
+holding the client's reader and a caller inside a transaction — and the second
+sees that transaction's own uncommitted writes. Reading a signup immediately
+after joining somebody is therefore a read of the row that was just written,
+rather than of a database that does not hold it yet.
+
+A caller with nothing to commit alongside opens a transaction anyway, through
+database.Client.WithTransaction, which is one line. See [Store] for the argument
+in full, including why the scope is an argument on the writes that take a whole
+entity carrying one.
 
 # Erasure is a withdrawal, and it is a separate package
 
@@ -120,8 +153,8 @@ rather than a delete for the reason the digest exists — a delete frees the
 unique key, so somebody erased at their own request could be re-subscribed by
 the next form submission — and it reaches archived signups, which the single-row
 withdrawal cannot, because an archived signup still holds the address it was
-made with. It runs in the caller's transaction, so a subject's signups and the
-rest of their footprint commit or roll back together.
+made with. It runs in the caller's transaction, like every other write here, so a
+subject's signups and the rest of their footprint commit or roll back together.
 
 [github.com/primandproper/platform-go/v14/waitlists/privacy] is the
 dataprivacy.Collector and dataprivacy.Eraser built on that write and on

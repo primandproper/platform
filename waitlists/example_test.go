@@ -18,9 +18,13 @@ import (
 
 // Example shows the flow this package exists for: a list is opened, somebody
 // joins it from a form, and they are invited when it is their turn.
+//
+// Every write runs inside a transaction the caller owns, which is where the
+// consumer's own audit entry and outbox row go. Here there is nothing to commit
+// alongside, so each one opens a transaction of its own.
 func Example() {
 	ctx := context.Background()
-	store := exampleWiring()
+	store, client := exampleWiring()
 
 	// One catalog, so the scope is global — the shape a single-tenant
 	// application has, behaving exactly as it would without the column.
@@ -28,10 +32,16 @@ func Example() {
 
 	// The administrative half. Written once, by whoever decides the launch is
 	// happening, rather than on a request path.
-	list, err := store.CreateList(ctx, scope, &waitlists.List{
-		Name:        "Launch",
-		Description: "early access to the beta",
-		ClosesAt:    time.Now().Add(30 * 24 * time.Hour),
+	var list *waitlists.List
+
+	err := client.WithTransaction(ctx, func(tx database.Tx) (createErr error) {
+		list, createErr = store.CreateList(ctx, tx, scope, &waitlists.List{
+			Name:        "Launch",
+			Description: "early access to the beta",
+			ClosesAt:    time.Now().Add(30 * 24 * time.Hour),
+		})
+
+		return createErr
 	})
 	if err != nil {
 		panic(err)
@@ -40,9 +50,15 @@ func Example() {
 	// The request path. The contact is stored as it was given and digested as
 	// Normalize renders it, so two capitalizations of one address are one
 	// person.
-	signup, err := store.Join(ctx, scope, list.ID, &waitlists.Signup{
-		Contact: "Ada@Example.com",
-		Notes:   "asked about the API",
+	var signup *waitlists.Signup
+
+	err = client.WithTransaction(ctx, func(tx database.Tx) (joinErr error) {
+		signup, joinErr = store.Join(ctx, tx, scope, list.ID, &waitlists.Signup{
+			Contact: "Ada@Example.com",
+			Notes:   "asked about the API",
+		})
+
+		return joinErr
 	})
 	if err != nil {
 		panic(err)
@@ -50,21 +66,32 @@ func Example() {
 
 	fmt.Println("joined as:", signup.Status)
 
-	if _, err = store.Join(ctx, scope, list.ID, &waitlists.Signup{Contact: "ada@example.com"}); err != nil {
+	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		_, joinErr := store.Join(ctx, tx, scope, list.ID, &waitlists.Signup{Contact: "ada@example.com"})
+
+		return joinErr
+	}); err != nil {
 		fmt.Println("already on the list:", errors.Is(err, waitlists.ErrAlreadySignedUp))
 	}
 
 	// When it is their turn. The move is a guarded write, so a second
 	// invitation loses rather than sending a second email.
-	if err = store.Invite(ctx, scope, list.ID, signup.ID); err != nil {
+	invite := func() error {
+		return client.WithTransaction(ctx, func(tx database.Tx) error {
+			return store.Invite(ctx, tx, scope, list.ID, signup.ID)
+		})
+	}
+
+	if err = invite(); err != nil {
 		panic(err)
 	}
 
-	if err = store.Invite(ctx, scope, list.ID, signup.ID); err != nil {
+	if err = invite(); err != nil {
 		fmt.Println("invited once:", errors.Is(err, waitlists.ErrWrongStatus))
 	}
 
-	invited, err := store.GetSignup(ctx, scope, list.ID, signup.ID)
+	// The read takes an executor, and this one is outside any transaction.
+	invited, err := store.GetSignup(ctx, client.Reader(), scope, list.ID, signup.ID)
 	if err != nil {
 		panic(err)
 	}
@@ -83,29 +110,38 @@ func Example() {
 // that no longer holds the address.
 func Example_withdrawal() {
 	ctx := context.Background()
-	store := exampleWiring()
+	store, client := exampleWiring()
 	scope := tenancy.Global()
 
-	list, err := store.CreateList(ctx, scope, &waitlists.List{
-		Name:     "Launch",
-		ClosesAt: time.Now().Add(30 * 24 * time.Hour),
+	var (
+		list   *waitlists.List
+		signup *waitlists.Signup
+	)
+
+	// The list, the signup and the withdrawal, each in a transaction a consumer
+	// would be sharing with its own writes.
+	err := client.WithTransaction(ctx, func(tx database.Tx) (txErr error) {
+		if list, txErr = store.CreateList(ctx, tx, scope, &waitlists.List{
+			Name:     "Launch",
+			ClosesAt: time.Now().Add(30 * 24 * time.Hour),
+		}); txErr != nil {
+			return txErr
+		}
+
+		if signup, txErr = store.Join(ctx, tx, scope, list.ID,
+			&waitlists.Signup{Contact: "ada@example.com"}); txErr != nil {
+			return txErr
+		}
+
+		return store.Withdraw(ctx, tx, scope, list.ID, signup.ID)
 	})
 	if err != nil {
 		panic(err)
 	}
 
-	signup, err := store.Join(ctx, scope, list.ID, &waitlists.Signup{Contact: "ada@example.com"})
-	if err != nil {
-		panic(err)
-	}
-
-	if err = store.Withdraw(ctx, scope, list.ID, signup.ID); err != nil {
-		panic(err)
-	}
-
 	// What is left is the digest and the fact of the withdrawal. The address,
 	// the notes and the subject reference are gone.
-	withdrawn, err := store.GetSignupByContact(ctx, scope, list.ID, "ada@example.com")
+	withdrawn, err := store.GetSignupByContact(ctx, client.Reader(), scope, list.ID, "ada@example.com")
 	if err != nil {
 		panic(err)
 	}
@@ -114,7 +150,11 @@ func Example_withdrawal() {
 
 	// And a later signup from the same address is refused rather than quietly
 	// re-subscribing somebody who asked to be left alone.
-	if _, err = store.Join(ctx, scope, list.ID, &waitlists.Signup{Contact: "ADA@example.com"}); err != nil {
+	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		_, joinErr := store.Join(ctx, tx, scope, list.ID, &waitlists.Signup{Contact: "ADA@example.com"})
+
+		return joinErr
+	}); err != nil {
 		fmt.Println("stays off the list:", errors.Is(err, waitlists.ErrContactWithdrawn))
 	}
 
@@ -123,10 +163,11 @@ func Example_withdrawal() {
 	// stays off the list: true
 }
 
-// exampleWiring builds a throwaway SQLite-backed store. A real application hands
-// migrations.SQL to its own migration run and builds the store over the database
-// it already has.
-func exampleWiring() waitlists.Store {
+// exampleWiring builds a throwaway SQLite-backed store, and hands back the client
+// beside it: every write takes a transaction, and the client is what opens one. A
+// real application hands migrations.SQL to its own migration run and builds the
+// store over the database it already has.
+func exampleWiring() (waitlists.Store, database.Client) {
 	ctx := context.Background()
 
 	dir, err := os.MkdirTemp("", "waitlists-example")
@@ -157,7 +198,7 @@ func exampleWiring() waitlists.Store {
 		panic(err)
 	}
 
-	return store
+	return store, client
 }
 
 // exampleClientConfig is the minimum database.ClientConfig a SQLite client

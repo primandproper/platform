@@ -12,14 +12,24 @@ var (
 	// errors.ErrNilInputParameter, so a caller may check either.
 	ErrNilDatabaseClient = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil database client")
 
-	// ErrNilExecutor indicates a nil database.Tx handed to a write that runs
-	// inside the caller's transaction. It wraps errors.ErrNilInputParameter.
+	// ErrNilExecutor indicates a nil executor. Every method here runs on one the
+	// caller supplies — a database.Tx for a write, a database.SQLQueryExecutor
+	// for a read — so there is none of the store's own to fall back to. It wraps
+	// errors.ErrNilInputParameter.
 	//
-	// It is refused rather than substituted: a transactional variant that
-	// reached for the store's own writer when handed nothing would be a write
-	// outside the transaction its caller believes it is in, which is the
-	// failure the variant exists to prevent.
+	// It is refused rather than substituted: a write that quietly ran outside
+	// the transaction its caller believes it is in is the failure the signature
+	// exists to prevent.
 	ErrNilExecutor = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil query executor")
+
+	// ErrScopeMismatch indicates a write whose List or Signup names a different
+	// tenant than the scope the call named.
+	//
+	// The argument is what the statement binds, so the two disagreeing is a
+	// caller holding one tenant's row and writing it into another — either a
+	// stale value or a mix-up, and neither is a thing to guess at. An entity
+	// that names no scope adopts the argument instead; see Store.
+	ErrScopeMismatch = platformerrors.New("waitlist row names a different scope than the write")
 
 	// ErrNilList indicates a nil *List where one was required.
 	ErrNilList = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil waitlist")
