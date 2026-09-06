@@ -25,8 +25,13 @@ request field.
 
 What stays the consumer's is what was always genuinely theirs, and each is a
 seam here rather than a decision: who is calling ([Principal]), what each method
-requires ([Permissions]), what else happens on a write (identity.Hooks, inside
-the transaction), and whatever columns are their own.
+requires ([Permissions], declared in one call by [Require]), what else happens on
+a write (identity.Hooks, inside the transaction), and whatever columns are their
+own.
+
+[github.com/primandproper/platform-go/v14/identity/config] assembles all three
+layers from environment configuration and registers them with an injector, which
+is the shorter of the two mounts below.
 
 # The shape
 
@@ -38,12 +43,10 @@ that had to happen atomically happened a layer down, where the transaction is.
 
 # Mounting it
 
-	srv, err := identitygrpc.NewServer(client, svc, store, principalFromContext,
-		identitygrpc.WithPillars(pillars))
+	srv, err := identitycfg.NewServer(ctx, cfg, client, svc, store, principalFromContext,
+		identitycfg.WithPillars(pillars))
 
-	reqs, err := authzgrpc.NewRequirements().
-		RequireAll(identitygrpc.Permissions()).
-		Build()   // plus Public(m) for each of identitygrpc.SelfServiceMethods()
+	reqs, err := identitygrpc.Require(authzgrpc.NewRequirements()).Build()
 
 	errormappers.Register()   // or service.Register, which makes this call
 

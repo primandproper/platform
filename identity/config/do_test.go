@@ -8,6 +8,7 @@ import (
 	"github.com/primandproper/platform-go/v14/database"
 	databasecfg "github.com/primandproper/platform-go/v14/database/config"
 	"github.com/primandproper/platform-go/v14/identity"
+	identitygrpc "github.com/primandproper/platform-go/v14/identity/grpc"
 
 	"github.com/samber/do/v2"
 	"github.com/shoenig/test"
@@ -75,5 +76,95 @@ func TestRegisterStore(T *testing.T) {
 
 		_, err := do.Invoke[identity.Store](i)
 		must.Error(t, err)
+	})
+}
+
+// container registers everything the three registrations below need, so each
+// case says only what it is about.
+func container(t *testing.T) do.Injector {
+	t.Helper()
+
+	i := do.New()
+	do.ProvideValue[context.Context](i, t.Context())
+	do.ProvideValue[database.Client](i, testDBClient(t))
+	do.ProvideValue(i, &Config{})
+
+	RegisterStore(i)
+	RegisterService(i)
+	RegisterServer(i)
+
+	return i
+}
+
+func TestRegisterService(T *testing.T) {
+	T.Parallel()
+
+	T.Run("resolves a service", func(t *testing.T) {
+		t.Parallel()
+
+		svc, err := do.Invoke[*identity.Service](container(t))
+		must.NoError(t, err)
+		test.NotNil(t, svc)
+	})
+
+	T.Run("resolves without hooks registered", func(t *testing.T) {
+		t.Parallel()
+
+		// The asymmetry with the principal extractor below, and the point of
+		// resolving Hooks softly: a container that registers none is an
+		// application with nothing to commit beside an identity write, which is
+		// a configuration rather than a hole.
+		i := container(t)
+
+		_, err := do.Invoke[identity.Hooks](i)
+		test.Error(t, err, test.Sprint("this case is only meaningful with no Hooks registered"))
+
+		svc, err := do.Invoke[*identity.Service](i)
+		must.NoError(t, err)
+		test.NotNil(t, svc)
+	})
+
+	T.Run("uses the hooks the container holds", func(t *testing.T) {
+		t.Parallel()
+
+		i := do.New()
+		do.ProvideValue[context.Context](i, t.Context())
+		do.ProvideValue[database.Client](i, testDBClient(t))
+		do.ProvideValue(i, &Config{})
+		do.ProvideValue[identity.Hooks](i, identity.NoopHooks{})
+
+		RegisterStore(i)
+		RegisterService(i)
+
+		svc, err := do.Invoke[*identity.Service](i)
+		must.NoError(t, err)
+		test.NotNil(t, svc)
+	})
+}
+
+func TestRegisterServer(T *testing.T) {
+	T.Parallel()
+
+	T.Run("resolves a server", func(t *testing.T) {
+		t.Parallel()
+
+		i := container(t)
+		do.ProvideValue[identitygrpc.PrincipalExtractor](i,
+			func(context.Context) (identitygrpc.Principal, bool) { return nil, false })
+
+		srv, err := do.Invoke[*identitygrpc.Server](i)
+		must.NoError(t, err)
+		test.NotNil(t, srv)
+	})
+
+	T.Run("refuses to build without a principal extractor", func(t *testing.T) {
+		t.Parallel()
+
+		// The container fails loudly rather than handing back a server that
+		// answers every read with the zero scope. It is the one dependency here
+		// with no safe default.
+		srv, err := do.Invoke[*identitygrpc.Server](container(t))
+		test.Nil(t, srv)
+		test.Error(t, err)
 	})
 }

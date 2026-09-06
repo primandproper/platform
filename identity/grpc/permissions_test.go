@@ -101,12 +101,7 @@ func TestNoPermissionIsEmpty(T *testing.T) {
 func TestTheFragmentComposes(T *testing.T) {
 	T.Parallel()
 
-	builder := authzgrpc.NewRequirements().RequireAll(identitygrpc.Permissions())
-	for _, method := range identitygrpc.SelfServiceMethods() {
-		builder.Public(method)
-	}
-
-	reqs, err := builder.Build()
+	reqs, err := identitygrpc.Require(authzgrpc.NewRequirements()).Build()
 	must.NoError(T, err)
 	must.NotNil(T, reqs)
 
@@ -141,4 +136,50 @@ func TestSelfServiceMethodsTakeNoSubject(T *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRequireDeclaresEveryMethod is what the helper exists for. The hand-written
+// version of it — RequireAll, then a loop of Public — is a hole that fails
+// silently: forget the loop and the builder still Builds, and the enforcer then
+// denies the eight self-service methods as undeclared, GetPrincipal included.
+//
+// So this asserts the property rather than the calls: after Require, the
+// requirements name every RPC on the service.
+func TestRequireDeclaresEveryMethod(T *testing.T) {
+	T.Parallel()
+
+	reqs, err := identitygrpc.Require(authzgrpc.NewRequirements()).Build()
+	must.NoError(T, err)
+
+	declared := reqs.Methods()
+
+	for _, method := range serviceMethods() {
+		test.SliceContains(T, declared, method, test.Sprintf(
+			"%s is not declared after Require, so the enforcer will deny it as undeclared", method))
+	}
+}
+
+// TestRequireComposes covers the shape a consumer with more than one domain
+// actually writes: the builder comes in and goes out, so other services and
+// their own public methods join the same table.
+func TestRequireComposes(T *testing.T) {
+	T.Parallel()
+
+	const otherMethod = "/some.other.Service/Method"
+
+	reqs, err := identitygrpc.Require(authzgrpc.NewRequirements()).
+		Public(otherMethod).
+		Build()
+	must.NoError(T, err)
+
+	test.SliceContains(T, reqs.Methods(), otherMethod)
+	test.SliceLen(T, len(serviceMethods())+1, reqs.Methods())
+}
+
+// TestRequireToleratesANilBuilder keeps the helper from panicking where every
+// other constructor in this module returns an error.
+func TestRequireToleratesANilBuilder(T *testing.T) {
+	T.Parallel()
+
+	test.Nil(T, identitygrpc.Require(nil))
 }

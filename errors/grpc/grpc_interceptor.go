@@ -10,6 +10,7 @@ import (
 	"github.com/primandproper/platform-go/v14/ratelimiting"
 
 	"github.com/cockroachdb/errors/errorspb"
+	"github.com/cockroachdb/errors/markers"
 	gogoproto "github.com/gogo/protobuf/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -250,6 +251,28 @@ func (e *decodedError) Unwrap() error { return e.decoded }
 
 func (e *decodedError) GRPCStatus() *status.Status { return e.status }
 
+// Is is what makes the standard library's errors.Is work on an error that has
+// crossed a connection, and it is the whole reason this type is worth having
+// rather than returning what DecodeErrorFromStatus returns.
+//
+// EncodeError and DecodeError round-trip an error's cockroachdb *mark* — its
+// type name and message — and not the identity of the sentinel value. So a
+// decoded ErrUserNotFound is a different pointer from the one the package
+// declared, and std errors.Is walks the chain comparing pointers and finds
+// nothing. cockroachdb's own matcher compares marks and finds it.
+//
+// errors.Is consults an Is method when a value in the chain has one, so
+// delegating here means a caller writes the obvious thing:
+//
+//	if errors.Is(err, identity.ErrUsernameTaken) { ... }
+//
+// and it is true. Without this method that line compiles, reads correctly, is
+// always false, and sends a registration down the "something went wrong" branch
+// on a collision the server named precisely. Telling callers to reach for a
+// different matcher was the alternative, and a rule that has to be remembered at
+// every call site is not a rule.
+func (e *decodedError) Is(target error) bool { return markers.Is(e.decoded, target) }
+
 // UnaryErrorDecodingInterceptor is DecodeErrorFromStatus as a client
 // interceptor, so a caller gets sentinels back without remembering to ask.
 //
@@ -266,11 +289,8 @@ func (e *decodedError) GRPCStatus() *status.Status { return e.status }
 // reads status.Code, which is the more common of the two and the one nobody
 // would think to re-check after installing an interceptor.
 //
-// Compare the result with platformerrors.Is, not std errors.Is. What survives
-// the wire is the error's cockroachdb mark and not the sentinel's identity, so
-// the standard library's matcher answers false on an error this decoded
-// correctly. platformerrors.Is compares marks too and answers true on both
-// sides of the connection; its documentation carries the long form.
+// Std errors.Is works on what it returns, which is not free — see decodedError's
+// Is method for why it takes one, and what the alternative silently cost.
 //
 // Unary only, matching the encoding side's coverage of what this module's
 // services actually expose.

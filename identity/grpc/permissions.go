@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"github.com/primandproper/platform-go/v14/authorization"
+	authzgrpc "github.com/primandproper/platform-go/v14/authorization/grpc"
 	"github.com/primandproper/platform-go/v14/identity/identitypb"
 )
 
@@ -130,6 +131,45 @@ func Permissions() map[string][]authorization.Permission {
 		identitypb.IdentityService_CancelInvitation_FullMethodName: {PermissionInviteMembers},
 		identitypb.IdentityService_GetInvitation_FullMethodName:    {PermissionReadInvitations},
 	}
+}
+
+// Require declares every one of this service's methods onto a requirements
+// builder: the permissioned ones with what they need, the self-service ones as
+// public.
+//
+// It exists because the two-step version of this is a hole that fails silently.
+// A consumer who calls RequireAll(Permissions()) and forgets the Public loop
+// gets a builder that Builds cleanly and an enforcer that denies all eight
+// self-service methods as undeclared — GetPrincipal among them, which is the
+// whoami every client makes on load, so the application appears broken at sign
+// in for a reason nothing connects to a missing loop. Nothing reports it at
+// wiring time, because "declared nowhere" and "deliberately absent" look
+// identical to a builder.
+//
+// It takes and returns the builder rather than building it, so a consumer
+// composes several domains and their own methods into one table:
+//
+//	reqs, err := identitygrpc.Require(authzgrpc.NewRequirements()).
+//		RequireAll(mealplanning.Permissions()).
+//		Public(healthpb.Health_Check_FullMethodName).
+//		Build()
+//
+// Overriding stays available: this is the default fragment, and a consumer who
+// wants ListAccounts open to every member declares it differently before
+// Build — a method declared twice is ErrDuplicateMethod, so the override is
+// building the map yourself rather than calling this and amending it.
+func Require(b *authzgrpc.RequirementsBuilder) *authzgrpc.RequirementsBuilder {
+	if b == nil {
+		return nil
+	}
+
+	b.RequireAll(Permissions())
+
+	for _, method := range SelfServiceMethods() {
+		b.Public(method)
+	}
+
+	return b
 }
 
 // SelfServiceMethods are the RPCs whose whole authorization is "this is the

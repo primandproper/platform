@@ -1,10 +1,10 @@
 package grpc_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/primandproper/platform-go/v14/database"
-	platformerrors "github.com/primandproper/platform-go/v14/errors"
 	"github.com/primandproper/platform-go/v14/identity"
 	identitygrpc "github.com/primandproper/platform-go/v14/identity/grpc"
 	"github.com/primandproper/platform-go/v14/identity/identitypb"
@@ -171,11 +171,12 @@ func TestRegisterSurfacesACollisionAsAlreadyExists(T *testing.T) {
 	// decoding interceptors are for: a caller can branch on the error rather
 	// than on the code.
 	//
-	// platformerrors.Is rather than the standard library's, because what crosses
-	// a gRPC connection is the error's mark and not the sentinel's identity.
-	// std errors.Is answers false here on an error the server named correctly,
-	// which is the trap errors.Is documents.
-	test.True(T, platformerrors.Is(err, identity.ErrUsernameTaken), test.Sprintf(
+	// The standard library's errors.Is, deliberately. What crosses a connection
+	// is the error's cockroachdb mark rather than the sentinel's identity, so
+	// this only works because the decoding interceptor's error implements Is —
+	// and that it works is the property worth pinning, since every caller will
+	// reach for this matcher and not another one.
+	test.True(T, errors.Is(err, identity.ErrUsernameTaken), test.Sprintf(
 		"the username collision did not survive the wire as its sentinel: %v", err))
 }
 
@@ -188,7 +189,7 @@ func TestGetUserSurfacesAnAbsenceAsNotFound(T *testing.T) {
 	must.Error(T, err)
 
 	test.EqOp(T, codes.NotFound, status.Code(err))
-	test.True(T, platformerrors.Is(err, identity.ErrUserNotFound))
+	test.True(T, errors.Is(err, identity.ErrUserNotFound))
 }
 
 // TestAReadIsScopedToTheCallersDirectory is the property the whole principal
@@ -320,7 +321,7 @@ func TestArchiveUserRefusesTheLastOwnerOfAnAccount(T *testing.T) {
 	// FailedPrecondition rather than Internal: the caller can fix this, in a
 	// specific order, and the mapping is what tells them so.
 	test.EqOp(T, codes.FailedPrecondition, status.Code(err))
-	test.True(T, platformerrors.Is(err, identity.ErrLastAccountOwner))
+	test.True(T, errors.Is(err, identity.ErrLastAccountOwner))
 }
 
 func TestUpdateUserAccountStatusRefusesAnUnsetStatus(T *testing.T) {

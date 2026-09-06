@@ -280,3 +280,80 @@ func TestClientMessage_registeredSentinels(T *testing.T) {
 		test.EqOp(t, codes.Internal.String(), clientMessage(codes.Internal, unsafe))
 	})
 }
+
+// TestUnaryErrorDecodingInterceptorKeepsBothIdioms is the property the
+// interceptor exists for, and it is two properties because a client uses both
+// and each is easy to break in service of the other.
+//
+// A decode that returned what DecodeErrorFromStatus returns would answer
+// errors.Is and report codes.Unknown; one that returned the status untouched
+// would answer the code and never match a sentinel. Callers of the first kind
+// silently take a "something went wrong" branch on an error the server named
+// precisely, and that is the failure this asserts against.
+func TestUnaryErrorDecodingInterceptorKeepsBothIdioms(T *testing.T) {
+	T.Parallel()
+
+	// A sentinel PlatformMapper claims, so the code assertion below is about a
+	// mapping that survived the trip rather than about the default.
+	sentinel := platformerrors.ErrPermissionDenied
+
+	// The server side, in one line: map, encode into the details, send.
+	server := UnaryErrorEncodingInterceptor()
+
+	sent, err := server(context.Background(), nil, &grpc.UnaryServerInfo{},
+		func(context.Context, any) (any, error) {
+			return nil, platformerrors.Wrap(sentinel, "creating identity user")
+		})
+	test.Nil(T, sent)
+	must.Error(T, err)
+
+	// The client side.
+	decode := UnaryErrorDecodingInterceptor()
+
+	got := decode(context.Background(), "/svc/Method", nil, nil, nil,
+		func(context.Context, string, any, any, *grpc.ClientConn, ...grpc.CallOption) error {
+			return err
+		})
+	must.Error(T, got)
+
+	// std errors.Is, which is what every caller will actually write. It works
+	// only because the returned error implements Is: what survives the wire is
+	// the error's cockroachdb mark, not the sentinel's identity.
+	test.True(T, errors.Is(got, sentinel), test.Sprintf(
+		"the sentinel did not survive the round trip: %v", got))
+
+	// And the status is still readable, carrying the code the mapper chose, so a
+	// caller switching on the code is not broken by the decode having happened.
+	st, ok := status.FromError(got)
+	must.True(T, ok, must.Sprint("the decoded error is no longer a status"))
+	test.EqOp(T, codes.PermissionDenied, st.Code())
+}
+
+// TestUnaryErrorDecodingInterceptorPassesThroughAPlainStatus covers the other
+// branch: a status carrying no encoded detail is returned exactly as it arrived,
+// rather than wrapped in something that adds nothing.
+func TestUnaryErrorDecodingInterceptorPassesThroughAPlainStatus(T *testing.T) {
+	T.Parallel()
+
+	original := status.New(codes.NotFound, "not found").Err()
+
+	got := UnaryErrorDecodingInterceptor()(context.Background(), "/svc/Method", nil, nil, nil,
+		func(context.Context, string, any, any, *grpc.ClientConn, ...grpc.CallOption) error {
+			return original
+		})
+
+	test.EqOp(T, original, got)
+}
+
+// TestUnaryErrorDecodingInterceptorPassesThroughSuccess is the case that must
+// cost nothing.
+func TestUnaryErrorDecodingInterceptorPassesThroughSuccess(T *testing.T) {
+	T.Parallel()
+
+	got := UnaryErrorDecodingInterceptor()(context.Background(), "/svc/Method", nil, nil, nil,
+		func(context.Context, string, any, any, *grpc.ClientConn, ...grpc.CallOption) error {
+			return nil
+		})
+
+	test.NoError(T, got)
+}

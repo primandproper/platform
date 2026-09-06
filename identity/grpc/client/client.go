@@ -16,14 +16,14 @@ Error decoding, because without it every sentinel identity returns arrives as a
 the status details and the client has to decode it; that has always been a
 function a caller could forget, and here it is a default instead.
 
-Compare what comes back with platformerrors.Is rather than std errors.Is:
+Both idioms work on what comes back:
 
-	if platformerrors.Is(err, identity.ErrUsernameTaken) { ... }
+	if errors.Is(err, identity.ErrUsernameTaken) { ... }   // std errors, matches
+	if status.Code(err) == codes.AlreadyExists { ... }     // and so does the code
 
-What crosses the connection is the error's cockroachdb mark and not the
-sentinel's identity, so the standard library's matcher answers false on an error
-that decoded perfectly. status.Code works as usual — the decoded error still
-carries the status it arrived as.
+That the first works is not automatic — what crosses a connection is the error's
+cockroachdb mark and not the sentinel's identity — and errors/grpc's decoding
+interceptor is what makes it so.
 
 Idempotency, because a retried write that mints a second invitation or a second
 account is the failure the interceptor exists to prevent. It stamps a key the
