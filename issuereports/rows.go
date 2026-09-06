@@ -191,10 +191,10 @@ func reportPageRow(r *issuereportsdb.ListReportsRow) pageRow {
 	}
 }
 
-func createReportParams(r *Report) issuereportsdb.CreateReportParams {
+func createReportParams(scope tenancy.Scope, r *Report) issuereportsdb.CreateReportParams {
 	return issuereportsdb.CreateReportParams{
 		ID:          r.ID,
-		Scope:       r.Scope,
+		Scope:       scope,
 		Reporter:    r.Reporter,
 		Kind:        r.Kind,
 		Details:     r.Details,
@@ -206,14 +206,14 @@ func createReportParams(r *Report) issuereportsdb.CreateReportParams {
 	}
 }
 
-func updateReportParams(r *Report) issuereportsdb.UpdateReportParams {
+func updateReportParams(scope tenancy.Scope, r *Report) issuereportsdb.UpdateReportParams {
 	return issuereportsdb.UpdateReportParams{
 		Kind:        r.Kind,
 		Details:     r.Details,
 		SubjectType: r.SubjectType,
 		SubjectID:   r.SubjectID,
 		ID:          r.ID,
-		Scope:       r.Scope,
+		Scope:       scope,
 	}
 }
 

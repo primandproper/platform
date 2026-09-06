@@ -2,6 +2,7 @@ package privacy_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"path/filepath"
 	"testing"
@@ -50,6 +51,32 @@ func reportIn(scope tenancy.Scope, id string) *issuereports.Report {
 		Details:  "the button does nothing",
 		Status:   issuereports.StatusOpen,
 	}
+}
+
+// testReader is the executor a collector is built over.
+//
+// Nothing executes through it: the store beneath the collector is a mock, and
+// what these tests assert is that the executor the collector was built with is
+// the one it passes down. database.SQLQueryExecutor is an interface with no
+// unexported methods, so unlike database.Tx a test can stand in for it.
+type testReader struct{}
+
+var _ database.SQLQueryExecutor = (*testReader)(nil)
+
+func (*testReader) ExecContext(context.Context, string, ...any) (sql.Result, error) {
+	panic("the collector's store is a mock; nothing runs on this")
+}
+
+func (*testReader) PrepareContext(context.Context, string) (*sql.Stmt, error) {
+	panic("the collector's store is a mock; nothing runs on this")
+}
+
+func (*testReader) QueryContext(context.Context, string, ...any) (*sql.Rows, error) {
+	panic("the collector's store is a mock; nothing runs on this")
+}
+
+func (*testReader) QueryRowContext(context.Context, string, ...any) *sql.Row {
+	panic("the collector's store is a mock; nothing runs on this")
 }
 
 // withTx runs fn inside a real transaction.
@@ -145,10 +172,16 @@ func TestNewCollector(T *testing.T) {
 	T.Run("refuses what it cannot work without", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := privacy.NewCollector(nil, privacy.RequestScope)
+		_, err := privacy.NewCollector(nil, &testReader{}, privacy.RequestScope)
 		must.ErrorIs(t, err, privacy.ErrNilStore)
 
-		_, err = privacy.NewCollector(&issuereportsmock.StoreMock{}, nil)
+		// The executor is a constructor argument because Collect has nowhere to
+		// put one, so an absent one has to be refused here or every collection
+		// fails at the store instead.
+		_, err = privacy.NewCollector(&issuereportsmock.StoreMock{}, nil, privacy.RequestScope)
+		must.ErrorIs(t, err, privacy.ErrNilExecutor)
+
+		_, err = privacy.NewCollector(&issuereportsmock.StoreMock{}, &testReader{}, nil)
 		must.ErrorIs(t, err, privacy.ErrNilScopeResolver)
 	})
 }
@@ -159,17 +192,23 @@ func TestCollector_Collect(T *testing.T) {
 	T.Run("collects every scope the resolver names", func(t *testing.T) {
 		t.Parallel()
 
+		var reader database.SQLQueryExecutor = &testReader{}
+
 		store := &issuereportsmock.StoreMock{
 			ListReportsByReporterFunc: func(
-				_ context.Context, scope tenancy.Scope, reporter string, _ *filtering.QueryFilter,
+				_ context.Context, q database.SQLQueryExecutor, scope tenancy.Scope,
+				reporter string, _ *filtering.QueryFilter,
 			) (*filtering.QueryFilteredResult[issuereports.Report], error) {
+				// The executor is the one the collector was built with, which is
+				// the whole of what the constructor argument buys.
+				test.EqOp(t, reader, q)
 				test.EqOp(t, subject.ID, reporter)
 
 				return pageOf(reportIn(scope, "report_in_"+scope.String())), nil
 			},
 		}
 
-		collector, err := privacy.NewCollector(store, privacy.FixedScopes(firstScope, secondScope))
+		collector, err := privacy.NewCollector(store, reader, privacy.FixedScopes(firstScope, secondScope))
 		must.NoError(t, err)
 
 		fragment, err := collector.Collect(t.Context(), subject)
@@ -190,13 +229,14 @@ func TestCollector_Collect(T *testing.T) {
 		// export reads as a form.
 		store := &issuereportsmock.StoreMock{
 			ListReportsByReporterFunc: func(
-				context.Context, tenancy.Scope, string, *filtering.QueryFilter,
+				context.Context, database.SQLQueryExecutor, tenancy.Scope, string,
+				*filtering.QueryFilter,
 			) (*filtering.QueryFilteredResult[issuereports.Report], error) {
 				return pageOf(), nil
 			},
 		}
 
-		collector, err := privacy.NewCollector(store, privacy.FixedScopes(firstScope))
+		collector, err := privacy.NewCollector(store, &testReader{}, privacy.FixedScopes(firstScope))
 		must.NoError(t, err)
 
 		fragment, err := collector.Collect(t.Context(), subject)
@@ -209,7 +249,7 @@ func TestCollector_Collect(T *testing.T) {
 
 		store := &issuereportsmock.StoreMock{}
 
-		collector, err := privacy.NewCollector(store, privacy.FixedScopes())
+		collector, err := privacy.NewCollector(store, &testReader{}, privacy.FixedScopes())
 		must.NoError(t, err)
 
 		fragment, err := collector.Collect(t.Context(), subject)
@@ -221,7 +261,7 @@ func TestCollector_Collect(T *testing.T) {
 	T.Run("reports a resolver that could not answer", func(t *testing.T) {
 		t.Parallel()
 
-		collector, err := privacy.NewCollector(&issuereportsmock.StoreMock{}, privacy.RequestScope)
+		collector, err := privacy.NewCollector(&issuereportsmock.StoreMock{}, &testReader{}, privacy.RequestScope)
 		must.NoError(t, err)
 
 		_, err = collector.Collect(t.Context(), subject)
@@ -236,13 +276,14 @@ func TestCollector_Collect(T *testing.T) {
 		// subject access request looks exactly like a correct one.
 		store := &issuereportsmock.StoreMock{
 			ListReportsByReporterFunc: func(
-				context.Context, tenancy.Scope, string, *filtering.QueryFilter,
+				context.Context, database.SQLQueryExecutor, tenancy.Scope, string,
+				*filtering.QueryFilter,
 			) (*filtering.QueryFilteredResult[issuereports.Report], error) {
 				return nil, errStoreUnavailable
 			},
 		}
 
-		collector, err := privacy.NewCollector(store, privacy.FixedScopes(firstScope))
+		collector, err := privacy.NewCollector(store, &testReader{}, privacy.FixedScopes(firstScope))
 		must.NoError(t, err)
 
 		fragment, err := collector.Collect(t.Context(), subject)
@@ -333,6 +374,7 @@ func TestEraser_Erase(T *testing.T) {
 		must.NoError(t, err)
 
 		_, err = eraser.Erase(t.Context(), nil, subject)
+		must.ErrorIs(t, err, privacy.ErrNilExecutor)
 		must.ErrorIs(t, err, platformerrors.ErrNilInputParameter)
 	})
 
@@ -382,7 +424,7 @@ func TestRegistersUnderTheDefaultKey(t *testing.T) {
 	// against the thing that validates it rather than merely declared.
 	registry := dataprivacy.NewRegistry()
 
-	collector, err := privacy.NewCollector(&issuereportsmock.StoreMock{}, privacy.RequestScope)
+	collector, err := privacy.NewCollector(&issuereportsmock.StoreMock{}, &testReader{}, privacy.RequestScope)
 	must.NoError(t, err)
 	must.NoError(t, registry.RegisterCollector(privacy.DefaultKey, collector))
 

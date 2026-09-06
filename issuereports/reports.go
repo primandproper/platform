@@ -13,8 +13,8 @@ import (
 	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
-// CreateReport files one report and reads back the creation time the database
-// assigned.
+// CreateReport files one report through the caller's transaction and reads back
+// the creation time the database assigned.
 //
 // The read-back is a second round trip on a write path, and it is worth it:
 // created_at is database-owned — see issuereports/internal/queries — so the
@@ -22,47 +22,36 @@ import (
 // 0001-01-01 for a row written a moment ago. A service that serializes what it
 // just created straight into a response would render that as a date rather than
 // as an absence.
-func (s *SQLStore) CreateReport(ctx context.Context, report *Report) error {
-	ctx, op := s.o11y.Begin(ctx)
-	defer op.End()
-
-	return s.createReport(ctx, op, s.client.Writer(), report)
-}
-
-// CreateReportTx is CreateReport inside the caller's transaction.
 //
-// Every check CreateReport makes is made here, and the read-back of the creation
-// time goes through q rather than through the store's own writer — so the value
-// the caller is handed is the row this transaction wrote, not a read of a row
-// nothing else can see yet. See [Store.CreateReportTx].
-func (s *SQLStore) CreateReportTx(ctx context.Context, q database.Tx, report *Report) error {
-	ctx, op := s.o11y.Begin(ctx)
+// Every check and both statements run on tx, so the value handed back is the row
+// this transaction wrote rather than a read of a row nothing else can see yet.
+// See [Store.CreateReport].
+func (s *SQLStore) CreateReport(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	report *Report,
+) error {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
-	if q == nil {
+	if tx == nil {
 		return op.Error(ErrNilExecutor, "creating issue report")
 	}
 
-	return s.createReport(ctx, op, q, report)
-}
-
-// createReport is the shared body of CreateReport and CreateReportTx.
-//
-// It takes the executor rather than reaching for one, which is the whole of the
-// difference between the two: every check, every statement, and the order they
-// run in are the same on both paths, so neither can drift into accepting a
-// report the other refuses.
-func (s *SQLStore) createReport(
-	ctx context.Context,
-	op observability.Operation,
-	q issuereportsdb.DBTX,
-	report *Report,
-) error {
 	if report == nil {
 		return op.Error(ErrNilReport, "creating issue report")
 	}
 
-	op.Set(scopeKey, report.Scope.String()).Set(reporterKey, report.Reporter)
+	if err := scope.Validate(); err != nil {
+		return op.Error(err, "creating issue report")
+	}
+
+	if err := adoptScope(scope, report); err != nil {
+		return op.Error(err, "creating issue report")
+	}
+
+	op.Set(reporterKey, report.Reporter)
 
 	if err := validReport(report); err != nil {
 		return op.Error(err, "creating issue report")
@@ -93,12 +82,12 @@ func (s *SQLStore) createReport(
 
 	op.Set(reportIDKey, report.ID).Set(statusKey, report.Status.String())
 
-	if err := s.q.CreateReport(ctx, q, createReportParams(report)); err != nil {
+	if err := s.q.CreateReport(ctx, tx, createReportParams(scope, report)); err != nil {
 		return op.Error(err, "creating issue report")
 	}
 
-	created, err := s.q.GetReportCreatedAt(ctx, q,
-		issuereportsdb.GetReportCreatedAtParams{ID: report.ID, Scope: report.Scope})
+	created, err := s.q.GetReportCreatedAt(ctx, tx,
+		issuereportsdb.GetReportCreatedAtParams{ID: report.ID, Scope: scope})
 	if err != nil {
 		return op.Error(err, "reading back the issue report's creation time")
 	}
@@ -108,9 +97,34 @@ func (s *SQLStore) createReport(
 	return nil
 }
 
-// GetReport reads one of the scope's live reports.
+// adoptScope settles which tenant a write is for, and writes the answer back
+// onto the report.
+//
+// The scope the call named is the one the statement binds, so a report that
+// names a different one is refused rather than corrected: the two disagreeing is
+// a caller holding one tenant's report and writing it into another, which is a
+// stale value or a mix-up and is not a thing to guess at. A report that names
+// none adopts the argument, which is what keeps a caller assembling a fresh
+// report from spelling the scope twice. tenancy.Scope tells its zero value apart
+// from Global(), so "unset" here is genuinely unset rather than the global scope
+// spelled shortly.
+func adoptScope(scope tenancy.Scope, report *Report) error {
+	if report.Scope != (tenancy.Scope{}) && report.Scope != scope {
+		return platformerrors.Wrapf(ErrScopeMismatch,
+			"issue report names %q, the write names %q", report.Scope, scope)
+	}
+
+	report.Scope = scope
+
+	return nil
+}
+
+// GetReport reads one of the scope's live reports, on the caller's executor — so
+// a caller inside a transaction reads the report that transaction has written
+// and not yet committed.
 func (s *SQLStore) GetReport(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	reportID string,
 ) (*Report, error) {
@@ -120,11 +134,15 @@ func (s *SQLStore) GetReport(
 	)
 	defer op.End()
 
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "reading issue report %q", reportID)
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "reading issue report %q", reportID)
 	}
 
-	report, err := s.reportOn(ctx, s.client.Reader(), scope, reportID)
+	report, err := s.reportOn(ctx, q, scope, reportID)
 	if err != nil {
 		return nil, op.Error(err, "reading issue report %q", reportID)
 	}
@@ -134,14 +152,11 @@ func (s *SQLStore) GetReport(
 
 // reportOn reads one live report through the executor it is given.
 //
-// It exists because the two reads a transition makes must go where the
-// transition wrote rather than to whatever GetReport would reach. On the store's
-// own path that is the write database: the transition has just written, and a
-// read replica can still be holding the row as it was before it — so the report
-// handed back would say it never moved, and the disambiguation of a missed guard
-// would report a report that is there as absent. On the transactional path it is
-// the caller's transaction, for the same reason one step further in: a row that
-// transaction wrote and has not committed is visible on no other connection.
+// It exists because a transition's two reads must go where the transition wrote:
+// a row that transaction has written and not committed is visible on no other
+// connection, so the report handed back would say it never moved, and the
+// disambiguation of a missed guard would report a report that is there as
+// absent.
 func (s *SQLStore) reportOn(
 	ctx context.Context,
 	exec issuereportsdb.DBTX,
@@ -159,11 +174,16 @@ func (s *SQLStore) reportOn(
 // ListReports pages the scope's reports, in the direction the filter names.
 func (s *SQLStore) ListReports(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	filter *filtering.QueryFilter,
 ) (*filtering.QueryFilteredResult[Report], error) {
 	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
+
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "listing issue reports")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "listing issue reports")
@@ -173,10 +193,10 @@ func (s *SQLStore) ListReports(
 
 	rows, err := sortedRows(filter,
 		func() ([]issuereportsdb.ListReportsRow, error) {
-			return s.q.ListReports(ctx, s.client.Reader(), listReportsParams(scope, filter))
+			return s.q.ListReports(ctx, q, listReportsParams(scope, filter))
 		},
 		func() ([]issuereportsdb.ListReportsDescendingRow, error) {
-			return s.q.ListReportsDescending(ctx, s.client.Reader(),
+			return s.q.ListReportsDescending(ctx, q,
 				issuereportsdb.ListReportsDescendingParams(listReportsParams(scope, filter)))
 		},
 		func(r issuereportsdb.ListReportsDescendingRow) issuereportsdb.ListReportsRow {
@@ -192,6 +212,7 @@ func (s *SQLStore) ListReports(
 // ListReportsByStatus is ListReports restricted to one status: the triage queue.
 func (s *SQLStore) ListReportsByStatus(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	status Status,
 	filter *filtering.QueryFilter,
@@ -201,6 +222,10 @@ func (s *SQLStore) ListReportsByStatus(
 		observability.WithValue(statusKey, status.String()),
 	)
 	defer op.End()
+
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "listing issue reports by status")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "listing issue reports by status")
@@ -218,11 +243,11 @@ func (s *SQLStore) ListReportsByStatus(
 
 	rows, err := sortedRows(filter,
 		func() ([]issuereportsdb.ListReportsByStatusRow, error) {
-			return s.q.ListReportsByStatus(ctx, s.client.Reader(),
+			return s.q.ListReportsByStatus(ctx, q,
 				listByStatusParams(scope, status, filter))
 		},
 		func() ([]issuereportsdb.ListReportsByStatusDescendingRow, error) {
-			return s.q.ListReportsByStatusDescending(ctx, s.client.Reader(),
+			return s.q.ListReportsByStatusDescending(ctx, q,
 				issuereportsdb.ListReportsByStatusDescendingParams(
 					listByStatusParams(scope, status, filter)))
 		},
@@ -241,6 +266,7 @@ func (s *SQLStore) ListReportsByStatus(
 // ListReportsByReporter pages the reports one person filed within the scope.
 func (s *SQLStore) ListReportsByReporter(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	reporter string,
 	filter *filtering.QueryFilter,
@@ -250,6 +276,10 @@ func (s *SQLStore) ListReportsByReporter(
 		observability.WithValue(reporterKey, reporter),
 	)
 	defer op.End()
+
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "listing issue reports by reporter")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "listing issue reports by reporter")
@@ -263,11 +293,11 @@ func (s *SQLStore) ListReportsByReporter(
 
 	rows, err := sortedRows(filter,
 		func() ([]issuereportsdb.ListReportsByReporterRow, error) {
-			return s.q.ListReportsByReporter(ctx, s.client.Reader(),
+			return s.q.ListReportsByReporter(ctx, q,
 				listByReporterParams(scope, reporter, filter))
 		},
 		func() ([]issuereportsdb.ListReportsByReporterDescendingRow, error) {
-			return s.q.ListReportsByReporterDescending(ctx, s.client.Reader(),
+			return s.q.ListReportsByReporterDescending(ctx, q,
 				issuereportsdb.ListReportsByReporterDescendingParams(
 					listByReporterParams(scope, reporter, filter)))
 		},
@@ -286,6 +316,7 @@ func (s *SQLStore) ListReportsByReporter(
 // ListReportsBySubjectType pages every report about one kind of thing.
 func (s *SQLStore) ListReportsBySubjectType(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	subjectType string,
 	filter *filtering.QueryFilter,
@@ -296,6 +327,10 @@ func (s *SQLStore) ListReportsBySubjectType(
 	)
 	defer op.End()
 
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "listing issue reports by subject type")
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "listing issue reports by subject type")
 	}
@@ -304,11 +339,11 @@ func (s *SQLStore) ListReportsBySubjectType(
 
 	rows, err := sortedRows(filter,
 		func() ([]issuereportsdb.ListReportsBySubjectTypeRow, error) {
-			return s.q.ListReportsBySubjectType(ctx, s.client.Reader(),
+			return s.q.ListReportsBySubjectType(ctx, q,
 				listBySubjectTypeParams(scope, subjectType, filter))
 		},
 		func() ([]issuereportsdb.ListReportsBySubjectTypeDescendingRow, error) {
-			return s.q.ListReportsBySubjectTypeDescending(ctx, s.client.Reader(),
+			return s.q.ListReportsBySubjectTypeDescending(ctx, q,
 				issuereportsdb.ListReportsBySubjectTypeDescendingParams(
 					listBySubjectTypeParams(scope, subjectType, filter)))
 		},
@@ -327,6 +362,7 @@ func (s *SQLStore) ListReportsBySubjectType(
 // ListReportsForSubject pages every report about one particular thing.
 func (s *SQLStore) ListReportsForSubject(
 	ctx context.Context,
+	q database.SQLQueryExecutor,
 	scope tenancy.Scope,
 	subjectType, subjectID string,
 	filter *filtering.QueryFilter,
@@ -338,6 +374,10 @@ func (s *SQLStore) ListReportsForSubject(
 	)
 	defer op.End()
 
+	if q == nil {
+		return nil, op.Error(ErrNilExecutor, "listing issue reports for subject")
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "listing issue reports for subject")
 	}
@@ -346,11 +386,11 @@ func (s *SQLStore) ListReportsForSubject(
 
 	rows, err := sortedRows(filter,
 		func() ([]issuereportsdb.ListReportsForSubjectRow, error) {
-			return s.q.ListReportsForSubject(ctx, s.client.Reader(),
+			return s.q.ListReportsForSubject(ctx, q,
 				listForSubjectParams(scope, subjectType, subjectID, filter))
 		},
 		func() ([]issuereportsdb.ListReportsForSubjectDescendingRow, error) {
-			return s.q.ListReportsForSubjectDescending(ctx, s.client.Reader(),
+			return s.q.ListReportsForSubjectDescending(ctx, q,
 				issuereportsdb.ListReportsForSubjectDescendingParams(
 					listForSubjectParams(scope, subjectType, subjectID, filter)))
 		},
@@ -403,62 +443,64 @@ func listPage(
 		func(r *Report) string { return r.ID }, filter)
 }
 
-// UpdateReport revises what the reporter said.
-func (s *SQLStore) UpdateReport(ctx context.Context, report *Report) error {
-	ctx, op := s.o11y.Begin(ctx)
+// UpdateReport revises what the reporter said, through the caller's transaction,
+// so the revision and whatever the caller records about it commit together or
+// not at all. See [Store.UpdateReport].
+func (s *SQLStore) UpdateReport(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	report *Report,
+) error {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
 
-	return s.updateReport(ctx, op, s.client.Writer(), report)
-}
-
-// UpdateReportTx is UpdateReport inside the caller's transaction, so the
-// revision and whatever the caller records about it commit together or not at
-// all. See [Store.UpdateReportTx].
-func (s *SQLStore) UpdateReportTx(ctx context.Context, q database.Tx, report *Report) error {
-	ctx, op := s.o11y.Begin(ctx)
-	defer op.End()
-
-	if q == nil {
+	if tx == nil {
 		return op.Error(ErrNilExecutor, "updating issue report")
 	}
 
-	return s.updateReport(ctx, op, q, report)
-}
-
-// updateReport is the shared body of UpdateReport and UpdateReportTx, which
-// differ in the executor they run on and in nothing else.
-func (s *SQLStore) updateReport(
-	ctx context.Context,
-	op observability.Operation,
-	q issuereportsdb.DBTX,
-	report *Report,
-) error {
 	if report == nil {
 		return op.Error(ErrNilReport, "updating issue report")
 	}
 
-	op.Set(scopeKey, report.Scope.String()).Set(reportIDKey, report.ID)
+	op.Set(reportIDKey, report.ID)
+
+	if err := scope.Validate(); err != nil {
+		return op.Error(err, "updating issue report %q", report.ID)
+	}
+
+	if err := adoptScope(scope, report); err != nil {
+		return op.Error(err, "updating issue report %q", report.ID)
+	}
 
 	if err := validReport(report); err != nil {
 		return op.Error(err, "updating issue report %q", report.ID)
 	}
 
-	count, err := s.q.UpdateReport(ctx, q, updateReportParams(report))
+	count, err := s.q.UpdateReport(ctx, tx, updateReportParams(scope, report))
 
 	return op.Error(
 		guardCount(count, err, ErrReportNotFound, "updating the issue report"),
 		"updating issue report %q", report.ID)
 }
 
-// TransitionReport moves a report from one status to another.
+// TransitionReport moves a report from one status to another, through the
+// caller's transaction, so the move commits with the entry naming who made it
+// and why. See [Store.TransitionReport].
 //
 // The guard is in the statement, so a caller that lost the race writes nothing
 // and learns it. Zero rows means two things — the report moved, or it is not in
 // this scope at all — and they are different answers, so the miss is
 // disambiguated with a read rather than collapsed. It costs a round trip only on
 // the path that already did nothing.
+//
+// The guard and both reads around it run on tx, so a report filed earlier in the
+// same transaction can be moved by this call and the row handed back is the row
+// as this transaction has it — which is what a caller recording the outcome
+// beside it wants to be describing.
 func (s *SQLStore) TransitionReport(
 	ctx context.Context,
+	tx database.Tx,
 	scope tenancy.Scope,
 	reportID string,
 	from, to Status,
@@ -472,51 +514,10 @@ func (s *SQLStore) TransitionReport(
 	)
 	defer op.End()
 
-	return s.transitionReport(ctx, op, s.client.Writer(), scope, reportID, from, to, resolution)
-}
-
-// TransitionReportTx is TransitionReport inside the caller's transaction.
-//
-// The guard and the two reads around it all run on q, which is what makes a
-// report filed earlier in the same transaction reachable from here; the
-// non-transactional path could not see it until the commit. See
-// [Store.TransitionReportTx] for what that means to a caller.
-func (s *SQLStore) TransitionReportTx(
-	ctx context.Context,
-	q database.Tx,
-	scope tenancy.Scope,
-	reportID string,
-	from, to Status,
-	resolution string,
-) (*Report, error) {
-	ctx, op := s.o11y.Begin(ctx,
-		observability.WithValue(scopeKey, scope.String()),
-		observability.WithValue(reportIDKey, reportID),
-		observability.WithValue(fromStatusKey, from.String()),
-		observability.WithValue(statusKey, to.String()),
-	)
-	defer op.End()
-
-	if q == nil {
+	if tx == nil {
 		return nil, op.Error(ErrNilExecutor, "transitioning issue report %q", reportID)
 	}
 
-	return s.transitionReport(ctx, op, q, scope, reportID, from, to, resolution)
-}
-
-// transitionReport is the shared body of TransitionReport and
-// TransitionReportTx, which differ in the executor they run on and in nothing
-// else — the lifecycle check, the guarded statement, the disambiguating read on
-// a miss and the read-back on a hit are the same four steps on both paths.
-func (s *SQLStore) transitionReport(
-	ctx context.Context,
-	op observability.Operation,
-	q issuereportsdb.DBTX,
-	scope tenancy.Scope,
-	reportID string,
-	from, to Status,
-	resolution string,
-) (*Report, error) {
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "transitioning issue report %q", reportID)
 	}
@@ -541,7 +542,7 @@ func (s *SQLStore) transitionReport(
 		resolution = ""
 	}
 
-	affected, err := s.q.TransitionReport(ctx, q, issuereportsdb.TransitionReportParams{
+	affected, err := s.q.TransitionReport(ctx, tx, issuereportsdb.TransitionReportParams{
 		Status:        to.String(),
 		Resolution:    resolution,
 		ClosedAt:      closedAt,
@@ -560,7 +561,7 @@ func (s *SQLStore) transitionReport(
 		// before the miss is reported, and an absent report does not land in the
 		// series a dashboard reads as a busy queue. It costs a round trip only on
 		// the path that already wrote nothing.
-		if _, readErr := s.reportOn(ctx, q, scope, reportID); readErr != nil {
+		if _, readErr := s.reportOn(ctx, tx, scope, reportID); readErr != nil {
 			return nil, op.Error(readErr, "transitioning issue report %q", reportID)
 		}
 
@@ -568,7 +569,7 @@ func (s *SQLStore) transitionReport(
 			"transition", "transitioning the issue report")
 	}
 
-	moved, err := s.reportOn(ctx, q, scope, reportID)
+	moved, err := s.reportOn(ctx, tx, scope, reportID)
 	if err != nil {
 		return nil, op.Error(err, "reading back the transitioned issue report")
 	}
@@ -576,13 +577,16 @@ func (s *SQLStore) transitionReport(
 	return moved, nil
 }
 
-// ArchiveReport removes a report from the queue.
+// ArchiveReport removes a report from the queue, through the caller's
+// transaction, so the removal and whatever the caller records about it commit
+// together or not at all. See [Store.ArchiveReport].
 //
 // Zero rows is ErrReportNotFound rather than a quiet success, and the reading is
 // exact: the statement excludes archived rows, so a report that has already been
 // archived is not in the queue, which is what this method addresses.
 func (s *SQLStore) ArchiveReport(
 	ctx context.Context,
+	tx database.Tx,
 	scope tenancy.Scope,
 	reportID string,
 ) error {
@@ -592,45 +596,15 @@ func (s *SQLStore) ArchiveReport(
 	)
 	defer op.End()
 
-	return s.archiveReport(ctx, op, s.client.Writer(), scope, reportID)
-}
-
-// ArchiveReportTx is ArchiveReport inside the caller's transaction, so the
-// removal and whatever the caller records about it commit together or not at
-// all. See [Store.ArchiveReportTx].
-func (s *SQLStore) ArchiveReportTx(
-	ctx context.Context,
-	q database.Tx,
-	scope tenancy.Scope,
-	reportID string,
-) error {
-	ctx, op := s.o11y.Begin(ctx,
-		observability.WithValue(scopeKey, scope.String()),
-		observability.WithValue(reportIDKey, reportID),
-	)
-	defer op.End()
-
-	if q == nil {
+	if tx == nil {
 		return op.Error(ErrNilExecutor, "archiving issue report %q", reportID)
 	}
 
-	return s.archiveReport(ctx, op, q, scope, reportID)
-}
-
-// archiveReport is the shared body of ArchiveReport and ArchiveReportTx, which
-// differ in the executor they run on and in nothing else.
-func (s *SQLStore) archiveReport(
-	ctx context.Context,
-	op observability.Operation,
-	q issuereportsdb.DBTX,
-	scope tenancy.Scope,
-	reportID string,
-) error {
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "archiving issue report %q", reportID)
 	}
 
-	count, err := s.q.ArchiveReport(ctx, q,
+	count, err := s.q.ArchiveReport(ctx, tx,
 		issuereportsdb.ArchiveReportParams{ID: reportID, Scope: scope})
 
 	return op.Error(
@@ -647,7 +621,7 @@ func (s *SQLStore) archiveReport(
 // succeeded.
 func (s *SQLStore) DeleteReportsByReporter(
 	ctx context.Context,
-	q database.Tx,
+	tx database.Tx,
 	scope tenancy.Scope,
 	reporter string,
 ) (int64, error) {
@@ -657,7 +631,7 @@ func (s *SQLStore) DeleteReportsByReporter(
 	)
 	defer op.End()
 
-	if q == nil {
+	if tx == nil {
 		return 0, op.Error(ErrNilExecutor, "erasing issue reports")
 	}
 
@@ -669,7 +643,7 @@ func (s *SQLStore) DeleteReportsByReporter(
 		return 0, op.Error(ErrEmptyReporter, "erasing issue reports")
 	}
 
-	deleted, err := s.q.DeleteReportsByReporter(ctx, q,
+	deleted, err := s.q.DeleteReportsByReporter(ctx, tx,
 		issuereportsdb.DeleteReportsByReporterParams{Scope: scope, Reporter: reporter})
 	if err != nil {
 		return 0, op.Error(err, "erasing issue reports")
@@ -706,16 +680,13 @@ func checkTransition(from, to Status) error {
 
 // validReport is what the store requires of a row before it writes one.
 //
-// Four checks, and each refuses a row that would be unreachable rather than
+// Three checks, and each refuses a row that would be unreachable rather than
 // merely odd: a report filed by nobody is one no reporter's list can find and no
 // erasure can reach, one with no kind is one nobody has decided who should look
 // at, and one with no details records that somebody was unhappy and nothing
-// anyone can act on.
+// anyone can act on. The scope is not among them: it is the argument's, checked
+// where the write reads it.
 func validReport(r *Report) error {
-	if err := r.Scope.Validate(); err != nil {
-		return err
-	}
-
 	if r.Reporter == "" {
 		return ErrEmptyReporter
 	}

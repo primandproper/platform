@@ -41,10 +41,9 @@ var _ Store = (*SQLStore)(nil)
 // storage can depend on that choice rather than on the seam every backing
 // shares.
 type SQLStore struct {
-	client database.Client
-	q      issuereportsdb.Querier
-	o11y   observability.Observer
-	clock  clock.Clock
+	q     issuereportsdb.Querier
+	o11y  observability.Observer
+	clock clock.Clock
 
 	// guardMissCounter counts transitions whose guard matched no row, which is
 	// the one number nothing above this layer can see.
@@ -77,6 +76,16 @@ type SQLStore struct {
 // that, and a mismatch surfaces as a missing table on the first query rather
 // than at construction.
 //
+// The client is taken for its dialect and for nothing else, and the store keeps
+// no reference to it. Every write is handed a database.Tx and every read an
+// executor, so there is no statement this store runs on a connection of its own:
+// no Writer() for the writes and no Reader() for the reads. It does not take
+// CurrentTime() either — closed_at is stamped from the injected clock, so a test
+// can put a filing and its resolution a known distance apart, and every other
+// timestamp in this table is the database server's. A consumer with nothing to
+// join opens a transaction with Client.WithTransaction and passes the Tx it is
+// handed.
+//
 // Observability is optional and defaults to nothing: an unconfigured store logs
 // to a noop logger, traces to a noop provider, and counts into a noop meter.
 func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, error) {
@@ -90,7 +99,6 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	}
 
 	s := &SQLStore{
-		client: client,
 		clock:  clock.NewClock(),
 		prefix: DefaultTablePrefix,
 	}

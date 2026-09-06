@@ -38,6 +38,21 @@ wants [RequestScope]; one that resolves a person to their accounts has to ask it
 own directory. A resolver that silently answered "the global scope" for the third
 of those would export nothing and erase nothing, and report success for both.
 
+# Executors
+
+Every read and write in issuereports runs on an executor its caller supplies, and
+the two halves get theirs from different places. dataprivacy.Eraser.Erase is
+handed the request's database.Tx, so [Eraser] passes that straight down and a
+subject's reports commit with the rest of their footprint.
+dataprivacy.Collector.Collect is handed nothing, because an export is a read and
+there is no transaction for it to be part of — so [NewCollector] takes the
+executor once, at construction, and every collection runs on it.
+
+That is a database.SQLQueryExecutor rather than a database.Client: a collector
+reads and does nothing else, and the narrower type is also the one that lets a
+consumer hand it a Tx where an export genuinely has to see a transaction's own
+writes.
+
 # Observability
 
 Neither half instruments anything of its own. Everything they do is a call into
@@ -72,6 +87,11 @@ var (
 	// refusing it here is what stops an export that quietly covers no scope from
 	// being discovered by the subject.
 	ErrNilScopeResolver = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil scope resolver")
+
+	// ErrNilExecutor indicates a nil executor. Both halves run on one somebody
+	// else supplies — the collector's at construction, the eraser's per request —
+	// because issuereports keeps no connection of its own to fall back to.
+	ErrNilExecutor = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil query executor")
 
 	// ErrUnscopedRequest indicates a request that names no scope, handed to
 	// [RequestScope], which has nowhere else to get one.
@@ -116,23 +136,38 @@ func FixedScopes(scopes ...tenancy.Scope) ScopeResolver {
 // Collector returns the issue reports a subject filed.
 type Collector struct {
 	store   issuereports.Store
+	reader  database.SQLQueryExecutor
 	resolve ScopeResolver
 }
 
 var _ dataprivacy.Collector = (*Collector)(nil)
 
-// NewCollector builds the collector over a store and a scope resolver. Both are
-// required.
-func NewCollector(store issuereports.Store, resolve ScopeResolver) (*Collector, error) {
+// NewCollector builds the collector over a store, the executor its reads run on,
+// and a scope resolver. All three are required.
+//
+// The executor is a constructor argument because dataprivacy.Collector.Collect
+// has nowhere to put one: an export is a read, and the seam that asks for it
+// hands over a subject and nothing else. Client.Reader() is what a consumer
+// ordinarily passes; a Tx is what it passes when the export has to see writes
+// that transaction has not committed.
+func NewCollector(
+	store issuereports.Store,
+	reader database.SQLQueryExecutor,
+	resolve ScopeResolver,
+) (*Collector, error) {
 	if store == nil {
 		return nil, ErrNilStore
+	}
+
+	if reader == nil {
+		return nil, ErrNilExecutor
 	}
 
 	if resolve == nil {
 		return nil, ErrNilScopeResolver
 	}
 
-	return &Collector{store: store, resolve: resolve}, nil
+	return &Collector{store: store, reader: reader, resolve: resolve}, nil
 }
 
 // Collect implements dataprivacy.Collector.
@@ -152,7 +187,7 @@ func (c *Collector) Collect(ctx context.Context, subject dataprivacy.Subject) (j
 	for _, scope := range scopes {
 		page, collectErr := dataprivacy.CollectAll(ctx,
 			func(ctx context.Context, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[issuereports.Report], error) {
-				return c.store.ListReportsByReporter(ctx, scope, subject.ID, filter)
+				return c.store.ListReportsByReporter(ctx, c.reader, scope, subject.ID, filter)
 			})
 		if collectErr != nil {
 			return nil, platformerrors.Wrapf(collectErr, "collecting issue reports in scope %q", scope)
@@ -197,8 +232,7 @@ func (e *Eraser) Erase(
 	subject dataprivacy.Subject,
 ) (dataprivacy.ErasureOutcome, error) {
 	if q == nil {
-		return dataprivacy.ErasureOutcome{},
-			platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil query executor")
+		return dataprivacy.ErasureOutcome{}, ErrNilExecutor
 	}
 
 	scopes, err := e.resolve(ctx, subject)

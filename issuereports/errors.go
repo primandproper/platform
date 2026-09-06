@@ -15,9 +15,21 @@ var (
 	// ErrNilReport indicates a nil *Report where one was required.
 	ErrNilReport = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil issue report")
 
-	// ErrNilExecutor indicates a nil database.Tx handed to a write that runs
-	// inside somebody else's transaction.
+	// ErrNilExecutor indicates a nil executor. Every method here runs on one the
+	// caller supplies — a database.Tx for a write, an executor for a read — so
+	// there is no method that can fall back to a connection of the store's own.
 	ErrNilExecutor = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil query executor")
+
+	// ErrScopeMismatch indicates a write whose Report.Scope names a different
+	// tenant than the scope the call named.
+	//
+	// The argument is what the statement binds, so the two disagreeing is a
+	// caller holding one tenant's report and writing it into another — either a
+	// stale value or a mix-up, and neither is a thing to guess at. An unset
+	// field adopts the argument; a set one that disagrees is refused rather than
+	// corrected, which is the same reading this package already takes of a
+	// status a create arrives with.
+	ErrScopeMismatch = platformerrors.New("issue report names a different scope than the write")
 
 	// ErrReportNotFound indicates a report that does not exist in the scope that
 	// asked. One belonging to another scope reads as absent — which is what it

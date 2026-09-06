@@ -159,6 +159,100 @@ func (e *storeEnv) newStoreWithPrefix(tb testing.TB, opts ...SQLStoreOption) (st
 	return store, prefix
 }
 
+// inTx runs fn inside a transaction on the environment's database and reports
+// what fn returned.
+//
+// Every write in this store takes the caller's transaction, so a test that wants
+// a report written opens one — which is what a consumer does. It hands back fn's
+// error rather than asserting on it, because a refused write is what half of
+// these cases are about and RunInTransaction returns the callback's error
+// unwrapped.
+func (e *storeEnv) inTx(tb testing.TB, fn func(tx database.Tx) error) error {
+	tb.Helper()
+
+	return e.client.WithTransaction(tb.Context(), fn)
+}
+
+// reader is the executor an ordinary read runs on: the client's, outside any
+// transaction. The cases about a read that joins a transaction pass the Tx
+// instead, and they are in the transactions suite.
+func (e *storeEnv) reader() database.SQLQueryExecutor { return e.client.Reader() }
+
+// create files one report in a transaction of its own and reports what the write
+// returned.
+//
+// The transaction is a detail here rather than the subject: these cases are about
+// what the write checks, and a consumer that has nothing to commit alongside
+// opens exactly this. What a report commits *with* is the transactions suite.
+func (e *storeEnv) create(tb testing.TB, store *SQLStore, scope tenancy.Scope, report *Report) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.CreateReport(tb.Context(), tx, scope, report)
+	})
+}
+
+// update revises one report in a transaction of its own and reports what the
+// write returned.
+func (e *storeEnv) update(tb testing.TB, store *SQLStore, scope tenancy.Scope, report *Report) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.UpdateReport(tb.Context(), tx, scope, report)
+	})
+}
+
+// transition moves one report in a transaction of its own, handing back the
+// moved report and what the write returned.
+func (e *storeEnv) transition(
+	tb testing.TB,
+	store *SQLStore,
+	scope tenancy.Scope,
+	reportID string,
+	from, to Status,
+	resolution string,
+) (*Report, error) {
+	tb.Helper()
+
+	var moved *Report
+
+	err := e.inTx(tb, func(tx database.Tx) error {
+		var txErr error
+		moved, txErr = store.TransitionReport(tb.Context(), tx, scope, reportID, from, to, resolution)
+
+		return txErr
+	})
+
+	return moved, err
+}
+
+// archive takes one report out of the queue in a transaction of its own and
+// reports what the write returned.
+func (e *storeEnv) archive(tb testing.TB, store *SQLStore, scope tenancy.Scope, reportID string) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.ArchiveReport(tb.Context(), tx, scope, reportID)
+	})
+}
+
+// erase destroys one reporter's reports in a transaction of its own, handing
+// back the count and what the write returned.
+func (e *storeEnv) erase(tb testing.TB, store *SQLStore, scope tenancy.Scope, reporter string) (int64, error) {
+	tb.Helper()
+
+	var deleted int64
+
+	err := e.inTx(tb, func(tx database.Tx) error {
+		var txErr error
+		deleted, txErr = store.DeleteReportsByReporter(tb.Context(), tx, scope, reporter)
+
+		return txErr
+	})
+
+	return deleted, err
+}
+
 // newReport is one row's worth of input, with everything the store requires
 // filled in.
 func newReport(reporter, kind, details string) *Report {
@@ -173,11 +267,12 @@ func newReport(reporter, kind, details string) *Report {
 }
 
 // filed creates a report and returns it, for the tests whose subject is what
-// happens next rather than the creation.
-func filed(tb testing.TB, store *SQLStore, report *Report) *Report {
+// happens next rather than the creation. It files under the scope the report
+// carries, which is what a fixture means by naming one.
+func filed(tb testing.TB, e *storeEnv, store *SQLStore, report *Report) *Report {
 	tb.Helper()
 
-	must.NoError(tb, store.CreateReport(tb.Context(), report))
+	must.NoError(tb, e.create(tb, store, report.Scope, report))
 
 	return report
 }

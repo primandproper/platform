@@ -16,10 +16,54 @@ import (
 // separable, and an application with its own schema conventions should not have
 // to fork the package to keep them.
 //
+// # The transaction is the caller's
+//
+// Every write takes a database.Tx and every read takes the wider
+// database.SQLQueryExecutor, which is the module's store convention rather than
+// anything this package invented. There is no form of any write that opens a
+// transaction of its own, and that absence is the point: a report is rarely the
+// only row a consumer writes. An audit entry naming who filed or decided it and
+// a data change event on an outbox somebody fans out are the ordinary
+// companions, and a companion written after the report's own write has committed
+// is a companion that can go missing while the report stays. A signature that
+// cannot express that is better than a doc that warns against it.
+//
+// [Store.TransitionReport] is the write that makes the case, because a decision
+// on a report is an event before it is a row: who moved it, when, and why. The
+// move and the entry recording it belong in one transaction or the entry can be
+// refused after the status has already changed, leaving a decision nobody can
+// attribute.
+//
+// The read takes the wider type so that one method serves both moments. A
+// console paging the triage queue holds no transaction and passes
+// Client.Reader(); a consumer that has just filed a report passes the Tx it
+// wrote through, and sees it. A read narrowed to Tx would have forced the first
+// caller into a transaction it has no use for, and one narrowed to
+// Client.Reader() would have read a database that does not yet hold the row its
+// caller just wrote.
+//
+// A caller with genuinely nothing to join opens one with Client.WithTransaction
+// and passes the Tx it is handed. A Store that is not a SQL store still takes
+// these types; an implementation with no transaction of its own ignores the
+// executor, and the seam stays one signature rather than one per backing.
+//
+// # The scope is an argument, on every method
+//
 // Every method takes a tenancy.Scope, and none of them offers a variant that
 // omits it — an implementation must filter on it rather than treat it as a hint.
 // A deployment with one tenant passes tenancy.Global() everywhere and behaves
 // exactly as it would have without the column.
+//
+// That includes the two writes that take a whole [Report]. They read the scope
+// off the argument rather than off Report.Scope, and the alternative — letting
+// an entity that carries a scope supply its own, so that the explicit argument
+// appears only where there is no entity — was considered and rejected. The
+// module's rule is that a scope goes into the query bound as a tenancy.Scope
+// rather than derived from some other value, and an entity field is exactly the
+// derivation that rule exists to rule out: it makes "which tenant is this write
+// for" answerable only by reading a struct the caller assembled somewhere else.
+// A Report.Scope that disagrees with the argument is [ErrScopeMismatch] rather
+// than either value quietly winning; an unset one adopts the argument.
 //
 // There is deliberately no cross-scope listing, and it is worth being clear
 // about what that costs. An operator triaging every tenant's reports from one
@@ -30,42 +74,28 @@ import (
 // scopes either, because a bound set may not sit in a statement that also binds
 // a cursor and a page size on two of the three dialects this package serves.
 type Store interface {
-	// CreateReport files one report, under the scope the value carries. It
-	// assigns the id where the caller left it empty, sets the status to
-	// StatusOpen, and writes back what was stored.
+	// CreateReport files one report through the caller's transaction, so the
+	// report commits with whatever the caller writes beside it. It assigns the
+	// id where the caller left it empty, sets the status to StatusOpen, and
+	// writes back what was stored. A nil tx is an error wrapping ErrNilExecutor.
 	//
 	// A report is born open, so a value arriving in any other status is
 	// ErrInvalidStatusTransition rather than a stored row: a report that started
 	// resolved is one nobody resolved.
-	CreateReport(ctx context.Context, report *Report) error
-
-	// CreateReportTx is CreateReport inside the caller's transaction, so the
-	// report commits with whatever the caller writes beside it. A nil q is an
-	// error wrapping ErrNilExecutor.
 	//
-	// It exists for the reason DeleteReportsByReporter takes an executor, at the
-	// other end of a report's life. A row in a consumer's schema is rarely
-	// written alone: an audit entry naming who filed it and a data change event
-	// on an outbox somebody fans out are the ordinary companions, and a
-	// companion is worth what its atomicity with the row is worth. Written after
-	// this method's own write has committed, they are a window in which the
-	// report exists and nothing downstream has been told — narrow,
-	// one-directional, and still not something a consumer can close from
-	// outside this package.
-	//
-	// Every check CreateReport makes is made here, and the read-back of the
-	// creation time runs on q, so the value handed back is the row this
-	// transaction wrote rather than one waiting on a commit.
-	CreateReportTx(ctx context.Context, q database.Tx, report *Report) error
+	// Both statements run on tx, so the creation time read back is the one this
+	// transaction just wrote rather than a read of a row nothing else can see
+	// yet.
+	CreateReport(ctx context.Context, tx database.Tx, scope tenancy.Scope, report *Report) error
 
 	// GetReport reads one of the scope's live reports. It returns an error
 	// wrapping ErrReportNotFound when the report does not exist, has been
 	// archived, or belongs to another scope — which are the same answer from
-	// here.
-	GetReport(ctx context.Context, scope tenancy.Scope, reportID string) (*Report, error)
+	// here. A nil q is an error wrapping ErrNilExecutor.
+	GetReport(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, reportID string) (*Report, error)
 
 	// ListReports pages the scope's reports, in the direction the filter names.
-	ListReports(ctx context.Context, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Report], error)
+	ListReports(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Report], error)
 
 	// ListReportsByStatus is ListReports restricted to one status: the triage
 	// queue.
@@ -79,22 +109,25 @@ type Store interface {
 	// A status this package does not serve is ErrUnknownStatus rather than an
 	// empty page, because an empty page is what a queue that has been quietly
 	// misspelled looks like.
-	ListReportsByStatus(ctx context.Context, scope tenancy.Scope, status Status, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Report], error)
+	ListReportsByStatus(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, status Status, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Report], error)
 
 	// ListReportsByReporter pages the reports one person filed within the scope.
 	// It is what a "your reports" view reads, and what the subject access
 	// request collector pages through.
-	ListReportsByReporter(ctx context.Context, scope tenancy.Scope, reporter string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Report], error)
+	ListReportsByReporter(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, reporter string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Report], error)
 
 	// ListReportsBySubjectType pages every report about one kind of thing —
 	// "everything anybody has said about recipes".
-	ListReportsBySubjectType(ctx context.Context, scope tenancy.Scope, subjectType string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Report], error)
+	ListReportsBySubjectType(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subjectType string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Report], error)
 
 	// ListReportsForSubject pages every report about one particular thing.
-	ListReportsForSubject(ctx context.Context, scope tenancy.Scope, subjectType, subjectID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Report], error)
+	ListReportsForSubject(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, subjectType, subjectID string, filter *filtering.QueryFilter) (*filtering.QueryFilteredResult[Report], error)
 
-	// UpdateReport revises what the reporter said: the kind, the details, and
-	// what the report is about.
+	// UpdateReport revises what the reporter said — the kind, the details, and
+	// what the report is about — through the caller's transaction, so the
+	// revision and whatever the caller records about it commit together or not
+	// at all. A revision is an event as much as it is a write: who changed what,
+	// and when. A nil tx is an error wrapping ErrNilExecutor.
 	//
 	// It does not move the status, and it cannot: the lifecycle has one door and
 	// it is TransitionReport, which names the status it believed the row was in.
@@ -103,20 +136,12 @@ type Store interface {
 	//
 	// A report that is not in the scope — absent, archived, or somebody else's —
 	// is an error wrapping ErrReportNotFound.
-	UpdateReport(ctx context.Context, report *Report) error
+	UpdateReport(ctx context.Context, tx database.Tx, scope tenancy.Scope, report *Report) error
 
-	// UpdateReportTx is UpdateReport inside the caller's transaction, so the
-	// revision commits with whatever the caller records about it. A nil q is an
-	// error wrapping ErrNilExecutor.
-	//
-	// A revision is an event as much as it is a write — who changed what, and
-	// when — and the entry saying so belongs in the transaction that made the
-	// change rather than in one after it. See CreateReportTx for the argument
-	// in full.
-	UpdateReportTx(ctx context.Context, q database.Tx, report *Report) error
-
-	// TransitionReport moves a report from one status to another and returns it
-	// as stored.
+	// TransitionReport moves a report from one status to another through the
+	// caller's transaction and returns it as stored, so the move commits with
+	// the entry naming who made it and why. A nil tx is an error wrapping
+	// ErrNilExecutor.
 	//
 	// from is the status the caller believes the report is in, and it is a
 	// parameter rather than something this method reads for itself because that
@@ -131,44 +156,31 @@ type Store interface {
 	//
 	// A move the lifecycle does not admit is ErrInvalidStatusTransition and
 	// nothing is written. See [Status.CanTransitionTo].
-	TransitionReport(ctx context.Context, scope tenancy.Scope, reportID string, from, to Status, resolution string) (*Report, error)
-
-	// TransitionReportTx is TransitionReport inside the caller's transaction,
-	// so the move commits with the entry naming who made it and why. A nil q is
-	// an error wrapping ErrNilExecutor. See CreateReportTx for the argument in
-	// full.
 	//
-	// It differs from its twin in one more way than where it commits, and the
-	// difference is worth naming. The guard and the two reads around it — the
-	// one that separates a moved report from an absent one when the guard
-	// matches nothing, and the read-back of the row on a hit — all run on q,
-	// so they see what the caller has written and not yet committed. A report
-	// filed earlier in the same transaction can be moved by this call, where
-	// TransitionReport would report it absent until the commit; and the report
-	// handed back is the row as this transaction has it, which is what a caller
-	// recording the outcome beside it wants to be describing. What does not
-	// change is the guard's meaning: a report somebody else moved between the
-	// caller's read and this write is ErrStatusConflict on both paths, and
-	// nothing is written.
-	TransitionReportTx(ctx context.Context, q database.Tx, scope tenancy.Scope, reportID string, from, to Status, resolution string) (*Report, error)
+	// The guard and the two reads around it — the one that separates a moved
+	// report from an absent one when the guard matches nothing, and the read-back
+	// of the row on a hit — all run on tx, so they see what the caller has
+	// written and not yet committed. A report filed earlier in the same
+	// transaction can be moved by this call, and the report handed back is the
+	// row as this transaction has it, which is what a caller recording the
+	// outcome beside it wants to be describing.
+	//
+	// It returns the transitioned report rather than only an error because the
+	// row is what the caller acts on next: the entry it writes beside the move
+	// describes the stamp and the note this call assigned.
+	TransitionReport(ctx context.Context, tx database.Tx, scope tenancy.Scope, reportID string, from, to Status, resolution string) (*Report, error)
 
-	// ArchiveReport removes a report from the queue, leaving the row for
-	// whoever asks later what was reported.
+	// ArchiveReport removes a report from the queue through the caller's
+	// transaction, leaving the row for whoever asks later what was reported. It
+	// is the write a moderation action reaches for: the report leaves the queue
+	// and the entry naming who removed it land together, or neither does. A nil
+	// tx is an error wrapping ErrNilExecutor.
 	//
 	// It is not "closed": closing is a status, and an archived report is one
 	// that should stop being listed at all. A report already archived is an
 	// error wrapping ErrReportNotFound, because an archived report is not in the
 	// queue and this method addresses the queue.
-	ArchiveReport(ctx context.Context, scope tenancy.Scope, reportID string) error
-
-	// ArchiveReportTx is ArchiveReport inside the caller's transaction, so the
-	// removal commits with whatever the caller records about it. A nil q is an
-	// error wrapping ErrNilExecutor.
-	//
-	// It is the variant a moderation action reaches for: the report leaves the
-	// queue and the entry naming who removed it land together, or neither does.
-	// See CreateReportTx for the argument in full.
-	ArchiveReportTx(ctx context.Context, q database.Tx, scope tenancy.Scope, reportID string) error
+	ArchiveReport(ctx context.Context, tx database.Tx, scope tenancy.Scope, reportID string) error
 
 	// DeleteReportsByReporter destroys every report one person filed within the
 	// scope, archived ones included, and reports how many that was.
@@ -182,5 +194,8 @@ type Store interface {
 	// It runs inside the caller's transaction and must use the executor it is
 	// given, so that a subject's reports and the rest of their footprint commit
 	// or roll back together.
-	DeleteReportsByReporter(ctx context.Context, q database.Tx, scope tenancy.Scope, reporter string) (int64, error)
+	//
+	// Zero is not an error: a person who never filed a report is a person with
+	// nothing here to erase.
+	DeleteReportsByReporter(ctx context.Context, tx database.Tx, scope tenancy.Scope, reporter string) (int64, error)
 }
