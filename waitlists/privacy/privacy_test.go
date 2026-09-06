@@ -2,6 +2,7 @@ package privacy_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"path/filepath"
 	"strings"
@@ -79,6 +80,36 @@ func withTx(t *testing.T, fn func(q database.Tx)) {
 		return nil
 	}))
 }
+
+// testReader is the executor a collector is built over.
+//
+// Nothing executes through it: the store beneath the collector is a mock, and
+// what these tests assert is that the executor the collector was built with is
+// the one it passes down. database.SQLQueryExecutor is an interface with no
+// unexported methods, so unlike database.Tx a test can stand in for it.
+type testReader struct{}
+
+var _ database.SQLQueryExecutor = (*testReader)(nil)
+
+func (*testReader) ExecContext(context.Context, string, ...any) (sql.Result, error) {
+	panic("the collector's store is a mock; nothing runs on this")
+}
+
+func (*testReader) PrepareContext(context.Context, string) (*sql.Stmt, error) {
+	panic("the collector's store is a mock; nothing runs on this")
+}
+
+func (*testReader) QueryContext(context.Context, string, ...any) (*sql.Rows, error) {
+	panic("the collector's store is a mock; nothing runs on this")
+}
+
+func (*testReader) QueryRowContext(context.Context, string, ...any) *sql.Row {
+	panic("the collector's store is a mock; nothing runs on this")
+}
+
+// reader is the executor every collector below is built over, named once so a
+// test can assert that it is the one the collector passed down.
+var reader = &testReader{}
 
 // testClientConfig is the minimum database.ClientConfig a SQLite client needs.
 type testClientConfig struct {
@@ -161,10 +192,16 @@ func TestNewCollector(T *testing.T) {
 	T.Run("refuses what it cannot work without", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := privacy.NewCollector(nil, privacy.RequestScope)
+		_, err := privacy.NewCollector(nil, reader, privacy.RequestScope)
 		must.ErrorIs(t, err, privacy.ErrNilStore)
 
-		_, err = privacy.NewCollector(&waitlistsmock.SignupStoreMock{}, nil)
+		// The executor is required for the same reason the eraser's is: the
+		// store keeps no connection of its own, so a collector without one has
+		// nothing to read on.
+		_, err = privacy.NewCollector(&waitlistsmock.SignupStoreMock{}, nil, privacy.RequestScope)
+		must.ErrorIs(t, err, privacy.ErrNilExecutor)
+
+		_, err = privacy.NewCollector(&waitlistsmock.SignupStoreMock{}, reader, nil)
 		must.ErrorIs(t, err, privacy.ErrNilScopeResolver)
 	})
 }
@@ -177,8 +214,16 @@ func TestCollector_Collect(T *testing.T) {
 
 		store := &waitlistsmock.SignupStoreMock{
 			ListSignupsForSubjectFunc: func(
-				_ context.Context, scope tenancy.Scope, asked waitlists.Subject, filter *filtering.QueryFilter,
+				_ context.Context,
+				q database.SQLQueryExecutor,
+				scope tenancy.Scope,
+				asked waitlists.Subject,
+				filter *filtering.QueryFilter,
 			) (*filtering.QueryFilteredResult[waitlists.Signup], error) {
+				// The executor is the one the collector was built with, since an
+				// export is a read with no transaction to be part of.
+				test.EqOp(t, database.SQLQueryExecutor(reader), q)
+
 				// The request's subject, rendered as the store keys on it.
 				test.EqOp(t, who, asked)
 
@@ -193,7 +238,7 @@ func TestCollector_Collect(T *testing.T) {
 			},
 		}
 
-		collector, err := privacy.NewCollector(store, privacy.FixedScopes(firstScope, secondScope))
+		collector, err := privacy.NewCollector(store, reader, privacy.FixedScopes(firstScope, secondScope))
 		must.NoError(t, err)
 
 		fragment, err := collector.Collect(t.Context(), subject)
@@ -214,13 +259,17 @@ func TestCollector_Collect(T *testing.T) {
 		// export reads as a form.
 		store := &waitlistsmock.SignupStoreMock{
 			ListSignupsForSubjectFunc: func(
-				context.Context, tenancy.Scope, waitlists.Subject, *filtering.QueryFilter,
+				context.Context,
+				database.SQLQueryExecutor,
+				tenancy.Scope,
+				waitlists.Subject,
+				*filtering.QueryFilter,
 			) (*filtering.QueryFilteredResult[waitlists.Signup], error) {
 				return pageOf(), nil
 			},
 		}
 
-		collector, err := privacy.NewCollector(store, privacy.FixedScopes(firstScope))
+		collector, err := privacy.NewCollector(store, reader, privacy.FixedScopes(firstScope))
 		must.NoError(t, err)
 
 		fragment, err := collector.Collect(t.Context(), subject)
@@ -233,7 +282,7 @@ func TestCollector_Collect(T *testing.T) {
 
 		store := &waitlistsmock.SignupStoreMock{}
 
-		collector, err := privacy.NewCollector(store, privacy.FixedScopes())
+		collector, err := privacy.NewCollector(store, reader, privacy.FixedScopes())
 		must.NoError(t, err)
 
 		fragment, err := collector.Collect(t.Context(), subject)
@@ -245,7 +294,7 @@ func TestCollector_Collect(T *testing.T) {
 	T.Run("reports a resolver that could not answer", func(t *testing.T) {
 		t.Parallel()
 
-		collector, err := privacy.NewCollector(&waitlistsmock.SignupStoreMock{}, privacy.RequestScope)
+		collector, err := privacy.NewCollector(&waitlistsmock.SignupStoreMock{}, reader, privacy.RequestScope)
 		must.NoError(t, err)
 
 		_, err = collector.Collect(t.Context(), subject)
@@ -260,13 +309,17 @@ func TestCollector_Collect(T *testing.T) {
 		// subject access request looks exactly like a correct one.
 		store := &waitlistsmock.SignupStoreMock{
 			ListSignupsForSubjectFunc: func(
-				context.Context, tenancy.Scope, waitlists.Subject, *filtering.QueryFilter,
+				context.Context,
+				database.SQLQueryExecutor,
+				tenancy.Scope,
+				waitlists.Subject,
+				*filtering.QueryFilter,
 			) (*filtering.QueryFilteredResult[waitlists.Signup], error) {
 				return nil, errStoreUnavailable
 			},
 		}
 
-		collector, err := privacy.NewCollector(store, privacy.FixedScopes(firstScope))
+		collector, err := privacy.NewCollector(store, reader, privacy.FixedScopes(firstScope))
 		must.NoError(t, err)
 
 		fragment, err := collector.Collect(t.Context(), subject)
@@ -364,6 +417,10 @@ func TestEraser_Erase(T *testing.T) {
 		must.NoError(t, err)
 
 		_, err = eraser.Erase(t.Context(), nil, subject)
+		must.ErrorIs(t, err, privacy.ErrNilExecutor)
+
+		// And it wraps the module-wide sentinel, so a caller checking for a nil
+		// input generally is answered too.
 		must.ErrorIs(t, err, platformerrors.ErrNilInputParameter)
 	})
 
@@ -414,7 +471,7 @@ func TestRegistersUnderTheDefaultKey(t *testing.T) {
 	// against the thing that validates it rather than merely declared.
 	registry := dataprivacy.NewRegistry()
 
-	collector, err := privacy.NewCollector(&waitlistsmock.SignupStoreMock{}, privacy.RequestScope)
+	collector, err := privacy.NewCollector(&waitlistsmock.SignupStoreMock{}, reader, privacy.RequestScope)
 	must.NoError(t, err)
 	must.NoError(t, registry.RegisterCollector(privacy.DefaultKey, collector))
 

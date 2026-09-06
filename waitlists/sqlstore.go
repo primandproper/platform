@@ -44,9 +44,8 @@ var _ Store = (*SQLStore)(nil)
 // storage can depend on that choice rather than on the Store seam every backing
 // shares.
 type SQLStore struct {
-	client database.Client
-	q      waitlistsdb.Querier
-	o11y   observability.Observer
+	q    waitlistsdb.Querier
+	o11y observability.Observer
 
 	clock  clock.Clock
 	hasher hashing.Hasher
@@ -69,6 +68,15 @@ type SQLStore struct {
 // that, and a mismatch surfaces as a missing table on the first query rather
 // than at construction.
 //
+// The client is taken for its dialect and for nothing else, and the store keeps
+// no reference to it. Every write is handed a database.Tx and every read an
+// executor, so there is no statement this store runs on a connection of its own:
+// no Writer() for the writes, no Reader() for the reads, and no CurrentTime(),
+// because the two timestamps the database owns are read back through the
+// caller's transaction and every other stamp is WithClock's. A consumer with
+// nothing to join opens a transaction with Client.WithTransaction and passes the
+// Tx it is handed.
+//
 // Observability is optional and defaults to nothing: an unconfigured store logs
 // to a noop logger and traces to a noop provider.
 func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, error) {
@@ -82,7 +90,6 @@ func NewSQLStore(client database.Client, opts ...SQLStoreOption) (*SQLStore, err
 	}
 
 	s := &SQLStore{
-		client: client,
 		prefix: DefaultTablePrefix,
 		clock:  defaultClock(),
 		hasher: defaultHasher(),
@@ -154,11 +161,10 @@ func (s *SQLStore) Digest(contact string) string {
 // countSignups records n signups reaching a status, including the one a signup
 // is written at.
 //
-// It is called when the statement lands, which on the transactional paths is
-// before the caller commits. A companion write that fails afterwards takes the
-// row back and not the count, and that is the trade: the alternative is a
-// counter the transactional variants do not feed, which under-reports every
-// launch whose consumer records an audit entry beside each signup.
+// It is called when the statement lands, which is before the caller commits. A
+// companion write that fails afterwards takes the row back and not the count,
+// and that is the trade: the alternative is a counter fed after a commit this
+// store does not perform, which is to say a counter nothing here could feed.
 func (s *SQLStore) countSignups(ctx context.Context, status Status, n int64) {
 	s.signupsCounter.Add(ctx, n, metric.WithAttributes(attribute.String(statusKey, string(status))))
 }

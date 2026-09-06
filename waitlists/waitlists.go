@@ -309,3 +309,23 @@ func requireID(id string) error {
 
 	return nil
 }
+
+// matchScope reports a write whose entity names a different tenant than the
+// scope the call named.
+//
+// The argument is what the statement binds, so the entity's own Scope is checked
+// against it rather than read in its place — see [Store] for why that direction
+// and not the other. An entity naming no scope is one that adopts the argument,
+// which is the ordinary case for a value the caller has just assembled;
+// tenancy.Scope tells its zero value apart from Global(), so "unset" here is
+// genuinely unset rather than the global scope written shortly. The entity is
+// named in the message because a caller holding both a list and a signup has two
+// places to have got it wrong.
+func matchScope(scope, named tenancy.Scope, entity string) error {
+	if named != (tenancy.Scope{}) && named != scope {
+		return platformerrors.Wrapf(ErrScopeMismatch,
+			"%s names %q, the write names %q", entity, named, scope)
+	}
+
+	return nil
+}

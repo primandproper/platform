@@ -116,6 +116,129 @@ func (e *storeEnv) newStoreWithPrefix(tb testing.TB, opts ...SQLStoreOption) (st
 	return store, prefix
 }
 
+// inTx runs fn inside a transaction on the environment's database and reports
+// what fn returned.
+//
+// Every write in this store takes the caller's transaction, so a test that wants
+// a list opened or somebody joined opens one — which is what a consumer does. It
+// hands back fn's error rather than asserting on it, because a refused write is
+// what half of these cases are about and RunInTransaction returns the callback's
+// error unwrapped.
+func (e *storeEnv) inTx(tb testing.TB, fn func(tx database.Tx) error) error {
+	tb.Helper()
+
+	return e.client.WithTransaction(tb.Context(), fn)
+}
+
+// reader is the executor an ordinary read runs on: the client's, outside any
+// transaction. The cases about a read that joins a transaction pass the Tx
+// instead, and they are in the transactions suite.
+func (e *storeEnv) reader() database.SQLQueryExecutor { return e.client.Reader() }
+
+// The nine writes, each in a transaction of its own, reporting what the write
+// returned.
+//
+// The transaction is a detail in these rather than the subject: the list, signup
+// and withdrawal suites are about what a write checks and what it leaves behind,
+// and a consumer with nothing to commit alongside opens exactly this. What a
+// signup commits *with* is the transactions suite, which calls the store
+// directly.
+
+func (e *storeEnv) createList(tb testing.TB, store *SQLStore, scope tenancy.Scope, list *List) (*List, error) {
+	tb.Helper()
+
+	var created *List
+
+	err := e.inTx(tb, func(tx database.Tx) (createErr error) {
+		created, createErr = store.CreateList(tb.Context(), tx, scope, list)
+
+		return createErr
+	})
+
+	return created, err
+}
+
+func (e *storeEnv) updateList(tb testing.TB, store *SQLStore, scope tenancy.Scope, list *List) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.UpdateList(tb.Context(), tx, scope, list)
+	})
+}
+
+func (e *storeEnv) archiveList(tb testing.TB, store *SQLStore, scope tenancy.Scope, listID string) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.ArchiveList(tb.Context(), tx, scope, listID)
+	})
+}
+
+func (e *storeEnv) join(
+	tb testing.TB,
+	store *SQLStore,
+	scope tenancy.Scope,
+	listID string,
+	signup *Signup,
+) (*Signup, error) {
+	tb.Helper()
+
+	var joined *Signup
+
+	err := e.inTx(tb, func(tx database.Tx) (joinErr error) {
+		joined, joinErr = store.Join(tb.Context(), tx, scope, listID, signup)
+
+		return joinErr
+	})
+
+	return joined, err
+}
+
+func (e *storeEnv) updateNotes(
+	tb testing.TB,
+	store *SQLStore,
+	scope tenancy.Scope,
+	listID, signupID, notes string,
+) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.UpdateSignupNotes(tb.Context(), tx, scope, listID, signupID, notes)
+	})
+}
+
+func (e *storeEnv) invite(tb testing.TB, store *SQLStore, scope tenancy.Scope, listID, signupID string) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.Invite(tb.Context(), tx, scope, listID, signupID)
+	})
+}
+
+func (e *storeEnv) convert(tb testing.TB, store *SQLStore, scope tenancy.Scope, listID, signupID string) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.Convert(tb.Context(), tx, scope, listID, signupID)
+	})
+}
+
+func (e *storeEnv) withdraw(tb testing.TB, store *SQLStore, scope tenancy.Scope, listID, signupID string) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.Withdraw(tb.Context(), tx, scope, listID, signupID)
+	})
+}
+
+func (e *storeEnv) archiveSignup(tb testing.TB, store *SQLStore, scope tenancy.Scope, listID, signupID string) error {
+	tb.Helper()
+
+	return e.inTx(tb, func(tx database.Tx) error {
+		return store.ArchiveSignup(tb.Context(), tx, scope, listID, signupID)
+	})
+}
+
 // openList is a list that is still taking signups at testNow.
 func openList(name string) *List {
 	return &List{
@@ -130,22 +253,31 @@ func closedList(name string) *List {
 	return &List{Name: name, ClosesAt: testNow.Add(-time.Hour)}
 }
 
-// mustCreateList writes a list and fails the test if it will not go in.
-func mustCreateList(tb testing.TB, store *SQLStore, scope tenancy.Scope, list *List) *List {
+// mustCreateList writes a list in a transaction of its own and fails the test if
+// it will not go in.
+func mustCreateList(tb testing.TB, e *storeEnv, store *SQLStore, scope tenancy.Scope, list *List) *List {
 	tb.Helper()
 
-	created, err := store.CreateList(tb.Context(), scope, list)
+	created, err := e.createList(tb, store, scope, list)
 	must.NoError(tb, err)
 	must.NotNil(tb, created)
 
 	return created
 }
 
-// mustJoin adds a contact to a list and fails the test if it will not go in.
-func mustJoin(tb testing.TB, store *SQLStore, scope tenancy.Scope, listID string, signup *Signup) *Signup {
+// mustJoin adds a contact to a list in a transaction of its own and fails the
+// test if it will not go in.
+func mustJoin(
+	tb testing.TB,
+	e *storeEnv,
+	store *SQLStore,
+	scope tenancy.Scope,
+	listID string,
+	signup *Signup,
+) *Signup {
 	tb.Helper()
 
-	joined, err := store.Join(tb.Context(), scope, listID, signup)
+	joined, err := e.join(tb, store, scope, listID, signup)
 	must.NoError(tb, err)
 	must.NotNil(tb, joined)
 
