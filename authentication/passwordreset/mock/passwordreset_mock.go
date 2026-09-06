@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/primandproper/platform-go/v14/authentication/passwordreset"
+	"github.com/primandproper/platform-go/v14/database"
 	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
@@ -22,16 +23,16 @@ var _ passwordreset.Store = &StoreMock{}
 //
 //		// make and configure a mocked passwordreset.Store
 //		mockedStore := &StoreMock{
-//			ConsumeFunc: func(ctx context.Context, scope tenancy.Scope, secret string) (*passwordreset.Token, error) {
+//			ConsumeFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, secret string) (*passwordreset.Token, error) {
 //				panic("mock out the Consume method")
 //			},
-//			IssueFunc: func(ctx context.Context, scope tenancy.Scope, userID string, ttl time.Duration) (*passwordreset.Issuance, error) {
+//			IssueFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, userID string, ttl time.Duration) (*passwordreset.Issuance, error) {
 //				panic("mock out the Issue method")
 //			},
-//			RevokeForUserFunc: func(ctx context.Context, scope tenancy.Scope, userID string) (int64, error) {
+//			RevokeForUserFunc: func(ctx context.Context, tx database.Tx, scope tenancy.Scope, userID string) (int64, error) {
 //				panic("mock out the RevokeForUser method")
 //			},
-//			VerifyFunc: func(ctx context.Context, scope tenancy.Scope, secret string) (*passwordreset.Token, error) {
+//			VerifyFunc: func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, secret string) (*passwordreset.Token, error) {
 //				panic("mock out the Verify method")
 //			},
 //		}
@@ -42,16 +43,16 @@ var _ passwordreset.Store = &StoreMock{}
 //	}
 type StoreMock struct {
 	// ConsumeFunc mocks the Consume method.
-	ConsumeFunc func(ctx context.Context, scope tenancy.Scope, secret string) (*passwordreset.Token, error)
+	ConsumeFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, secret string) (*passwordreset.Token, error)
 
 	// IssueFunc mocks the Issue method.
-	IssueFunc func(ctx context.Context, scope tenancy.Scope, userID string, ttl time.Duration) (*passwordreset.Issuance, error)
+	IssueFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, userID string, ttl time.Duration) (*passwordreset.Issuance, error)
 
 	// RevokeForUserFunc mocks the RevokeForUser method.
-	RevokeForUserFunc func(ctx context.Context, scope tenancy.Scope, userID string) (int64, error)
+	RevokeForUserFunc func(ctx context.Context, tx database.Tx, scope tenancy.Scope, userID string) (int64, error)
 
 	// VerifyFunc mocks the Verify method.
-	VerifyFunc func(ctx context.Context, scope tenancy.Scope, secret string) (*passwordreset.Token, error)
+	VerifyFunc func(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, secret string) (*passwordreset.Token, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -59,6 +60,8 @@ type StoreMock struct {
 		Consume []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Secret is the secret argument value.
@@ -68,6 +71,8 @@ type StoreMock struct {
 		Issue []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// UserID is the userID argument value.
@@ -79,6 +84,8 @@ type StoreMock struct {
 		RevokeForUser []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Tx is the tx argument value.
+			Tx database.Tx
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// UserID is the userID argument value.
@@ -88,6 +95,8 @@ type StoreMock struct {
 		Verify []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
+			// Q is the q argument value.
+			Q database.SQLQueryExecutor
 			// Scope is the scope argument value.
 			Scope tenancy.Scope
 			// Secret is the secret argument value.
@@ -101,23 +110,25 @@ type StoreMock struct {
 }
 
 // Consume calls ConsumeFunc.
-func (mock *StoreMock) Consume(ctx context.Context, scope tenancy.Scope, secret string) (*passwordreset.Token, error) {
+func (mock *StoreMock) Consume(ctx context.Context, tx database.Tx, scope tenancy.Scope, secret string) (*passwordreset.Token, error) {
 	if mock.ConsumeFunc == nil {
 		panic("StoreMock.ConsumeFunc: method is nil but Store.Consume was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
+		Tx     database.Tx
 		Scope  tenancy.Scope
 		Secret string
 	}{
 		Ctx:    ctx,
+		Tx:     tx,
 		Scope:  scope,
 		Secret: secret,
 	}
 	mock.lockConsume.Lock()
 	mock.calls.Consume = append(mock.calls.Consume, callInfo)
 	mock.lockConsume.Unlock()
-	return mock.ConsumeFunc(ctx, scope, secret)
+	return mock.ConsumeFunc(ctx, tx, scope, secret)
 }
 
 // ConsumeCalls gets all the calls that were made to Consume.
@@ -126,11 +137,13 @@ func (mock *StoreMock) Consume(ctx context.Context, scope tenancy.Scope, secret 
 //	len(mockedStore.ConsumeCalls())
 func (mock *StoreMock) ConsumeCalls() []struct {
 	Ctx    context.Context
+	Tx     database.Tx
 	Scope  tenancy.Scope
 	Secret string
 } {
 	var calls []struct {
 		Ctx    context.Context
+		Tx     database.Tx
 		Scope  tenancy.Scope
 		Secret string
 	}
@@ -141,17 +154,19 @@ func (mock *StoreMock) ConsumeCalls() []struct {
 }
 
 // Issue calls IssueFunc.
-func (mock *StoreMock) Issue(ctx context.Context, scope tenancy.Scope, userID string, ttl time.Duration) (*passwordreset.Issuance, error) {
+func (mock *StoreMock) Issue(ctx context.Context, tx database.Tx, scope tenancy.Scope, userID string, ttl time.Duration) (*passwordreset.Issuance, error) {
 	if mock.IssueFunc == nil {
 		panic("StoreMock.IssueFunc: method is nil but Store.Issue was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
+		Tx     database.Tx
 		Scope  tenancy.Scope
 		UserID string
 		TTL    time.Duration
 	}{
 		Ctx:    ctx,
+		Tx:     tx,
 		Scope:  scope,
 		UserID: userID,
 		TTL:    ttl,
@@ -159,7 +174,7 @@ func (mock *StoreMock) Issue(ctx context.Context, scope tenancy.Scope, userID st
 	mock.lockIssue.Lock()
 	mock.calls.Issue = append(mock.calls.Issue, callInfo)
 	mock.lockIssue.Unlock()
-	return mock.IssueFunc(ctx, scope, userID, ttl)
+	return mock.IssueFunc(ctx, tx, scope, userID, ttl)
 }
 
 // IssueCalls gets all the calls that were made to Issue.
@@ -168,12 +183,14 @@ func (mock *StoreMock) Issue(ctx context.Context, scope tenancy.Scope, userID st
 //	len(mockedStore.IssueCalls())
 func (mock *StoreMock) IssueCalls() []struct {
 	Ctx    context.Context
+	Tx     database.Tx
 	Scope  tenancy.Scope
 	UserID string
 	TTL    time.Duration
 } {
 	var calls []struct {
 		Ctx    context.Context
+		Tx     database.Tx
 		Scope  tenancy.Scope
 		UserID string
 		TTL    time.Duration
@@ -185,23 +202,25 @@ func (mock *StoreMock) IssueCalls() []struct {
 }
 
 // RevokeForUser calls RevokeForUserFunc.
-func (mock *StoreMock) RevokeForUser(ctx context.Context, scope tenancy.Scope, userID string) (int64, error) {
+func (mock *StoreMock) RevokeForUser(ctx context.Context, tx database.Tx, scope tenancy.Scope, userID string) (int64, error) {
 	if mock.RevokeForUserFunc == nil {
 		panic("StoreMock.RevokeForUserFunc: method is nil but Store.RevokeForUser was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
+		Tx     database.Tx
 		Scope  tenancy.Scope
 		UserID string
 	}{
 		Ctx:    ctx,
+		Tx:     tx,
 		Scope:  scope,
 		UserID: userID,
 	}
 	mock.lockRevokeForUser.Lock()
 	mock.calls.RevokeForUser = append(mock.calls.RevokeForUser, callInfo)
 	mock.lockRevokeForUser.Unlock()
-	return mock.RevokeForUserFunc(ctx, scope, userID)
+	return mock.RevokeForUserFunc(ctx, tx, scope, userID)
 }
 
 // RevokeForUserCalls gets all the calls that were made to RevokeForUser.
@@ -210,11 +229,13 @@ func (mock *StoreMock) RevokeForUser(ctx context.Context, scope tenancy.Scope, u
 //	len(mockedStore.RevokeForUserCalls())
 func (mock *StoreMock) RevokeForUserCalls() []struct {
 	Ctx    context.Context
+	Tx     database.Tx
 	Scope  tenancy.Scope
 	UserID string
 } {
 	var calls []struct {
 		Ctx    context.Context
+		Tx     database.Tx
 		Scope  tenancy.Scope
 		UserID string
 	}
@@ -225,23 +246,25 @@ func (mock *StoreMock) RevokeForUserCalls() []struct {
 }
 
 // Verify calls VerifyFunc.
-func (mock *StoreMock) Verify(ctx context.Context, scope tenancy.Scope, secret string) (*passwordreset.Token, error) {
+func (mock *StoreMock) Verify(ctx context.Context, q database.SQLQueryExecutor, scope tenancy.Scope, secret string) (*passwordreset.Token, error) {
 	if mock.VerifyFunc == nil {
 		panic("StoreMock.VerifyFunc: method is nil but Store.Verify was just called")
 	}
 	callInfo := struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Secret string
 	}{
 		Ctx:    ctx,
+		Q:      q,
 		Scope:  scope,
 		Secret: secret,
 	}
 	mock.lockVerify.Lock()
 	mock.calls.Verify = append(mock.calls.Verify, callInfo)
 	mock.lockVerify.Unlock()
-	return mock.VerifyFunc(ctx, scope, secret)
+	return mock.VerifyFunc(ctx, q, scope, secret)
 }
 
 // VerifyCalls gets all the calls that were made to Verify.
@@ -250,11 +273,13 @@ func (mock *StoreMock) Verify(ctx context.Context, scope tenancy.Scope, secret s
 //	len(mockedStore.VerifyCalls())
 func (mock *StoreMock) VerifyCalls() []struct {
 	Ctx    context.Context
+	Q      database.SQLQueryExecutor
 	Scope  tenancy.Scope
 	Secret string
 } {
 	var calls []struct {
 		Ctx    context.Context
+		Q      database.SQLQueryExecutor
 		Scope  tenancy.Scope
 		Secret string
 	}

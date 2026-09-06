@@ -36,13 +36,13 @@ rather than something a person chose, so there is no dictionary to run against
 it and a salt would only cost the indexed lookup.
 
 Single use is enforced by the store rather than by the caller. [Store.Consume]
-reads the row and stamps its redemption inside one transaction, and it is the
-stamp's affected-row count — not the read — that decides who owns the token. Two
-requests answering one link at the same instant both find the row live; only one
-of their updates reports a row, and the other is told the token has already been
-redeemed. Doing it in two statements, or deciding on the read, leaves a window
-exactly as wide as the password write that follows, and a link that resets a
-password twice is a link an attacker can race.
+reads the row and stamps its redemption in the transaction it was handed, and it
+is the stamp's affected-row count — not the read — that decides who owns the
+token. Two requests answering one link at the same instant, in two transactions,
+both find the row live; only one of their updates reports a row, and the other is
+told the token has already been redeemed. Deciding on the read instead would hand
+it to both, and a link that resets a password twice is a link an attacker can
+race.
 
 Expiry is refused rather than swept. A row past its deadline is dead to
 [Store.Verify] and [Store.Consume] whether or not anything has deleted it yet,
@@ -60,12 +60,23 @@ which is deliberate: telling somebody holding an expired link that it expired is
 worth more than the nothing an attacker learns from it, since learning it
 requires already holding the token.
 
-The order a caller runs them in is the one that fails safe. Consume, then write
-the new password: a redemption that succeeds and a password write that fails
-costs the user another email, while a password write that succeeds and a
-redemption that fails leaves a live reset link for an account whose password has
-just changed. [Store.RevokeForUser] is what a completed reset calls afterwards,
-so the other links that were outstanding stop working too.
+They run in the caller's transaction, and that is what makes the ordering
+question go away. [Store.Consume] takes a
+[github.com/primandproper/platform-go/v14/database.Tx] and [Store.Verify] takes
+the wider [github.com/primandproper/platform-go/v14/database.SQLQueryExecutor],
+so the submit verifies, consumes, writes the new password hash through whatever
+store owns users, and calls [Store.RevokeForUser] for the links that were
+outstanding — all of it in one transaction, committing or unwinding together. A
+caller with genuinely nothing to join opens one with
+[github.com/primandproper/platform-go/v14/database.Client.WithTransaction] and
+passes the Tx it is handed.
+
+Two transactions is what that removes, and it is the gap worth naming: a
+redemption that commits over a password write that then fails costs the user
+another email, and a password write that commits over a redemption that then
+fails leaves a live reset link for an account whose password has just changed.
+The second is a vulnerability rather than a bookkeeping error, and no ordering of
+two commits avoids both. One commit does.
 
 # This is not links, and the difference is the table
 
@@ -83,7 +94,9 @@ table of its own — is the one implementation. So "which one runs on my
 infrastructure" is not the question that separates them: both packages want a
 database and nothing else, and links/database buys single use the same way this
 package does, from the affected row count of a guarded UPDATE inside one
-transaction.
+transaction. It opens that transaction itself, which is the one seam where the
+two differ in what a caller can do with them: a redemption here joins the write
+it authorizes, and a redemption there commits on its own.
 
 What is left is the table's shape, and what follows from it is tenancy. Every
 row here carries a [github.com/primandproper/platform-go/v14/tenancy.Scope],

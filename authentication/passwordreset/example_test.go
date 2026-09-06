@@ -16,13 +16,14 @@ import (
 	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
-// The whole flow, in the order that fails safe: issue a token, mail the secret,
-// spend it when the user submits the form, then revoke whatever else was
-// outstanding.
+// The whole flow, in one transaction: issue a token, mail the secret, then spend
+// it, write the password and revoke what is left over — together.
 //
-// The password write goes between Consume and RevokeForUser. Consuming first
-// costs the user another email if the write then fails; writing first would
-// leave a live reset link for an account whose password had just changed.
+// The password write goes between Consume and RevokeForUser and inside the same
+// callback, which is the point. Two transactions would leave either a spent
+// token over an unchanged password, which costs the user another email, or a
+// changed password with a live reset link still outstanding, which is a
+// vulnerability. One commit has neither failure.
 func Example() {
 	ctx := context.Background()
 
@@ -39,43 +40,68 @@ func Example() {
 	// Somebody asked for a reset. Say the same thing whether or not the address
 	// belonged to a user — the response that differs is an account enumeration
 	// oracle built out of a feature meant to protect accounts.
-	issuance, err := store.Issue(ctx, scope, "user_01", time.Hour)
-	if err != nil {
+	//
+	// Nothing else belongs in this transaction, so it holds only the issuance.
+	var issuance *passwordreset.Issuance
+	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		var issueErr error
+		issuance, issueErr = store.Issue(ctx, tx, scope, "user_01", time.Hour)
+
+		return issueErr
+	}); err != nil {
 		panic(err)
 	}
 
 	// The secret exists here and nowhere else. It goes into the link and is
-	// forgotten; the store holds a digest it cannot reverse.
+	// forgotten; the store holds a digest it cannot reverse. Mail it after the
+	// commit — a link sent for a transaction that rolled back is a reset nobody
+	// can complete.
 	fmt.Println("mailing a link carrying", len(issuance.Secret), "characters")
 
 	// They followed the link. Verify spends nothing, so reloading the page —
 	// or thinking better of it and coming back later — leaves the token usable.
-	if _, err = store.Verify(ctx, scope, issuance.Secret); err != nil {
+	// It takes an executor rather than a transaction: this one holds nothing to
+	// join, and passes the write pool rather than a replica, which would answer
+	// "not found" for a link that arrived seconds ago.
+	if _, err = store.Verify(ctx, client.Writer(), scope, issuance.Secret); err != nil {
 		panic(err)
 	}
 
-	// They submitted the form. Consume is the decision: exactly one caller
-	// leaves this line holding the right to change that password.
-	token, err := store.Consume(ctx, scope, issuance.Secret)
-	if err != nil {
+	// They submitted the form. Everything the submit does is one transaction.
+	if err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		// Consume is the decision: exactly one caller leaves this line holding
+		// the right to change that password.
+		token, consumeErr := store.Consume(ctx, tx, scope, issuance.Secret)
+		if consumeErr != nil {
+			return consumeErr
+		}
+
+		fmt.Println("resetting the password for", token.UserID)
+
+		// ... write the new password hash here, through whatever store owns
+		// users, on this same tx.
+
+		// Everything else they had outstanding stops working, and stops working
+		// at the instant the password changes rather than shortly after it.
+		revoked, revokeErr := store.RevokeForUser(ctx, tx, scope, token.UserID)
+		if revokeErr != nil {
+			return revokeErr
+		}
+
+		fmt.Println("revoked", revoked, "other outstanding tokens")
+
+		return nil
+	}); err != nil {
 		panic(err)
 	}
-
-	fmt.Println("resetting the password for", token.UserID)
-
-	// ... write the new password hash here, through whatever store owns users.
-
-	// Everything else they had outstanding stops working.
-	revoked, err := store.RevokeForUser(ctx, scope, token.UserID)
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Println("revoked", revoked, "other outstanding tokens")
 
 	// The link cannot be used twice, and the store says so rather than the
 	// caller having to remember.
-	_, err = store.Consume(ctx, scope, issuance.Secret)
+	err = client.WithTransaction(ctx, func(tx database.Tx) error {
+		_, consumeErr := store.Consume(ctx, tx, scope, issuance.Secret)
+
+		return consumeErr
+	})
 	fmt.Println("second attempt:", errors.Is(err, passwordreset.ErrTokenRedeemed))
 
 	// Output:
