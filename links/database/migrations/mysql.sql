@@ -1,5 +1,7 @@
--- MySQL has no CREATE INDEX IF NOT EXISTS, so the index is declared inline.
--- See postgres.sql for what it serves.
+-- MySQL has no CREATE INDEX IF NOT EXISTS, so both indexes are declared inline.
+-- See postgres.sql for what each of them serves, and for why the subject index
+-- is a composite rather than the partial index the other two engines would
+-- take.
 --
 -- The TEXT columns are VARCHAR here because the key is indexed and MySQL cannot
 -- index a TEXT column without a prefix length. id is VARCHAR(255) rather than
@@ -35,5 +37,6 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}action_links (
     resolved_at DATETIME(6),
     purge_after DATETIME(6)  NOT NULL,
 
-    KEY {{PREFIX}}action_links_purge_after_idx (purge_after)
+    KEY {{PREFIX}}action_links_purge_after_idx (purge_after),
+    KEY {{PREFIX}}action_links_subject_idx (subject, resolved_at)
 );

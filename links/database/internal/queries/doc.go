@@ -35,7 +35,7 @@ than for the shape it came from.
   - ResolveLink spends or withdraws a link, guarded on the resolution not yet
     having happened. Its row count is what decides who owns the link when two
     requests answer one token at once, and it is the reason this store needs no
-    lock service where links/cache does.
+    lock service at all.
   - SweepLinks removes everything past its purge deadline, against a horizon the
     store binds from the minter's own clock.
 

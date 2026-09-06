@@ -4,37 +4,50 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
-	cachememory "github.com/primandproper/platform-go/v14/cache/memory"
-	"github.com/primandproper/platform-go/v14/distributedlock"
-	dlmemory "github.com/primandproper/platform-go/v14/distributedlock/memory"
+	"github.com/primandproper/platform-go/v14/database"
+	"github.com/primandproper/platform-go/v14/database/dialect"
+	"github.com/primandproper/platform-go/v14/database/sqlite"
 	"github.com/primandproper/platform-go/v14/links"
-	linkscache "github.com/primandproper/platform-go/v14/links/cache"
+	linksdatabase "github.com/primandproper/platform-go/v14/links/database"
+	"github.com/primandproper/platform-go/v14/links/database/migrations"
 )
 
-// newExampleMinter wires a Minter over in-process pieces. A real deployment
-// picks one of two stores: links/cache over redis with a redis or postgres
-// locker, or links/database over a table and no locker at all. Both of the
-// pieces below are per-process, so a link minted by one replica would not exist
-// for the next.
+// newExampleMinter wires a Minter over a throwaway SQLite database. A real
+// application hands migrations.SQL to its own migration run and builds the
+// store over the database it already has — links needs no cache and no lock
+// service, and the sweeper it would normally start is left off here because
+// nothing in an example lives long enough to collect.
 func newExampleMinter() (*links.Minter, error) {
-	c, err := cachememory.NewInMemoryCache[links.Record](0)
+	ctx := context.Background()
+
+	dir, err := os.MkdirTemp("", "links-example")
 	if err != nil {
 		return nil, err
 	}
 
-	raw, err := dlmemory.NewLocker()
+	client, err := sqlite.NewDatabaseClient(ctx, &exampleClientConfig{
+		connectionString: filepath.Join(dir, "links.db"),
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	locker, err := distributedlock.NewScopedLocker(raw)
+	stmts, err := migrations.Statements(dialect.SQLite, linksdatabase.DefaultTablePrefix)
 	if err != nil {
 		return nil, err
 	}
 
-	store, err := linkscache.New(c, locker)
+	for _, stmt := range stmts {
+		if _, err = client.Writer().ExecContext(ctx, stmt); err != nil {
+			return nil, err
+		}
+	}
+
+	store, err := linksdatabase.New(&linksdatabase.Config{}, client)
 	if err != nil {
 		return nil, err
 	}
@@ -159,3 +172,60 @@ func Example_revoking() {
 	// Output:
 	// true
 }
+
+// RevokeForSubject withdraws every link a person still holds, without being
+// told which ones exist. A completed password reset, a locked account and an
+// erasure all ask this question and none of them knows the IDs.
+func Example_revokingEverythingForASubject() {
+	ctx := context.Background()
+
+	minter, err := newExampleMinter()
+	if err != nil {
+		panic(err)
+	}
+
+	login, err := minter.Mint(ctx, "magic_login", "user_123")
+	if err != nil {
+		panic(err)
+	}
+
+	unsubscribe, err := minter.Mint(ctx, "unsubscribe", "user_123")
+	if err != nil {
+		panic(err)
+	}
+
+	// One statement, across every action, and it reports what it moved.
+	revoked, err := minter.RevokeForSubject(ctx, "user_123")
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("withdrew", revoked)
+
+	_, err = minter.Redeem(ctx, login.Token)
+	fmt.Println("login refused:", errors.Is(err, links.ErrLinkRevoked))
+
+	_, err = minter.Redeem(ctx, unsubscribe.Token)
+	fmt.Println("unsubscribe refused:", errors.Is(err, links.ErrLinkRevoked))
+
+	// Output:
+	// withdrew 2
+	// login refused: true
+	// unsubscribe refused: true
+}
+
+// exampleClientConfig is the minimum database.ClientConfig a SQLite client
+// needs.
+type exampleClientConfig struct {
+	connectionString string
+}
+
+var _ database.ClientConfig = (*exampleClientConfig)(nil)
+
+func (c *exampleClientConfig) GetReadConnectionString() string   { return c.connectionString }
+func (c *exampleClientConfig) GetWriteConnectionString() string  { return c.connectionString }
+func (c *exampleClientConfig) GetMaxPingAttempts() uint64        { return 1 }
+func (c *exampleClientConfig) GetPingWaitPeriod() time.Duration  { return time.Millisecond }
+func (c *exampleClientConfig) GetMaxIdleConns() int              { return 2 }
+func (c *exampleClientConfig) GetMaxOpenConns() int              { return 1 }
+func (c *exampleClientConfig) GetConnMaxLifetime() time.Duration { return time.Minute }

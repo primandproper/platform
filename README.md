@@ -97,7 +97,7 @@ Implementations are listed in parentheses; most concerns also provide a `noop`. 
 | `authentication/passwordreset` | Password reset tokens: digest at rest, single use enforced by the store | postgres, mysql, sqlite |
 | `sessions`       | Server-side sessions over cookies   | cache, database (+ http)       |
 | `authorization`  | Role/permission policy, enforcement | static (default), database     |
-| `links`          | Signed, expiring, single-use action links | cache (+ distributedlock), database |
+| `links`          | Signed, expiring, single-use action links | postgres, mysql, sqlite        |
 | `audit`          | Tamper-evident audit log            | postgres, mysql, sqlite        |
 | `cryptography`   | Cryptographic primitives            | encryption (aes, kms), hashing |
 | `cryptography/requestsigning` | HMAC request signing & verification | v1                             |

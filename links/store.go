@@ -7,17 +7,13 @@ import (
 
 // Store is where a minted link's record lives.
 //
-// This package ships two implementations — links/cache over a
-// cache.Cache[Record], and links/database over a SQL table with its own
-// migrations — and which one a deployment picks is not a performance choice.
-// A link is minted by whatever builds the email and redeemed by whatever
-// serves the click, and those are routinely two processes. A cache backed by
-// Redis is shared between them; one backed by cache/memory is not, so a link
-// minted in the message handler does not exist for the API server, and every
-// outstanding link dies at the next deploy besides.
+// This module ships one implementation, links/database, over a SQL table with
+// its own migrations. A cache-backed store shipped alongside it once and was
+// withdrawn; links/doc.go records why, because the argument is about what this
+// interface can honestly promise rather than about which storage is faster.
 //
-// What an implementation owes a Minter is not "these three methods". It is the
-// three properties they exist to hold, none of which the signatures can state:
+// What an implementation owes a Minter is not "these four methods". It is the
+// properties they exist to hold, none of which the signatures can state:
 //
 // A record is stored under the digest of a token and never beside the token.
 // Nothing this interface carries is the credential, and nothing an
@@ -27,15 +23,18 @@ import (
 // one refusal, on separate connections, with no cooperation from the Minter —
 // that single guarantee is the whole of single use, and it is the reason the
 // method exists rather than the Minter reading a record and writing it back.
-// links/cache buys it with a distributedlock; links/database buys it with the
-// affected row count of a guarded UPDATE, which is why that one needs no lock
-// service at all.
+// links/database buys it with the affected row count of a guarded UPDATE, which
+// is why it needs no lock service; an implementation that cannot state where
+// its own atomicity comes from does not have any.
+//
+// A subject is a column, not a derived index. RevokeForSubject is on this
+// interface rather than beside it, so an implementation that cannot read
+// records by subject cannot satisfy it — see the method.
 //
 // Expiry is refused rather than reclaimed. Record.Usable decides it, against
 // the instant Resolve was handed, so a store that evicts late — or not at all,
-// as cache/memory does for an entry nothing reads, and as a table does until
-// something sweeps it — cannot keep a credential alive past the moment it was
-// supposed to die.
+// as a table does until something sweeps it — cannot keep a credential alive
+// past the moment it was supposed to die.
 type Store interface {
 	// Put writes a freshly minted link's record.
 	//
@@ -72,4 +71,36 @@ type Store interface {
 	// metric labeled by action from going blank exactly when one flow's links
 	// start failing.
 	Resolve(ctx context.Context, id ID, to State, at, purgeAfter time.Time) (*Record, error)
+
+	// RevokeForSubject moves every unresolved link for a subject into
+	// StateRevoked, and reports how many it moved.
+	//
+	// at is the instant the revocation happens at and purgeAfter is when the
+	// store may forget the rows it moved. Both come from the Minter's clock,
+	// exactly as Resolve takes them, so one clock decides every stamp this
+	// package writes.
+	//
+	// It is on this interface rather than beside it as an optional capability,
+	// and that placement is the decision the cache-backed store lost. A record
+	// is keyed by the digest of its token, because redemption arrives holding
+	// the token and nothing else, so an implementation that can only read by
+	// key cannot answer this at all — it could only keep a subject-to-IDs set
+	// of its own, which is a second write per mint that can fail alone and a
+	// set that drifts from the records it points at. Rather than describe that
+	// gap in a capability interface, a sentinel and a type assertion every
+	// caller had to handle, the interface requires the column and the store
+	// that could not hold one was withdrawn. An implementation storing records
+	// where subject cannot be read is not a Store.
+	//
+	// There is no scope argument, and there will not be one. Revoking a
+	// person's links should cross whatever tenants that person belongs to
+	// rather than stop inside one: the caller asking is a completed password
+	// reset, a locked account, or an erasure, and none of those means "in this
+	// tenant only".
+	//
+	// It does not consult a link's deadline, because nothing in this package
+	// decides liveness in SQL — Record.Usable does, in Go, against the Minter's
+	// clock. A link that expired without ever being resolved is therefore moved
+	// too, and the count includes it.
+	RevokeForSubject(ctx context.Context, subject Subject, at, purgeAfter time.Time) (int64, error)
 }

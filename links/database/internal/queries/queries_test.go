@@ -157,7 +157,7 @@ func TestUnkeyedColumns_AreTheTableWithoutItsID(t *testing.T) {
 func TestRender_EmitsTheStatementsTheStoreExecutes(T *testing.T) {
 	T.Parallel()
 
-	want := []string{InsertLinkQuery, GetLinkQuery, ResolveLinkQuery, SweepLinksQuery}
+	want := []string{InsertLinkQuery, GetLinkQuery, ResolveLinkQuery, RevokeSubjectLinksQuery, SweepLinksQuery}
 
 	for _, d := range everyDialect {
 		T.Run(string(d), func(t *testing.T) {
@@ -225,8 +225,8 @@ func TestRender_ReadProjectsTheRowWithoutItsID(T *testing.T) {
 // under, asserted rather than left to the shapes.
 //
 // links.Record.Usable compares the deadline in Go, against the Minter's clock,
-// because the same comparison has to answer the same way in links/cache where
-// there is no server to ask. A predicate here would be a second copy of it, free
+// so that liveness is decided in one place above the store rather than by
+// whichever engine is answering. A predicate here would be a second copy of it, free
 // to disagree with Inspect about which second a link stopped working, and free
 // to collapse "expired" and "already resolved" into one affected-row count of
 // zero. The sweep is the one statement that may compare a deadline, because it
@@ -318,6 +318,46 @@ func TestRender_ResolveGuardsOnTheResolution(T *testing.T) {
 			// And no stamp beside resolved_at: resolution is this row's only
 			// mutation, so a last_updated_at would be a second copy of it.
 			test.StrNotContains(t, resolve, querygen.LastUpdatedAtColumn)
+		})
+	}
+}
+
+// TestRender_RevokeForSubjectKeysOnTheSubjectAlone pins the plural revoke.
+//
+// It is the one statement here that moves rows it cannot name in advance and
+// still writes rather than deletes, so three things about it are load-bearing:
+// it keys on the subject, it carries the resolution's own guard so a redemption
+// of one of the same links cannot also win, and it keys on nothing else — no
+// id, no action, and no scope, because the caller reaching for it knows the
+// person and not the links.
+func TestRender_RevokeForSubjectKeysOnTheSubjectAlone(T *testing.T) {
+	T.Parallel()
+
+	for _, d := range everyDialect {
+		T.Run(string(d), func(t *testing.T) {
+			t.Parallel()
+
+			revoke := statement(t, Render(d), RevokeSubjectLinksQuery)
+
+			test.StrContains(t, revoke, "UPDATE "+LinksTable)
+			test.StrContains(t, revoke, SubjectColumn+" = sqlc.arg("+SubjectColumn+")")
+			test.StrContains(t, revoke, ResolvedAtColumn+" IS NULL")
+
+			// The same three columns the single-link resolution assigns, from
+			// the same list. Two spellings of "what a resolution assigns" is
+			// how the two writes would come to leave a row in two shapes.
+			for _, column := range ResolveColumns {
+				test.StrContains(t, revoke, column+" = sqlc.",
+					test.Sprintf("column %q", column))
+			}
+
+			// No id predicate. The statement's whole point is that the caller
+			// does not have one.
+			test.StrNotContains(t, revoke, querygen.IDColumn+" = sqlc.arg(")
+
+			// And no action predicate: an operator revoking after a suspected
+			// compromise does not know what was minted.
+			test.StrNotContains(t, revoke, ActionColumn+" = sqlc.arg(")
 		})
 	}
 }
