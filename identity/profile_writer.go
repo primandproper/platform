@@ -27,42 +27,52 @@ var _ ProfileWriter = (*SQLStore)(nil)
 // users with their credentials cleared — and a write that demanded a password
 // hash back taught the caller to carry one, which is the habit this package
 // exists to make unnecessary. See User.validateProfile.
-func (s *SQLStore) UpdateUser(ctx context.Context, user *User) error {
-	ctx, op := s.o11y.Begin(ctx)
+func (s *SQLStore) UpdateUser(ctx context.Context, tx database.Tx, scope tenancy.Scope, user *User) error {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
+
+	if err := requireExecutor(tx); err != nil {
+		return op.Error(err, "updating identity user")
+	}
 
 	if user == nil {
 		return op.Error(ErrNilUser, "updating identity user")
+	}
+
+	if err := scope.Validate(); err != nil {
+		return op.Error(err, "updating identity user")
+	}
+
+	if err := adoptScope(scope, &user.Scope, "user"); err != nil {
+		return op.Error(err, "updating identity user")
 	}
 
 	if err := user.validateProfile(ctx); err != nil {
 		return op.Error(err, "updating identity user")
 	}
 
-	op.Set(userIDKey, user.ID).Set(scopeKey, user.Scope.String())
+	op.Set(userIDKey, user.ID)
 
-	// The uniqueness checks, the read and the write share a transaction:
-	// checking outside one leaves a window in which the handle is free at the
-	// check and taken at the write, which surfaces as the driver's constraint
-	// violation rather than as ErrUsernameTaken.
-	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		if err := s.ensureUsernameFree(ctx, q, user.Scope, user.Username, user.ID); err != nil {
-			return err
-		}
+	// The uniqueness checks, the read and the write are the caller's one
+	// transaction rather than a second one opened here: checking outside a
+	// transaction leaves a window in which the handle is free at the check and
+	// taken at the write, which surfaces as the driver's constraint violation
+	// rather than as ErrUsernameTaken.
+	if err := s.ensureUsernameFree(ctx, tx, scope, user.Username, user.ID); err != nil {
+		return op.Error(err, "updating identity user")
+	}
 
-		if err := s.ensureEmailAddressFree(ctx, q, user.Scope, user.EmailAddress, user.ID); err != nil {
-			return err
-		}
+	if err := s.ensureEmailAddressFree(ctx, tx, scope, user.EmailAddress, user.ID); err != nil {
+		return op.Error(err, "updating identity user")
+	}
 
-		params, err := s.profileUpdateParams(ctx, q, user)
-		if err != nil {
-			return err
-		}
+	params, err := s.profileUpdateParams(ctx, tx, user)
+	if err != nil {
+		return op.Error(err, "updating identity user")
+	}
 
-		count, err := s.q.UpdateUser(ctx, q, params)
-
-		return s.guardCount(ctx, count, err, ErrUserNotFound, "updating identity user")
-	}); err != nil {
+	count, err := s.q.UpdateUser(ctx, tx, params)
+	if err = s.guardCount(ctx, count, err, ErrUserNotFound, "updating identity user"); err != nil {
 		return op.Error(err, "updating identity user")
 	}
 
@@ -77,8 +87,8 @@ func (s *SQLStore) UpdateUser(ctx context.Context, user *User) error {
 // move to an address they have never proven and stay verified. That used to be
 // a CASE inside the UPDATE, comparing the stored address against the new one in
 // the same statement, and the statement querygen renders assigns columns rather
-// than computing them — so the comparison moves here, into the transaction the
-// update already ran in.
+// than computing them — so the comparison moves here, into the caller's
+// transaction, which is the same one the update runs in.
 //
 // The outstanding token clears with the stamp, in the same statement, because a
 // token is proof of nothing on its own: the column records that a link was
@@ -93,10 +103,15 @@ func (s *SQLStore) UpdateUser(ctx context.Context, user *User) error {
 // transaction proving the address in that gap would have its stamp overwritten
 // by the value read here. The only writer of that column is MarkEmailVerified,
 // which requires a token this update has no reason to be racing, and the read
-// is inside the same transaction as the write — so the window is narrow and the
-// loss is a verification the user can repeat, rather than an unproven address
-// reading as verified, which is the direction that mattered.
-func (s *SQLStore) profileUpdateParams(ctx context.Context, q database.Tx, user *User) (identitydb.UpdateUserParams, error) {
+// runs on the caller's executor and so inside the same transaction as the
+// write — so the window is narrow and the loss is a verification the user can
+// repeat, rather than an unproven address reading as verified, which is the
+// direction that mattered.
+func (s *SQLStore) profileUpdateParams(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	user *User,
+) (identitydb.UpdateUserParams, error) {
 	stored, err := s.readUser(ctx, q, user.Scope, user.ID)
 	if err != nil {
 		return identitydb.UpdateUserParams{}, err
@@ -111,21 +126,38 @@ func (s *SQLStore) profileUpdateParams(ctx context.Context, q database.Tx, user 
 }
 
 // UpdateAccount writes the account's name and billing address.
-func (s *SQLStore) UpdateAccount(ctx context.Context, account *Account) error {
-	ctx, op := s.o11y.Begin(ctx)
+func (s *SQLStore) UpdateAccount(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	account *Account,
+) error {
+	ctx, op := s.o11y.Begin(ctx, observability.WithValue(scopeKey, scope.String()))
 	defer op.End()
+
+	if err := requireExecutor(tx); err != nil {
+		return op.Error(err, "updating identity account")
+	}
 
 	if account == nil {
 		return op.Error(ErrNilAccount, "updating identity account")
+	}
+
+	if err := scope.Validate(); err != nil {
+		return op.Error(err, "updating identity account")
+	}
+
+	if err := adoptScope(scope, &account.Scope, "account"); err != nil {
+		return op.Error(err, "updating identity account")
 	}
 
 	if err := account.ValidateWithContext(ctx); err != nil {
 		return op.Error(err, "updating identity account")
 	}
 
-	op.Set(accountIDKey, account.ID).Set(scopeKey, account.Scope.String())
+	op.Set(accountIDKey, account.ID)
 
-	count, err := s.q.UpdateAccount(ctx, s.client.Writer(), updateAccountParams(account))
+	count, err := s.q.UpdateAccount(ctx, tx, updateAccountParams(account))
 	if err = s.guardCount(ctx, count, err, ErrAccountNotFound, "updating identity account"); err != nil {
 		return op.Error(err, "updating identity account")
 	}
@@ -134,12 +166,22 @@ func (s *SQLStore) UpdateAccount(ctx context.Context, account *Account) error {
 }
 
 // RecordAgreement stamps the user's acceptance of one or more documents.
-func (s *SQLStore) RecordAgreement(ctx context.Context, scope tenancy.Scope, userID string, agreements ...Agreement) error {
+func (s *SQLStore) RecordAgreement(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	userID string,
+	agreements ...Agreement,
+) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(userIDKey, userID),
 	)
 	defer op.End()
+
+	if err := requireExecutor(tx); err != nil {
+		return op.Error(err, "recording identity agreement")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "recording identity agreement")
@@ -161,24 +203,22 @@ func (s *SQLStore) RecordAgreement(ctx context.Context, scope tenancy.Scope, use
 		}
 	}
 
-	// One statement per document, in one transaction. The SET list was
-	// assembled from the documents a caller named until the corpus grew a
-	// statement per column — accepting the terms rendered one string and
+	// One statement per document, all of them in the caller's transaction. The
+	// SET list was assembled from the documents a caller named until the corpus
+	// grew a statement per column — accepting the terms rendered one string and
 	// accepting both rendered another, which is dynamic SQL by construction and
-	// nothing sqlc could check. Two round trips at a cardinality of two, inside
-	// a transaction, buy a statement that is text.
+	// nothing sqlc could check. Two round trips at a cardinality of two, inside a
+	// transaction, buy a statement that is text.
+	//
+	// One stamp for all of them, read before the first write: accepting two
+	// documents in one call is one act, and two clock reads would record it as
+	// two moments a later comparison could order.
 	stamp := pointer.To(s.now())
 
-	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		for _, agreement := range agreements {
-			if err := s.recordAgreement(ctx, q, scope, userID, agreement, stamp); err != nil {
-				return err
-			}
+	for _, agreement := range agreements {
+		if err := s.recordAgreement(ctx, tx, scope, userID, agreement, stamp); err != nil {
+			return op.Error(err, "recording identity agreement")
 		}
-
-		return nil
-	}); err != nil {
-		return op.Error(err, "recording identity agreement")
 	}
 
 	return nil

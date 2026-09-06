@@ -23,24 +23,24 @@ func runCredentialStoreSuite(t *testing.T, env *storeEnv) {
 
 		user := newUser("ada")
 		user.EmailAddressVerificationToken = "verify-me"
-		createUser(t, store, user)
+		seedUser(t, env, store, user)
 
-		found, err := store.GetUserByEmailVerificationToken(t.Context(), testScope, "verify-me")
+		found, err := store.GetUserByEmailVerificationToken(t.Context(), env.reader(), testScope, "verify-me")
 		must.NoError(t, err)
 		test.EqOp(t, user.ID, found.ID)
 
-		must.NoError(t, store.MarkUserEmailAddressVerified(t.Context(), testScope, user.ID, "verify-me"))
+		must.NoError(t, env.markUserEmailAddressVerified(t, store, testScope, user.ID, "verify-me"))
 
-		verified, err := store.GetUser(t.Context(), testScope, user.ID)
+		verified, err := store.GetUser(t.Context(), env.reader(), testScope, user.ID)
 		must.NoError(t, err)
 		test.True(t, verified.EmailAddressVerified())
 		test.EqOp(t, "", verified.EmailAddressVerificationToken)
 
 		// The token is burned, so the link cannot be replayed.
-		err = store.MarkUserEmailAddressVerified(t.Context(), testScope, user.ID, "verify-me")
+		err = env.markUserEmailAddressVerified(t, store, testScope, user.ID, "verify-me")
 		must.ErrorIs(t, err, ErrUserNotFound)
 
-		_, err = store.GetUserByEmailVerificationToken(t.Context(), testScope, "verify-me")
+		_, err = store.GetUserByEmailVerificationToken(t.Context(), env.reader(), testScope, "verify-me")
 		must.ErrorIs(t, err, ErrUserNotFound)
 	})
 
@@ -48,11 +48,11 @@ func runCredentialStoreSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		createUser(t, store, newUser("ada"))
+		seedUser(t, env, store, newUser("ada"))
 
 		// Every unverified user's column holds the empty string, so this query
 		// would otherwise match an arbitrary one of them.
-		_, err := store.GetUserByEmailVerificationToken(t.Context(), testScope, "")
+		_, err := store.GetUserByEmailVerificationToken(t.Context(), env.reader(), testScope, "")
 		must.ErrorIs(t, err, platformerrors.ErrEmptyInputParameter)
 	})
 
@@ -60,19 +60,19 @@ func runCredentialStoreSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		user := createUser(t, store, newUser("ada"))
+		user := seedUser(t, env, store, newUser("ada"))
 
-		must.NoError(t, store.SetUserRequiresPasswordChange(t.Context(), testScope, user.ID, true))
+		must.NoError(t, env.setUserRequiresPasswordChange(t, store, testScope, user.ID, true))
 
-		forced, err := store.GetUser(t.Context(), testScope, user.ID)
+		forced, err := store.GetUser(t.Context(), env.reader(), testScope, user.ID)
 		must.NoError(t, err)
 		test.True(t, forced.RequiresPasswordChange)
 
-		must.NoError(t, store.UpdateUserPassword(t.Context(), testScope, user.ID, "argon2$new"))
+		must.NoError(t, env.updateUserPassword(t, store, testScope, user.ID, "argon2$new"))
 
 		// Clearing the flag on rotation is what makes a forced change
 		// terminate; leaving it set prompts forever.
-		rotated, err := store.GetUser(t.Context(), testScope, user.ID)
+		rotated, err := store.GetUser(t.Context(), env.reader(), testScope, user.ID)
 		must.NoError(t, err)
 		test.False(t, rotated.RequiresPasswordChange)
 		must.NotNil(t, rotated.PasswordLastChangedAt)
@@ -82,29 +82,29 @@ func runCredentialStoreSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		user := createUser(t, store, newUser("ada"))
+		user := seedUser(t, env, store, newUser("ada"))
 
-		must.NoError(t, store.UpdateUserTwoFactorSecret(t.Context(), testScope, user.ID, "SECRET"))
+		must.NoError(t, env.updateUserTwoFactorSecret(t, store, testScope, user.ID, "SECRET"))
 
-		enrolled, err := store.GetUser(t.Context(), testScope, user.ID)
+		enrolled, err := store.GetUser(t.Context(), env.reader(), testScope, user.ID)
 		must.NoError(t, err)
 		test.EqOp(t, "SECRET", enrolled.TwoFactorSecret)
 		test.False(t, enrolled.TwoFactorEnabled())
 
-		must.NoError(t, store.MarkUserTwoFactorSecretVerified(t.Context(), testScope, user.ID))
+		must.NoError(t, env.markUserTwoFactorSecretVerified(t, store, testScope, user.ID))
 
-		verified, err := store.GetUser(t.Context(), testScope, user.ID)
+		verified, err := store.GetUser(t.Context(), env.reader(), testScope, user.ID)
 		must.NoError(t, err)
 		test.True(t, verified.TwoFactorEnabled())
 
 		// Verifying twice is either a replay or a flow that lost track of
 		// itself, and either is worth surfacing.
-		must.ErrorIs(t, store.MarkUserTwoFactorSecretVerified(t.Context(), testScope, user.ID), ErrUserNotFound)
+		must.ErrorIs(t, env.markUserTwoFactorSecretVerified(t, store, testScope, user.ID), ErrUserNotFound)
 
 		// Re-enrolling drops the proof with the secret.
-		must.NoError(t, store.UpdateUserTwoFactorSecret(t.Context(), testScope, user.ID, "ROTATED"))
+		must.NoError(t, env.updateUserTwoFactorSecret(t, store, testScope, user.ID, "ROTATED"))
 
-		rotated, err := store.GetUser(t.Context(), testScope, user.ID)
+		rotated, err := store.GetUser(t.Context(), env.reader(), testScope, user.ID)
 		must.NoError(t, err)
 		test.False(t, rotated.TwoFactorEnabled())
 	})
@@ -119,11 +119,11 @@ func runCredentialStoreSuite(t *testing.T, env *storeEnv) {
 		// to have proved — a second factor that reads as enabled and cannot be
 		// challenged.
 		store := env.newStore(t)
-		user := createUser(t, store, newUser("ada"))
+		user := seedUser(t, env, store, newUser("ada"))
 
-		must.ErrorIs(t, store.MarkUserTwoFactorSecretVerified(t.Context(), testScope, user.ID), ErrUserNotFound)
+		must.ErrorIs(t, env.markUserTwoFactorSecretVerified(t, store, testScope, user.ID), ErrUserNotFound)
 
-		unenrolled, err := store.GetUser(t.Context(), testScope, user.ID)
+		unenrolled, err := store.GetUser(t.Context(), env.reader(), testScope, user.ID)
 		must.NoError(t, err)
 		test.Nil(t, unenrolled.TwoFactorSecretVerifiedAt)
 	})
@@ -132,40 +132,40 @@ func runCredentialStoreSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		user := createUser(t, store, newUser("ada"))
+		user := seedUser(t, env, store, newUser("ada"))
 
-		must.NoError(t, store.SetUserEmailAddressVerificationToken(t.Context(), testScope, user.ID, "tok-first"))
+		must.NoError(t, env.setUserEmailAddressVerificationToken(t, store, testScope, user.ID, "tok-first"))
 
-		found, err := store.GetUserByEmailVerificationToken(t.Context(), testScope, "tok-first")
+		found, err := store.GetUserByEmailVerificationToken(t.Context(), env.reader(), testScope, "tok-first")
 		must.NoError(t, err)
 		test.EqOp(t, user.ID, found.ID)
 
 		// Re-sending the email issues a new link, and the previous one stops
 		// working — otherwise every address change leaves a live token behind.
-		must.NoError(t, store.SetUserEmailAddressVerificationToken(t.Context(), testScope, user.ID, "tok-second"))
+		must.NoError(t, env.setUserEmailAddressVerificationToken(t, store, testScope, user.ID, "tok-second"))
 
-		_, err = store.GetUserByEmailVerificationToken(t.Context(), testScope, "tok-first")
+		_, err = store.GetUserByEmailVerificationToken(t.Context(), env.reader(), testScope, "tok-first")
 		must.ErrorIs(t, err, ErrUserNotFound)
 
-		reissued, err := store.GetUserByEmailVerificationToken(t.Context(), testScope, "tok-second")
+		reissued, err := store.GetUserByEmailVerificationToken(t.Context(), env.reader(), testScope, "tok-second")
 		must.NoError(t, err)
 		test.EqOp(t, user.ID, reissued.ID)
 
-		must.NoError(t, store.MarkUserEmailAddressVerified(t.Context(), testScope, user.ID, "tok-second"))
+		must.NoError(t, env.markUserEmailAddressVerified(t, store, testScope, user.ID, "tok-second"))
 
-		verified, err := store.GetUser(t.Context(), testScope, user.ID)
+		verified, err := store.GetUser(t.Context(), env.reader(), testScope, user.ID)
 		must.NoError(t, err)
 		test.True(t, verified.EmailAddressVerified())
 
 		// The scope is in the predicate, so the neighbor's directory reaches
 		// nobody, and an unknown user is a miss rather than a silent no-op.
 		must.ErrorIs(t,
-			store.SetUserEmailAddressVerificationToken(t.Context(), otherScope, user.ID, "tok-third"),
+			env.setUserEmailAddressVerificationToken(t, store, otherScope, user.ID, "tok-third"),
 			ErrUserNotFound,
 		)
 
 		must.ErrorIs(t,
-			store.SetUserEmailAddressVerificationToken(t.Context(), tenancy.Scope{}, user.ID, "tok-third"),
+			env.setUserEmailAddressVerificationToken(t, store, tenancy.Scope{}, user.ID, "tok-third"),
 			tenancy.ErrNoScope,
 		)
 	})
@@ -177,24 +177,24 @@ func runCredentialStoreSuite(t *testing.T, env *storeEnv) {
 
 		user := newUser("ada")
 		user.EmailAddressVerificationToken = "verify-me"
-		createUser(t, store, user)
+		seedUser(t, env, store, user)
 
-		must.NoError(t, store.MarkUserEmailAddressVerified(t.Context(), testScope, user.ID, "verify-me"))
+		must.NoError(t, env.markUserEmailAddressVerified(t, store, testScope, user.ID, "verify-me"))
 
 		// A row holding both a stamp and an outstanding link is two answers to
 		// one question, and which one a reader believes comes down to which
 		// column it consulted. Issuing a link says the address wants proving,
 		// so the column saying otherwise is the one that goes.
-		must.NoError(t, store.SetUserEmailAddressVerificationToken(t.Context(), testScope, user.ID, "prove-it-again"))
+		must.NoError(t, env.setUserEmailAddressVerificationToken(t, store, testScope, user.ID, "prove-it-again"))
 
-		reissued, err := store.GetUser(t.Context(), testScope, user.ID)
+		reissued, err := store.GetUser(t.Context(), env.reader(), testScope, user.ID)
 		must.NoError(t, err)
 		test.False(t, reissued.EmailAddressVerified())
 		test.EqOp(t, "prove-it-again", reissued.EmailAddressVerificationToken)
 
-		must.NoError(t, store.MarkUserEmailAddressVerified(t.Context(), testScope, user.ID, "prove-it-again"))
+		must.NoError(t, env.markUserEmailAddressVerified(t, store, testScope, user.ID, "prove-it-again"))
 
-		reverified, err := store.GetUser(t.Context(), testScope, user.ID)
+		reverified, err := store.GetUser(t.Context(), env.reader(), testScope, user.ID)
 		must.NoError(t, err)
 		test.True(t, reverified.EmailAddressVerified())
 	})
@@ -206,29 +206,29 @@ func runCredentialStoreSuite(t *testing.T, env *storeEnv) {
 
 		user := newUser("ada")
 		user.EmailAddressVerificationToken = "verify-me"
-		createUser(t, store, user)
+		seedUser(t, env, store, user)
 
-		must.NoError(t, store.MarkUserEmailAddressVerified(t.Context(), testScope, user.ID, "verify-me"))
+		must.NoError(t, env.markUserEmailAddressVerified(t, store, testScope, user.ID, "verify-me"))
 
 		// A bounce, a support decision, a deliverability sweep: the address is
 		// the one the user chose and stays that way, and only the proof goes.
-		must.NoError(t, store.MarkUserEmailAddressUnverified(t.Context(), testScope, user.ID))
+		must.NoError(t, env.markUserEmailAddressUnverified(t, store, testScope, user.ID))
 
-		read, err := store.GetUser(t.Context(), testScope, user.ID)
+		read, err := store.GetUser(t.Context(), env.reader(), testScope, user.ID)
 		must.NoError(t, err)
 		test.False(t, read.EmailAddressVerified())
 		test.EqOp(t, user.EmailAddress, read.EmailAddress)
 
 		// Unguarded, so unlike the three writes that name a value the row must
 		// still hold, a second call is not a lost race — it is the same row.
-		must.NoError(t, store.MarkUserEmailAddressUnverified(t.Context(), testScope, user.ID))
+		must.NoError(t, env.markUserEmailAddressUnverified(t, store, testScope, user.ID))
 
 		// A fresh link and the proof it earns still work afterwards, which is
 		// what makes this an unverify rather than a lockout.
-		must.NoError(t, store.SetUserEmailAddressVerificationToken(t.Context(), testScope, user.ID, "prove-it-again"))
-		must.NoError(t, store.MarkUserEmailAddressVerified(t.Context(), testScope, user.ID, "prove-it-again"))
+		must.NoError(t, env.setUserEmailAddressVerificationToken(t, store, testScope, user.ID, "prove-it-again"))
+		must.NoError(t, env.markUserEmailAddressVerified(t, store, testScope, user.ID, "prove-it-again"))
 
-		reverified, err := store.GetUser(t.Context(), testScope, user.ID)
+		reverified, err := store.GetUser(t.Context(), env.reader(), testScope, user.ID)
 		must.NoError(t, err)
 		test.True(t, reverified.EmailAddressVerified())
 	})
@@ -237,15 +237,15 @@ func runCredentialStoreSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		user := createUser(t, store, newUser("ada"))
+		user := seedUser(t, env, store, newUser("ada"))
 
-		must.NoError(t, store.SetUserEmailAddressVerificationToken(t.Context(), testScope, user.ID, "in-the-inbox"))
-		must.NoError(t, store.MarkUserEmailAddressUnverified(t.Context(), testScope, user.ID))
+		must.NoError(t, env.setUserEmailAddressVerificationToken(t, store, testScope, user.ID, "in-the-inbox"))
+		must.NoError(t, env.markUserEmailAddressUnverified(t, store, testScope, user.ID))
 
 		// The link was minted for this address and the address has not moved,
 		// so burning it would cost the user a round trip to prove the address
 		// they are being asked to prove.
-		found, err := store.GetUserByEmailVerificationToken(t.Context(), testScope, "in-the-inbox")
+		found, err := store.GetUserByEmailVerificationToken(t.Context(), env.reader(), testScope, "in-the-inbox")
 		must.NoError(t, err)
 		test.EqOp(t, user.ID, found.ID)
 	})
@@ -254,22 +254,22 @@ func runCredentialStoreSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		user := createUser(t, store, newUser("ada"))
+		user := seedUser(t, env, store, newUser("ada"))
 
 		// The scope is in the predicate, so the neighbor's directory reaches
 		// nobody, and an unknown user is a miss rather than a silent no-op.
 		must.ErrorIs(t,
-			store.MarkUserEmailAddressUnverified(t.Context(), otherScope, user.ID),
+			env.markUserEmailAddressUnverified(t, store, otherScope, user.ID),
 			ErrUserNotFound,
 		)
 
 		must.ErrorIs(t,
-			store.MarkUserEmailAddressUnverified(t.Context(), testScope, identifiers.New()),
+			env.markUserEmailAddressUnverified(t, store, testScope, identifiers.New()),
 			ErrUserNotFound,
 		)
 
 		must.ErrorIs(t,
-			store.MarkUserEmailAddressUnverified(t.Context(), tenancy.Scope{}, user.ID),
+			env.markUserEmailAddressUnverified(t, store, tenancy.Scope{}, user.ID),
 			tenancy.ErrNoScope,
 		)
 	})
@@ -278,18 +278,18 @@ func runCredentialStoreSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		user := createUser(t, store, newUser("ada"))
+		user := seedUser(t, env, store, newUser("ada"))
 
 		// The empty string is what the column holds for every user with no
 		// outstanding link. Writing it here is what makes the read side's
 		// guard necessary, so the write has to refuse it too.
 		must.ErrorIs(t,
-			store.SetUserEmailAddressVerificationToken(t.Context(), testScope, user.ID, ""),
+			env.setUserEmailAddressVerificationToken(t, store, testScope, user.ID, ""),
 			platformerrors.ErrEmptyInputParameter,
 		)
 
 		must.ErrorIs(t,
-			store.MarkUserEmailAddressVerified(t.Context(), testScope, user.ID, ""),
+			env.markUserEmailAddressVerified(t, store, testScope, user.ID, ""),
 			platformerrors.ErrEmptyInputParameter,
 		)
 	})
@@ -298,22 +298,22 @@ func runCredentialStoreSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store := env.newStore(t)
-		user := createUser(t, store, newUser("ada"))
+		user := seedUser(t, env, store, newUser("ada"))
 
 		// An empty hash would be written and then compared against at the next
 		// sign-in by an engine with no way to know it was never set.
 		must.ErrorIs(t,
-			store.UpdateUserPassword(t.Context(), testScope, user.ID, ""),
+			env.updateUserPassword(t, store, testScope, user.ID, ""),
 			platformerrors.ErrEmptyInputParameter,
 		)
 
 		must.ErrorIs(t,
-			store.UpdateUserTwoFactorSecret(t.Context(), testScope, user.ID, ""),
+			env.updateUserTwoFactorSecret(t, store, testScope, user.ID, ""),
 			platformerrors.ErrEmptyInputParameter,
 		)
 
 		// Neither refusal wrote anything on its way out.
-		read, err := store.GetUser(t.Context(), testScope, user.ID)
+		read, err := store.GetUser(t.Context(), env.reader(), testScope, user.ID)
 		must.NoError(t, err)
 		test.EqOp(t, user.HashedPassword, read.HashedPassword)
 		test.EqOp(t, "", read.TwoFactorSecret)

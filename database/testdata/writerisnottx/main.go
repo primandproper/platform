@@ -19,6 +19,7 @@ import (
 	"github.com/primandproper/platform-go/v14/database"
 	"github.com/primandproper/platform-go/v14/identity"
 	"github.com/primandproper/platform-go/v14/outbox"
+	"github.com/primandproper/platform-go/v14/tenancy"
 )
 
 // enqueueThroughWriter is the mistake outbox/doc.go used to describe in prose.
@@ -30,7 +31,7 @@ func enqueueThroughWriter(ctx context.Context, client database.Client, w *outbox
 // registerThroughWriter is the identity half: a user row and its role rows as
 // two independent autocommits.
 func registerThroughWriter(ctx context.Context, client database.Client, store *identity.SQLStore) error {
-	return store.CreateUser(ctx, client.Writer(), &identity.User{})
+	return store.CreateUser(ctx, client.Writer(), tenancy.Global(), &identity.User{})
 }
 
 // readerIsNotATxEither, because a transaction on the read replica is a worse

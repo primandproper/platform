@@ -1,7 +1,6 @@
 package identity
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -27,11 +26,11 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		store, err := NewSQLStore(env.client, WithTablePrefix(env.migrate(t)), WithClock(clk))
 		must.NoError(t, err)
 
-		owner := createUser(t, store, newUser("ada"))
-		account := createAccountFor(t, store, owner, "Acme")
+		owner := seedUser(t, env, store, newUser("ada"))
+		account := seedAccountFor(t, env, store, owner, "Acme")
 
 		invitation := newInvitation(owner, account.ID, "brian@example.com", "tok-secret", baseTime.Add(72*time.Hour))
-		must.NoError(t, store.CreateInvitation(t.Context(), invitation))
+		must.NoError(t, env.createInvitation(t, store, invitation.Scope, invitation))
 
 		return store, clk, owner, account, invitation
 	}
@@ -41,7 +40,7 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 
 		store, _, owner, account, invitation := newInvitedStore(t)
 
-		read, err := store.GetInvitation(t.Context(), testScope, invitation.ID)
+		read, err := store.GetInvitation(t.Context(), env.reader(), testScope, invitation.ID)
 		must.NoError(t, err)
 		test.EqOp(t, account.ID, read.BelongsToAccount)
 		test.EqOp(t, owner.ID, read.FromUser)
@@ -69,7 +68,7 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		answered.StatusNote = "declined before it was sent"
 
 		must.ErrorIs(t,
-			store.CreateInvitation(t.Context(), answered),
+			env.createInvitation(t, store, answered.Scope, answered),
 			platformerrors.ErrUnrecognizedInputValue,
 		)
 	})
@@ -82,7 +81,7 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		answered := newInvitation(owner, account.ID, "carol@example.com", "tok-2", baseTime.Add(time.Hour))
 		answered.Status = InvitationAccepted
 
-		must.ErrorIs(t, store.CreateInvitation(t.Context(), answered), ErrInvalidInvitationStatus)
+		must.ErrorIs(t, env.createInvitation(t, store, answered.Scope, answered), ErrInvalidInvitationStatus)
 	})
 
 	t.Run("refuses an invitation with no expiry", func(t *testing.T) {
@@ -94,7 +93,7 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		// lost control of two years ago.
 		forever := newInvitation(owner, account.ID, "carol@example.com", "tok-3", time.Time{})
 
-		must.Error(t, store.CreateInvitation(t.Context(), forever))
+		must.Error(t, env.createInvitation(t, store, forever.Scope, forever))
 	})
 
 	t.Run("refuses a nil invitation", func(t *testing.T) {
@@ -102,7 +101,7 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 
 		store, _, _, _, _ := newInvitedStore(t)
 
-		must.ErrorIs(t, store.CreateInvitation(t.Context(), nil), ErrNilInvitation)
+		must.ErrorIs(t, env.createInvitation(t, store, testScope, nil), ErrNilInvitation)
 	})
 
 	t.Run("reads by token and refuses a wrong one", func(t *testing.T) {
@@ -110,16 +109,16 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 
 		store, _, _, _, invitation := newInvitedStore(t)
 
-		read, err := store.GetInvitationByToken(t.Context(), testScope, invitation.ID, "tok-secret")
+		read, err := store.GetInvitationByToken(t.Context(), env.reader(), testScope, invitation.ID, "tok-secret")
 		must.NoError(t, err)
 		test.EqOp(t, invitation.ID, read.ID)
 
 		// Not found rather than forbidden, so the read is not an oracle for
 		// which invitation IDs exist.
-		_, err = store.GetInvitationByToken(t.Context(), testScope, invitation.ID, "tok-wrong")
+		_, err = store.GetInvitationByToken(t.Context(), env.reader(), testScope, invitation.ID, "tok-wrong")
 		must.ErrorIs(t, err, ErrInvitationNotFound)
 
-		_, err = store.GetInvitationByToken(t.Context(), otherScope, invitation.ID, "tok-secret")
+		_, err = store.GetInvitationByToken(t.Context(), env.reader(), otherScope, invitation.ID, "tok-secret")
 		must.ErrorIs(t, err, ErrInvitationNotFound)
 	})
 
@@ -132,7 +131,7 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 
 		// Distinct from not-found so the recipient can be told to ask for
 		// another rather than that their link was wrong.
-		_, err := store.GetInvitationByToken(t.Context(), testScope, invitation.ID, "tok-secret")
+		_, err := store.GetInvitationByToken(t.Context(), env.reader(), testScope, invitation.ID, "tok-secret")
 		must.ErrorIs(t, err, ErrInvitationExpired)
 	})
 
@@ -141,13 +140,13 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 
 		store, _, _, account, invitation := newInvitedStore(t)
 
-		recipient := createUser(t, store, newUser("brian"))
+		recipient := seedUser(t, env, store, newUser("brian"))
 
 		var membership *Membership
 
-		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
+		must.NoError(t, env.inTx(t, func(tx database.Tx) error {
 			var err error
-			membership, err = store.AcceptInvitation(ctx, q, testScope, invitation.ID, "tok-secret", recipient.ID, "thanks")
+			membership, err = store.AcceptInvitation(t.Context(), tx, testScope, invitation.ID, "tok-secret", recipient.ID, "thanks")
 
 			return err
 		}))
@@ -163,7 +162,7 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		// Their first account, so it is where they land.
 		test.True(t, membership.DefaultAccount)
 
-		read, err := store.GetInvitation(t.Context(), testScope, invitation.ID)
+		read, err := store.GetInvitation(t.Context(), env.reader(), testScope, invitation.ID)
 		must.NoError(t, err)
 		test.EqOp(t, InvitationAccepted, read.Status)
 
@@ -176,7 +175,7 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		must.NotNil(t, read.ToUser)
 		test.EqOp(t, recipient.ID, *read.ToUser)
 
-		stored, err := store.GetMembership(t.Context(), testScope, recipient.ID, account.ID)
+		stored, err := store.GetMembership(t.Context(), env.reader(), testScope, recipient.ID, account.ID)
 		must.NoError(t, err)
 		test.Eq(t, []string{"account_member"}, stored.Roles)
 	})
@@ -185,18 +184,18 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		t.Parallel()
 
 		store, _, _, _, invitation := newInvitedStore(t)
-		recipient := createUser(t, store, newUser("brian"))
+		recipient := seedUser(t, env, store, newUser("brian"))
 
-		must.NoError(t, inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
-			_, err := store.AcceptInvitation(ctx, q, testScope, invitation.ID, "tok-secret", recipient.ID, "")
+		must.NoError(t, env.inTx(t, func(tx database.Tx) error {
+			_, err := store.AcceptInvitation(t.Context(), tx, testScope, invitation.ID, "tok-secret", recipient.ID, "")
 
 			return err
 		}))
 
 		// The second click finds nothing pending. An already-answered
 		// invitation reads as absent, like a wrong token.
-		err := inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
-			_, acceptErr := store.AcceptInvitation(ctx, q, testScope, invitation.ID, "tok-secret", recipient.ID, "")
+		err := env.inTx(t, func(tx database.Tx) error {
+			_, acceptErr := store.AcceptInvitation(t.Context(), tx, testScope, invitation.ID, "tok-secret", recipient.ID, "")
 
 			return acceptErr
 		})
@@ -213,10 +212,10 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		// foreign key exactly as a local one does.
 		neighbor := newUser("eve")
 		neighbor.Scope = otherScope
-		createUser(t, store, neighbor)
+		seedUser(t, env, store, neighbor)
 
-		err := inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
-			_, acceptErr := store.AcceptInvitation(ctx, q, testScope, invitation.ID, "tok-secret", neighbor.ID, "")
+		err := env.inTx(t, func(tx database.Tx) error {
+			_, acceptErr := store.AcceptInvitation(t.Context(), tx, testScope, invitation.ID, "tok-secret", neighbor.ID, "")
 
 			return acceptErr
 		})
@@ -225,12 +224,12 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		// The answer and the membership are one transaction, so refusing the
 		// membership leaves the invitation pending rather than accepted by
 		// somebody who never joined.
-		read, err := store.GetInvitation(t.Context(), testScope, invitation.ID)
+		read, err := store.GetInvitation(t.Context(), env.reader(), testScope, invitation.ID)
 		must.NoError(t, err)
 		test.EqOp(t, InvitationPending, read.Status)
 		test.Nil(t, read.ToUser)
 
-		members, err := store.ListAccountMembers(t.Context(), testScope, account.ID, nil)
+		members, err := store.ListAccountMembers(t.Context(), env.reader(), testScope, account.ID, nil)
 		must.NoError(t, err)
 		must.SliceLen(t, 1, members.Data)
 	})
@@ -240,8 +239,8 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 
 		store, _, _, _, invitation := newInvitedStore(t)
 
-		err := inTransaction(t, store, func(ctx context.Context, q database.Tx) error {
-			_, acceptErr := store.AcceptInvitation(ctx, q, testScope, invitation.ID, "tok-secret", "", "")
+		err := env.inTx(t, func(tx database.Tx) error {
+			_, acceptErr := store.AcceptInvitation(t.Context(), tx, testScope, invitation.ID, "tok-secret", "", "")
 
 			return acceptErr
 		})
@@ -249,7 +248,8 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 
 		must.ErrorIs(t,
 			func() error {
-				_, acceptErr := store.AcceptInvitation(t.Context(), nil, testScope, invitation.ID, "tok-secret", "x", "")
+				_, acceptErr := store.AcceptInvitation(
+					t.Context(), nil, testScope, invitation.ID, "tok-secret", "x", "")
 
 				return acceptErr
 			}(),
@@ -265,25 +265,25 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		// Accepting writes a membership in the same transaction; a status write
 		// here would leave an accepted invitation that produced nothing.
 		must.ErrorIs(t,
-			store.SetInvitationStatus(t.Context(), testScope, invitation.ID, InvitationAccepted, ""),
+			env.setInvitationStatus(t, store, testScope, invitation.ID, InvitationAccepted, ""),
 			ErrInvalidInvitationStatus,
 		)
 
 		must.ErrorIs(t,
-			store.SetInvitationStatus(t.Context(), testScope, invitation.ID, InvitationPending, ""),
+			env.setInvitationStatus(t, store, testScope, invitation.ID, InvitationPending, ""),
 			ErrInvalidInvitationStatus,
 		)
 
 		// A status outside the known set is refused before the write rather
 		// than stored and read back as something no branch handles.
 		must.ErrorIs(t,
-			store.SetInvitationStatus(t.Context(), testScope, invitation.ID, InvitationStatus("nonsense"), ""),
+			env.setInvitationStatus(t, store, testScope, invitation.ID, InvitationStatus("nonsense"), ""),
 			platformerrors.ErrUnrecognizedInputValue,
 		)
 
-		must.NoError(t, store.SetInvitationStatus(t.Context(), testScope, invitation.ID, InvitationRejected, "no thanks"))
+		must.NoError(t, env.setInvitationStatus(t, store, testScope, invitation.ID, InvitationRejected, "no thanks"))
 
-		read, err := store.GetInvitation(t.Context(), testScope, invitation.ID)
+		read, err := store.GetInvitation(t.Context(), env.reader(), testScope, invitation.ID)
 		must.NoError(t, err)
 		test.EqOp(t, InvitationRejected, read.Status)
 		test.EqOp(t, "no thanks", read.StatusNote)
@@ -292,13 +292,13 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 
 		// A rejection cannot be overwritten by a later cancellation.
 		must.ErrorIs(t,
-			store.SetInvitationStatus(t.Context(), testScope, invitation.ID, InvitationCancelled, ""),
+			env.setInvitationStatus(t, store, testScope, invitation.ID, InvitationCancelled, ""),
 			ErrInvitationNotFound,
 		)
 
 		second := newInvitation(owner, account.ID, "carol@example.com", "tok-4", baseTime.Add(time.Hour))
-		must.NoError(t, store.CreateInvitation(t.Context(), second))
-		must.NoError(t, store.SetInvitationStatus(t.Context(), testScope, second.ID, InvitationCancelled, "withdrawn"))
+		must.NoError(t, env.createInvitation(t, store, second.Scope, second))
+		must.NoError(t, env.setInvitationStatus(t, store, testScope, second.ID, InvitationCancelled, "withdrawn"))
 	})
 
 	t.Run("pages pending invitations, redacted", func(t *testing.T) {
@@ -307,10 +307,10 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		store, _, owner, account, invitation := newInvitedStore(t)
 
 		answered := newInvitation(owner, account.ID, "carol@example.com", "tok-5", baseTime.Add(time.Hour))
-		must.NoError(t, store.CreateInvitation(t.Context(), answered))
-		must.NoError(t, store.SetInvitationStatus(t.Context(), testScope, answered.ID, InvitationRejected, ""))
+		must.NoError(t, env.createInvitation(t, store, answered.Scope, answered))
+		must.NoError(t, env.setInvitationStatus(t, store, testScope, answered.ID, InvitationRejected, ""))
 
-		sent, err := store.ListInvitationsFromUser(t.Context(), testScope, owner.ID, nil)
+		sent, err := store.ListInvitationsFromUser(t.Context(), env.reader(), testScope, owner.ID, nil)
 		must.NoError(t, err)
 		must.SliceLen(t, 1, sent.Data)
 		test.EqOp(t, invitation.ID, sent.Data[0].ID)
@@ -327,13 +327,13 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		test.EqOp(t, senderNote, sent.Data[0].Note)
 		test.EqOp(t, "", sent.Data[0].StatusNote)
 
-		received, err := store.ListInvitationsForEmailAddress(t.Context(), testScope, "brian@example.com", nil)
+		received, err := store.ListInvitationsForEmailAddress(t.Context(), env.reader(), testScope, "brian@example.com", nil)
 		must.NoError(t, err)
 		must.SliceLen(t, 1, received.Data)
 		test.EqOp(t, "", received.Data[0].Token)
 		test.EqOp(t, senderNote, received.Data[0].Note)
 
-		none, err := store.ListInvitationsForEmailAddress(t.Context(), otherScope, "brian@example.com", nil)
+		none, err := store.ListInvitationsForEmailAddress(t.Context(), env.reader(), otherScope, "brian@example.com", nil)
 		must.NoError(t, err)
 		test.SliceEmpty(t, none.Data)
 	})
@@ -347,11 +347,11 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		store, _, owner, account, first := newInvitedStore(t)
 
 		second := newInvitation(owner, account.ID, "brian@example.com", "tok-6", baseTime.Add(time.Hour))
-		must.NoError(t, store.CreateInvitation(t.Context(), second))
+		must.NoError(t, env.createInvitation(t, store, second.Scope, second))
 
 		newestFirst := &filtering.QueryFilter{SortBy: filtering.SortDescending}
 
-		sent, err := store.ListInvitationsFromUser(t.Context(), testScope, owner.ID, newestFirst)
+		sent, err := store.ListInvitationsFromUser(t.Context(), env.reader(), testScope, owner.ID, newestFirst)
 		must.NoError(t, err)
 		must.SliceLen(t, 2, sent.Data)
 		test.EqOp(t, second.ID, sent.Data[0].ID)
@@ -365,7 +365,7 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 			test.EqOp(t, "", invitation.Token)
 		}
 
-		received, err := store.ListInvitationsForEmailAddress(t.Context(), testScope, "brian@example.com", newestFirst)
+		received, err := store.ListInvitationsForEmailAddress(t.Context(), env.reader(), testScope, "brian@example.com", newestFirst)
 		must.NoError(t, err)
 		must.SliceLen(t, 2, received.Data)
 		test.EqOp(t, second.ID, received.Data[0].ID)
@@ -374,7 +374,7 @@ func runInvitationStoreSuite(t *testing.T, env *storeEnv) {
 		// And the ascending read of the same two is the same pair the other way
 		// round, which is what says the direction did the reversing rather than
 		// the insertion order.
-		ascending, err := store.ListInvitationsForEmailAddress(t.Context(), testScope, "brian@example.com", nil)
+		ascending, err := store.ListInvitationsForEmailAddress(t.Context(), env.reader(), testScope, "brian@example.com", nil)
 		must.NoError(t, err)
 		must.SliceLen(t, 2, ascending.Data)
 		test.EqOp(t, first.ID, ascending.Data[0].ID)

@@ -153,13 +153,13 @@ func assertIndexRefusesDuplicate(t *testing.T, env *storeEnv) {
 	t.Helper()
 
 	store := env.newStore(t)
-	createUser(t, store, newUser("ada"))
+	seedUser(t, env, store, newUser("ada"))
 
 	duplicate := newUser("ada")
 	duplicate.EmailAddress = "someone-else@example.com"
 	duplicate.ID = identifiers.New()
 
-	err := store.q.CreateUser(t.Context(), store.client.Writer(), createUserParams(duplicate))
+	err := store.q.CreateUser(t.Context(), env.client.Writer(), createUserParams(duplicate))
 	must.Error(t, err)
 }
 

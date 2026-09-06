@@ -17,7 +17,13 @@ import (
 var _ MembershipWriter = (*SQLStore)(nil)
 
 // SetMembershipRoles replaces the roles a user holds in an account.
-func (s *SQLStore) SetMembershipRoles(ctx context.Context, scope tenancy.Scope, userID, accountID string, roles []string) error {
+func (s *SQLStore) SetMembershipRoles(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	userID, accountID string,
+	roles []string,
+) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(userIDKey, userID),
@@ -25,22 +31,28 @@ func (s *SQLStore) SetMembershipRoles(ctx context.Context, scope tenancy.Scope, 
 	)
 	defer op.End()
 
+	if err := requireExecutor(tx); err != nil {
+		return op.Error(err, "setting identity membership roles")
+	}
+
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "setting identity membership roles")
 	}
 
-	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		if err := s.requireRolesOrOwnership(ctx, q, scope, userID, accountID, roles); err != nil {
-			return err
-		}
+	// The ownership check, the membership read and the role rewrite are the
+	// caller's one transaction: the clear and the inserts that follow it are a
+	// role set held in two halves until they commit, and a caller reading the
+	// membership between them would find it holding none.
+	if err := s.requireRolesOrOwnership(ctx, tx, scope, userID, accountID, roles); err != nil {
+		return op.Error(err, "setting identity membership roles")
+	}
 
-		membership, err := s.readMembership(ctx, q, scope, userID, accountID)
-		if err != nil {
-			return err
-		}
+	membership, err := s.readMembership(ctx, tx, scope, userID, accountID)
+	if err != nil {
+		return op.Error(err, "setting identity membership roles")
+	}
 
-		return s.replaceRoles(ctx, q, s.membershipRoleWrites(), membership.ID, roles)
-	}); err != nil {
+	if err = s.replaceRoles(ctx, tx, s.membershipRoleWrites(), membership.ID, roles); err != nil {
 		return op.Error(err, "setting identity membership roles")
 	}
 
@@ -88,7 +100,12 @@ func (s *SQLStore) requireRolesOrOwnership(
 }
 
 // SetDefaultAccount marks one of a user's accounts as the one they land in.
-func (s *SQLStore) SetDefaultAccount(ctx context.Context, scope tenancy.Scope, userID, accountID string) error {
+func (s *SQLStore) SetDefaultAccount(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	userID, accountID string,
+) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(userIDKey, userID),
@@ -96,21 +113,23 @@ func (s *SQLStore) SetDefaultAccount(ctx context.Context, scope tenancy.Scope, u
 	)
 	defer op.End()
 
+	if err := requireExecutor(tx); err != nil {
+		return op.Error(err, "setting identity default account")
+	}
+
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "setting identity default account")
 	}
 
-	// Both writes share a transaction, so "one default per user" cannot be left
-	// half-applied: clearing without setting leaves the user with none, and
-	// setting without clearing leaves them with two.
-	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		count, err := s.writeDefaultAccountFlag(ctx, q, scope, userID, accountID, true)
-		if err = s.guardCount(ctx, count, err, ErrMembershipNotFound, "setting identity default account"); err != nil {
-			return err
-		}
+	// Both writes are the caller's one transaction, so "one default per user"
+	// cannot be left half-applied: clearing without setting leaves the user with
+	// none, and setting without clearing leaves them with two.
+	count, err := s.writeDefaultAccountFlag(ctx, tx, scope, userID, accountID, true)
+	if err = s.guardCount(ctx, count, err, ErrMembershipNotFound, "setting identity default account"); err != nil {
+		return op.Error(err, "setting identity default account")
+	}
 
-		return s.clearDefaultAccountsForUser(ctx, q, scope, userID, accountID)
-	}); err != nil {
+	if err = s.clearDefaultAccountsForUser(ctx, tx, scope, userID, accountID); err != nil {
 		return op.Error(err, "setting identity default account")
 	}
 
@@ -118,13 +137,22 @@ func (s *SQLStore) SetDefaultAccount(ctx context.Context, scope tenancy.Scope, u
 }
 
 // TransferAccountOwnership moves an account to a new owner.
-func (s *SQLStore) TransferAccountOwnership(ctx context.Context, scope tenancy.Scope, accountID, newOwnerUserID string) error {
+func (s *SQLStore) TransferAccountOwnership(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	accountID, newOwnerUserID string,
+) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(accountIDKey, accountID),
 		observability.WithValue(userIDKey, newOwnerUserID),
 	)
 	defer op.End()
+
+	if err := requireExecutor(tx); err != nil {
+		return op.Error(err, "transferring identity account ownership")
+	}
 
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "transferring identity account ownership")
@@ -137,85 +165,82 @@ func (s *SQLStore) TransferAccountOwnership(ctx context.Context, scope tenancy.S
 		)
 	}
 
-	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		account, err := s.readAccount(ctx, q, scope, accountID)
-		if err != nil {
-			return err
-		}
+	account, err := s.readAccount(ctx, tx, scope, accountID)
+	if err != nil {
+		return op.Error(err, "transferring identity account ownership")
+	}
 
-		if account.OwnerUserID == newOwnerUserID {
-			return nil
-		}
+	if account.OwnerUserID == newOwnerUserID {
+		return nil
+	}
 
-		// owner_user_id carries no scope and no foreign key, so nothing below
-		// this refuses a new owner from another directory: the membership branch
-		// takes the id on faith and the SET stores it. An account owned by
-		// somebody its own directory cannot read is an account whose every
-		// ownership-derived permission check resolves to nobody, and the roster
-		// that does display them displays a stranger. The scoped read is the
-		// refusal, and it is here rather than only inside the membership write
-		// because a new owner who already holds a membership would skip that
-		// path entirely.
-		if _, err = s.readUser(ctx, q, scope, newOwnerUserID); err != nil {
-			return err
-		}
+	// owner_user_id carries no scope and no foreign key, so nothing below
+	// this refuses a new owner from another directory: the membership branch
+	// takes the id on faith and the SET stores it. An account owned by
+	// somebody its own directory cannot read is an account whose every
+	// ownership-derived permission check resolves to nobody, and the roster
+	// that does display them displays a stranger. The scoped read is the
+	// refusal, and it is here rather than only inside the membership write
+	// because a new owner who already holds a membership would skip that
+	// path entirely.
+	if _, err = s.readUser(ctx, tx, scope, newOwnerUserID); err != nil {
+		return op.Error(err, "transferring identity account ownership")
+	}
 
-		// The new owner gets a membership if they lack one. An owner who is not
-		// a member is an account whose roster does not include the person
-		// responsible for it, and every roster-driven permission check then
-		// refuses them. An owner who already is one keeps the roles they have.
+	// The new owner gets a membership if they lack one. An owner who is not
+	// a member is an account whose roster does not include the person
+	// responsible for it, and every roster-driven permission check then
+	// refuses them. An owner who already is one keeps the roles they have.
+	//
+	// The minted one carries no roles, and that is the state rather than a
+	// gap in it: ownership is the standing, and a role invented here would
+	// be a name this package does not define being written into somebody's
+	// authorization. SetMembershipRoles admits the same state for the same
+	// reason — see requireRolesOrOwnership — so the owner's role set is
+	// reachable from both doors and refused for everybody else at both.
+	switch _, readErr := s.readMembership(ctx, tx, scope, newOwnerUserID, accountID); {
+	case readErr == nil:
+	case errors.Is(readErr, ErrMembershipNotFound):
+		// A first membership is its holder's default, here as at the other
+		// two doors that mint one — see CreateMembership and
+		// AcceptInvitation. A transfer to somebody who belonged to nothing
+		// otherwise leaves them with a membership and nowhere to land, and
+		// the failure surfaces as ErrNoDefaultAccount at their next sign-in
+		// rather than at the transfer somebody else performed on them.
 		//
-		// The minted one carries no roles, and that is the state rather than a
-		// gap in it: ownership is the standing, and a role invented here would
-		// be a name this package does not define being written into somebody's
-		// authorization. SetMembershipRoles admits the same state for the same
-		// reason — see requireRolesOrOwnership — so the owner's role set is
-		// reachable from both doors and refused for everybody else at both.
-		switch _, readErr := s.readMembership(ctx, q, scope, newOwnerUserID, accountID); {
-		case readErr == nil:
-		case errors.Is(readErr, ErrMembershipNotFound):
-			// A first membership is its holder's default, here as at the other
-			// two doors that mint one — see CreateMembership and
-			// AcceptInvitation. A transfer to somebody who belonged to nothing
-			// otherwise leaves them with a membership and nowhere to land, and
-			// the failure surfaces as ErrNoDefaultAccount at their next sign-in
-			// rather than at the transfer somebody else performed on them.
-			//
-			// It is the recipient's first membership anywhere that decides it,
-			// not their first in this account: an owner who already belongs to
-			// other accounts keeps the default they chose.
-			existing, existsErr := s.hasLiveMembership(ctx, q, scope, newOwnerUserID)
-			if existsErr != nil {
-				return existsErr
-			}
-
-			if err = s.writeMembership(ctx, q, &Membership{
-				ID:               newID(""),
-				Scope:            scope,
-				BelongsToUser:    newOwnerUserID,
-				BelongsToAccount: accountID,
-				Roles:            []string{},
-				DefaultAccount:   !existing,
-			}); err != nil {
-				return err
-			}
-		default:
-			return readErr
+		// It is the recipient's first membership anywhere that decides it,
+		// not their first in this account: an owner who already belongs to
+		// other accounts keeps the default they chose.
+		existing, existsErr := s.hasLiveMembership(ctx, tx, scope, newOwnerUserID)
+		if existsErr != nil {
+			return op.Error(existsErr, "transferring identity account ownership")
 		}
 
-		// The owner being moved away from is in the predicate as well as the new
-		// one in the SET, so two concurrent transfers cannot both succeed and
-		// leave the account owned by whichever committed last: the second
-		// matches nothing and reports zero rows.
-		count, err := s.q.TransferAccountOwnership(ctx, q, identitydb.TransferAccountOwnershipParams{
-			ID:                 accountID,
-			Scope:              scope,
-			OwnerUserID:        newOwnerUserID,
-			CurrentOwnerUserID: account.OwnerUserID,
-		})
+		if err = s.writeMembership(ctx, tx, &Membership{
+			ID:               newID(""),
+			Scope:            scope,
+			BelongsToUser:    newOwnerUserID,
+			BelongsToAccount: accountID,
+			Roles:            []string{},
+			DefaultAccount:   !existing,
+		}); err != nil {
+			return op.Error(err, "transferring identity account ownership")
+		}
+	default:
+		return op.Error(readErr, "transferring identity account ownership")
+	}
 
-		return s.guardCount(ctx, count, err, ErrAccountNotFound, "transferring identity account ownership")
-	}); err != nil {
+	// The owner being moved away from is in the predicate as well as the new
+	// one in the SET, so two concurrent transfers cannot both succeed and
+	// leave the account owned by whichever committed last: the second
+	// matches nothing and reports zero rows.
+	count, err := s.q.TransferAccountOwnership(ctx, tx, identitydb.TransferAccountOwnershipParams{
+		ID:                 accountID,
+		Scope:              scope,
+		OwnerUserID:        newOwnerUserID,
+		CurrentOwnerUserID: account.OwnerUserID,
+	})
+	if err = s.guardCount(ctx, count, err, ErrAccountNotFound, "transferring identity account ownership"); err != nil {
 		return op.Error(err, "transferring identity account ownership")
 	}
 
@@ -223,7 +248,12 @@ func (s *SQLStore) TransferAccountOwnership(ctx context.Context, scope tenancy.S
 }
 
 // RemoveMembership ends a user's membership in an account.
-func (s *SQLStore) RemoveMembership(ctx context.Context, scope tenancy.Scope, userID, accountID string) error {
+func (s *SQLStore) RemoveMembership(
+	ctx context.Context,
+	tx database.Tx,
+	scope tenancy.Scope,
+	userID, accountID string,
+) error {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(userIDKey, userID),
@@ -231,45 +261,50 @@ func (s *SQLStore) RemoveMembership(ctx context.Context, scope tenancy.Scope, us
 	)
 	defer op.End()
 
+	if err := requireExecutor(tx); err != nil {
+		return op.Error(err, "removing identity membership")
+	}
+
 	if err := scope.Validate(); err != nil {
 		return op.Error(err, "removing identity membership")
 	}
 
-	if err := s.client.WithTransaction(ctx, func(q database.Tx) error {
-		account, err := s.readAccount(ctx, q, scope, accountID)
-		if err != nil {
-			return err
-		}
+	account, err := s.readAccount(ctx, tx, scope, accountID)
+	if err != nil {
+		return op.Error(err, "removing identity membership")
+	}
 
-		if account.OwnerUserID == userID {
-			return platformerrors.Wrapf(ErrLastAccountOwner, "account %q", accountID)
-		}
+	if account.OwnerUserID == userID {
+		return op.Error(
+			platformerrors.Wrapf(ErrLastAccountOwner, "account %q", accountID),
+			"removing identity membership",
+		)
+	}
 
-		// The flag comes off before the row is archived, because the statement
-		// that clears it reaches live rows only — an archived membership is
-		// nobody's default, and the soft delete stamps archived_at and nothing
-		// else, here as everywhere else in this schema. Its row count says
-		// nothing the archival's does not say better: a membership that was not
-		// the default is a row this write correctly leaves alone.
-		if _, err = s.writeDefaultAccountFlag(ctx, q, scope, userID, accountID, false); err != nil {
-			return err
-		}
+	// The flag comes off before the row is archived, because the statement that
+	// clears it reaches live rows only — an archived membership is nobody's
+	// default, and the soft delete stamps archived_at and nothing else, here as
+	// everywhere else in this schema. Its row count says nothing the archival's
+	// does not say better: a membership that was not the default is a row this
+	// write correctly leaves alone.
+	if _, err = s.writeDefaultAccountFlag(ctx, tx, scope, userID, accountID, false); err != nil {
+		return op.Error(err, "removing identity membership")
+	}
 
-		count, err := s.q.ArchiveMembership(ctx, q, identitydb.ArchiveMembershipParams{
-			Scope:            scope,
-			BelongsToUser:    userID,
-			BelongsToAccount: accountID,
-		})
-		if err = s.guardCount(ctx, count, err, ErrMembershipNotFound, "removing identity membership"); err != nil {
-			return err
-		}
+	count, err := s.q.ArchiveMembership(ctx, tx, identitydb.ArchiveMembershipParams{
+		Scope:            scope,
+		BelongsToUser:    userID,
+		BelongsToAccount: accountID,
+	})
+	if err = s.guardCount(ctx, count, err, ErrMembershipNotFound, "removing identity membership"); err != nil {
+		return op.Error(err, "removing identity membership")
+	}
 
-		// If that was the user's default, the default moves rather than
-		// vanishing — a user with memberships and nowhere to land cannot build a
-		// Principal, and the failure surfaces at their next request rather than
-		// at the removal that caused it.
-		return s.moveDefaultAccount(ctx, q, scope, userID, accountID)
-	}); err != nil {
+	// If that was the user's default, the default moves rather than vanishing —
+	// a user with memberships and nowhere to land cannot build a Principal, and
+	// the failure surfaces at their next request rather than at the removal that
+	// caused it.
+	if err = s.moveDefaultAccount(ctx, tx, scope, userID, accountID); err != nil {
 		return op.Error(err, "removing identity membership")
 	}
 

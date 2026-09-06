@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 
+	"github.com/primandproper/platform-go/v14/database"
 	platformerrors "github.com/primandproper/platform-go/v14/errors"
 	"github.com/primandproper/platform-go/v14/identity/internal/identitydb"
 	"github.com/primandproper/platform-go/v14/observability"
@@ -14,9 +15,14 @@ import (
 var _ SignInReader = (*SQLStore)(nil)
 
 // GetUserByUsername reads a live user by the handle they sign in with.
-func (s *SQLStore) GetUserByUsername(ctx context.Context, scope tenancy.Scope, username string) (*User, error) {
-	return s.liveUser(ctx, scope, "reading identity user by username", func(ctx context.Context) (*User, error) {
-		row, err := s.q.GetUserByUsername(ctx, s.client.Reader(), identitydb.GetUserByUsernameParams{
+func (s *SQLStore) GetUserByUsername(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	username string,
+) (*User, error) {
+	return s.liveUser(ctx, q, scope, "reading identity user by username", func(ctx context.Context) (*User, error) {
+		row, err := s.q.GetUserByUsername(ctx, q, identitydb.GetUserByUsernameParams{
 			Username: username,
 			Scope:    scope,
 		})
@@ -29,9 +35,14 @@ func (s *SQLStore) GetUserByUsername(ctx context.Context, scope tenancy.Scope, u
 }
 
 // GetUserByEmailAddress reads a live user by their email address.
-func (s *SQLStore) GetUserByEmailAddress(ctx context.Context, scope tenancy.Scope, emailAddress string) (*User, error) {
-	return s.liveUser(ctx, scope, "reading identity user by email address", func(ctx context.Context) (*User, error) {
-		row, err := s.q.GetUserByEmailAddress(ctx, s.client.Reader(), identitydb.GetUserByEmailAddressParams{
+func (s *SQLStore) GetUserByEmailAddress(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	emailAddress string,
+) (*User, error) {
+	return s.liveUser(ctx, q, scope, "reading identity user by email address", func(ctx context.Context) (*User, error) {
+		row, err := s.q.GetUserByEmailAddress(ctx, q, identitydb.GetUserByEmailAddressParams{
 			EmailAddress: emailAddress,
 			Scope:        scope,
 		})
@@ -46,26 +57,36 @@ func (s *SQLStore) GetUserByEmailAddress(ctx context.Context, scope tenancy.Scop
 // GetPrincipal reads a user with their memberships and resolves the active
 // account.
 //
-// Four statements on the read side, not one and not a snapshot: the user and
-// their service roles, then the memberships and the roles on those. The
-// interface's doc carries what that means for a caller.
-func (s *SQLStore) GetPrincipal(ctx context.Context, scope tenancy.Scope, userID, activeAccountID string) (*Principal, error) {
+// Four statements on the caller's executor, not one and not a snapshot: the
+// user and their service roles, then the memberships and the roles on those.
+// The interface's doc carries what that means for a caller — and a caller
+// passing a database.Tx gets the one shared snapshot the four otherwise lack.
+func (s *SQLStore) GetPrincipal(
+	ctx context.Context,
+	q database.SQLQueryExecutor,
+	scope tenancy.Scope,
+	userID, activeAccountID string,
+) (*Principal, error) {
 	ctx, op := s.o11y.Begin(ctx,
 		observability.WithValue(scopeKey, scope.String()),
 		observability.WithValue(userIDKey, userID),
 	)
 	defer op.End()
 
+	if err := requireExecutor(q); err != nil {
+		return nil, op.Error(err, "reading identity principal")
+	}
+
 	if err := scope.Validate(); err != nil {
 		return nil, op.Error(err, "reading identity principal")
 	}
 
-	user, err := s.readUser(ctx, s.client.Reader(), scope, userID)
+	user, err := s.readUser(ctx, q, scope, userID)
 	if err != nil {
 		return nil, op.Error(err, "reading identity principal")
 	}
 
-	memberships, err := s.readMembershipsForUser(ctx, s.client.Reader(), scope, userID)
+	memberships, err := s.readMembershipsForUser(ctx, q, scope, userID)
 	if err != nil {
 		return nil, op.Error(err, "reading identity principal")
 	}
