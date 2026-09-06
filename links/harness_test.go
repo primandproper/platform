@@ -42,10 +42,10 @@ var errDuplicateRecord = platformerrors.New("action link record already stored")
 // that either transitions the link or says why it would not. A mock returning
 // whatever a test asked for would let the Minter drift from all three.
 //
-// The two shipped stores are tested against their own storage — links/cache
-// with a real locker, links/database against a real engine — so what those
-// suites cover and this one cannot is the atomicity: here the mutex supplies
-// it, which is exactly what those two have to buy.
+// The shipped store is tested against its own storage — links/database against
+// a real engine — so what that suite covers and this one cannot is the
+// atomicity: here the mutex supplies it, which is exactly what a table has to
+// buy from a guarded UPDATE.
 //
 // It cannot live in links/mock: an in-package test importing that would close
 // an import cycle.
@@ -55,6 +55,7 @@ type memoryStore struct {
 	getErr     error
 	putErr     error
 	resolveErr error
+	revokeErr  error
 
 	mu sync.Mutex
 }
@@ -95,8 +96,8 @@ func (s *memoryStore) Get(_ context.Context, id ID) (*Record, error) {
 	return s.read(id)
 }
 
-// Resolve transitions a link under the mutex, which is what the cache store
-// buys with a lock and the database store with a guarded UPDATE.
+// Resolve transitions a link under the mutex, which is what the database store
+// buys with a guarded UPDATE.
 func (s *memoryStore) Resolve(
 	_ context.Context,
 	id ID,
@@ -127,6 +128,43 @@ func (s *memoryStore) Resolve(
 	s.records[id] = &resolved
 
 	return &resolved, nil
+}
+
+// RevokeForSubject moves every unresolved record for a subject, which is the
+// double's version of the one UPDATE links/database issues.
+//
+// It refuses on a deadline no more than that statement does: a record that
+// expired without being resolved is still moved, and the count still includes
+// it.
+func (s *memoryStore) RevokeForSubject(
+	_ context.Context,
+	subject Subject,
+	at, purgeAfter time.Time,
+) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.revokeErr != nil {
+		return 0, s.revokeErr
+	}
+
+	var revoked int64
+
+	for id, record := range s.records {
+		if record.Subject != subject || !record.ResolvedAt.IsZero() {
+			continue
+		}
+
+		moved := *record
+		moved.State = StateRevoked
+		moved.ResolvedAt = at
+		moved.PurgeAfter = purgeAfter
+
+		s.records[id] = &moved
+		revoked++
+	}
+
+	return revoked, nil
 }
 
 // read is the shared body of Get and Resolve's read half, held under the mutex

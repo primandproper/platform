@@ -88,3 +88,23 @@ CREATE TABLE IF NOT EXISTS {{PREFIX}}action_links (
 -- link stop working.
 CREATE INDEX IF NOT EXISTS {{PREFIX}}action_links_purge_after_idx
     ON {{PREFIX}}action_links (purge_after);
+
+-- Serves the plural revoke: every link a subject still has outstanding, moved
+-- in one statement, for a completed password reset, a locked account, or an
+-- erasure. It is the other read in this package that cannot name its rows in
+-- advance, and it is why the subject column earns an index that the redemption
+-- path would never have asked for.
+--
+-- resolved_at is the second column rather than a WHERE on a partial index.
+-- Postgres and SQLite would take `WHERE resolved_at IS NULL` and MySQL has no
+-- such thing, so a partial index here would be a third spelling of one index
+-- across three files — the drift this schema spends its comments avoiding — to
+-- save a column on a table whose rows are collected within the retention
+-- window. The composite serves `subject = ? AND resolved_at IS NULL` on all
+-- three engines.
+--
+-- The pair is deliberately not (subject, action). An operator revoking after a
+-- suspected compromise does not know what was minted, which is the whole reason
+-- the statement exists.
+CREATE INDEX IF NOT EXISTS {{PREFIX}}action_links_subject_idx
+    ON {{PREFIX}}action_links (subject, resolved_at);

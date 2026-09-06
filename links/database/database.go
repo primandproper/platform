@@ -25,6 +25,16 @@ import (
 // sweeper's live here, because nothing above this layer knows a sweep happened.
 const serviceName = "links_database"
 
+// The observability keys this store sets that the Minter above it cannot. A
+// subject is one of them: the Minter refuses to label a metric with it, for the
+// cardinality reason its own documentation gives, but a span is one operation
+// rather than a time series, and the whole point of the operation being traced
+// is which subject it withdrew links for.
+const (
+	subjectKey = "links.subject"
+	revokedKey = "links.revoked"
+)
+
 // DefaultTablePrefix is the namespace the action link table carries when none
 // is configured, which is none — rendering plain "action_links".
 //
@@ -39,11 +49,11 @@ var _ links.Store = (*Store)(nil)
 // Store keeps action link records in a SQL table, against the schema
 // links/database/migrations renders.
 //
-// It is exported, and returned by New, so a caller who has chosen durable
-// storage can depend on that choice rather than on the links.Store seam. It
-// does one thing more than links.Store describes — Sweep removes rows past
-// their purge deadline — and that does not belong on the interface: a cache
-// expires its own entries and has nothing to sweep.
+// It is exported, and returned by New, so a caller holding one can depend on
+// this type rather than on the links.Store seam. It does one thing more than
+// links.Store describes — Sweep removes rows past their purge deadline — and
+// that stays off the interface: reclaiming rows is this storage's own
+// housekeeping, not something a Minter asks anybody for.
 type Store struct {
 	db    database.Client
 	q     linksdb.Querier
@@ -59,9 +69,9 @@ type Store struct {
 //
 // It takes no locker, which is the whole point of it. Single use here is the
 // affected row count of an UPDATE guarded on the link not yet having been
-// resolved, evaluated by the server inside one transaction — so a deployment
-// with a database and no Redis gets the same guarantee links/cache buys with a
-// distributed lock, and gets it without a lock service to run.
+// resolved, evaluated by the server inside one transaction — the same
+// guarantee a distributed lock would have been run for, decided by a server
+// the application already has.
 //
 // Reads go through the write pool, deliberately. A link is written by whatever
 // builds the email and read by the click that follows, and replica lag turns
@@ -306,6 +316,63 @@ func (s *Store) Resolve(
 	}
 
 	return found, nil
+}
+
+// RevokeForSubject moves every unresolved link for a subject into
+// StateRevoked, and reports how many it moved.
+//
+// subject is a column here, so "withdraw everything this person still has
+// outstanding" is one statement rather than a walk of the application's audit
+// log with a Revoke per result. That is what makes it a links.Store method
+// rather than an optional capability — see the interface, where the column is
+// the requirement.
+//
+// There is no transaction, because there is nothing to make atomic. One
+// statement is already one transaction on all three engines, and the guard that
+// makes the resolution single-use — resolved_at IS NULL — is the same guard
+// here, evaluated per row by the server. A redemption of one of these links
+// racing this write is therefore decided the way two redemptions are: whichever
+// reaches the row first moves it, the other finds resolved_at set, and this
+// call's count excludes the row it lost.
+//
+// The count discriminates on every engine for the reason Resolve's does. MySQL
+// reports rows changed rather than matched, which makes a zero ambiguous for a
+// statement that might write values a row already held; this one always moves
+// resolved_at from NULL to an instant, so a row it matched is a row it changed.
+//
+// It takes no scope, and the rows it moves may belong to any number of tenants.
+// Revoking a person's links should cross whatever tenants that person belongs
+// to rather than stop inside one — see links/database/migrations for why this
+// table has no scope column at all.
+func (s *Store) RevokeForSubject(
+	ctx context.Context,
+	subject links.Subject,
+	at, purgeAfter time.Time,
+) (int64, error) {
+	ctx, op := s.o11y.Begin(ctx)
+	defer op.End()
+
+	if subject == "" {
+		return 0, op.Error(links.ErrEmptySubject, "checking action link subject")
+	}
+
+	op.Set(subjectKey, string(subject))
+
+	resolvedAt := at.UTC()
+
+	revoked, err := s.q.RevokeSubjectLinks(ctx, s.db.Writer(), linksdb.RevokeSubjectLinksParams{
+		State:      int64(links.StateRevoked),
+		ResolvedAt: &resolvedAt,
+		PurgeAfter: purgeAfter.UTC(),
+		Subject:    string(subject),
+	})
+	if err != nil {
+		return 0, op.Error(err, "revoking action link rows for subject")
+	}
+
+	op.Set(revokedKey, revoked)
+
+	return revoked, nil
 }
 
 // read resolves an ID to the row stored under it, reporting ErrLinkNotFound

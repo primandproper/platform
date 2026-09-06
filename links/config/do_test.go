@@ -16,6 +16,18 @@ import (
 	"github.com/shoenig/test/must"
 )
 
+// newLinksDB builds a throwaway SQLite client with the action link table
+// created, which is the pair of things every Minter this package assembles now
+// needs.
+func newLinksDB(t *testing.T) database.Client {
+	t.Helper()
+
+	client := testDBClient(t)
+	must.NoError(t, createLinksTable(t, client))
+
+	return client
+}
+
 func testDBClient(t *testing.T) database.Client {
 	t.Helper()
 
@@ -57,8 +69,8 @@ func TestRegisterMinter(T *testing.T) {
 
 		i := do.New()
 		do.ProvideValue[context.Context](i, t.Context())
-		do.ProvideValue[database.Client](i, testDBClient(t))
-		do.ProvideValue(i, memoryConfig())
+		do.ProvideValue[database.Client](i, newLinksDB(t))
+		do.ProvideValue(i, testConfig())
 
 		RegisterMinter(i)
 
@@ -74,23 +86,8 @@ func TestRegisterMinter(T *testing.T) {
 		// an error, only a registered pillar that fails to build is.
 		i := do.New()
 		do.ProvideValue[context.Context](i, t.Context())
-		do.ProvideValue[database.Client](i, testDBClient(t))
-		do.ProvideValue(i, memoryConfig())
-
-		RegisterMinter(i)
-
-		_, err := do.Invoke[*links.Minter](i)
-		test.NoError(t, err)
-	})
-
-	T.Run("wires up with no database client registered", func(t *testing.T) {
-		t.Parallel()
-
-		// The cache provider against a memory locker needs none, and a
-		// container that registers none must still resolve.
-		i := do.New()
-		do.ProvideValue[context.Context](i, t.Context())
-		do.ProvideValue(i, memoryConfig())
+		do.ProvideValue[database.Client](i, newLinksDB(t))
+		do.ProvideValue(i, testConfig())
 
 		RegisterMinter(i)
 

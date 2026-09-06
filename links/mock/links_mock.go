@@ -30,6 +30,9 @@ var _ links.Store = &StoreMock{}
 //			ResolveFunc: func(ctx context.Context, id links.ID, to links.State, at time.Time, purgeAfter time.Time) (*links.Record, error) {
 //				panic("mock out the Resolve method")
 //			},
+//			RevokeForSubjectFunc: func(ctx context.Context, subject links.Subject, at time.Time, purgeAfter time.Time) (int64, error) {
+//				panic("mock out the RevokeForSubject method")
+//			},
 //		}
 //
 //		// use mockedStore in code that requires links.Store
@@ -45,6 +48,9 @@ type StoreMock struct {
 
 	// ResolveFunc mocks the Resolve method.
 	ResolveFunc func(ctx context.Context, id links.ID, to links.State, at time.Time, purgeAfter time.Time) (*links.Record, error)
+
+	// RevokeForSubjectFunc mocks the RevokeForSubject method.
+	RevokeForSubjectFunc func(ctx context.Context, subject links.Subject, at time.Time, purgeAfter time.Time) (int64, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -77,10 +83,22 @@ type StoreMock struct {
 			// PurgeAfter is the purgeAfter argument value.
 			PurgeAfter time.Time
 		}
+		// RevokeForSubject holds details about calls to the RevokeForSubject method.
+		RevokeForSubject []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Subject is the subject argument value.
+			Subject links.Subject
+			// At is the at argument value.
+			At time.Time
+			// PurgeAfter is the purgeAfter argument value.
+			PurgeAfter time.Time
+		}
 	}
-	lockGet     sync.RWMutex
-	lockPut     sync.RWMutex
-	lockResolve sync.RWMutex
+	lockGet              sync.RWMutex
+	lockPut              sync.RWMutex
+	lockResolve          sync.RWMutex
+	lockRevokeForSubject sync.RWMutex
 }
 
 // Get calls GetFunc.
@@ -204,5 +222,49 @@ func (mock *StoreMock) ResolveCalls() []struct {
 	mock.lockResolve.RLock()
 	calls = mock.calls.Resolve
 	mock.lockResolve.RUnlock()
+	return calls
+}
+
+// RevokeForSubject calls RevokeForSubjectFunc.
+func (mock *StoreMock) RevokeForSubject(ctx context.Context, subject links.Subject, at time.Time, purgeAfter time.Time) (int64, error) {
+	if mock.RevokeForSubjectFunc == nil {
+		panic("StoreMock.RevokeForSubjectFunc: method is nil but Store.RevokeForSubject was just called")
+	}
+	callInfo := struct {
+		Ctx        context.Context
+		Subject    links.Subject
+		At         time.Time
+		PurgeAfter time.Time
+	}{
+		Ctx:        ctx,
+		Subject:    subject,
+		At:         at,
+		PurgeAfter: purgeAfter,
+	}
+	mock.lockRevokeForSubject.Lock()
+	mock.calls.RevokeForSubject = append(mock.calls.RevokeForSubject, callInfo)
+	mock.lockRevokeForSubject.Unlock()
+	return mock.RevokeForSubjectFunc(ctx, subject, at, purgeAfter)
+}
+
+// RevokeForSubjectCalls gets all the calls that were made to RevokeForSubject.
+// Check the length with:
+//
+//	len(mockedStore.RevokeForSubjectCalls())
+func (mock *StoreMock) RevokeForSubjectCalls() []struct {
+	Ctx        context.Context
+	Subject    links.Subject
+	At         time.Time
+	PurgeAfter time.Time
+} {
+	var calls []struct {
+		Ctx        context.Context
+		Subject    links.Subject
+		At         time.Time
+		PurgeAfter time.Time
+	}
+	mock.lockRevokeForSubject.RLock()
+	calls = mock.calls.RevokeForSubject
+	mock.lockRevokeForSubject.RUnlock()
 	return calls
 }

@@ -45,14 +45,13 @@ one token both see it active. This package cannot close that window from above
 the store, so it does not try — Store.Resolve is the seam precisely because only
 the storage layer can.
 
-The two shipped stores close it differently, and that is what makes them
-genuinely different choices rather than a fast one and a durable one.
-links/cache holds a distributedlock across both halves, which is why a locker is
-a required argument there with no default: the noop locker acquires
-unconditionally, and with it every test still passes — single use holds for the
-sequential case and fails only under the concurrency an attacker supplies
-deliberately. links/database needs no locker at all, because a guarded UPDATE
-inside one transaction is the same promise decided by the server.
+links/database closes it with the affected row count of a guarded UPDATE inside
+one transaction: the server decides who moved the row, and the loser is told so.
+That is why there is no lock service anywhere in this package's wiring, and why
+a store that would need one is a harder thing to ship than it looks — a locker
+left unconfigured acquires unconditionally, every sequential test still passes,
+and single use fails only under the concurrency an attacker supplies
+deliberately.
 
 Consumption is committed before the claims are returned. If the store cannot be
 written, Redeem fails and hands back nothing, without a failure-policy knob.
@@ -114,18 +113,28 @@ redeeming, and keep the lifetime short enough that a leaked URL is usually
 already dead. Putting the token in the path rather than the query does not help
 with Referer, and helps with access logs only until somebody logs full paths.
 
-# Withdrawing one
+# Withdrawing one, and withdrawing all of them
 
 Revoke takes an ID, not a token, because the server never had the token. The ID
 is what Mint returned and what the audit entry for that mint should have
 recorded, so a link can be withdrawn months later with nothing secret having
 been kept in between.
 
-"Invalidate every outstanding reset link for this account" is therefore a query
-against the audit log — mints of that action for that subject, with no
-corresponding redemption — followed by a Revoke per result. This package holds
-no index to answer it directly, and building one would be a second, weaker copy
-of a log the application already keeps.
+"Invalidate every outstanding reset link for this account" is RevokeForSubject,
+and it asks nobody for a list first. A completed password reset kills the reset
+links still in flight; a locked or compromised account kills every live link
+naming it, across actions, without knowing what was minted; an erasure kills the
+lot. Three flows that all know the person and none of which knows the IDs. It
+crosses whatever tenants that person belongs to rather than stopping inside one,
+which is why it takes no scope.
+
+Subject is a column, so the answer is one UPDATE — guarded exactly as a
+redemption is, and reporting exactly what it moved. It is part of Store rather
+than a capability beside it, which is a claim about every store this package
+will ever accept: one that cannot read its records by subject cannot implement
+the interface. The alternative was an audit-log walk — mints of that action for
+that subject with no corresponding redemption, then a Revoke per result — and
+that walk is a second, weaker copy of a log the application already keeps.
 
 # Recording it
 
@@ -157,26 +166,39 @@ version of it.
 
 # The store
 
-A Minter is built over a Store, and this module ships two.
+A Minter is built over a Store, and this module ships one: links/database, which
+keeps records in a SQL table of its own with migrations to create it, needs no
+lock service, and sweeps its own rows.
 
-links/cache keeps records in a cache.Cache[Record] and takes a
-distributedlock.ScopedLocker beside it. Redis is the production answer there.
+There was a second. links/cache kept records in a cache.Cache[Record] with a
+distributedlock.ScopedLocker beside it, and it was withdrawn rather than fixed.
+The reason is worth writing down, because "put it in Redis" is the obvious
+suggestion for a record read once and forgotten a day later.
 
-links/database keeps them in a SQL table of its own, with migrations to create
-it, and takes no locker. It is what a deployment with a database and no Redis
-wants — which is not a small-deployment compromise. A link is minted by whatever
-builds the email and redeemed by whatever serves the click, so those are
-routinely two processes; a store only one of them can reach does not make a link
-less durable, it makes it unredeemable. cache/memory is exactly that store, and
-even collapsed into one process it loses every outstanding link at the next
-deploy — which for a verification link meant to be clicked hours later is most
-of them. It is for tests.
+A record is keyed by the digest of its token, because redemption arrives holding
+the token and nothing else. A cache reads by key. So there is no read by
+subject, and no way to add one except a subject-to-IDs set maintained by hand: a
+second write on every mint that can fail on its own, an amendment on every
+resolution, and a set that drifts from the records it points at whenever either
+write loses. Withdrawing every link a person holds is not a nice-to-have on a
+credential store — it is what a completed password reset, a locked account and
+an erasure each need — so the gap was not one a provider could carry.
+
+Keeping it anyway had a price paid by everybody. The plural revoke had to be an
+optional capability rather than a method, with a sentinel for its absence and a
+type assertion at the call site, so that every caller of a working deployment's
+Minter still handled the answer a store nobody should have chosen would give.
+Redemption needed a distributed lock, and a locker left unconfigured is a
+single-use guarantee that passes every test and fails under attack. And the
+provider that would have justified all of it — Redis shared between the process
+that mints and the process that serves the click — was not the one a
+misconfiguration produced: cache/memory is per-process, so a link minted in the
+message handler does not exist for the API server at all.
 
 Record expiry is decided by this package against its own clock, not by the
-storage. Record.PurgeAfter is deliberately set past ExpiresAt, so a cache that
-evicts late — or a table nothing has swept — cannot keep a credential alive past
-the moment it was supposed to die, and a spent link can still be told apart from
-one that never existed.
+storage. Record.PurgeAfter is deliberately set past ExpiresAt, so a table
+nothing has swept cannot keep a credential alive past the moment it was supposed
+to die, and a spent link can still be told apart from one that never existed.
 
 Every record carries a Version, and it is the Store that compares it against
 RecordVersion. A record written by a different shape reads as absent rather than
@@ -192,11 +214,15 @@ at that moment to stop working.
 	                     already_redeemed, expired, revoked, invalid_token,
 	                     store_error.
 	links_revocations    by action.
+	links_subject_revocations
+	                     links withdrawn by RevokeForSubject, unlabeled. A
+	                     plural revoke crosses actions, so there is no action to
+	                     label it with, and the subject is the label nothing
+	                     bounds.
 	links_store_errors   store health. Every one of these is a redemption that
-	                     did not happen — the alert. The store's own
-	                     instruments sit beside it: links_database_rows_swept
-	                     and links_database_sweep_errors under the database
-	                     provider, the cache provider's own under the other.
+	                     did not happen — the alert. The store's own instruments
+	                     sit beside it: links_database_rows_swept and
+	                     links_database_sweep_errors.
 	links_stale_records  records ignored for carrying another version; expected
 	                     to spike once after a shape change and then return to
 	                     zero.

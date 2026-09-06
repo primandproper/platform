@@ -2,7 +2,6 @@ package linkscfg
 
 import (
 	"github.com/primandproper/platform-go/v14/links"
-	linkscache "github.com/primandproper/platform-go/v14/links/cache"
 	linksdatabase "github.com/primandproper/platform-go/v14/links/database"
 	"github.com/primandproper/platform-go/v14/observability"
 	"github.com/primandproper/platform-go/v14/observability/logging"
@@ -19,7 +18,7 @@ import (
 // three name all three anyway, usually as noops.
 type Option func(*options)
 
-// options collects what the options set. The three pass-through slices exist
+// options collects what the options set. The two pass-through slices exist
 // because Go allows one variadic per function and that slot belongs to this
 // package's own Option; anything bound for a component this constructor builds
 // arrives through a WithXOptions instead.
@@ -29,7 +28,6 @@ type options struct {
 	metricsProvider metrics.Provider
 
 	minter        []links.Option
-	cacheStore    []linkscache.Option
 	databaseStore []linksdatabase.Option
 }
 
@@ -87,16 +85,9 @@ func WithMinterOptions(opts ...links.Option) Option {
 	return func(o *options) { o.minter = append(o.minter, opts...) }
 }
 
-// WithCacheStoreOptions passes options through to the cache store. They are
-// applied after the ones derived from the Config, so they win, and they are
-// ignored under any other provider.
-func WithCacheStoreOptions(opts ...linkscache.Option) Option {
-	return func(o *options) { o.cacheStore = append(o.cacheStore, opts...) }
-}
-
-// WithDatabaseStoreOptions passes options through to the database store —
-// WithCodec, most usefully. They are applied after the ones derived from the
-// Config, so they win, and they are ignored under any other provider.
+// WithDatabaseStoreOptions passes options through to the store — WithCodec,
+// most usefully. They are applied after the ones derived from the Config, so
+// they win.
 func WithDatabaseStoreOptions(opts ...linksdatabase.Option) Option {
 	return func(o *options) { o.databaseStore = append(o.databaseStore, opts...) }
 }

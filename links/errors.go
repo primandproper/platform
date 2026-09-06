@@ -47,9 +47,12 @@ var (
 	// working-looking link to a page that does not exist, and a metric labeled
 	// by action cannot be given unbounded cardinality by a caller.
 	ErrUnknownAction = platformerrors.New("unknown action link action")
-	// ErrEmptySubject indicates Mint was called without a subject. A link bound
-	// to nobody would redeem into a claim the caller cannot act on, so it is
-	// rejected rather than minted.
+	// ErrEmptySubject indicates a subject was required and not supplied. From
+	// Mint that is a link bound to nobody, which would redeem into a claim the
+	// caller cannot act on, so it is rejected rather than minted; from
+	// Minter.RevokeForSubject it is a revocation naming nobody, which a store
+	// keying on the column would answer by moving no rows and reporting
+	// success.
 	ErrEmptySubject = platformerrors.New("empty action link subject")
 	// ErrNoActions indicates NewMinter was called with no action registered.
 	// A Minter that can mint nothing is a wiring mistake, and one that reports
@@ -95,9 +98,8 @@ var (
 	// ErrNilStore indicates NewMinter was called without a record store. It
 	// wraps errors.ErrNilInputParameter, so a caller may check either.
 	//
-	// There is no ErrNilLocker beside it any more. A locker is what links/cache
-	// needs to make a read and a write one operation, and links/database gets
-	// the same guarantee from a guarded UPDATE inside a transaction — so the
-	// requirement belongs to the store that has it, and lives in that package.
+	// It is the only wiring sentinel this package has, and there is no
+	// ErrNilLocker beside it: single use is bought by a guarded UPDATE inside
+	// a transaction, so there is no lock service to leave unset.
 	ErrNilStore = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil action link store")
 )

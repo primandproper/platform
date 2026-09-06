@@ -14,3 +14,6 @@ CREATE TABLE IF NOT EXISTS action_links (
 CREATE INDEX IF NOT EXISTS action_links_purge_after_idx
     ON action_links (purge_after);
 
+CREATE INDEX IF NOT EXISTS action_links_subject_idx
+    ON action_links (subject, resolved_at);
+

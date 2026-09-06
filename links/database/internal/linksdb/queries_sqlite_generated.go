@@ -56,25 +56,34 @@ const resolveLinkSQLite = `UPDATE {{prefix}}action_links SET
 WHERE id = ?4
 	AND resolved_at IS NULL`
 
+const revokeSubjectLinksSQLite = `UPDATE {{prefix}}action_links SET
+	state = ?1,
+	resolved_at = ?2,
+	purge_after = ?3
+WHERE subject = ?4
+	AND resolved_at IS NULL`
+
 const sweepLinksSQLite = `DELETE FROM {{prefix}}action_links
 WHERE purge_after <= ?1`
 
 // sqliteQueries answers every query in Querier against sqlite.
 type sqliteQueries struct {
-	getLink     string
-	insertLink  string
-	resolveLink string
-	sweepLinks  string
+	getLink            string
+	insertLink         string
+	resolveLink        string
+	revokeSubjectLinks string
+	sweepLinks         string
 }
 
 // newSQLite returns the sqlite querier with prefix substituted into every
 // table name the analyzer identified.
 func newSQLite(prefix string) *sqliteQueries {
 	return &sqliteQueries{
-		getLink:     strings.ReplaceAll(getLinkSQLite, prefixMarker, prefix),
-		insertLink:  strings.ReplaceAll(insertLinkSQLite, prefixMarker, prefix),
-		resolveLink: strings.ReplaceAll(resolveLinkSQLite, prefixMarker, prefix),
-		sweepLinks:  strings.ReplaceAll(sweepLinksSQLite, prefixMarker, prefix),
+		getLink:            strings.ReplaceAll(getLinkSQLite, prefixMarker, prefix),
+		insertLink:         strings.ReplaceAll(insertLinkSQLite, prefixMarker, prefix),
+		resolveLink:        strings.ReplaceAll(resolveLinkSQLite, prefixMarker, prefix),
+		revokeSubjectLinks: strings.ReplaceAll(revokeSubjectLinksSQLite, prefixMarker, prefix),
+		sweepLinks:         strings.ReplaceAll(sweepLinksSQLite, prefixMarker, prefix),
 	}
 }
 
@@ -164,6 +173,21 @@ func (q *sqliteQueries) ResolveLink(ctx context.Context, db DBTX, arg ResolveLin
 	return result.RowsAffected()
 }
 
+// RevokeSubjectLinks runs the :execrows query against sqlite.
+func (q *sqliteQueries) RevokeSubjectLinks(ctx context.Context, db DBTX, arg RevokeSubjectLinksParams) (int64, error) {
+	result, err := db.ExecContext(ctx, q.revokeSubjectLinks,
+		arg.State,
+		timeTextPtr(arg.ResolvedAt),
+		timeText(arg.PurgeAfter),
+		arg.Subject,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
 // SweepLinks runs the :execrows query against sqlite.
 func (q *sqliteQueries) SweepLinks(ctx context.Context, db DBTX, arg SweepLinksParams) (int64, error) {
 	result, err := db.ExecContext(ctx, q.sweepLinks,
@@ -215,6 +239,12 @@ var (
 		PurgeAfter time.Time
 		ID         string
 	}(ResolveLinkParams{})
+	_ = struct {
+		State      int64
+		ResolvedAt *time.Time
+		PurgeAfter time.Time
+		Subject    string
+	}(RevokeSubjectLinksParams{})
 	_ = struct {
 		PurgeBefore time.Time
 	}(SweepLinksParams{})

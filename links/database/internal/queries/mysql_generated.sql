@@ -47,6 +47,14 @@ UPDATE action_links SET
 WHERE id = sqlc.arg(id)
 	AND resolved_at IS NULL;
 
+-- name: RevokeSubjectLinks :execrows
+UPDATE action_links SET
+	state = sqlc.arg(state),
+	resolved_at = sqlc.narg(resolved_at),
+	purge_after = sqlc.arg(purge_after)
+WHERE subject = sqlc.arg(subject)
+	AND resolved_at IS NULL;
+
 -- name: SweepLinks :execrows
 DELETE FROM action_links
 WHERE purge_after <= sqlc.arg(purge_before);
