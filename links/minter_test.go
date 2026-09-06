@@ -201,7 +201,7 @@ func TestMinter_Mint(T *testing.T) {
 	T.Run("reports a store failure rather than a link nothing recorded", func(t *testing.T) {
 		t.Parallel()
 
-		m := newFailingStoreMinter(t, platformerrors.New("redis is on fire"))
+		m := newFailingStoreMinter(t, platformerrors.New("the database is on fire"))
 
 		_, err := m.Mint(t.Context(), testAction, testSubject)
 		test.ErrorIs(t, err, ErrStoreUnavailable)
@@ -280,8 +280,8 @@ func TestMinter_Redeem(T *testing.T) {
 		// The Store contract, from above it: whatever a store buys atomicity
 		// with, exactly one caller may be told it holds the link. Without it
 		// this is a number greater than one, and only under concurrency —
-		// which is what links/cache's locker and links/database's guarded
-		// UPDATE are each tested for in their own package.
+		// which is what links/database's guarded UPDATE is tested for in its
+		// own package.
 		test.EqOp(t, 1, redeemed)
 	})
 
@@ -355,7 +355,7 @@ func TestMinter_Redeem(T *testing.T) {
 		link, err := m.Mint(t.Context(), testAction, testSubject)
 		must.NoError(t, err)
 
-		store.resolveErr = platformerrors.New("redis is on fire")
+		store.resolveErr = platformerrors.New("the database is on fire")
 
 		claims, err := m.Redeem(t.Context(), link.Token)
 		test.ErrorIs(t, err, ErrStoreUnavailable)
@@ -365,7 +365,7 @@ func TestMinter_Redeem(T *testing.T) {
 	T.Run("fails closed when the store cannot be read", func(t *testing.T) {
 		t.Parallel()
 
-		m := newFailingStoreMinter(t, platformerrors.New("redis is on fire"))
+		m := newFailingStoreMinter(t, platformerrors.New("the database is on fire"))
 
 		_, err := m.Redeem(t.Context(), "some-token")
 		test.ErrorIs(t, err, ErrStoreUnavailable)
@@ -415,8 +415,8 @@ func TestMinter_Redeem(T *testing.T) {
 
 		claims.Metadata["next"] = "/evil"
 
-		// The store double hands back the pointer it holds, as the memory cache
-		// provider does, so a shared map would have let that assignment edit
+		// The store double hands back the pointer it holds, which a real store
+		// is free to do, so a shared map would have let that assignment edit
 		// the stored record.
 		test.EqOp(t, "/dashboard", store.stored(t, link.ID).Metadata["next"])
 	})
@@ -707,35 +707,12 @@ func TestMinter_RevokeForSubject(T *testing.T) {
 		test.EqOp(t, int64(0), revoked)
 	})
 
-	// The links/cache case. The store cannot answer, so the Minter says so
-	// rather than approximating — and says it without withdrawing anything.
-	T.Run("reports a store that cannot revoke by subject", func(t *testing.T) {
-		t.Parallel()
-
-		backing := newMemoryStore()
-
-		m, err := NewMinter(storeWithoutSubjects{Store: backing}, WithAction(testAction, testPolicy()))
-		must.NoError(t, err)
-
-		link, err := m.Mint(t.Context(), testAction, testSubject)
-		must.NoError(t, err)
-
-		revoked, err := m.RevokeForSubject(t.Context(), testSubject)
-		test.ErrorIs(t, err, ErrSubjectRevocationUnsupported)
-		test.EqOp(t, int64(0), revoked)
-
-		// Nothing was withdrawn on the way to the refusal.
-		claims, err := m.Redeem(t.Context(), link.Token)
-		must.NoError(t, err)
-		test.EqOp(t, testSubject, claims.Subject)
-	})
-
-	// A store that is the right kind and cannot be reached is the other
-	// failure, and it is the one that fails closed as an outage.
+	// A store that cannot be reached fails closed, as an outage rather than as
+	// a revocation that quietly moved nothing.
 	T.Run("fails closed when the store cannot be written", func(t *testing.T) {
 		t.Parallel()
 
-		m := newFailingStoreMinter(t, platformerrors.New("redis is on fire"))
+		m := newFailingStoreMinter(t, platformerrors.New("the database is on fire"))
 
 		revoked, err := m.RevokeForSubject(t.Context(), testSubject)
 		test.ErrorIs(t, err, ErrStoreUnavailable)

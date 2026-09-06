@@ -118,7 +118,11 @@ func TestZeroValueConfigIsDecisive(T *testing.T) {
 		{name: "idempotency", cfg: &idempotencycfg.Config{}, needs: "provider"},
 		{name: "jobs/pool", cfg: &jobscfg.PoolConfig{}, needs: "topic"},
 		{name: "jobs/scheduler", cfg: &jobscfg.SchedulerConfig{}, needs: "provider"},
-		{name: "links", cfg: &linkscfg.Config{}, needs: "provider"},
+		// It needed a provider until there was only one store. What a zero
+		// config still cannot do is mint: NewMinter refuses a registry with no
+		// actions, which is checked there rather than here because the actions
+		// a caller passes as options are only visible at that point.
+		{name: "links", cfg: &linkscfg.Config{}, why: "the one store reads its table from the client, and every other field has a default"},
 		{name: "llm", cfg: &llmcfg.Config{}, needs: "provider"},
 		{name: "messagequeue", cfg: &messagequeuecfg.Config{}, needs: "provider"},
 		{name: "metering", cfg: &meteringcfg.Config{}, why: "metering counts in memory until a store is named"},

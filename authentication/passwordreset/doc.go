@@ -78,12 +78,11 @@ is a fair one and the answer is not "whichever you find first".
 links mints whole URLs from a registry of action policies, so one primitive
 serves magic login, unsubscribe, and verification without knowing what any of
 them means. Its records live behind a
-[github.com/primandproper/platform-go/v14/links.Store], and it ships two —
-links/cache over a [github.com/primandproper/platform-go/v14/cache.Cache], and
-links/database over a table of its own. So "which one runs on my
-infrastructure" is no longer the question that separates them: the durable
-choice exists on both sides, and links/database buys single use the same way
-this package does, from the affected row count of a guarded UPDATE inside one
+[github.com/primandproper/platform-go/v14/links.Store], and links/database — a
+table of its own — is the one implementation. So "which one runs on my
+infrastructure" is not the question that separates them: both packages want a
+database and nothing else, and links/database buys single use the same way this
+package does, from the affected row count of a guarded UPDATE inside one
 transaction.
 
 What is left is the table's shape, and what follows from it is tenancy. Every
@@ -94,10 +93,9 @@ tenant at a time is answerable here and nowhere else.
 
 The plural revoke used to be on that list and is not any more.
 links.Minter.RevokeForSubject withdraws every link a subject still holds in one
-statement, wherever the configured store can answer it: links/database can, from
-the same subject column its redemptions are bound by, and links/cache reports
-that it cannot. So the difference is narrower than it was and it runs the other
-way. [Store.RevokeForUser] revokes inside one tenant, keyed on a user this table
+statement, from the same subject column its redemptions are bound by. So the
+difference is narrower than it was and it runs the other way.
+[Store.RevokeForUser] revokes inside one tenant, keyed on a user this table
 stores against; the links form revokes across all of a subject's tenants at
 once, keyed on an identifier that table could not resolve if it wanted to.
 Which of the two a completed reset wants is a question about how the application

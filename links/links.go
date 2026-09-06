@@ -40,8 +40,8 @@ const (
 	//
 	// It is exported because a Store is what compares it. The check belongs
 	// there rather than above it: links/database keeps it in a column and
-	// links/cache reads it back off the decoded record, and neither wants a
-	// Minter deciding after the fact that the record it just resolved was
+	// reads it inside the transaction that resolves the row, and nothing wants
+	// a Minter deciding after the fact that the record it just resolved was
 	// written by something else.
 	RecordVersion = 2
 )
@@ -104,17 +104,17 @@ type (
 	// token. It holds no secret: everything in it is already known to whoever
 	// minted the link, and none of it can be turned back into a token.
 	//
-	// It is exported because a Store is what holds it, and the two shipped
-	// implementations live in packages of their own. Its fields are read by
-	// this package and by those two; Claims is what a redemption hands back.
+	// It is exported because a Store is what holds it, and the shipped
+	// implementation lives in a package of its own. Its fields are read by
+	// this package and by that one; Claims is what a redemption hands back.
 	Record struct {
 		// CreatedAt is when the link was minted.
 		CreatedAt time.Time
 		// ExpiresAt is when the link stops being redeemable.
 		//
-		// The store's own expiry is set past it deliberately, so this field
-		// rather than the cache is what decides. A cache that fails to evict on
-		// time must not be able to resurrect a credential.
+		// The store's own purge deadline is set past it deliberately, so this
+		// field rather than the storage is what decides. A store that forgets
+		// a record late must not be able to resurrect a credential.
 		ExpiresAt time.Time
 		// ResolvedAt is when the link was redeemed or revoked, and is zero while
 		// the link is active.
@@ -125,10 +125,9 @@ type (
 		// It is what buys the difference between "that link was already used"
 		// and "no such link" — two dead ends for the bearer, one of them a
 		// sentence a person can act on. It is stamped by the Minter rather than
-		// computed by the store so that the cache's TTL and the table's
-		// sweepable column are one decision made once: two stores computing it
-		// from a retention window apiece could come to disagree about how long
-		// a spent link keeps answering.
+		// computed by the store, so a second store added later inherits the
+		// deadline rather than recomputing it from a retention window of its
+		// own and disagreeing about how long a spent link keeps answering.
 		PurgeAfter time.Time
 		// Metadata is what the minter attached, returned verbatim on
 		// redemption.
@@ -195,18 +194,17 @@ type (
 
 // Usable reports why a record cannot be acted on at now, or nil when it can.
 //
-// It is the one place the answer is decided, which is what keeps the two
-// shipped stores from disagreeing about it. links/cache asks it under a lock;
-// links/database asks it inside the transaction that resolves the row, having
-// read that row in the same transaction. A store that decided expiry for itself
-// would be a second copy of this comparison, free to disagree with Inspect
-// about the last second of a link's life.
+// It is the one place the answer is decided, which is what keeps a store from
+// having an opinion about it. links/database asks it inside the transaction
+// that resolves the row, having read that row in the same transaction. A store
+// that decided expiry for itself would be a second copy of this comparison,
+// free to disagree with Inspect about the last second of a link's life.
 //
 // Expiry is decided here against the caller's clock rather than left to the
-// store's own eviction. A cache's TTL is set past the link's on purpose and a
-// table reclaims nothing until something sweeps it, so a store that evicts late
-// — or not at all, as cache/memory does for an entry nothing reads — must not
-// be able to keep a credential alive past the moment it was supposed to die.
+// store's own reclamation. A table reclaims nothing until something sweeps it,
+// and PurgeAfter is set past ExpiresAt on purpose, so a store that forgets a
+// record late must not be able to keep a credential alive past the moment it
+// was supposed to die.
 func (r *Record) Usable(now time.Time) error {
 	switch r.State {
 	case StateRedeemed:
@@ -238,9 +236,10 @@ func (r *Record) Current() bool {
 
 // claims renders a stored record as the answer to a redemption.
 //
-// The metadata map is copied rather than shared. The memory cache provider
-// hands back the live pointer it stores, so a caller that mutated this map
-// would be editing a record still sitting in the store.
+// The metadata map is copied rather than shared. A store is free to hand back
+// the live pointer it holds — an in-memory one written for tests does exactly
+// that — so a caller that mutated this map would be editing a record still
+// sitting in the store.
 func (r *Record) claims(id ID) *Claims {
 	return &Claims{
 		ID:        id,

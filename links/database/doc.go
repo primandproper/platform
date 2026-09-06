@@ -1,11 +1,11 @@
 /*
 Package database stores action link records in a SQL table.
 
-It is the store for a deployment that has a database and does not have Redis —
-which, for links, is not a small-deployment compromise. A link is minted by
-whatever builds the email and redeemed by whatever serves the click, and those
-are routinely two processes; without a store both of them can reach, a link is
-not less durable, it is unredeemable.
+It is the store — there is no other, and links/doc.go records what the
+cache-backed one could not do. A link is minted by whatever builds the email and
+redeemed by whatever serves the click, and those are routinely two processes;
+without a store both of them can reach, a link is not less durable, it is
+unredeemable. A table is a store both of them already have.
 
 	store, _ := linksdatabase.New(&cfg.Database, db,
 		linksdatabase.WithSweeper(ctx, 5*time.Minute))
@@ -16,12 +16,13 @@ see links/database/migrations for why the platform ships no numbered file.
 
 # No locker, and that is the point
 
-links/cache needs a distributedlock.ScopedLocker, because a cache cannot make a
-read and a write one operation and without mutual exclusion two requests
-carrying one token both see the link active. Here single use is the affected row
-count of an UPDATE guarded on resolved_at IS NULL, inside one transaction: the
-server evaluates "this link, and it is still unresolved" at the instant the row
-changes, and exactly one of two concurrent redemptions is told it won.
+A store that cannot make a read and a write one operation needs a
+distributedlock.ScopedLocker to stand in for one, and without mutual exclusion
+two requests carrying one token both see the link active. Here single use is the
+affected row count of an UPDATE guarded on resolved_at IS NULL, inside one
+transaction: the server evaluates "this link, and it is still unresolved" at the
+instant the row changes, and exactly one of two concurrent redemptions is told
+it won.
 
 So a deployment adopting links needs neither Redis nor a lock service, and the
 guarantee is stronger rather than merely cheaper — it is decided by the same
@@ -55,8 +56,9 @@ holds is a credential, not a domain record, and the rule governs domain records.
 
 # Withdrawing a person's links
 
-RevokeForSubject is the capability this store has and links/cache does not — see
-links.SubjectRevoker. subject is a column, indexed alongside resolved_at, so
+RevokeForSubject is on links.Store because subject is a column here, and a
+store that cannot read by one is not a store this package accepts. It is
+indexed alongside resolved_at, so
 "withdraw everything this person still has outstanding" is one UPDATE guarded on
 resolved_at IS NULL, reporting the rows it moved. There is no scope argument and
 there is no scope column: the write crosses whatever tenants the subject belongs
@@ -84,11 +86,12 @@ used" instead of "no such link".
 
 Neither is enforced by this package. links.Record.Usable compares expires_at
 against the Minter's clock, so a row the sweeper has not reached is already
-refused, and the same comparison answers the same way in links/cache where there
-is no server to ask.
+refused — the decision is Go's, above the store, and no engine's idea of "now"
+enters it.
 
 Sweep is what keeps the table sized by live links rather than by every link ever
-minted — the one thing a cache does for itself. Run it, either through
+minted, which is the one piece of housekeeping storage with its own expiry would
+have done for itself. Run it, either through
 WithSweeper or from a scheduler calling Sweep; a fleet wants the second, so
 there is one sweeper rather than one per replica. Its horizon is bound from this
 store's clock rather than read off the server, because purge_after was stamped

@@ -42,10 +42,10 @@ var errDuplicateRecord = platformerrors.New("action link record already stored")
 // that either transitions the link or says why it would not. A mock returning
 // whatever a test asked for would let the Minter drift from all three.
 //
-// The two shipped stores are tested against their own storage — links/cache
-// with a real locker, links/database against a real engine — so what those
-// suites cover and this one cannot is the atomicity: here the mutex supplies
-// it, which is exactly what those two have to buy.
+// The shipped store is tested against its own storage — links/database against
+// a real engine — so what that suite covers and this one cannot is the
+// atomicity: here the mutex supplies it, which is exactly what a table has to
+// buy from a guarded UPDATE.
 //
 // It cannot live in links/mock: an in-package test importing that would close
 // an import cycle.
@@ -60,21 +60,7 @@ type memoryStore struct {
 	mu sync.Mutex
 }
 
-var (
-	_ Store          = (*memoryStore)(nil)
-	_ SubjectRevoker = (*memoryStore)(nil)
-)
-
-// storeWithoutSubjects is a Store and nothing more, for the tests about a
-// deployment whose store cannot revoke by subject — links/cache, in production.
-//
-// It embeds the interface rather than the concrete double on purpose: embedding
-// Store promotes exactly the three methods Store declares, so the wrapper does
-// not satisfy SubjectRevoker no matter what the value inside it can do. That is
-// the assertion the Minter makes, made unsatisfiable.
-type storeWithoutSubjects struct {
-	Store
-}
+var _ Store = (*memoryStore)(nil)
 
 // newMemoryStore builds an empty store.
 func newMemoryStore() *memoryStore {
@@ -110,8 +96,8 @@ func (s *memoryStore) Get(_ context.Context, id ID) (*Record, error) {
 	return s.read(id)
 }
 
-// Resolve transitions a link under the mutex, which is what the cache store
-// buys with a lock and the database store with a guarded UPDATE.
+// Resolve transitions a link under the mutex, which is what the database store
+// buys with a guarded UPDATE.
 func (s *memoryStore) Resolve(
 	_ context.Context,
 	id ID,

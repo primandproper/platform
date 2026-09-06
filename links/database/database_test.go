@@ -28,9 +28,8 @@ func TestNew(T *testing.T) {
 	T.Run("takes no locker", func(t *testing.T) {
 		t.Parallel()
 
-		// The whole reason this store exists. A deployment with a database and
-		// no Redis has nothing to hand a links/cache store, and this
-		// constructor's argument list is where that is either true or not.
+		// The claim links makes about needing no lock service, asserted where
+		// it could stop being true: this constructor's argument list.
 		store, err := New(&Config{}, newTestClient(t))
 		must.NoError(t, err)
 

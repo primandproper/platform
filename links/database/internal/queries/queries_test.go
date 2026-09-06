@@ -225,8 +225,8 @@ func TestRender_ReadProjectsTheRowWithoutItsID(T *testing.T) {
 // under, asserted rather than left to the shapes.
 //
 // links.Record.Usable compares the deadline in Go, against the Minter's clock,
-// because the same comparison has to answer the same way in links/cache where
-// there is no server to ask. A predicate here would be a second copy of it, free
+// so that liveness is decided in one place above the store rather than by
+// whichever engine is answering. A predicate here would be a second copy of it, free
 // to disagree with Inspect about which second a link stopped working, and free
 // to collapse "expired" and "already resolved" into one affected-row count of
 // zero. The sweep is the one statement that may compare a deadline, because it

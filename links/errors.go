@@ -95,24 +95,11 @@ var (
 	// account.
 	ErrStoreUnavailable = platformerrors.New("action link store unavailable")
 
-	// ErrSubjectRevocationUnsupported indicates the configured store cannot
-	// revoke by subject: it does not implement SubjectRevoker.
-	//
-	// It is a fact about the wiring rather than about any link, which is why it
-	// is not counted on links_store_errors and is not mapped by errors/http or
-	// errors/grpc — nothing a bearer did produced it, and no link changed. A
-	// deployment on links/cache gets it from every call, and the answer is
-	// either the audit-log walk that provider has always needed or a move to
-	// links/database. What it deliberately is not is a slow, drifting
-	// approximation of the write: a store that cannot answer says so.
-	ErrSubjectRevocationUnsupported = platformerrors.New("action link store cannot revoke by subject")
-
 	// ErrNilStore indicates NewMinter was called without a record store. It
 	// wraps errors.ErrNilInputParameter, so a caller may check either.
 	//
-	// There is no ErrNilLocker beside it any more. A locker is what links/cache
-	// needs to make a read and a write one operation, and links/database gets
-	// the same guarantee from a guarded UPDATE inside a transaction — so the
-	// requirement belongs to the store that has it, and lives in that package.
+	// It is the only wiring sentinel this package has, and there is no
+	// ErrNilLocker beside it: single use is bought by a guarded UPDATE inside
+	// a transaction, so there is no lock service to leave unset.
 	ErrNilStore = platformerrors.Wrap(platformerrors.ErrNilInputParameter, "nil action link store")
 )

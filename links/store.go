@@ -7,17 +7,13 @@ import (
 
 // Store is where a minted link's record lives.
 //
-// This package ships two implementations — links/cache over a
-// cache.Cache[Record], and links/database over a SQL table with its own
-// migrations — and which one a deployment picks is not a performance choice.
-// A link is minted by whatever builds the email and redeemed by whatever
-// serves the click, and those are routinely two processes. A cache backed by
-// Redis is shared between them; one backed by cache/memory is not, so a link
-// minted in the message handler does not exist for the API server, and every
-// outstanding link dies at the next deploy besides.
+// This module ships one implementation, links/database, over a SQL table with
+// its own migrations. A cache-backed store shipped alongside it once and was
+// withdrawn; links/doc.go records why, because the argument is about what this
+// interface can honestly promise rather than about which storage is faster.
 //
-// What an implementation owes a Minter is not "these three methods". It is the
-// three properties they exist to hold, none of which the signatures can state:
+// What an implementation owes a Minter is not "these four methods". It is the
+// properties they exist to hold, none of which the signatures can state:
 //
 // A record is stored under the digest of a token and never beside the token.
 // Nothing this interface carries is the credential, and nothing an
@@ -27,15 +23,18 @@ import (
 // one refusal, on separate connections, with no cooperation from the Minter —
 // that single guarantee is the whole of single use, and it is the reason the
 // method exists rather than the Minter reading a record and writing it back.
-// links/cache buys it with a distributedlock; links/database buys it with the
-// affected row count of a guarded UPDATE, which is why that one needs no lock
-// service at all.
+// links/database buys it with the affected row count of a guarded UPDATE, which
+// is why it needs no lock service; an implementation that cannot state where
+// its own atomicity comes from does not have any.
+//
+// A subject is a column, not a derived index. RevokeForSubject is on this
+// interface rather than beside it, so an implementation that cannot read
+// records by subject cannot satisfy it — see the method.
 //
 // Expiry is refused rather than reclaimed. Record.Usable decides it, against
 // the instant Resolve was handed, so a store that evicts late — or not at all,
-// as cache/memory does for an entry nothing reads, and as a table does until
-// something sweeps it — cannot keep a credential alive past the moment it was
-// supposed to die.
+// as a table does until something sweeps it — cannot keep a credential alive
+// past the moment it was supposed to die.
 type Store interface {
 	// Put writes a freshly minted link's record.
 	//
@@ -72,37 +71,7 @@ type Store interface {
 	// metric labeled by action from going blank exactly when one flow's links
 	// start failing.
 	Resolve(ctx context.Context, id ID, to State, at, purgeAfter time.Time) (*Record, error)
-}
 
-// SubjectRevoker is an optional Store capability: withdrawing every link still
-// live for one subject, in one operation.
-//
-// It is not on Store, and that is a decision about what the two shipped
-// implementations can honestly promise rather than a tidiness preference. A
-// link's record is stored under the digest of its token, because redemption
-// knows the digest and nothing else — so subject cannot be folded into the key.
-// links/database keeps it in a column and answers this with one statement;
-// cache.Cache offers no read by a value's field at all, so links/cache could
-// only answer it by maintaining a subject-to-IDs index of its own: a second
-// write per mint that can fail independently of the first, and a set that
-// drifts from the records it points at whenever either write loses. That is the
-// "second, weaker copy of a log the application already keeps" this package
-// declined once already, and building it inside the package that declined it
-// would not make it a better idea.
-//
-// So the capability is the shape it is, and the shape has a precedent:
-// postgres.PgxAccess is the same thing one layer down — something the base
-// interface does not carry, reachable from the implementation that has it.
-//
-//	revoker, ok := store.(links.SubjectRevoker)
-//
-// A Minter does that assertion for its caller and reports
-// ErrSubjectRevocationUnsupported when it fails; see Minter.RevokeForSubject.
-// The assertion survives the config subpackage, which narrows the concrete
-// store to a Store on the way out — an interface value keeps the dynamic type
-// it was given — so a Minter assembled from configuration over the database
-// provider has this and one over the cache provider does not.
-type SubjectRevoker interface {
 	// RevokeForSubject moves every unresolved link for a subject into
 	// StateRevoked, and reports how many it moved.
 	//
@@ -110,6 +79,18 @@ type SubjectRevoker interface {
 	// store may forget the rows it moved. Both come from the Minter's clock,
 	// exactly as Resolve takes them, so one clock decides every stamp this
 	// package writes.
+	//
+	// It is on this interface rather than beside it as an optional capability,
+	// and that placement is the decision the cache-backed store lost. A record
+	// is keyed by the digest of its token, because redemption arrives holding
+	// the token and nothing else, so an implementation that can only read by
+	// key cannot answer this at all — it could only keep a subject-to-IDs set
+	// of its own, which is a second write per mint that can fail alone and a
+	// set that drifts from the records it points at. Rather than describe that
+	// gap in a capability interface, a sentinel and a type assertion every
+	// caller had to handle, the interface requires the column and the store
+	// that could not hold one was withdrawn. An implementation storing records
+	// where subject cannot be read is not a Store.
 	//
 	// There is no scope argument, and there will not be one. Revoking a
 	// person's links should cross whatever tenants that person belongs to

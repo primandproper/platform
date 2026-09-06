@@ -210,9 +210,9 @@ const (
 //
 // The read does not filter on the deadline and the resolution does not guard on
 // it. links.Record.Usable compares in Go, against the minter's clock, and that
-// is a decision rather than an omission this corpus could tidy away: the same
-// comparison has to answer the same way in links/cache, where there is no
-// server to ask.
+// is a decision rather than an omission this corpus could tidy away: liveness
+// is one comparison, made above the store, so no engine's idea of "now" can
+// disagree with the one Inspect answered from.
 //
 // The sweep is the one statement that may compare a deadline in SQL, and it can
 // afford to because it deletes rows that are dead by any reading. A guard here
@@ -292,10 +292,9 @@ func read(g *querygen.Generator) *querygen.Query {
 // belongs to the statement, and there is nothing a caller could pass that would
 // relax it.
 //
-// This is the whole reason links/database needs no locker where links/cache
-// does. The server evaluates "this link, and it is still unresolved" at the
-// instant the row changes, rather than a caller evaluating it a round trip
-// earlier and hoping.
+// This is the whole reason this store needs no lock service. The server
+// evaluates "this link, and it is still unresolved" at the instant the row
+// changes, rather than a caller evaluating it a round trip earlier and hoping.
 func resolve(g *querygen.Generator) *querygen.Query {
 	return g.UpdateQuery(ResolveLinkQuery, LinksTable, Columns, ResolveColumns, NullableColumns,
 		querygen.Match{Column: ResolvedAtColumn, Against: querygen.NoValue},
@@ -305,11 +304,12 @@ func resolve(g *querygen.Generator) *querygen.Query {
 // revokeForSubject withdraws every link a subject still has outstanding, in one
 // statement.
 //
-// It is the write links spent a release declining, on the grounds that this
+// It is the write links spent a release declining, on the grounds that the
 // package held no index to answer it and building one would be a second, weaker
-// copy of the application's audit log. That was true of a cache and is not true
-// of a table: subject is a column here, so the index is the schema, and the
-// answer is an UPDATE rather than a log walk with a Revoke per result.
+// copy of the application's audit log. That was true of a store keyed only by
+// the token's digest and is not true of a table: subject is a column here, so
+// the index is the schema, and the answer is an UPDATE rather than a log walk
+// with a Revoke per result.
 //
 // It keys on the subject and nothing else. An operator revoking after a
 // suspected compromise does not know what was minted — a narrower key would

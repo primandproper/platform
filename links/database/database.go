@@ -44,19 +44,16 @@ const (
 // must not end in '_'; database/ddl supplies the separator.
 const DefaultTablePrefix = ""
 
-var (
-	_ links.Store          = (*Store)(nil)
-	_ links.SubjectRevoker = (*Store)(nil)
-)
+var _ links.Store = (*Store)(nil)
 
 // Store keeps action link records in a SQL table, against the schema
 // links/database/migrations renders.
 //
-// It is exported, and returned by New, so a caller who has chosen durable
-// storage can depend on that choice rather than on the links.Store seam. It
-// does one thing more than links.Store describes — Sweep removes rows past
-// their purge deadline — and that does not belong on the interface: a cache
-// expires its own entries and has nothing to sweep.
+// It is exported, and returned by New, so a caller holding one can depend on
+// this type rather than on the links.Store seam. It does one thing more than
+// links.Store describes — Sweep removes rows past their purge deadline — and
+// that stays off the interface: reclaiming rows is this storage's own
+// housekeeping, not something a Minter asks anybody for.
 type Store struct {
 	db    database.Client
 	q     linksdb.Querier
@@ -72,9 +69,9 @@ type Store struct {
 //
 // It takes no locker, which is the whole point of it. Single use here is the
 // affected row count of an UPDATE guarded on the link not yet having been
-// resolved, evaluated by the server inside one transaction — so a deployment
-// with a database and no Redis gets the same guarantee links/cache buys with a
-// distributed lock, and gets it without a lock service to run.
+// resolved, evaluated by the server inside one transaction — the same
+// guarantee a distributed lock would have been run for, decided by a server
+// the application already has.
 //
 // Reads go through the write pool, deliberately. A link is written by whatever
 // builds the email and read by the click that follows, and replica lag turns
@@ -324,11 +321,11 @@ func (s *Store) Resolve(
 // RevokeForSubject moves every unresolved link for a subject into
 // StateRevoked, and reports how many it moved.
 //
-// This is the capability links.Store does not carry, and the reason this store
-// is worth choosing for it: subject is a column here, so "withdraw everything
-// this person still has outstanding" is one statement rather than a walk of the
-// application's audit log with a Revoke per result. links/cache has no read by
-// a value's field and therefore no answer; see links.SubjectRevoker.
+// subject is a column here, so "withdraw everything this person still has
+// outstanding" is one statement rather than a walk of the application's audit
+// log with a Revoke per result. That is what makes it a links.Store method
+// rather than an optional capability — see the interface, where the column is
+// the requirement.
 //
 // There is no transaction, because there is nothing to make atomic. One
 // statement is already one transaction on all three engines, and the guard that

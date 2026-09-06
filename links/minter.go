@@ -82,16 +82,14 @@ type Minter struct {
 // NewMinter builds a Minter over a record store.
 //
 // The store is required and has no default. It decides where a link lives and
-// therefore who can redeem one: links/cache over Redis is shared between the
-// process that mints and the process that serves the click, links/database
-// keeps the record in a table beside the application's own rows, and
-// links/cache over cache/memory is neither — it is for tests and for a single
-// process that accepts losing every outstanding link at the next deploy.
+// therefore who can redeem one: a link is minted by whatever builds the email
+// and redeemed by whatever serves the click, so the record has to be somewhere
+// both of those reach. links/database keeps it in a table beside the
+// application's own rows.
 //
 // Single use is the store's guarantee rather than this type's, which is why
-// there is no locker here. links/cache takes one, because a cache cannot make a
-// read and a write one operation without it; links/database takes none,
-// because a guarded UPDATE inside a transaction is already the same promise.
+// there is no locker here: a guarded UPDATE inside a transaction is already
+// the promise a lock service would have been bought for.
 //
 // At least one action must be registered; see WithAction.
 func NewMinter(
@@ -401,12 +399,9 @@ func (m *Minter) Revoke(ctx context.Context, id ID) error {
 // person belongs to rather than stopping inside one, which is what makes this
 // the method dataprivacy.Eraser's subject can reach.
 //
-// Not every store can answer it. It is a capability rather than part of
-// links.Store — see SubjectRevoker for why a cache structurally cannot hold one
-// — so a Minter over links/cache reports ErrSubjectRevocationUnsupported and
-// withdraws nothing. That refusal is the honest answer rather than a
-// degradation: the audit-log walk followed by a Revoke per result is still
-// available to that deployment, and is still what its documentation says to do.
+// Every store answers it, because Store requires it — see the method there for
+// why that is a requirement rather than an optional capability, and what it
+// cost the storage that could not meet it.
 //
 // The count is links moved, so a second call for the same subject reports zero.
 // Nothing here distinguishes "nobody had any" from "somebody just revoked them
@@ -423,23 +418,9 @@ func (m *Minter) RevokeForSubject(ctx context.Context, subject Subject) (int64, 
 
 	op.Set(subjectKey, string(subject))
 
-	// Asserted rather than required at construction, because a Minter that
-	// cannot answer this is a working Minter — it mints, inspects, redeems, and
-	// revokes one link at a time — and refusing to build one would make an
-	// optional capability a wiring requirement for every deployment that never
-	// calls this method.
-	revoker, ok := m.store.(SubjectRevoker)
-	if !ok {
-		// Not counted on links_store_errors. That instrument is the alert for
-		// redemptions that did not happen, and a store answering "I am not that
-		// kind of store" is a fact about configuration that will be equally true
-		// on the next call and every one after it.
-		return 0, op.Error(ErrSubjectRevocationUnsupported, "revoking action links for subject")
-	}
-
 	at := m.clock.Now().UTC()
 
-	revoked, err := revoker.RevokeForSubject(ctx, subject, at, at.Add(m.retention))
+	revoked, err := m.store.RevokeForSubject(ctx, subject, at, at.Add(m.retention))
 	if err != nil {
 		m.storeErrorCounter.Add(ctx, 1)
 
@@ -480,7 +461,7 @@ type resolution struct {
 // after it. That is the whole of single use: a check that passes and a write
 // that lands separately is exactly the interleaving that lets two redemptions
 // of one token both succeed, and the store is the only layer that can close it
-// — with a lock in links/cache, with a guarded UPDATE in links/database.
+// — with a guarded UPDATE, in links/database.
 func (m *Minter) resolve(
 	ctx context.Context,
 	op observability.Operation,
