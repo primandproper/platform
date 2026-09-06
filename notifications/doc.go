@@ -38,19 +38,50 @@ notifications/config registers the store, notifications/mobile/config registers
 the sender and resolves the registry optionally, and a container carrying both
 prunes. A container carrying only the sender behaves exactly as it did before.
 
+# The transaction is the caller's
+
+Every write a consumer calls takes a database.Tx and every read takes the wider
+database.SQLQueryExecutor, which is the module's store convention. Nothing here
+opens a transaction of its own, and that absence is what the package is for: a
+notification is almost always *about* something else that was just written, and
+one filed in a second transaction survives the rollback of the operation it
+describes. A refused order that has already told somebody it shipped is a
+failure running in the direction the user can see, which is the one direction
+worth spending a signature on.
+
+	err := client.WithTransaction(ctx, func(tx database.Tx) error {
+		if err := orders.Place(ctx, tx, scope, order); err != nil {
+			return err
+		}
+
+		return store.CreateNotification(ctx, tx, scope, notification)
+	})
+
+The reads take the wider type so one method serves both moments: a client
+polling its inbox passes Client.Reader(), and a service that has just filed a
+notification passes the Tx it filed through and sees it.
+
+[Registry.InvalidateDeviceToken] takes neither, for the reason below.
+
 # Tenancy, and the one method without it
 
 Every read and write here takes a tenancy.Scope, and the inbox takes a principal
 beside it, because a notification addressed to somebody is not a row the rest of
 their tenant may read. There is no unscoped variant of anything a consumer
-calls.
+calls. The scope is an argument even on the two writes that take a whole entity:
+[Notification] and [Device] carry one, but a scope read off a struct the caller
+assembled elsewhere is derived rather than bound, and an entity that disagrees
+with the argument is [ErrScopeMismatch] rather than either value quietly
+winning.
 
-[Registry.InvalidateDeviceToken] is the exception, and it is the component
-servicing itself rather than answering a consumer read. What a provider hands
-back is a token and nothing else — not the tenant, not the person — so a scoped
-variant would require the caller to already know the answer the hook exists to
-act on. The token is unique across the whole registry, so naming it names one
-device.
+[Registry.InvalidateDeviceToken] is the exception — to the scope and to the
+transaction both — and it is the component servicing itself rather than
+answering a consumer read. What a provider hands back is a token and nothing
+else — not the tenant, not the person — so a scoped variant would require the
+caller to already know the answer the hook exists to act on. The token is unique
+across the whole registry, so naming it names one device. And the caller is a
+send path mid round trip to a provider, with no transaction of anybody's to
+join, so it runs on the connection the store was built with.
 
 # Where the SQL comes from
 

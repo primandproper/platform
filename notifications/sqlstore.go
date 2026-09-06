@@ -44,6 +44,12 @@ const storeName = serviceName + "_store"
 // storage can depend on that choice rather than on the seams every backing
 // shares.
 type SQLStore struct {
+	// client is not what any consumer-facing method runs on — those are handed
+	// the caller's transaction or executor. It is here for the two things a
+	// Client answers that a caller's Tx cannot: the dialect the generated
+	// statements are rendered for, read once at construction, and the connection
+	// InvalidateDeviceToken runs on, which belongs to a provider's verdict
+	// rather than to anybody's request and so can join nobody's transaction.
 	client database.Client
 	q      notificationsdb.Querier
 	o11y   observability.Observer
@@ -70,6 +76,15 @@ type SQLStore struct {
 }
 
 // NewSQLStore builds an inbox and a device registry over the given database.
+//
+// The client is not what the consumer-facing methods execute on. Every write a
+// consumer calls takes the caller's database.Tx and every read takes an
+// executor, so there is no Writer() behind a create and no Reader() behind a
+// list; a consumer with nothing to join opens a transaction with
+// Client.WithTransaction and passes the Tx it is handed. What this one supplies
+// is the dialect, and the connection [SQLStore.InvalidateDeviceToken] runs on —
+// the one write here with no consumer request behind it. See [Registry] for why
+// that method takes no executor.
 //
 // The dialect comes from the client, so the two cannot disagree. The prefix must
 // still match the one the migrations were rendered with — nothing here can check

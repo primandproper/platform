@@ -72,7 +72,7 @@ func TestSQLStore_InvalidatedTokenCounter(T *testing.T) {
 		env := newSQLiteEnv(t)
 		store, counter := newCountingStore(t, env)
 
-		must.NoError(t, store.RegisterDevice(t.Context(), newDevice(testPrincipal, PlatformIOS, "token-a")))
+		must.NoError(t, env.register(t, store, testScope, newDevice(testPrincipal, PlatformIOS, "token-a")))
 		must.NoError(t, store.InvalidateDeviceToken(t.Context(), "ios", "token-a"))
 
 		test.Eq(t, []int64{1}, counter.observed())
